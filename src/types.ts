@@ -63,6 +63,8 @@ export interface Customer {
   aiScore?: number;
   aiScoreLabel?: string;
   aiScoreReasoning?: string;
+  gateCode?: string;
+  accessNotes?: string;
 }
 
 export interface Invoice {
@@ -91,6 +93,14 @@ export interface Job {
   client?: string;
   status: "PENDING" | "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELED";
   date?: string;
+  gateCode?: string;
+  isHOA?: boolean;
+  hoaRules?: string[];
+  fuelStart?: number;
+  fuelEnd?: number;
+  progress?: number;
+  coords?: { lat: number; lng: number };
+
   assignedTo?: string;
   revenue?: number;
   address?: string;

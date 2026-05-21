@@ -7,6 +7,20 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+import admin from 'firebase-admin';
+
+let dbFirestore: admin.firestore.Firestore | null = null;
+try {
+  if (admin.apps.length === 0) {
+    admin.initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID || 'mock-project-id'
+    });
+  }
+  dbFirestore = admin.firestore();
+} catch (error) {
+  console.warn("Could not initialize firebase-admin natively. The server will run in mock/offline mode.", error);
+}
+
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
   try {
@@ -567,31 +581,42 @@ async function startServer() {
   app.post('/api/crm/client-history', async (req, res) => {
     try {
       const { clientName } = req.body;
+      if (!clientName) {
+        return res.json(null);
+      }
       
-      // FIXME(Management): Integrate persistent query. Hardcoded mock data represents technical larping and fails out-of-scope conditions.
-      const db: Record<string, any> = {
-        'Schmidt Residence': {
-          address: '4502 North Hills St, Meridian, MS',
-          gateCode: '8822',
-          isHOA: true,
-          accessNotes: 'Tricky latch on back gate. Do not wake the goldendoodle.'
-        },
-        'Oak Estates': {
-          address: '12 Poplar Springs Dr, Meridian, MS',
-          gateCode: '#1992',
-          isHOA: true,
-          accessNotes: 'Security patrol strictly monitors after 4PM.'
-        },
-        'Hillside Manor': {
-          address: '882 Marion Rd, Meridian, MS',
-          gateCode: '5561',
-          isHOA: false,
-          accessNotes: 'Park on the gravel, avoid the flower beds by the driveway.'
+      let matchedCustomer = null;
+      try {
+        if (dbFirestore) {
+          // Try companyName first if applicable
+          const companySnap = await dbFirestore.collection("customers").where("companyName", "==", clientName).limit(1).get();
+          if (!companySnap.empty) {
+            matchedCustomer = companySnap.docs[0].data();
+          } else {
+            // Try exact last name match
+            const nameParts = clientName.split(' ');
+            const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : clientName;
+            const lnSnap = await dbFirestore.collection("customers").where("lastName", "==", lastName).limit(1).get();
+            if (!lnSnap.empty) {
+              matchedCustomer = lnSnap.docs[0].data();
+            }
+          }
         }
-      };
+      } catch (dbError) {
+        console.warn("Firestore query failed, defaulting to null:", dbError);
+      }
 
-      const history = db[clientName] || null;
-      res.json(history);
+      if (!matchedCustomer) {
+        return res.json(null);
+      }
+
+      // Return the dynamically retrieved client history/notes from the persistent DB
+      res.json({
+        address: matchedCustomer.address || 'Address not on file',
+        gateCode: matchedCustomer.gateCode || null,
+        isHOA: matchedCustomer.isHOA || false,
+        accessNotes: matchedCustomer.notes || matchedCustomer.accessNotes || 'No specific access notes.'
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

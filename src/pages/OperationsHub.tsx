@@ -63,7 +63,7 @@ export default function OperationsHub() {
       q,
       (snapshot) => {
         setActiveJobs(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as any),
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as unknown as Job),
         );
       },
       (error) => {

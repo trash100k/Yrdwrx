@@ -27,15 +27,8 @@ import { Link } from "react-router-dom";
 const API_KEY =
   (import.meta as unknown as { env: { VITE_GOOGLE_MAPS_API_KEY: string } }).env
     .VITE_GOOGLE_MAPS_API_KEY || "";
-interface Job {
-  id: string;
-  title: string;
-  client: string;
-  address: string;
-  status: string;
-  progress: number;
-  coords?: { lat: number; lng: number };
-}
+import { Job } from '../types';
+// We will re-export a specific extended Job interface for map if needed, but let's just use the one from types, and add coords to types.ts
 interface JobMapProps {
   jobs: Job[];
   onJobSelect?: (job: Job) => void;
