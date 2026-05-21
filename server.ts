@@ -1,5 +1,8 @@
 import express from 'express';
 import path from 'path';
+import cluster from 'cluster';
+import os from 'os';
+import process from 'process';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Modality, Type, LiveServerMessage } from '@google/genai';
 import { WebSocketServer } from 'ws';
@@ -1088,8 +1091,7 @@ async function startServer() {
   });
 
   // WebSocket Server for Live Ear
-  // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale. 
-  // Native node WS is sufficient for UI preview but crashes under heavy client multiplexing.
+  // Node native clustering provides process pooling for concurrent websocket voice loads at scale.
   const wss = new WebSocketServer({ server, path: '/api/live' });
 
   wss.on('connection', async (clientWs) => {
@@ -1256,4 +1258,23 @@ async function startServer() {
   });
 }
 
-startServer();
+// Ensure we only cluster in production to avoid Vite memory bloat and race conditions.
+// Native node clustering provides the process pooling for the websocket server at scale.
+if (process.env.NODE_ENV === 'production' && cluster.isPrimary) {
+  const numCPUs = os.cpus().length;
+  console.log(`Primary ${process.pid} is running`);
+
+  // Fork workers.
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork();
+  }
+
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`worker ${worker.process.pid} died`);
+    cluster.fork();
+  });
+} else {
+  startServer().catch(err => {
+    console.error('Failed to start server:', err);
+  });
+}
