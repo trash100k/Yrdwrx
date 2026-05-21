@@ -24,6 +24,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Customer } from "../types";
 import { useToast } from "../contexts/ToastContext";
+import { useTenant } from "../contexts/TenantContext";
 
 interface AgenticOutreachDrawerProps {
   isOpen: boolean;
@@ -53,6 +54,7 @@ export default function AgenticOutreachDrawer({
   onClose,
 }: AgenticOutreachDrawerProps) {
   const { showToast } = useToast();
+  const { tenant } = useTenant();
   const [carriers, setCarriers] = useState<Customer[]>([]);
   const [selectedLeadId, setSelectedLeadId] = useState<string>("");
   const [includeSocialProof, setIncludeSocialProof] = useState<boolean>(true);
@@ -78,7 +80,8 @@ export default function AgenticOutreachDrawer({
   useEffect(() => {
     async function loadLeads() {
       try {
-        const q = query(collection(db, "customers"));
+        const tenantId = tenant?.id || "genesis-1";
+        const q = query(collection(db, "customers"), where("tenantId", "==", tenantId));
         const snap = await getDocs(q);
         const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
         if (docs.length > 0) {

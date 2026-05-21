@@ -295,6 +295,7 @@ export default function Dashboard() {
           grassType: "Centipede",
           features: ["Intake registered via dashboard"],
         },
+        tenantId: tenant?.id || "genesis-1",
       });
 
       setNewClientName("");

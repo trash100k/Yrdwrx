@@ -78,7 +78,10 @@ export const seedDatabaseIfEmpty = async () => {
     if (customersSnap.empty) {
       const batch = writeBatch(db);
       generateMockCustomers().forEach((customer, index) => {
-        batch.set(doc(collection(db, "customers"), "demo-" + index), customer);
+        batch.set(doc(collection(db, "customers"), "demo-" + index), {
+          ...customer,
+          tenantId: "genesis-1",
+        });
       });
       await batch.commit();
       console.log("Seeded customers");

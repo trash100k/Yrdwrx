@@ -57,29 +57,34 @@ service cloud.firestore {
       return data.onboardingComplete is bool;
     }
 
+    function userTenantId() {
+      return ('tenantId' in request.auth.token) ? request.auth.token.tenantId : 'genesis-1';
+    }
+
     // -------------------------------------------------------------------------
     // CUSTOMERS (Protected PII - Permissive for Demo)
     // -------------------------------------------------------------------------
     match /customers/{customerId} {
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && incoming().keys().size() >= 3;
-      allow update: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && (
+      allow read: if isEmailVerified() && existing().tenantId == userTenantId();
+      allow create: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && incoming().keys().size() >= 4 && incoming().tenantId == userTenantId();
+      allow update: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && existing().tenantId == userTenantId() && incoming().tenantId == userTenantId() && (
         // Action: Update Notes
-        (incoming().diff(existing()).affectedKeys().hasOnly(['notes'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedAt'])) ||
         // Action: AI Score Update (System/Staff)
-        (incoming().diff(existing()).affectedKeys().hasOnly(['aiScore', 'aiScoreLabel', 'aiScoreReasoning'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['aiScore', 'aiScoreLabel', 'aiScoreReasoning', 'updatedAt'])) ||
         // Action: Status Change
-        (incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
         // Action: Total Profile Refresh
-        (incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'address', 'status', 'priority']))
+        (incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'address', 'status', 'priority', 'updatedAt']))
       );
-      allow delete: if isEmailVerified() && isValidId(customerId);
+      allow delete: if isEmailVerified() && isValidId(customerId) && existing().tenantId == userTenantId();
     }
 
     function isValidCustomer(data) {
       return data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 100 &&
              data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 100 &&
              data.status is string && (data.status in ['active', 'lead', 'inactive', 'paused']) &&
+             data.tenantId is string &&
              (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
              (!('aiScore' in data) || (data.aiScore is number)) &&
              (!('aiScoreReasoning' in data) || (data.aiScoreReasoning is string && data.aiScoreReasoning.size() <= 1000));

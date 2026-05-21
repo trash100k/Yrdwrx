@@ -209,7 +209,8 @@ export default function CRM() {
     let unsubCust = () => {};
     let unsubKnow = () => {};
 
-    const qCust = query(collection(db, "customers"));
+    const tenantId = tenant?.id || "genesis-1";
+    const qCust = query(collection(db, "customers"), where("tenantId", "==", tenantId));
     unsubCust = onSnapshot(
       qCust,
       (snapshot) => {
