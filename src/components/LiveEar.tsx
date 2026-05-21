@@ -112,8 +112,7 @@ export default function LiveEar() {
     const ctx = audioCtxRef.current;
 
     const binary = atob(base64Audio);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const bytes = Uint8Array.from(binary, (m) => m.codePointAt(0)!);
     const pcmData = new Int16Array(bytes.buffer);
 
     const buffer = ctx.createBuffer(1, pcmData.length, 16000);
