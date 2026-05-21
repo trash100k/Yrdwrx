@@ -81,7 +81,6 @@ export const seedDatabaseIfEmpty = async () => {
         batch.set(doc(collection(db, "customers"), "demo-" + index), customer);
       });
       await batch.commit();
-      console.log("Seeded customers");
     }
 
   } catch (err) {
