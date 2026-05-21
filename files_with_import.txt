@@ -1,0 +1,17 @@
+src/App.tsx
+src/components/BrainChat.tsx
+src/components/Layout.tsx
+src/components/LiveEar.tsx
+src/components/Onboarding.tsx
+src/components/ReviewScout.tsx
+src/components/SmartChecklist.tsx
+src/pages/CRM.tsx
+src/pages/Dashboard.tsx
+src/pages/HOAPortal.tsx
+src/pages/Inventory.tsx
+src/pages/Invoices.tsx
+src/pages/MarketInsights.tsx
+src/pages/Outbound.tsx
+src/pages/Reports.tsx
+src/pages/Reviews.tsx
+src/pages/Scheduler.tsx

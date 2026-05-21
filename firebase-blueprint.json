@@ -1,0 +1,176 @@
+{
+  "entities": {
+    "businessSettings": {
+      "title": "Business Settings",
+      "description": "Configuration for the landscaping business",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "onboardingComplete": { "type": "boolean" }
+      },
+      "required": ["onboardingComplete"]
+    },
+    "customer": {
+      "title": "Customer",
+      "type": "object",
+      "properties": {
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "status": { "type": "string" },
+        "aiScore": { "type": "number" },
+        "aiScoreLabel": { "type": "string" },
+        "aiScoreReasoning": { "type": "string" }
+      },
+      "required": ["firstName", "lastName", "status"]
+    },
+    "job": {
+      "title": "Job",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "status": { "type": "string" },
+        "date": { "type": "string" },
+        "fuelStart": { "type": "number" },
+        "fuelEnd": { "type": "number" },
+        "checklist": { 
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "completed": { "type": "boolean" },
+              "aiSource": { "type": "boolean" }
+            }
+          }
+        },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "address": { "type": "string" }
+      },
+      "required": ["customerId", "status", "date"]
+    },
+    "invoice": {
+      "title": "Invoice",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["amount", "status"]
+    },
+    "inventory": {
+      "title": "Inventory Item",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "category": { "type": "string" },
+        "minThreshold": { "type": "number" },
+        "pricePerUnit": { "type": "number" },
+        "vendor": { "type": "string" },
+        "partNumber": { "type": "string" },
+        "lastScannedAt": { "type": "string" }
+      },
+      "required": ["name", "quantity"]
+    },
+    "materialLogs": {
+      "title": "Material Usage Log",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "jobId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "type": { "type": "string" }
+      }
+    },
+    "review": {
+      "title": "Customer Review",
+      "type": "object",
+      "properties": {
+        "rating": { "type": "number" },
+        "content": { "type": "string" }
+      },
+      "required": ["rating", "content"]
+    },
+    "expense": {
+      "title": "Expense",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "merchant": { "type": "string" },
+        "category": { "type": "string" },
+        "date": { "type": "string" }
+      }
+    },
+    "broadcast": {
+      "title": "Broadcast",
+      "type": "object",
+      "properties": {
+        "message": { "type": "string" },
+        "neighborhood": { "type": "string" },
+        "timestamp": { "type": "string" }
+      }
+    },
+    "employee": {
+      "title": "Employee",
+      "description": "Staff tracking",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "performance": { "type": "number" }
+      }
+    },
+    "systemLog": {
+      "title": "System Audit Log",
+      "description": "Immutable log of critical system events",
+      "type": "object",
+      "properties": {
+        "event": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "metadata": { "type": "object" }
+      },
+      "required": ["event", "timestamp"]
+    },
+    "tenant": {
+      "title": "Tenant",
+      "description": "Organization and subscription data",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "tier": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "hoaProtocolEnabled": { "type": "boolean" },
+            "satelliteVisionEnabled": { "type": "boolean" },
+            "currency": { "type": "string" },
+            "neighborhoodMask": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "required": ["name", "tier"]
+    }
+  },
+  "firestore": {
+    "/tenants/{tenantId}": { "schema": "tenant", "description": "Core subscription data" },
+    "/settings/{userId}": { "schema": "businessSettings", "description": "" },
+    "/customers": { "schema": "customer", "description": "" },
+    "/jobs": { "schema": "job", "description": "" },
+    "/invoices": { "schema": "invoice", "description": "" },
+    "/inventory": { "schema": "inventory", "description": "" },
+    "/materialLogs": { "schema": "materialLogs", "description": "Tracking usage of consumables per job" },
+    "/reviews": { "schema": "review", "description": "" },
+    "/expenses": { "schema": "expense", "description": "Business costs tracked via AI OCR" },
+    "/broadcasts": { "schema": "broadcast", "description": "Live anonymized neighborhood updates" },
+    "/employees": { "schema": "employee", "description": "Staff tracking" },
+    "/systemLogs": { "schema": "systemLog", "description": "Audit trail for critical business transitions" }
+  }
+}

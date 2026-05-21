@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Outfit:wght@100..900&family=Space+Grotesk:wght@300..700&family=JetBrains+Mono:wght@100..800&display=swap');
+@import "tailwindcss"; @theme { --font-sans: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif; --font-mono: "JetBrains Mono", monospace;
+} /* Custom design system fonts */
+.font-sans-outfit { font-family: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif !important;
+}
+.font-sans-inter { font-family: "Inter", ui-sans-serif, system-ui, sans-serif !important;
+}
+.font-sans-space { font-family: "Space Grotesk", sans-serif !important;
+} /* Enterprise Theme Modes */
+.enterprise-high-contrast { --glass-bg: rgba(9, 9, 11, 0.95); --glass-border: rgba(255, 255, 255, 0.25);
+} .enterprise-ambient { --glass-bg: rgba(6, 78, 59, 0.15); --glass-border: rgba(16, 185, 129, 0.25);
+} /* Align and Grid guides */
+.show-layout-guidelines .glass-card { outline: 1.5px dashed rgba(236, 72, 153, 0.4) !important; outline-offset: 3px;
+} .show-layout-guidelines input, .show-layout-guidelines button { position: relative;
+} .show-layout-guidelines input::after,
+.show-layout-guidelines button::after { content: "A11y Checked"; position: absolute; top: -8px; right: -8px; background: #ec4899; color: white; font-size: 6px; padding: 1px 3px; border-radius: 2px; font-family: monospace;
+} @layer utilities { .animate-fade-in { animation: fadeIn 0.8s ease-out forwards; } .mask-fade-right { mask-image: linear-gradient(to right, black 80%, transparent 100%); } @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+} @layer base { body { @apply bg-[#000000] text-white antialiased selection:bg-emerald-500/30 overflow-x-hidden; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-feature-settings: "cv02", "cv03", "cv04", "cv11"; } h1, h2, h3, h4, h5, h6 { @apply tracking-tighter decoration-emerald-500/20; }
+} @layer components { .glass-card { @apply bg-zinc-950/40 backdrop-blur-xl border border-white/10 rounded-[32px] shadow-2xl; } .glass-nav { @apply bg-black/80 backdrop-blur-2xl border-b border-white/5; } .structural-border { @apply border border-white/10; } .tactical-dock { @apply bg-black/60 backdrop-blur-3xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.8)] rounded-[32px]; } .micro-label { @apply text-[14px] font-bold uppercase tracking-[0.05em] text-zinc-300; } .sf-text-gradient { @apply bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60; }
+} /* Field Mode Optimizations */
+.field-mode-active *, .performance-shield-active * { transition: none !important; animation: none !important; backdrop-filter: none !important;
+} .performance-shield-active { background: black !important;
+} .performance-shield-active canvas { image-rendering: pixelated; /* Reduce GPU load for maps if possible, though subtle */
+} .field-mode-active .glass-card, .performance-shield-active .glass-card { background: #0a0a0a !important; border-color: #333 !important; box-shadow: none !important;
+} .atmosphere { position: fixed; inset: 0; z-index: -1; background: radial-gradient(circle at 10% 10%, rgba(16, 185, 129, 0.08) 0%, transparent 40%), radial-gradient(circle at 90% 90%, rgba(59, 130, 246, 0.08) 0%, transparent 40%), radial-gradient(circle at 50% 50%, rgba(20, 20, 20, 1) 0%, #000000 100%);
+} /* Subtle cinematic noise overlay */
+.atmosphere::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0.03; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"); pointer-events: none;
+} .field-mode-active .atmosphere { background: #000 !important;
+}
+.field-mode-active .atmosphere::after { content: none;
+} ::-webkit-scrollbar { width: 6px; height: 6px;
+} ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2);
+} ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 20px; transition: background 0.3s ease;
+} ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3);
+} .custom-scrollbar::-webkit-scrollbar { width: 4px;
+} .custom-scrollbar::-webkit-scrollbar-track { background: transparent;
+} .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px;
+}

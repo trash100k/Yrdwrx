@@ -1,0 +1,188 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // 1. THE "MASTER GATE" & HELPERS
+    // -------------------------------------------------------------------------
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'anonymous');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // -------------------------------------------------------------------------
+    // DEFAULT DENY
+    // -------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // TENANTS (Core Identity & Subscription)
+    // -------------------------------------------------------------------------
+    match /tenants/{tenantId} {
+      allow read: if isEmailVerified();
+      allow write: if isEmailVerified() && isValidId(tenantId);
+    }
+
+    // -------------------------------------------------------------------------
+    // SETTINGS (Strict Single Entry per User)
+    // -------------------------------------------------------------------------
+    match /settings/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidSettings(incoming()) && incoming().keys().size() == 1;
+      allow update: if isOwner(userId) && isValidId(userId) && isValidSettings(incoming());
+    }
+
+    function isValidSettings(data) {
+      return data.onboardingComplete is bool;
+    }
+
+    // -------------------------------------------------------------------------
+    // CUSTOMERS (Protected PII - Permissive for Demo)
+    // -------------------------------------------------------------------------
+    match /customers/{customerId} {
+      allow read: if isEmailVerified();
+      allow create: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && incoming().keys().size() >= 3;
+      allow update: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && (
+        // Action: Update Notes
+        (incoming().diff(existing()).affectedKeys().hasOnly(['notes'])) ||
+        // Action: AI Score Update (System/Staff)
+        (incoming().diff(existing()).affectedKeys().hasOnly(['aiScore', 'aiScoreLabel', 'aiScoreReasoning'])) ||
+        // Action: Status Change
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+        // Action: Total Profile Refresh
+        (incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'address', 'status', 'priority']))
+      );
+      allow delete: if isEmailVerified() && isValidId(customerId);
+    }
+
+    function isValidCustomer(data) {
+      return data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 100 &&
+             data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 100 &&
+             data.status is string && (data.status in ['active', 'lead', 'inactive', 'paused']) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+             (!('aiScore' in data) || (data.aiScore is number)) &&
+             (!('aiScoreReasoning' in data) || (data.aiScoreReasoning is string && data.aiScoreReasoning.size() <= 1000));
+    }
+
+    // -------------------------------------------------------------------------
+    // JOBS (Atomic State Integrity - Permissive for Demo)
+    // -------------------------------------------------------------------------
+    match /jobs/{jobId} {
+      allow read: if isEmailVerified();
+      allow create: if isEmailVerified() && isValidId(jobId) && isValidJob(incoming());
+      allow update: if isEmailVerified() && isValidId(jobId) && (
+        // Prevent editing if terminal state
+        existing().status != 'completed' && existing().status != 'cancelled' &&
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'progress', 'updatedAt', 'priority', 'time', 'date']) || isValidJob(incoming()))
+      );
+    }
+
+    function isValidJob(data) {
+      return data.customerId is string && 
+             data.status is string && (data.status in ['scheduled', 'in-progress', 'completed', 'cancelled']) &&
+             data.date is string &&
+             (!('progress' in data) || (data.progress is number && data.progress >= 0 && data.progress <= 100));
+    }
+
+    // -------------------------------------------------------------------------
+    // KNOWLEDGE BASE (System Core)
+    // -------------------------------------------------------------------------
+    match /knowledge/{knowledgeId} {
+      allow read: if isEmailVerified();
+      allow write: if isEmailVerified() && isValidId(knowledgeId);
+    }
+
+    // -------------------------------------------------------------------------
+    // BROADCASTS (Public read for neighborhood safety)
+    // -------------------------------------------------------------------------
+    match /broadcasts/{broadcastId} {
+      allow read: if isEmailVerified();
+      allow create: if isEmailVerified() && isValidId(broadcastId);
+    }
+
+    // -------------------------------------------------------------------------
+    // AUDIT LOGS (Immutable Write-Only - Permissive for Demo)
+    // -------------------------------------------------------------------------
+    match /systemLogs/{logId} {
+      allow read: if isEmailVerified();
+      allow create: if isEmailVerified();
+      allow update, delete: if false; // Immutable logs
+    }
+
+    // -------------------------------------------------------------------------
+    // MISC COLLECTIONS (Standard Verified Access)
+    // -------------------------------------------------------------------------
+    function miscAccess() { return isEmailVerified(); }
+
+    match /inventory/{id} { 
+      allow read: if isEmailVerified();
+      allow write: if isEmailVerified(); 
+    }
+    
+    function isValidInventory(data) {
+      return data.keys().hasAll(['name', 'quantity']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.quantity is number;
+    }
+
+    match /materialLogs/{id} { 
+      allow read: if isEmailVerified();
+      allow create: if isEmailVerified();
+      allow update, delete: if false; // Immutable logs
+    }
+
+    match /invoices/{id} { 
+      allow read: if isEmailVerified();
+      allow create: if isEmailVerified();
+      allow update: if isEmailVerified();
+      allow delete: if isEmailVerified();
+    }
+
+    function isValidInvoice(data) {
+      return data.keys().hasAll(['client', 'amount', 'status']) &&
+             data.client is string && data.amount is number &&
+             data.status in ['draft', 'sent', 'paid', 'void'];
+    }
+
+    match /expenses/{id} { 
+      allow read: if isEmailVerified();
+      allow create: if isEmailVerified();
+      allow update: if isEmailVerified();
+      allow delete: if isEmailVerified();
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['merchant', 'amount', 'status']) &&
+             data.merchant is string && data.amount is number;
+    }
+
+    match /crews/{id} { allow read, write: if isEmailVerified(); }
+    match /leads/{id} { allow read, write: if isEmailVerified(); }
+    match /vendors/{id} { allow read, write: if isEmailVerified(); }
+    match /reviews/{id} { allow read, write: if isEmailVerified(); }
+    match /employees/{id} { allow read, write: if isEmailVerified(); }
+    match /interactions/{id} { allow read, write: if isEmailVerified(); }
+    match /hoa_associations/{id} { allow read, write: if isEmailVerified(); }
+  }
+}

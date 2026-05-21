@@ -1,0 +1,162 @@
+{
+  "fieldModeV10": {
+    "en": "Field Mode v1.0",
+    "es": "Modo de Campo v1.0"
+  },
+  "sunlightMode": {
+    "en": "Sunlight Mode",
+    "es": "Luz Solar"
+  },
+  "espaOl": {
+    "en": "Español",
+    "es": "English"
+  },
+  "exitFieldMode": {
+    "en": "Exit Field Mode",
+    "es": "Salir de Campo"
+  },
+  "currentJob": {
+    "en": "Current Job",
+    "es": "Trabajo Actual"
+  },
+  "gateAccess": {
+    "en": "Gate & Access",
+    "es": "Acceso y Puerta"
+  },
+  "gateAccessCode": {
+    "en": "Gate Access Code",
+    "es": "Código de Acceso"
+  },
+  "hoaRules": {
+    "en": "HOA Rules",
+    "es": "Reglas de HOA"
+  },
+  "siteInstructions": {
+    "en": "Site Instructions",
+    "es": "Instrucciones del Sitio"
+  },
+  "updated2mAgo": {
+    "en": "Updated 2m ago",
+    "es": "Actualizado 2 min"
+  },
+  "missionPayload": {
+    "en": "Job Details",
+    "es": "Equipamiento"
+  },
+  "loadingSiteEquipment": {
+    "en": "Loading site equipment...",
+    "es": "Cargando equipo..."
+  },
+  "incident": {
+    "en": "Incident",
+    "es": "Incidente"
+  },
+  "before": {
+    "en": "Before",
+    "es": "Antes"
+  },
+  "after": {
+    "en": "After",
+    "es": "Después"
+  },
+  "complete": {
+    "en": "Complete",
+    "es": "Completar"
+  },
+  "crewUpdates": {
+    "en": "Crew Updates",
+    "es": "Equipo"
+  },
+  "aerialOverlay": {
+    "en": "Aerial Overlay",
+    "es": "Mapa Aéreo"
+  },
+  "sitePayload": {
+    "en": "Site Payload",
+    "es": "Carga del Sitio"
+  },
+  "siteMeasurement": {
+    "en": "Site Measurement",
+    "es": "Medición"
+  },
+  "yourCrew": {
+    "en": "Your Crew",
+    "es": "Su Equipo"
+  },
+  "2ActiveMembers": {
+    "en": "2 active members",
+    "es": "2 miembros activos"
+  },
+  "efficiency": {
+    "en": "Efficiency",
+    "es": "Eficiencia"
+  },
+  "vitals": {
+    "en": "Vitals",
+    "es": "Signos Vitales"
+  },
+  "hydration": {
+    "en": "Hydration",
+    "es": "Hidratación"
+  },
+  "role": {
+    "en": "Role",
+    "es": "Rol"
+  },
+  "crewComms": {
+    "en": "Crew Comms",
+    "es": "Comunicaciones"
+  },
+  "voiceStatusNote": {
+    "en": "Voice Status Note",
+    "es": "Nota de Estado por Voz"
+  },
+  "holdToBroadcastSiteUpdate": {
+    "en": "Hold to broadcast site update",
+    "es": "Mantenga pulsado para transmitir actualización"
+  },
+  "operationalPulse": {
+    "en": "Operational Pulse",
+    "es": "Pulso Operativo"
+  },
+  "equipmentConnected": {
+    "en": "Equipment Connected",
+    "es": "Equipo Conectado"
+  },
+  "crewDeviceAConnectedViaStarlink5g": {
+    "en": "Crew Device A connected via Starlink 5G",
+    "es": "Dispositivo A conectado vía Starlink 5G"
+  },
+  "inventoryAuditPending": {
+    "en": "Inventory Audit Pending",
+    "es": "Auditoría de Inventario Pendiente"
+  },
+  "waitingForManualCubicYardVerification": {
+    "en": "Waiting for manual cubic yard verification",
+    "es": "Esperando verificación manual"
+  },
+  "openAccess": {
+    "en": "OPEN ACCESS",
+    "es": "ACCESO ABIERTO"
+  },
+  "hoaEnforced": {
+    "en": "HOA ENFORCED",
+    "es": "HOA ESTRICTO"
+  },
+  "privateArea": {
+    "en": "Private Area",
+    "es": "Área Privada"
+  },
+  "maintainStrictNoiseVisualProtocols": {
+    "en": "Maintain strict noise & visual protocols",
+    "es": "Mantener estrictos protocolos visuales y de ruido"
+  },
+  "standardOperationalFreedom": {
+    "en": "Standard operational freedom",
+    "es": "Libertad operativa estándar"
+  },
+  "noSpecificSiteEntryProtocolsProvidedMaintainStandardProcedure": {
+    "en": "No specific site entry protocols provided. Maintain standard procedure.",
+    "es": "No hay protocolos de entrada al sitio. Mantenga el procedimiento estándar."
+  }
+}
