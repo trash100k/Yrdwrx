@@ -51,7 +51,6 @@ export const seedDatabaseIfEmpty = async () => {
         batch.set(doc(collection(db, "crews"), crew.id), crew);
       });
       await batch.commit();
-      console.log("Seeded crews");
     }
 
     const leadsSnap = await getDocs(collection(db, "leads"));
