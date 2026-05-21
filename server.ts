@@ -4,8 +4,26 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Modality, Type, LiveServerMessage } from '@google/genai';
 import { WebSocketServer } from 'ws';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
 
 dotenv.config();
+
+// Initialize Firebase for server use
+const firebaseConfigPath = path.join(process.cwd(), 'firebase-applet-config.json');
+let db: ReturnType<typeof getFirestore> | null = null;
+try {
+  if (fs.existsSync(firebaseConfigPath)) {
+    const config = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
+    const app = initializeApp(config);
+    db = getFirestore(app);
+  } else {
+    console.warn('firebase-applet-config.json not found, some features may not work');
+  }
+} catch (err) {
+  console.error('Failed to initialize Firebase on server:', err);
+}
 
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
@@ -756,19 +774,49 @@ async function startServer() {
   app.post('/api/inventory/check-and-alert', async (req, res) => {
     try {
       const { items } = req.body; 
-      // FIXME(Management): Replace mock DB with actual inventory count queries
-      const lowStock = items.filter(() => Math.random() < 0.2); // Demoted from 0.5 to 0.2 for realistic mock threshold
       
-      res.json({
-        lowStockItems: lowStock.map((name: string) => ({
-          name,
-          current: Math.floor(Math.random() * 5), // Mock current levels below min
-          min: 10,
-          unit: 'Yards',
-          supplierEmail: 'supply@meridian-aggregate.com'
-        }))
-      });
+      if (!db) {
+        throw new Error("Database not initialized");
+      }
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.json({ lowStockItems: [] });
+      }
+
+      const inventoryRef = collection(db, "inventory");
+      // FireStore 'in' query supports up to 10 items
+      const chunks = [];
+      for (let i = 0; i < items.length; i += 10) {
+        chunks.push(items.slice(i, i + 10));
+      }
+
+      const lowStockItems = [];
+
+      for (const chunk of chunks) {
+        const q = query(inventoryRef, where("name", "in", chunk));
+        const snapshot = await getDocs(q);
+
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          // Check if quantity is below or equal to minQuantity
+          const quantity = data.quantity || 0;
+          const minQuantity = data.minQuantity || 10;
+
+          if (quantity <= minQuantity) {
+            lowStockItems.push({
+              name: data.name,
+              current: quantity,
+              min: minQuantity,
+              unit: data.unit || 'units',
+              supplierEmail: data.supplierEmail || 'supply@meridian-aggregate.com'
+            });
+          }
+        });
+      }
+
+      res.json({ lowStockItems });
     } catch (error) {
+      console.error("Inventory sync failed:", error);
       res.status(500).json({ error: "Inventory sync failed" });
     }
   });
