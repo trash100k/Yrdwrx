@@ -222,9 +222,6 @@ export default function CRM() {
         // Only log if it's not a standard permission error while in demo mode
         if (error.code !== "permission-denied") {
           handleFirestoreError(error, OperationType.LIST, "customers");
-        } else {
-          // Fallback to mock data silently if permissions are denied
-          /* setCustomers(mockCustomers) removed for strict data model */
         }
       },
     );
