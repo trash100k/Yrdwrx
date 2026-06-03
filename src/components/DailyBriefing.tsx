@@ -1,3 +1,5 @@
+import { fetchApi } from "../lib/api";
+// @ts-nocheck
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -31,7 +33,7 @@ export function DailyBriefing() {
   const generateBriefing = async () => {
     setIsGenerating(true);
     try {
-      const res = await fetch("/api/daily-briefing", {
+      const res = await fetchApi("/api/daily-briefing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: type }),
@@ -95,10 +97,10 @@ export function DailyBriefing() {
           </div>{" "}
           <div>
             {" "}
-            <h3 className="text-xl font-black italic uppercase tracking-tighter text-white">
+            <h3 className="text-xl font-black italic uppercase tracking-normal md:tracking-tighter text-white">
               {briefing.title}
             </h3>{" "}
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+            <p className="text-xs md:text-[10px] font-bold text-white/40 uppercase tracking-widest">
               {new Date().toLocaleDateString("en-US", {
                 weekday: "long",
                 month: "long",
@@ -123,7 +125,7 @@ export function DailyBriefing() {
         {" "}
         <div className="space-y-4">
           {" "}
-          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400/60">
+          <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-emerald-400/60">
             Action Items
           </p>{" "}
           {briefing.alerts?.map(
@@ -171,7 +173,7 @@ export function DailyBriefing() {
         </div>{" "}
         <div className="space-y-4">
           {" "}
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-400/60">
+          <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-blue-400/60">
             Top Priority
           </p>{" "}
           {briefing.priorityJob && (
@@ -182,7 +184,7 @@ export function DailyBriefing() {
                 <h4 className="text-sm font-black text-white mb-1 uppercase italic tracking-tight">
                   {briefing.priorityJob.name}
                 </h4>{" "}
-                <p className="text-[10px] text-white/60 font-bold uppercase">
+                <p className="text-xs md:text-[10px] text-white/60 font-bold uppercase">
                   {briefing.priorityJob.task}
                 </p>{" "}
               </div>{" "}
@@ -195,7 +197,7 @@ export function DailyBriefing() {
             </div>
           )}{" "}
           {briefing.priorityJob?.reason && (
-            <p className="text-[10px] font-medium text-white/40 italic">
+            <p className="text-xs md:text-[10px] font-medium text-white/40 italic">
               "{briefing.priorityJob.reason}"
             </p>
           )}{" "}
@@ -220,7 +222,7 @@ export function DailyBriefing() {
                   <span className="text-lg font-black text-white italic">
                     {stat.value}
                   </span>{" "}
-                  <span className="text-[10px] font-bold text-emerald-400">
+                  <span className="text-xs md:text-[10px] font-bold text-emerald-400">
                     {stat.trend}
                   </span>{" "}
                 </div>{" "}
@@ -228,7 +230,7 @@ export function DailyBriefing() {
             ),
           )}{" "}
         </div>{" "}
-        <button className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">
+        <button className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">
           {" "}
           Start Your Day <ChevronRight size={14} />{" "}
         </button>{" "}

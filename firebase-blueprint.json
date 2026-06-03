@@ -5,172 +5,444 @@
       "description": "Configuration for the landscaping business",
       "type": "object",
       "properties": {
-        "companyName": { "type": "string" },
-        "onboardingComplete": { "type": "boolean" }
+        "companyName": {
+          "type": "string"
+        },
+        "onboardingComplete": {
+          "type": "boolean"
+        },
+        "tenantId": {
+          "type": "string"
+        }
       },
-      "required": ["onboardingComplete"]
+      "required": [
+        "onboardingComplete",
+        "tenantId"
+      ]
     },
     "customer": {
       "title": "Customer",
       "type": "object",
       "properties": {
-        "firstName": { "type": "string" },
-        "lastName": { "type": "string" },
-        "status": { "type": "string" },
-        "aiScore": { "type": "number" },
-        "aiScoreLabel": { "type": "string" },
-        "aiScoreReasoning": { "type": "string" }
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "aiScore": {
+          "type": "number"
+        },
+        "aiScoreLabel": {
+          "type": "string"
+        },
+        "aiScoreReasoning": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
       },
-      "required": ["firstName", "lastName", "status"]
+      "required": [
+        "firstName",
+        "lastName",
+        "status",
+        "tenantId"
+      ]
     },
     "job": {
       "title": "Job",
       "type": "object",
       "properties": {
-        "customerId": { "type": "string" },
-        "status": { "type": "string" },
-        "date": { "type": "string" },
-        "fuelStart": { "type": "number" },
-        "fuelEnd": { "type": "number" },
-        "checklist": { 
+        "customerId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "fuelStart": {
+          "type": "number"
+        },
+        "fuelEnd": {
+          "type": "number"
+        },
+        "checklist": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "text": { "type": "string" },
-              "completed": { "type": "boolean" },
-              "aiSource": { "type": "boolean" }
+              "text": {
+                "type": "string"
+              },
+              "completed": {
+                "type": "boolean"
+              },
+              "aiSource": {
+                "type": "boolean"
+              }
             }
           }
         },
-        "lat": { "type": "number" },
-        "lng": { "type": "number" },
-        "address": { "type": "string" }
+        "lat": {
+          "type": "number"
+        },
+        "lng": {
+          "type": "number"
+        },
+        "address": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
       },
-      "required": ["customerId", "status", "date"]
+      "required": [
+        "customerId",
+        "status",
+        "date",
+        "tenantId"
+      ]
     },
     "invoice": {
       "title": "Invoice",
       "type": "object",
       "properties": {
-        "amount": { "type": "number" },
-        "status": { "type": "string" }
+        "amount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
       },
-      "required": ["amount", "status"]
+      "required": [
+        "amount",
+        "status",
+        "tenantId"
+      ]
     },
     "inventory": {
       "title": "Inventory Item",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "quantity": { "type": "number" },
-        "unit": { "type": "string" },
-        "category": { "type": "string" },
-        "minThreshold": { "type": "number" },
-        "pricePerUnit": { "type": "number" },
-        "vendor": { "type": "string" },
-        "partNumber": { "type": "string" },
-        "lastScannedAt": { "type": "string" }
+        "name": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "minThreshold": {
+          "type": "number"
+        },
+        "pricePerUnit": {
+          "type": "number"
+        },
+        "vendor": {
+          "type": "string"
+        },
+        "partNumber": {
+          "type": "string"
+        },
+        "lastScannedAt": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
       },
-      "required": ["name", "quantity"]
+      "required": [
+        "name",
+        "quantity",
+        "tenantId"
+      ]
     },
     "materialLogs": {
       "title": "Material Usage Log",
       "type": "object",
       "properties": {
-        "itemId": { "type": "string" },
-        "itemName": { "type": "string" },
-        "jobId": { "type": "string" },
-        "clientName": { "type": "string" },
-        "quantity": { "type": "number" },
-        "unit": { "type": "string" },
-        "timestamp": { "type": "string" },
-        "type": { "type": "string" }
-      }
+        "itemId": {
+          "type": "string"
+        },
+        "itemName": {
+          "type": "string"
+        },
+        "jobId": {
+          "type": "string"
+        },
+        "clientName": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId"
+      ]
     },
     "review": {
       "title": "Customer Review",
       "type": "object",
       "properties": {
-        "rating": { "type": "number" },
-        "content": { "type": "string" }
+        "rating": {
+          "type": "number"
+        },
+        "content": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
       },
-      "required": ["rating", "content"]
+      "required": [
+        "rating",
+        "content",
+        "tenantId"
+      ]
     },
     "expense": {
       "title": "Expense",
       "type": "object",
       "properties": {
-        "amount": { "type": "number" },
-        "merchant": { "type": "string" },
-        "category": { "type": "string" },
-        "date": { "type": "string" }
-      }
+        "amount": {
+          "type": "number"
+        },
+        "merchant": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId"
+      ]
     },
     "broadcast": {
       "title": "Broadcast",
       "type": "object",
       "properties": {
-        "message": { "type": "string" },
-        "neighborhood": { "type": "string" },
-        "timestamp": { "type": "string" }
-      }
+        "message": {
+          "type": "string"
+        },
+        "neighborhood": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId"
+      ]
     },
     "employee": {
       "title": "Employee",
       "description": "Staff tracking",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "role": { "type": "string" },
-        "status": { "type": "string" },
-        "performance": { "type": "number" }
-      }
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "performance": {
+          "type": "number"
+        },
+        "tenantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId"
+      ]
     },
     "systemLog": {
       "title": "System Audit Log",
       "description": "Immutable log of critical system events",
       "type": "object",
       "properties": {
-        "event": { "type": "string" },
-        "userId": { "type": "string" },
-        "timestamp": { "type": "string" },
-        "metadata": { "type": "object" }
+        "event": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object"
+        }
       },
-      "required": ["event", "timestamp"]
+      "required": [
+        "event",
+        "timestamp",
+        "tenantId"
+      ]
     },
     "tenant": {
       "title": "Tenant",
       "description": "Organization and subscription data",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "tier": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+        "name": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "free",
+            "pro",
+            "enterprise"
+          ]
+        },
         "settings": {
           "type": "object",
           "properties": {
-            "hoaProtocolEnabled": { "type": "boolean" },
-            "satelliteVisionEnabled": { "type": "boolean" },
-            "currency": { "type": "string" },
-            "neighborhoodMask": { "type": "array", "items": { "type": "string" } }
+            "hoaProtocolEnabled": {
+              "type": "boolean"
+            },
+            "satelliteVisionEnabled": {
+              "type": "boolean"
+            },
+            "currency": {
+              "type": "string"
+            },
+            "neighborhoodMask": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
       },
-      "required": ["name", "tier"]
+      "required": [
+        "name",
+        "tier",
+        "tenantId"
+      ]
+    },
+    "user": {
+      "title": "User",
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "admin",
+            "employee",
+            "client"
+          ]
+        },
+        "email": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId",
+        "role"
+      ]
     }
   },
   "firestore": {
-    "/tenants/{tenantId}": { "schema": "tenant", "description": "Core subscription data" },
-    "/settings/{userId}": { "schema": "businessSettings", "description": "" },
-    "/customers": { "schema": "customer", "description": "" },
-    "/jobs": { "schema": "job", "description": "" },
-    "/invoices": { "schema": "invoice", "description": "" },
-    "/inventory": { "schema": "inventory", "description": "" },
-    "/materialLogs": { "schema": "materialLogs", "description": "Tracking usage of consumables per job" },
-    "/reviews": { "schema": "review", "description": "" },
-    "/expenses": { "schema": "expense", "description": "Business costs tracked via AI OCR" },
-    "/broadcasts": { "schema": "broadcast", "description": "Live anonymized neighborhood updates" },
-    "/employees": { "schema": "employee", "description": "Staff tracking" },
-    "/systemLogs": { "schema": "systemLog", "description": "Audit trail for critical business transitions" }
+    "/tenants/{tenantId}": {
+      "schema": "tenant",
+      "description": "Core subscription data"
+    },
+    "/settings/{userId}": {
+      "schema": "businessSettings",
+      "description": ""
+    },
+    "/customers": {
+      "schema": "customer",
+      "description": ""
+    },
+    "/jobs": {
+      "schema": "job",
+      "description": ""
+    },
+    "/invoices": {
+      "schema": "invoice",
+      "description": ""
+    },
+    "/inventory": {
+      "schema": "inventory",
+      "description": ""
+    },
+    "/materialLogs": {
+      "schema": "materialLogs",
+      "description": "Tracking usage of consumables per job"
+    },
+    "/reviews": {
+      "schema": "review",
+      "description": ""
+    },
+    "/expenses": {
+      "schema": "expense",
+      "description": "Business costs tracked via AI OCR"
+    },
+    "/broadcasts": {
+      "schema": "broadcast",
+      "description": "Live anonymized neighborhood updates"
+    },
+    "/employees": {
+      "schema": "employee",
+      "description": "Staff tracking"
+    },
+    "/systemLogs": {
+      "schema": "systemLog",
+      "description": "Audit trail for critical business transitions"
+    },
+    "/users": {
+      "schema": "user",
+      "description": "App Users"
+    }
   }
 }

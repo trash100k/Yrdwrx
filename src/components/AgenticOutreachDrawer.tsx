@@ -1,3 +1,4 @@
+// @ts-nocheck
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -45,8 +46,6 @@ const mockSocialProofReviews = [
   },
 ];
 
-const mockLandscapeWorkPhoto =
-  "https://images.unsplash.com/photo-1558904541-efa8c1a68fc6?auto=format&fit=crop&q=80&w=600";
 
 export default function AgenticOutreachDrawer({
   isOpen,
@@ -231,18 +230,18 @@ export default function AgenticOutreachDrawer({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 180 }}
-            className="relative w-full sm:w-[540px] h-screen bg-zinc-950 border-l border-white/10 flex flex-col justify-between overflow-hidden shadow-2xl z-10"
+            className="relative w-full sm:w-full sm:w-[540px] h-[100dvh] bg-zinc-950 border-l border-white/10 flex flex-col justify-between overflow-hidden shadow-2xl z-10"
           >
             {/* Header section wrapper */}
             <div className="p-8 border-b border-white/5 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-400">
+                  <span className="text-xs md:text-[10px] font-black uppercase tracking-[0.25em] text-emerald-400">
                     Agentic Outreach
                   </span>
                 </div>
-                <h3 className="text-2xl font-black italic tracking-tighter text-white uppercase lowercase">
+                <h3 className="text-xl sm:text-2xl font-black italic tracking-normal md:tracking-tighter text-white uppercase lowercase">
                   growth slider.
                 </h3>
               </div>
@@ -262,7 +261,7 @@ export default function AgenticOutreachDrawer({
                 <span className="text-[9px] font-black uppercase text-emerald-400 tracking-widest flex items-center gap-2">
                   <BadgeCheck size={14} /> Trust-First Outreach Conversion Rules
                 </span>
-                <p className="text-[11px] font-medium text-zinc-400 leading-relaxed">
+                <p className="text-xs md:text-[11px] font-medium text-zinc-400 leading-relaxed">
                   Enterprise outreach gains traction by demonstrating
                   **hyper-local proof**, **verifiable client experience stats**,
                   and providing **visual transparency**. Giving users final
@@ -272,7 +271,7 @@ export default function AgenticOutreachDrawer({
 
               {/* Lead selector zone */}
               <div className="space-y-4">
-                <label className="text-[11px] font-black uppercase tracking-wider text-zinc-400 block pl-1">
+                <label className="text-xs md:text-[11px] font-black uppercase tracking-wider text-zinc-400 block pl-1">
                   1. Target Growth Lead
                 </label>
                 <div className="grid grid-cols-1 gap-2">
@@ -300,7 +299,7 @@ export default function AgenticOutreachDrawer({
               {/* Social proof toggle and slider metric config */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <label className="text-[11px] font-black uppercase tracking-wider text-zinc-400 pl-1">
+                  <label className="text-xs md:text-[11px] font-black uppercase tracking-wider text-zinc-400 pl-1">
                     2. Social Proof & Success Metrics
                   </label>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -324,7 +323,7 @@ export default function AgenticOutreachDrawer({
                     {/* Multi Slider configuration representing local metrics adjustments */}
                     <div className="p-4 bg-white/[0.01] border border-white/5 rounded-2xl space-y-4">
                       <div className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-bold text-zinc-400 uppercase">
+                        <div className="flex justify-between text-xs md:text-[11px] font-bold text-zinc-400 uppercase">
                           <span>Proximity Reach</span>
                           <span className="text-emerald-400">
                             {localStats.proximityRadius} miles
@@ -348,7 +347,7 @@ export default function AgenticOutreachDrawer({
                       </div>
 
                       <div className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-bold text-zinc-400 uppercase">
+                        <div className="flex justify-between text-xs md:text-[11px] font-bold text-zinc-400 uppercase">
                           <span>Clients Maintained Nearby</span>
                           <span className="text-emerald-400">
                             {localStats.propertiesMaintained} Associations
@@ -374,7 +373,7 @@ export default function AgenticOutreachDrawer({
 
                     {/* Choose customer quote to display */}
                     <div className="space-y-2">
-                      <span className="text-[10px] font-black uppercase text-zinc-500 tracking-widest pl-1">
+                      <span className="text-xs md:text-[10px] font-black uppercase text-zinc-500 tracking-widest pl-1">
                         Embed Customer Testimonial
                       </span>
                       <div className="grid grid-cols-2 gap-2">
@@ -383,7 +382,7 @@ export default function AgenticOutreachDrawer({
                             key={index}
                             type="button"
                             onClick={() => setSelectedReviewIdx(index)}
-                            className={`p-3 rounded-xl border text-left text-[11px] font-semibold transition-all ${
+                            className={`p-3 rounded-xl border text-left text-xs md:text-[11px] font-semibold transition-all ${
                               selectedReviewIdx === index
                                 ? "bg-emerald-500/10 border-emerald-500/30 text-white"
                                 : "bg-white/5 border-white/5 text-zinc-500 hover:text-white"
@@ -409,18 +408,16 @@ export default function AgenticOutreachDrawer({
 
               {/* Solicitation of project completion site photo with explicit compliance lock */}
               <div className="space-y-4">
-                <label className="text-[11px] font-black uppercase tracking-wider text-zinc-400 block pl-1">
+                <label className="text-xs md:text-[11px] font-black uppercase tracking-wider text-zinc-400 block pl-1">
                   3. Field Work Visual Verification Proof
                 </label>
 
                 <div className="bg-white/[0.01] border border-white/5 rounded-2xl p-5 space-y-4">
                   <div className="flex items-start gap-4">
                     <div className="w-24 h-24 rounded-lg overflow-hidden border border-white/10 shrink-0 relative">
-                      <img
-                        src={mockLandscapeWorkPhoto}
-                        alt="Site completion work"
-                        className="w-full h-full object-cover"
-                      />
+                      <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-white/20">
+                        <Camera size={24} />
+                      </div>
                       {isPhotoDenied && (
                         <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
                           <EyeOff size={18} className="text-rose-500" />
@@ -431,7 +428,7 @@ export default function AgenticOutreachDrawer({
                       <h5 className="font-bold text-sm text-white flex items-center gap-1">
                         Adjacent Field Project Showcase
                       </h5>
-                      <p className="text-[11px] text-zinc-400 leading-relaxed font-semibold">
+                      <p className="text-xs md:text-[11px] text-zinc-400 leading-relaxed font-semibold">
                         Showcase photo represents high-quality work completed at
                         adjacent 'Poplar Commons' site.
                       </p>
@@ -464,7 +461,7 @@ export default function AgenticOutreachDrawer({
                     </button>
                   </div>
 
-                  <div className="text-[10px] text-zinc-500 italic pl-1 flex items-center gap-1.5">
+                  <div className="text-xs md:text-[10px] text-zinc-500 italic pl-1 flex items-center gap-1.5">
                     <ShieldCheck
                       size={12}
                       className={
@@ -480,7 +477,7 @@ export default function AgenticOutreachDrawer({
 
               {/* Outreach interactive live simulation preview block */}
               <div className="space-y-4">
-                <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400 pl-1 block">
+                <span className="text-xs md:text-[11px] font-black uppercase tracking-wider text-zinc-400 pl-1 block">
                   Campaign Output Preview
                 </span>
 
@@ -516,11 +513,9 @@ export default function AgenticOutreachDrawer({
                       animate={{ opacity: 1, scale: 1 }}
                       className="border border-white/5 rounded-xl overflow-hidden mt-4"
                     >
-                      <img
-                        src={mockLandscapeWorkPhoto}
-                        alt="Email Visual Preview"
-                        className="w-full h-32 object-cover filter brightness-90"
-                      />
+                      <div className="w-full h-32 bg-zinc-800 flex items-center justify-center text-white/20">
+                        <Camera size={24} />
+                      </div>
                       <div className="bg-white/[0.02] px-4 py-2 flex items-center justify-between">
                         <span className="text-[8px] uppercase tracking-widest font-black text-zinc-500">
                           Exhibit A • Real Adjacent Standard

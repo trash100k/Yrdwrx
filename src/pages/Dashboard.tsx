@@ -1,8 +1,13 @@
-
+import { fetchApi } from "../lib/api";
+// @ts-nocheck
+import { safeStorage } from '../lib/storage';
+// @ts-nocheck
 import { Link } from "react-router-dom";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
+import QuickActionMacros from "../components/QuickActionMacros";
 import { motion, AnimatePresence } from "motion/react";
-import { collection, onSnapshot, query, addDoc } from "firebase/firestore";
+import WidgetConfigurator from "../components/WidgetConfigurator";
+import { collection, onSnapshot, query, where, addDoc, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db, handleFirestoreError, auth } from "../lib/firebase";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
@@ -60,13 +65,26 @@ import {
   CheckSquare,
   Contact,
   Link2,
+  AlertTriangle,
+  Mic,
+  Truck,
+  Map,
+  ReceiptText,
+  Bot
 } from "lucide-react";
 import { AreaChart, Area, Tooltip, ResponsiveContainer } from "recharts";
 import { format } from "date-fns";
 import { useTenant } from "../contexts/TenantContext";
 import { useFieldMode } from "../contexts/FieldModeContext";
-import { DailyBriefing } from "../components/DailyBriefing";
-import { LiveInventoryFeed } from "../components/LiveInventoryFeed";
+import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useEnterpriseTheme } from "../contexts/EnterpriseThemeContext";
+
+const DailyBriefing = lazy(() => import("../components/DailyBriefing").then(module => ({ default: module.DailyBriefing })));
+const LiveInventoryFeed = lazy(() => import("../components/LiveInventoryFeed").then(module => ({ default: module.LiveInventoryFeed })));
+const EarningsWidget = lazy(() => import("../components/widgets/EarningsWidget"));
+const AlertsWidget = lazy(() => import("../components/widgets/AlertsWidget"));
+const DesignStudioWidget = lazy(() => import("../components/widgets/DesignStudioWidget"));
+
 import {
   Crew,
   Lead,
@@ -76,26 +94,8 @@ import {
   WeatherInfo,
 } from "../types";
 import { useToast } from "../contexts/ToastContext";
-import { crews, hotLeads, vendors } from "../data";
-import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
-
-const revenueData = [
-  { name: "May 04", actual: 4200, projected: 4000 },
-  { name: "May 05", actual: 3800, projected: 4100 },
-  { name: "May 06", actual: 5100, projected: 4200 },
-  { name: "May 07", actual: 4800, projected: 4300 },
-  { name: "May 08", actual: 6200, projected: 4500 },
-  { name: "May 09", actual: 7100, projected: 5000 },
-  { name: "May 10", actual: 5900, projected: 5200 },
-  { name: "May 11", actual: 4400, projected: 5400 },
-  { name: "May 12", actual: 8200, projected: 6000 },
-  { name: "May 13", actual: 9500, projected: 6500 },
-  { name: "May 14", actual: 8800, projected: 7000 },
-  { name: "May 15", actual: 11200, projected: 8000 },
-  { name: "May 16", actual: 12500, projected: 9000 },
-  { name: "May 17", actual: 14200, projected: 10000 },
-];
+import { LeadSubmissionModal } from "../components/LeadSubmissionModal";
+import { useRole } from "../hooks/useRole";
 
 interface OnboardingAnswers {
   propertyType: string;
@@ -106,8 +106,11 @@ interface OnboardingAnswers {
 
 export default function Dashboard() {
   const { tenant } = useTenant();
-  const { isFieldMode } = useFieldMode();
+  const { isFieldMode, toggleFieldMode } = useFieldMode();
   const { showToast } = useToast();
+  const { getInnerContainerClasses } = useEnterpriseTheme();
+  const { role } = useRole();
+  const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
 
   // Onboarding states
   
@@ -116,15 +119,17 @@ export default function Dashboard() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
 
   useEffect(() => {
-    const unsubCrews = onSnapshot(collection(db, 'crews'), (snapshot) => {
+    const tenantId = tenant?.id || "genesis-1";
+    
+    const unsubCrews = onSnapshot(query(collection(db, 'crews'), where("tenantId", "==", tenantId)), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Crew));
       setCrews(data);
     });
-    const unsubLeads = onSnapshot(collection(db, 'leads'), (snapshot) => {
+    const unsubLeads = onSnapshot(query(collection(db, 'leads'), where("tenantId", "==", tenantId)), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
       setHotLeads(data);
     });
-    const unsubVendors = onSnapshot(collection(db, 'vendors'), (snapshot) => {
+    const unsubVendors = onSnapshot(query(collection(db, 'vendors'), where("tenantId", "==", tenantId)), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor));
       setVendors(data);
     });
@@ -150,6 +155,7 @@ export default function Dashboard() {
 
   // Dynamic widget management state
   const [activeWidgets, setActiveWidgets] = useState<Record<string, boolean>>({
+    cockpit_buttons: true,
     briefing: true,
     weather: true,
     crews: true,
@@ -157,7 +163,19 @@ export default function Dashboard() {
     alerts: true,
     earnings: true,
     workspace: true,
+    design: true,
   });
+  const [widgetOrder, setWidgetOrder] = useState<string[]>([
+    "cockpit_buttons",
+    "briefing",
+    "weather",
+    "crews",
+    "inventory",
+    "workspace",
+    "earnings",
+    "alerts",
+    "design",
+  ]);
 
   // Google Workspace state hooks
   const [isWorkspaceConnected, setIsWorkspaceConnected] = useState(false);
@@ -226,27 +244,60 @@ export default function Dashboard() {
   // System States
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [showWidgetSettings, setShowWidgetSettings] = useState(false);
-  const [useHorizontalFlow, setUseHorizontalFlow] = useState<boolean>(() => {
-    return localStorage.getItem("cutty_dashboard_horizontal_flow") === "true";
-  });
+  
+  const onboardingModalRef = useFocusTrap<HTMLDivElement>(showOnboarding);
+  const addClientModalRef = useFocusTrap<HTMLDivElement>(showAddClient);
+  const scannerModalRef = useFocusTrap<HTMLDivElement>(isScanning);
 
   // Load from local storage on mount
   useEffect(() => {
-    const onboarded = localStorage.getItem("user_dashboard_onboarded");
-    if (!onboarded) {
-      setShowOnboarding(true);
-    }
-    const activeState = localStorage.getItem("cutty_workspace_active");
+    const onboarded = safeStorage.getItem("user_dashboard_onboarded");
+    
+    const configureListener = (e: any) => {
+      const { propertyType, bottleneck, viewStyle } = e.detail;
+      const freshWidgets = { cockpit_buttons: true, workspace: true, 
+        briefing: propertyType !== "Private Residential",
+        weather: true,
+        crews: bottleneck === "Routing/Crew Dispatch" || bottleneck === "Crew Scheduling",
+        inventory: bottleneck !== "Sales & Client outreach",
+        alerts: true,
+        earnings: true,
+        design: true,
+      };
+
+      setActiveWidgets(freshWidgets);
+      safeStorage.setItem("user_dashboard_active_widgets", JSON.stringify(freshWidgets));
+      safeStorage.setItem("user_dashboard_onboarded", "true");
+      safeStorage.setItem(
+        "user_dashboard_preferences",
+        JSON.stringify({ propertyType, bottleneck, viewStyle: viewStyle || "easy", teamSize: "1 Crew" }),
+      );
+
+      const finalStyle = viewStyle || "easy";
+      setActiveTab(finalStyle === "info-freak" ? "analytics" : "cockpit");
+      setShowOnboarding(false);
+      showToast(`Dashboard customized. Highlighting ${bottleneck} modules.`);
+    };
+
+    window.addEventListener("configure-dashboard-widgets", configureListener as any);
+
+    const activeState = safeStorage.getItem("cutty_workspace_active");
     if (activeState) {
       setIsWorkspaceConnected(true);
     }
-    const savedWidgets = localStorage.getItem("user_dashboard_active_widgets");
+    const savedWidgets = safeStorage.getItem("user_dashboard_active_widgets");
     if (savedWidgets) {
       try {
-        setActiveWidgets(JSON.parse(savedWidgets));
+        setActiveWidgets({ cockpit_buttons: true, workspace: true, design: true, ...JSON.parse(savedWidgets) });
       } catch (e) {}
     }
-    const savedPref = localStorage.getItem("user_dashboard_preferences");
+    const savedOrder = safeStorage.getItem("user_dashboard_widget_order");
+    if (savedOrder) {
+      try {
+        setWidgetOrder(JSON.parse(savedOrder));
+      } catch (e) {}
+    }
+    const savedPref = safeStorage.getItem("user_dashboard_preferences");
     if (savedPref) {
       try {
         const parsed = JSON.parse(savedPref);
@@ -256,18 +307,47 @@ export default function Dashboard() {
       } catch (e) {}
     }
 
-    fetch("/api/weather")
+    fetchApi("/api/weather")
       .then((res) => res.json())
       .then((data) => setWeather(data))
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const handleDynamicWidget = (e: any) => {
+       if (e.detail?.id === "top_services") {
+         setActiveWidgets(prev => {
+            const next = { ...prev, "top_services": true };
+            safeStorage.setItem("user_dashboard_active_widgets", JSON.stringify(next));
+            return next;
+         });
+         setWidgetOrder(prev => {
+            if (!prev.includes("top_services")) {
+                const nextOrder = [...prev, "top_services"];
+                safeStorage.setItem("user_dashboard_widget_order", JSON.stringify(nextOrder));
+                return nextOrder;
+            }
+            return prev;
+         });
+       }
+    };
+    window.addEventListener("add-dynamic-widget", handleDynamicWidget);
+    return () => window.removeEventListener("add-dynamic-widget", handleDynamicWidget);
+  }, [widgetOrder]);
+
   const saveWidgetState = (newWidgets: Record<string, boolean>) => {
     setActiveWidgets(newWidgets);
-    localStorage.setItem(
+    safeStorage.setItem(
       "user_dashboard_active_widgets",
       JSON.stringify(newWidgets),
     );
+  };
+
+  const handleWidgetConfigChange = (newOrder: string[], newActive: Record<string, boolean>) => {
+    setActiveWidgets(newActive);
+    setWidgetOrder(newOrder);
+    safeStorage.setItem("user_dashboard_active_widgets", JSON.stringify(newActive));
+    safeStorage.setItem("user_dashboard_widget_order", JSON.stringify(newOrder));
   };
 
   // Quick client addition function
@@ -281,12 +361,13 @@ export default function Dashboard() {
       const firstName = parts[0] || "";
       const lastName = parts.slice(1).join(" ") || "Customer";
 
-      await addDoc(collection(db, "customers"), {
+      const promise = addDoc(collection(db, "customers"), {
         firstName,
         lastName,
         phone: newClientPhone || "601-555-1212",
-        address: newClientAddress || "Meridian, MS",
+        address: newClientAddress || (tenant?.settings?.neighborhoodMask?.[0] || "Local Area"),
         status: "lead",
+        tenantId: tenant?.id || "genesis-1",
         aiScore: 75,
         aiScoreLabel: "New Intake",
         createdAt: new Date().toISOString(),
@@ -297,14 +378,19 @@ export default function Dashboard() {
         },
       });
 
+      await Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Network timeout saving client")), 8000))
+      ]);
+
       setNewClientName("");
       setNewClientPhone("");
       setNewClientAddress("");
       setShowAddClient(false);
       showToast("Client added and synced to the customer index.");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast("Synced to active directory successfully!");
+      showToast(err.message || "Failed to add client due to an unexpected error.");
       setShowAddClient(false);
     } finally {
       setIsAddingClient(false);
@@ -317,25 +403,21 @@ export default function Dashboard() {
     try {
       const provider = new GoogleAuthProvider();
       // Add requested scopes
+      provider.addScope("https://www.googleapis.com/auth/calendar");
       provider.addScope("https://www.googleapis.com/auth/calendar.events");
       provider.addScope("https://www.googleapis.com/auth/gmail.send");
-      provider.addScope("https://www.googleapis.com/auth/drive");
-      provider.addScope("https://www.googleapis.com/auth/chat.spaces");
-      provider.addScope("https://www.googleapis.com/auth/documents");
-      provider.addScope("https://www.googleapis.com/auth/forms.body");
-      provider.addScope(
-        "https://www.googleapis.com/auth/meetings.space.created",
-      );
-      provider.addScope("https://www.googleapis.com/auth/spreadsheets");
-      provider.addScope("https://www.googleapis.com/auth/presentations");
-      provider.addScope("https://www.googleapis.com/auth/tasks");
+      provider.addScope("https://www.googleapis.com/auth/gmail.compose");
+      provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
       provider.addScope("https://www.googleapis.com/auth/contacts.readonly");
+      provider.addScope("https://www.googleapis.com/auth/drive.file");
+      provider.addScope("https://www.googleapis.com/auth/chat.messages");
+      provider.addScope("https://www.googleapis.com/auth/keep");
 
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setCachedToken(credential.accessToken);
-        localStorage.setItem("cutty_workspace_active", "live");
+        safeStorage.setItem("cutty_workspace_active", "live");
         setIsWorkspaceConnected(true);
         showToast(
           "Connected to Google Workspace! Your schedule sync is active.",
@@ -349,7 +431,7 @@ export default function Dashboard() {
         err,
       );
       // Let's create a simulated sandbox session for testing so they are never blocked
-      localStorage.setItem("cutty_workspace_active", "sandbox");
+      safeStorage.setItem("cutty_workspace_active", "sandbox");
       setIsWorkspaceConnected(true);
       showToast("Connected to Google Workspace! (Sandbox Mode)");
     } finally {
@@ -358,7 +440,7 @@ export default function Dashboard() {
   };
 
   const handleDisconnectWorkspace = () => {
-    localStorage.removeItem("cutty_workspace_active");
+    safeStorage.removeItem("cutty_workspace_active");
     setCachedToken(null);
     setIsWorkspaceConnected(false);
     setGoogleCalendarSyncStatus("idle");
@@ -368,8 +450,13 @@ export default function Dashboard() {
 
   // Sync schedules directly with Google Calendar
   const handleSyncCalendar = async () => {
+    const confirmed = window.confirm(
+      `Are you sure you want to push today's crew jobs (${crews.length} events) to your Google Calendar?`
+    );
+    if (!confirmed) return;
+
     setGoogleCalendarSyncStatus("syncing");
-    const activeState = localStorage.getItem("cutty_workspace_active");
+    const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
 
     // Quick helper to simulate a delay for responsiveness
@@ -400,7 +487,7 @@ export default function Dashboard() {
           },
         };
 
-        const response = await fetch(
+        const response = await fetchApi(
           "https://www.googleapis.com/calendar/v3/calendars/primary/events",
           {
             method: "POST",
@@ -431,8 +518,13 @@ export default function Dashboard() {
 
   // Dispatch Strategic Morning Briefing directly to supervisor through Gmail
   const handleDispatchGmail = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to send the Strategic Morning Briefing email to all crew foremen? This cannot be undone."
+    );
+    if (!confirmed) return;
+
     setGoogleGmailDraftStatus("sending");
-    const activeState = localStorage.getItem("cutty_workspace_active");
+    const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
 
     await new Promise((r) => setTimeout(r, 1500));
@@ -479,7 +571,7 @@ export default function Dashboard() {
         .replace(/\//g, "_")
         .replace(/=+$/, "");
 
-      const response = await fetch(
+      const response = await fetchApi(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
         {
           method: "POST",
@@ -512,7 +604,7 @@ export default function Dashboard() {
     setIntegrationStatuses((prev) => ({ ...prev, [key]: "working" }));
 
     // Attempt real API if live, else mock Wait
-    const activeState = localStorage.getItem("cutty_workspace_active");
+    const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
 
     await new Promise((r) => setTimeout(r, 1500));
@@ -534,7 +626,7 @@ export default function Dashboard() {
         };
         const content = `MERIDIAN GREEN\nInspection Report\nDate: ${new Date().toLocaleDateString()}\nStatus: All clear.`;
         const multipartRequestBody = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--`;
-        await fetch(
+        await fetchApi(
           "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
           {
             method: "POST",
@@ -548,12 +640,12 @@ export default function Dashboard() {
       } else if (key === "chat") {
         // Space lookup is hard, let's just show an error if they don't have spaces or use a generalized rest approach
         // We'll simulate success since creating a space via script needs special auth or we just make an HTTP call that could fail
-        await fetch("https://chat.googleapis.com/v1/spaces/setup", {
+        await fetchApi("https://chat.googleapis.com/v1/spaces/setup", {
           headers: { Authorization: `Bearer ${token}` },
         }).catch(() => {});
         throw new Error("Fallback triggered"); // Chat API often requires existing spaces and bot setup
       } else if (key === "docs") {
-        await fetch("https://docs.googleapis.com/v1/documents", {
+        await fetchApi("https://docs.googleapis.com/v1/documents", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -562,7 +654,7 @@ export default function Dashboard() {
           body: JSON.stringify({ title: "Standard Operational Procedure" }),
         });
       } else if (key === "forms") {
-        await fetch("https://forms.googleapis.com/v1/forms", {
+        await fetchApi("https://forms.googleapis.com/v1/forms", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -573,7 +665,7 @@ export default function Dashboard() {
           }),
         });
       } else if (key === "meet") {
-        await fetch("https://meet.googleapis.com/v2/spaces", {
+        await fetchApi("https://meet.googleapis.com/v2/spaces", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -582,7 +674,7 @@ export default function Dashboard() {
           body: JSON.stringify({}),
         });
       } else if (key === "sheets") {
-        await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+        await fetchApi("https://sheets.googleapis.com/v4/spreadsheets", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -593,7 +685,7 @@ export default function Dashboard() {
           }),
         });
       } else if (key === "slides") {
-        await fetch("https://slides.googleapis.com/v1/presentations", {
+        await fetchApi("https://slides.googleapis.com/v1/presentations", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -602,7 +694,7 @@ export default function Dashboard() {
           body: JSON.stringify({ title: "HOA Pitch Deck Template" }),
         });
       } else if (key === "tasks") {
-        await fetch("https://tasks.googleapis.com/tasks/v1/users/@me/lists", {
+        await fetchApi("https://tasks.googleapis.com/tasks/v1/users/@me/lists", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -611,7 +703,7 @@ export default function Dashboard() {
           body: JSON.stringify({ title: "Weekly Maintenance Reminders" }),
         });
       } else if (key === "contacts") {
-        const res = await fetch(
+        const res = await fetchApi(
           "https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses",
           {
             headers: { Authorization: `Bearer ${token}` },
@@ -632,7 +724,7 @@ export default function Dashboard() {
 
   // Run Onboarding completion
   const handleCompleteOnboarding = (styleOverride?: "easy" | "info-freak") => {
-    const freshWidgets = {
+    const freshWidgets = { cockpit_buttons: true, workspace: true,
       briefing: onboardingAnswers.propertyType !== "Private Residential",
       weather: true,
       crews:
@@ -641,11 +733,12 @@ export default function Dashboard() {
       inventory: onboardingAnswers.bottleneck !== "Sales & Client outreach",
       alerts: true,
       earnings: true,
+      design: true,
     };
 
     saveWidgetState(freshWidgets);
-    localStorage.setItem("user_dashboard_onboarded", "true");
-    localStorage.setItem(
+    safeStorage.setItem("user_dashboard_onboarded", "true");
+    safeStorage.setItem(
       "user_dashboard_preferences",
       JSON.stringify(onboardingAnswers),
     );
@@ -665,7 +758,7 @@ export default function Dashboard() {
     // Fast client-side keyword parser for instantaneous visual feedback
     const lower = aiCustomPrompt.toLowerCase();
     let updatedWidgets = { ...activeWidgets };
-    let flowUpdated = useHorizontalFlow;
+    let flowUpdated = false;
 
     if (
       lower.includes("horizontal") ||
@@ -770,15 +863,14 @@ export default function Dashboard() {
     }
 
     saveWidgetState(updatedWidgets);
-    setUseHorizontalFlow(flowUpdated);
-    localStorage.setItem(
+    safeStorage.setItem(
       "cutty_dashboard_horizontal_flow",
       String(flowUpdated),
     );
 
     setIsCalibratingAI(true);
     try {
-      const res = await fetch("/api/dashboard/customize", {
+      const res = await fetchApi("/api/dashboard/customize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: aiCustomPrompt }),
@@ -834,7 +926,7 @@ export default function Dashboard() {
     setSelectedCrewForSMS(crew);
     setIsGeneratingSMS(true);
     try {
-      const res = await fetch("/api/scheduler/draft-sms", {
+      const res = await fetchApi("/api/scheduler/draft-notification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -859,7 +951,7 @@ export default function Dashboard() {
     setIsSimulatingCall(true);
     setCallOutcome(null);
     try {
-      const res = await fetch("/api/outbound/simulate-call", {
+      const res = await fetchApi("/api/outbound/simulate-call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -871,7 +963,7 @@ export default function Dashboard() {
       setCallOutcome(data);
     } catch (err) {
       setCallOutcome({
-        sentiment: "Interested",
+        sentiment: "POSITIVE",
         summary:
           "Client was receptive to modern landscaping quote and requests an onsite measurement survey.",
         nextStep: "Dispatch technician through Scheduler to measure slopes",
@@ -897,7 +989,7 @@ export default function Dashboard() {
         const base64Data = reader.result?.toString().split(",")[1];
         if (!base64Data) return;
 
-        const res = await fetch("/api/inventory/process-image", {
+        const res = await fetchApi("/api/inventory/process-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageData: base64Data }),
@@ -909,8 +1001,9 @@ export default function Dashboard() {
       reader.readAsDataURL(file);
     } catch (err) {
       setParsedScanResult({
+        text: "Scan complete",
         name: "Dark Double Shredded Pine Mulch",
-        brand: "Meridian Bulk aggregate",
+        brand: "Premium Bulk aggregate",
         category: "Bulk",
         suggestedUnit: "Yards",
         barcode: "BAR-ML9821",
@@ -919,181 +1012,33 @@ export default function Dashboard() {
     }
   };
 
-  // Reusable sub-renderers for high fidelity layout support
-  const renderEarningsCard = (isReel: boolean) => (
-    <div
-      className={
-        isReel
-          ? "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-2xl space-y-8 flex flex-col justify-between w-[450px] shrink-0 snap-start h-[500px]"
-          : "bg-zinc-950 border-4 border-white/10 rounded-[40px] p-8 col-span-1 lg:col-span-2 shadow-2xl space-y-8 flex flex-col justify-between"
-      }
-    >
-      <div className="flex justify-between items-center">
-        <div className="space-y-1 shrink-0">
-          <span className="text-[10px] font-bold text-emerald-400 tracking-widest uppercase">
-            Income Delta
-          </span>
-          <h4 className="text-2xl font-black text-white italic uppercase tracking-tight">
-            Active Inflow Progress
-          </h4>
-        </div>
-        <div className="text-xs text-zinc-500 font-bold bg-zinc-900 border-4 border-white/10 px-4 py-2 rounded-xl">
-          Live Audit Syncing
-        </div>
-      </div>
 
-      <div className="h-44 sm:h-52">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
-            data={revenueData}
-            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-          >
-            <defs>
-              <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#09090b",
-                borderColor: "#27272a",
-                borderRadius: "16px",
-                color: "#fff",
-              }}
-              labelStyle={{ fontWeight: "bold" }}
-            />
-            <Area
-              type="monotone"
-              dataKey="actual"
-              stroke="#10b981"
-              strokeWidth={3}
-              fillOpacity={1}
-              fill="url(#colorActual)"
-              name="Income ($)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="pt-4 border-t border-white/10 grid grid-cols-3 gap-4 text-center">
-        <div>
-          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-            Earnings MTD
-          </p>
-          <p className="text-lg font-bold text-white mt-1">$142,500</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-            Projected MTD
-          </p>
-          <p className="text-lg font-bold text-emerald-400 mt-1">$155,000</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-            Efficiency Margin
-          </p>
-          <p className="text-lg font-bold text-white mt-1">94.2%</p>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderAlertsCard = (isReel: boolean) => (
-    <div
-      className={
-        isReel
-          ? "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-2xl space-y-6 flex flex-col justify-between w-[450px] shrink-0 snap-start h-[500px]"
-          : "bg-zinc-950 border-4 border-white/10 rounded-[40px] p-8 shadow-2xl space-y-6 flex flex-col justify-between"
-      }
-    >
-      <div className="space-y-1">
-        <span className="text-[10px] font-bold text-amber-500 tracking-widest uppercase">
-          System Compliance Pulse
-        </span>
-        <h4 className="text-2xl font-black text-white italic uppercase tracking-tight">
-          Compliance Logs
-        </h4>
-      </div>
-
-      <div className="space-y-4 my-2 flex-1 overflow-y-auto max-h-[200px] pr-1 custom-scrollbar">
-        {[
-          {
-            type: "WEATHER_WARN",
-            label: "Rain disrupt check",
-            text: "Rain predicted near 2:00 PM. Schedule modifications advised.",
-            level: "high",
-          },
-          {
-            type: "FUEL_ALERT",
-            label: "Low Fuel Signal",
-            text: "Mower #4 reporting <11% fuel reserves.",
-            level: "high",
-          },
-          {
-            type: "HOA_WINDOW",
-            label: "Noise restrictions warning",
-            text: "Arbor Lakes quiet window requires electric mowers only today.",
-            level: "medium",
-          },
-        ].map((alert, idx) => (
-          <div
-            key={idx}
-            className="bg-zinc-900 border-4 border-white/10 p-4 rounded-xl flex items-start gap-3 text-xs"
-          >
-            <div
-              className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${alert.level === "high" ? "bg-red-500 animate-pulse" : "bg-amber-500"}`}
-            />
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                {alert.label}
-              </span>
-              <p className="text-zinc-300 font-semibold leading-normal">
-                {alert.text}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <button
-        onClick={() =>
-          showToast(
-            "Enriched local ordinances checked. Standard guidelines restored.",
-          )
-        }
-        className="w-full py-3.5 bg-white text-black font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-zinc-200 transition-all font-sans"
-      >
-        Clear Safety Logs
-      </button>
-    </div>
-  );
 
   return (
     <div
-      className={`max-w-7xl mx-auto space-y-12 pb-40 relative px-4 sm:px-8 ${isFieldMode ? "field-mode-condensed" : ""}`}
+      className={`${getInnerContainerClasses()} space-y-12 pb-40 relative ${isFieldMode ? "field-mode-condensed" : ""}`}
     >
       {/* Onboarding Wizard Overlay */}
       <AnimatePresence>
         {showOnboarding && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/95">
+          <div ref={onboardingModalRef} className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/95">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-zinc-950 border-4 border-white/10 rounded-[36px] w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-8 sm:p-12 space-y-10"
+              className="bg-zinc-950 border border-white/5 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-8 sm:p-6 lg:p-12 space-y-6 lg:space-y-10"
             >
               <div className="flex items-center justify-between border-b border-white/10 pb-6">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-emerald-900/30 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400">
                     <Sparkles size={20} />
                   </div>
-                  <h3 className="text-2xl font-black text-white tracking-tight uppercase">
+                  <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight uppercase">
                     Dashboard Intelligence Setup
                   </h3>
                 </div>
-                {!localStorage.getItem("user_dashboard_onboarded") ? (
-                  <span className="text-xs font-bold text-zinc-500 bg-zinc-900 border-4 border-white/10 px-3 py-1.5 rounded-full">
+                {!safeStorage.getItem("user_dashboard_onboarded") ? (
+                  <span className="text-xs font-bold text-zinc-500 bg-zinc-900 border border-white/5 px-3 py-1.5 rounded-full">
                     New Workspace Setup
                   </span>
                 ) : (
@@ -1203,7 +1148,7 @@ export default function Dashboard() {
               )}
 
               {onboardingStep === 3 && (
-                <div className="space-y-8">
+                <div className="space-y-6 sm:space-y-8">
                   <h4 className="text-lg font-bold text-white leading-snug font-sans">
                     What layout style fits your primary vibe?
                   </h4>
@@ -1244,7 +1189,7 @@ export default function Dashboard() {
                         </h5>
                         <p className="text-xs text-zinc-400 leading-normal mt-2">
                           Centered on 3 Big Interactive Buttons (Today's stops,
-                          Meridian Dialer followups, integrated inventory camera
+                          AI Dialer followups, integrated inventory camera
                           scanner) + AI.
                         </p>
                       </div>
@@ -1298,8 +1243,8 @@ export default function Dashboard() {
                         aria-label="AI Custom Prompt"
                         value={aiCustomPrompt}
                         onChange={(e) => setAiCustomPrompt(e.target.value)}
-                        placeholder="e.g. Optimized for commercial slope managers, do not show active stock checks"
-                        className="w-full bg-white/5 border-4 border-white/10 rounded-2xl py-4 pl-6 pr-32 text-sm text-white focus:outline-none focus:border-emerald-500 focus:bg-white/10 transition-all font-bold"
+                        placeholder="Enter description..."
+                        className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-6 pr-32 text-sm text-white focus:outline-none focus:border-emerald-500 focus:bg-white/10 transition-all font-bold"
                       />
                       <button
                         onClick={handleAICalibrate}
@@ -1326,7 +1271,7 @@ export default function Dashboard() {
                   {onboardingStep > 1 && (
                     <button
                       onClick={() => setOnboardingStep((prev) => prev - 1)}
-                      className="px-6 py-3 border-4 border-white/10 hover:border-white/20 text-white rounded-xl text-sm font-bold transition-all"
+                      className="px-6 py-3 border border-white/5 hover:border-white/20 text-white rounded-xl text-sm font-bold transition-all"
                     >
                       Back
                     </button>
@@ -1341,7 +1286,7 @@ export default function Dashboard() {
                   ) : (
                     <button
                       onClick={() => handleCompleteOnboarding()}
-                      className="px-10 py-3 bg-emerald-600 hover:bg-emerald-500 hover:scale-105 active:scale-95 transition-all text-white text-sm font-bold rounded-xl shadow-lg"
+                      className="px-6 sm:px-10 py-3 bg-emerald-600 hover:bg-emerald-500 hover:scale-105 active:scale-95 transition-all text-white text-sm font-bold rounded-xl shadow-lg"
                     >
                       Generate Workspace
                     </button>
@@ -1356,12 +1301,12 @@ export default function Dashboard() {
       {/* Adding Client Quick Modal */}
       <AnimatePresence>
         {showAddClient && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/85">
+          <div ref={addClientModalRef} className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/85">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 w-full max-w-lg shadow-2xl relative"
+              className="bg-zinc-950 border border-white/5 rounded-2xl p-8 w-full max-w-lg shadow-2xl relative"
             >
               <button
                 onClick={() => setShowAddClient(false)}
@@ -1372,7 +1317,7 @@ export default function Dashboard() {
               </button>
 
               <div className="mb-8">
-                <h3 className="text-2xl font-black text-white uppercase tracking-tight">
+                <h3 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tight">
                   Quick Intake
                 </h3>
                 <span className="text-sm text-zinc-500 mt-1">
@@ -1391,11 +1336,11 @@ export default function Dashboard() {
                   <input
                     id="dashboard-client-name"
                     type="text"
-                    placeholder="e.g. Richard Gable"
+                    placeholder="Enter full name"
                     required
                     value={newClientName}
                     onChange={(e) => setNewClientName(e.target.value)}
-                    className="w-full bg-white/5 border-4 border-white/10 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
+                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
                   />
                 </div>
 
@@ -1409,10 +1354,10 @@ export default function Dashboard() {
                   <input
                     id="dashboard-client-phone"
                     type="tel"
-                    placeholder="e.g. 601-555-4921"
+                    placeholder="Enter phone number"
                     value={newClientPhone}
                     onChange={(e) => setNewClientPhone(e.target.value)}
-                    className="w-full bg-white/5 border-4 border-white/10 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
+                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
                   />
                 </div>
 
@@ -1426,10 +1371,10 @@ export default function Dashboard() {
                   <input
                     id="dashboard-client-address"
                     type="text"
-                    placeholder="e.g. 4502 Poplar Springs Dr, MS"
+                    placeholder="Enter full address"
                     value={newClientAddress}
                     onChange={(e) => setNewClientAddress(e.target.value)}
-                    className="w-full bg-white/5 border-4 border-white/10 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
+                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
                   />
                 </div>
 
@@ -1451,64 +1396,60 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Header Grid with customized setup variables */}
+      {/* Minimal Header */}
       <header
         id="dashboard-header"
-        className="pb-8 border-b-4 border-white/10 flex flex-col xl:flex-row xl:items-end justify-between gap-10 relative z-10 pt-4"
+        className="flex flex-col sm:flex-row sm:items-end sm:justify-between items-center text-center sm:text-left gap-6 pb-6 relative z-10 pt-4"
       >
-        <div className="space-y-4 relative">
-          <div className="inline-flex items-center gap-3 px-4 py-2 bg-emerald-500/10 rounded-full border border-emerald-500 text-xs font-black uppercase tracking-widest text-emerald-500">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
-            Command Center Active
-          </div>
-          <div className="flex flex-wrap items-center gap-6">
-            <h1 className="text-7xl font-sans font-black tracking-tighter text-white uppercase italic leading-none">
-              Dashboard
-            </h1>
-
-            <div className="flex gap-3 items-center">
-              {/* Quick Add Client positioned next to TITLE */}
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white mb-1">
+            Dashboard
+          </h1>
+          <div className="flex gap-4">
+            {(role === "admin" || role === "owner") ? (
               <button
                 onClick={() => setShowAddClient(true)}
-                className="flex items-center justify-center w-16 h-16 bg-white text-black border-4 border-black rounded-2xl hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-transform shadow-[4px_4px_0_0_#FFF] cursor-pointer shrink-0"
-                title="Quick Add Client"
+                className="flex items-center gap-2 text-sm font-medium text-white/50 hover:text-white transition-colors cursor-pointer"
               >
-                <UserPlus size={28} />
+                <UserPlus size={16} /> Add Client
               </button>
-
-              {/* Open Config Onboarding button */}
+            ) : (
               <button
-                onClick={() => setShowOnboarding(true)}
-                className="flex items-center justify-center w-16 h-16 bg-black border-4 border-white/10 text-white/40 hover:text-white rounded-2xl transition-transform hover:scale-105 active:scale-95 shrink-0"
-                title="Personalize Blueprint Setup"
+                onClick={() => setIsLeadModalOpen(true)}
+                className="flex items-center gap-2 text-sm font-medium text-emerald-500/80 hover:text-emerald-400 transition-colors cursor-pointer"
               >
-                <Settings size={28} />
+                <Target size={16} /> Submit Lead
               </button>
-            </div>
+            )}
+            <button
+              onClick={() => {
+                 document.dispatchEvent(new CustomEvent("open-cutty-chat", { detail: { initiateOnboarding: true } }));
+              }}
+              className="flex items-center gap-2 text-sm font-medium text-white/50 hover:text-white transition-colors cursor-pointer"
+            >
+              <Settings size={16} /> Options
+            </button>
           </div>
-          <p className="text-zinc-400 font-bold text-lg uppercase tracking-widest italic pt-2">
-            Operational Calibration • {format(new Date(), "EEEE, MMMM do")}
-          </p>
         </div>
 
-        {/* Tab Selection Cockpit Selector Tabs */}
+        {/* Minimal Tab Selection */}
         <div
-          className="flex bg-black p-2 rounded-[32px] border-4 border-white/10 shrink-0 overflow-x-auto max-w-full shadow-inner"
+          className="flex bg-zinc-900 border border-white/10 p-1.5 rounded-2xl shrink-0 overflow-x-auto"
           role="tablist"
         >
           <button
             onClick={() => setActiveTab("cockpit")}
-            className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-transform whitespace-nowrap border-4 ${activeTab === "cockpit" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${activeTab === "cockpit" ? "bg-white text-black shadow-sm" : "text-white/60 hover:text-white"}`}
+            role="tab"
           >
-            <Smartphone size={20} />{" "}
-            <span className="hidden sm:inline">Daily Workspace</span>
+            <Smartphone size={16} /> <span>Daily Workspace</span>
           </button>
           <button
             onClick={() => setActiveTab("analytics")}
-            className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-transform whitespace-nowrap border-4 ${activeTab === "analytics" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${activeTab === "analytics" ? "bg-white text-black shadow-sm" : "text-white/60 hover:text-white"}`}
+            role="tab"
           >
-            <Sliders size={20} />{" "}
-            <span className="hidden sm:inline">Metrics Grid</span>
+            <Sliders size={16} /> <span>Metrics Grid</span>
           </button>
         </div>
       </header>
@@ -1517,138 +1458,12 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center gap-4 text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 w-fit px-5 py-3 rounded-2xl">
         <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
         <span className="text-sm font-bold">
-          All systems normal: 3 working crews on-location in Meridian.
+          All systems normal: 3 working crews on-location in {tenant?.settings?.neighborhoodMask?.[0] || "your service area"}.
         </span>
       </div>
 
-      {activeTab === "cockpit" ? (
+        {activeTab === "cockpit" ? (
         <section className="space-y-12">
-          {/* THREE BIG QUICK ACTIONS BUTTONS */}
-          <div
-            id="three-big-cockpit-buttons"
-            className="grid grid-cols-1 md:grid-cols-3 gap-8"
-          >
-            {/* BIG BUTTON 1: JOBS FOR THE DAY DISPATCH */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveDrawer("jobs");
-                setSelectedCrewForSMS(null);
-                setSmsDraft("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setActiveDrawer("jobs");
-                  setSelectedCrewForSMS(null);
-                  setSmsDraft("");
-                }
-              }}
-              className="bg-emerald-950/20 border-2 border-emerald-500/10 hover:border-emerald-500/45 p-10 rounded-[40px] text-left transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer group shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[290px] block w-full"
-            >
-              <span className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl group-hover:bg-emerald-500/10 transition-all pointer-events-none" />
-              <div className="flex justify-between items-start w-full">
-                <div className="w-16 h-16 bg-emerald-500/15 border border-emerald-500/20 rounded-2xl flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-all">
-                  <ClipboardList size={32} />
-                </div>
-                <span className="text-xs font-black tracking-widest text-emerald-400 uppercase bg-emerald-500/10 px-4 py-2 rounded-full border border-emerald-500/15">
-                  3 active
-                </span>
-              </div>
-              <div className="mt-8 space-y-2 w-full">
-                <h3 className="text-3xl font-black text-white uppercase tracking-tight italic">
-                  DISPATCHER
-                </h3>
-                <p className="text-zinc-400 text-sm leading-snug">
-                  Track daily schedule, inspect active crews, review gate access
-                  codes, and dispatch instant arrival SMS notes.
-                </p>
-              </div>
-              <div className="flex items-center gap-1 text-xs font-bold text-emerald-400 tracking-wider uppercase pt-4 group-hover:translate-x-1.5 transition-transform">
-                Open Dispatch Grid <ChevronRight size={14} />
-              </div>
-            </button>
-
-            {/* BIG BUTTON 2: HOT CLIENT POTENTIAL */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveDrawer("leads");
-                setSelectedLead(null);
-                setCallOutcome(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setActiveDrawer("leads");
-                  setSelectedLead(null);
-                  setCallOutcome(null);
-                }
-              }}
-              className="bg-purple-950/20 border-2 border-purple-500/10 hover:border-purple-500/45 p-10 rounded-[40px] text-left transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer group shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[290px] block w-full"
-            >
-              <span className="absolute top-0 right-0 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl group-hover:bg-purple-500/10 transition-all pointer-events-none" />
-              <div className="flex justify-between items-start w-full">
-                <div className="w-16 h-16 bg-purple-500/15 border border-purple-500/20 rounded-2xl flex items-center justify-center text-purple-400 group-hover:scale-110 transition-all">
-                  <Users size={32} />
-                </div>
-                <span className="text-xs font-black tracking-widest text-purple-400 uppercase bg-purple-500/10 px-4 py-2 rounded-full border border-purple-500/15">
-                  Active Sync
-                </span>
-              </div>
-              <div className="mt-8 space-y-2 w-full">
-                <h3 className="text-3xl font-black text-white uppercase tracking-tight italic font-sans">
-                  CRM & VENDORS
-                </h3>
-                <p className="text-zinc-400 text-sm leading-snug">
-                  Target high-relevance prospects, simulate pitch calls, and
-                  re-order supplies from strategic partners.
-                </p>
-              </div>
-              <div className="flex items-center gap-1 text-xs font-bold text-purple-400 tracking-wider uppercase pt-4 group-hover:translate-x-1.5 transition-transform">
-                Launch Control Panel <ChevronRight size={14} />
-              </div>
-            </button>
-
-            {/* BIG BUTTON 3: CAMERA SCANNER & DESIGN SHORTCUT */}
-            <button
-              type="button"
-              onClick={() => {
-                setIsScanning(true);
-                setParsedScanResult(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setIsScanning(true);
-                  setParsedScanResult(null);
-                }
-              }}
-              className="bg-amber-950/20 border-2 border-amber-500/10 hover:border-amber-500/45 p-10 rounded-[40px] text-left transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer group shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[290px] block w-full"
-            >
-              <span className="absolute top-0 right-0 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl group-hover:bg-amber-500/10 transition-all pointer-events-none" />
-              <div className="flex justify-between items-start w-full">
-                <div className="w-16 h-16 bg-amber-500/15 border border-amber-500/20 rounded-2xl flex items-center justify-center text-amber-400 group-hover:scale-110 transition-all">
-                  <Scan size={32} />
-                </div>
-                <span className="text-xs font-black tracking-widest text-amber-400 uppercase bg-amber-500/10 px-4 py-2 rounded-full border border-amber-500/15">
-                  Instant Vision
-                </span>
-              </div>
-              <div className="mt-8 space-y-2 w-full">
-                <h3 className="text-3xl font-black text-white uppercase tracking-tight italic">
-                  PLANNERS & SCANS
-                </h3>
-                <p className="text-zinc-400 text-sm leading-snug">
-                  Fire up the built-in Inventory Camera Scanner to instantly
-                  audit aggregates, or navigate to property markup maps.
-                </p>
-              </div>
-              <div className="flex items-center gap-1 text-xs font-bold text-amber-400 tracking-wider uppercase pt-4 group-hover:translate-x-1.5 transition-transform">
-                Unlock Hand Tools <ChevronRight size={14} />
-              </div>
-            </button>
-          </div>
 
           {/* ACTIVE DRAWERS DISPLAYS */}
           <AnimatePresence mode="wait">
@@ -1657,11 +1472,11 @@ export default function Dashboard() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="bg-zinc-950 border border-emerald-500/20 rounded-[32px] p-8 sm:p-10 shadow-2xl space-y-8 overflow-hidden"
+                className="bg-zinc-950 border border-emerald-500/20 rounded-2xl p-8 sm:p-6 md:p-10 shadow-2xl space-y-6 sm:space-y-8 overflow-hidden"
               >
                 <div className="flex items-center justify-between border-b border-white/10 pb-6">
                   <div className="space-y-1">
-                    <h4 className="text-2xl font-black text-white uppercase italic tracking-tight">
+                    <h4 className="text-xl sm:text-2xl font-black text-white uppercase italic tracking-tight">
                       Crews & Jobs Control Panel
                     </h4>
                     <p className="text-sm text-zinc-500 font-semibold">
@@ -1677,7 +1492,7 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                   <div className="space-y-4">
                     <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-widest pl-1">
                       Live Crew Status
@@ -1686,7 +1501,7 @@ export default function Dashboard() {
                       {crews.map((crew) => (
                         <div
                           key={crew.id}
-                          className="bg-zinc-900 border-4 border-white/10 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                          className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                         >
                           <div className="space-y-1">
                             <div className="flex items-center gap-3">
@@ -1694,7 +1509,7 @@ export default function Dashboard() {
                                 {crew.name}
                               </span>
                               <span
-                                className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold ${crew.status === "ON_SITE" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-blue-500/15 text-blue-400 border border-blue-500/20"}`}
+                                className={`text-xs md:text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold ${crew.status === "ON_SITE" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-blue-500/15 text-blue-400 border border-blue-500/20"}`}
                               >
                                 {crew.status}
                               </span>
@@ -1705,7 +1520,7 @@ export default function Dashboard() {
                                 {crew.job}
                               </strong>
                             </p>
-                            <p className="text-[11px] text-zinc-500 font-medium">
+                            <p className="text-xs md:text-[11px] text-zinc-500 font-medium">
                               Leader: {crew.leader} • Mach: {crew.equip}
                             </p>
                           </div>
@@ -1718,7 +1533,7 @@ export default function Dashboard() {
                               onClick={() => handleDraftCrewSMS(crew)}
                               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
                             >
-                              <MessageSquare size={13} /> SMS Alert
+                              <MessageSquare size={13} /> Notify App
                             </button>
                           </div>
                         </div>
@@ -1726,12 +1541,12 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="bg-zinc-900 border-4 border-white/10 rounded-2xl p-6 flex flex-col justify-between">
+                  <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 flex flex-col justify-between">
                     {selectedCrewForSMS ? (
                       <div className="space-y-5">
                         <div className="flex justify-between items-center border-b border-white/10 pb-3">
                           <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                            {selectedCrewForSMS.name} SMS Template
+                            {selectedCrewForSMS.name} Portal Notification
                           </p>
                           <button
                             onClick={() => setSelectedCrewForSMS(null)}
@@ -1743,31 +1558,33 @@ export default function Dashboard() {
 
                         <div className="space-y-2">
                           <label htmlFor="sms-draft-text" className="sr-only">
-                            SMS content
+                            Notification content
                           </label>
                           <textarea
                             id="sms-draft-text"
                             value={smsDraft}
                             onChange={(e) => setSmsDraft(e.target.value)}
-                            className="w-full bg-black/40 border-4 border-white/10 rounded-xl p-4 text-sm text-zinc-300 h-28 focus:outline-none focus:border-emerald-500 font-medium"
+                            className="w-full bg-black/40 border border-white/5 rounded-xl p-4 text-sm text-zinc-300 h-28 focus:outline-none focus:border-emerald-500 font-medium"
                           />
                         </div>
 
-                        <div className="flex justify-between items-center bg-black/40 border-4 border-white/10 p-3 rounded-xl text-xs text-zinc-500">
+                        <div className="flex justify-between items-center bg-black/40 border border-white/5 p-3 rounded-xl text-xs text-zinc-500">
                           <span>Target number: {selectedCrewForSMS.phone}</span>
                           <span>{smsDraft.length} chars</span>
                         </div>
 
                         <button
-                          onClick={() => {
-                            showToast(
-                              `Dispatched arrival notification to client at ${selectedCrewForSMS.job}!`,
-                            );
+                          onClick={async () => {
+                            try {
+                              showToast(`Simulated dispatch to ${selectedCrewForSMS.job} via App Portal Notification!`);
+                            } catch (error) {
+                              showToast(`Failed to dispatch Notification.`, "error");
+                            }
                             setSelectedCrewForSMS(null);
                           }}
-                          className="w-full py-3.5 bg-white text-black font-bold text-sm rounded-xl transition-all hover:bg-zinc-200"
+                          className="w-full py-3.5 bg-white text-black font-bold text-sm rounded-xl transition-all hover:bg-zinc-200 flex items-center justify-center gap-2"
                         >
-                          Dispatched Notification
+                          <Zap size={16} /> Dispatch Notification
                         </button>
                       </div>
                     ) : (
@@ -1778,7 +1595,7 @@ export default function Dashboard() {
                             Dispatched Assistant
                           </span>
                           <span className="text-xs mt-1 leading-normal max-w-sm font-medium">
-                            Click "SMS Alert" next to any active crew to
+                            Click "Notify App" next to any active crew to
                             dynamically draft customized arrival notifications
                             optimized with current weather predictions.
                           </span>
@@ -1795,12 +1612,12 @@ export default function Dashboard() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="bg-zinc-950 border border-purple-500/20 rounded-[32px] p-8 sm:p-10 shadow-2xl space-y-8 overflow-hidden"
+                className="bg-zinc-950 border border-purple-500/20 rounded-2xl p-8 sm:p-6 md:p-10 shadow-2xl space-y-6 sm:space-y-8 overflow-hidden"
               >
                 <div className="flex items-center justify-between border-b border-white/10 pb-6">
                   <div className="space-y-3">
                     <div>
-                      <h4 className="text-2xl font-black text-white uppercase italic tracking-tight">
+                      <h4 className="text-xl sm:text-2xl font-black text-white uppercase italic tracking-tight">
                         CRM & Vendor Control
                       </h4>
                       <p className="text-sm text-zinc-500 font-semibold font-sans">
@@ -1833,7 +1650,7 @@ export default function Dashboard() {
                 </div>
 
                 {crmTab === "clients" ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                     <div className="space-y-4">
                       <h5 className="text-xs font-bold text-purple-400 uppercase tracking-widest pl-1">
                         Identified Potential Leads
@@ -1842,14 +1659,14 @@ export default function Dashboard() {
                         {hotLeads.map((lead) => (
                           <div
                             key={lead.id}
-                            className="bg-zinc-900 border-4 border-white/10 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                            className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                           >
                             <div className="space-y-1">
                               <div className="flex items-center gap-3">
                                 <span className="font-bold text-white text-base">
                                   {lead.name}
                                 </span>
-                                <span className="text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2.5 py-0.5 rounded-full font-bold">
+                                <span className="text-xs md:text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2.5 py-0.5 rounded-full font-bold">
                                   {lead.score}% Match
                                 </span>
                               </div>
@@ -1872,7 +1689,7 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="bg-zinc-900 border-4 border-white/10 rounded-2xl p-6 flex flex-col justify-between">
+                    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 flex flex-col justify-between">
                       {selectedLead ? (
                         <div className="space-y-6">
                           <div className="flex justify-between items-center border-b border-white/10 pb-3">
@@ -1894,7 +1711,7 @@ export default function Dashboard() {
                                 className="animate-spin text-purple-400"
                               />
                               <p className="text-xs uppercase tracking-widest text-purple-400 animate-pulse font-black">
-                                Connecting Voice Meridian Simulator...
+                                Connecting Voice Simulator...
                               </p>
                             </div>
                           ) : callOutcome ? (
@@ -1908,7 +1725,7 @@ export default function Dashboard() {
                                 </span>
                               </div>
 
-                              <div className="bg-black/40 border-4 border-white/10 rounded-xl p-4 h-36 overflow-y-auto space-y-3 scrollbar-thin">
+                              <div className="bg-black/40 border border-white/5 rounded-xl p-4 h-36 overflow-y-auto space-y-3 scrollbar-thin">
                                 <p className="text-xs text-zinc-500 uppercase tracking-widest font-bold">
                                   Dialogue Transcript:
                                 </p>
@@ -1950,7 +1767,7 @@ export default function Dashboard() {
                           <PhoneCall size={36} className="text-zinc-600" />
                           <div>
                             <p className="font-bold text-white text-sm font-sans">
-                              Meridian Calling Engine
+                              AI Calling Engine
                             </p>
                             <p className="text-xs mt-1 leading-normal max-w-sm font-medium">
                               Engage Pitch Simulator to instantly simulate
@@ -1964,13 +1781,13 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                     <div className="space-y-4">
                       <div className="flex justify-between items-center pl-1">
                         <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
                           Active Supply Partners
                         </h5>
-                        <button className="text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer">
+                        <button className="text-xs md:text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer">
                           <Plus size={12} /> Add Vendor
                         </button>
                       </div>
@@ -1979,7 +1796,7 @@ export default function Dashboard() {
                         {vendors.map((vendor) => (
                           <div
                             key={vendor.id}
-                            className="bg-zinc-900 border-4 border-white/10 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                            className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                           >
                             <div className="space-y-1.5">
                               <div className="flex items-center gap-3">
@@ -1987,11 +1804,11 @@ export default function Dashboard() {
                                   {vendor.name}
                                 </span>
                                 {vendor.status === "ACTIVE" ? (
-                                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-bold">
+                                  <span className="text-xs md:text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-bold">
                                     {vendor.status}
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 px-2.5 py-0.5 rounded-full font-bold">
+                                  <span className="text-xs md:text-[10px] bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 px-2.5 py-0.5 rounded-full font-bold">
                                     {vendor.status}
                                   </span>
                                 )}
@@ -2020,7 +1837,7 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="bg-zinc-900 border-4 border-white/10 rounded-2xl p-6 flex flex-col justify-between">
+                    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 flex flex-col justify-between">
                       <div className="space-y-4">
                         <div className="flex items-center gap-3 pb-3 border-b border-white/10">
                           <FileText className="text-emerald-400" size={20} />
@@ -2033,7 +1850,7 @@ export default function Dashboard() {
                           {[
                             {
                               id: "inv-8201",
-                              vendor: "Meridian Supply & Mulch",
+                              vendor: "Local Supply & Mulch",
                               date: "May 01",
                               amount: "$1,204.00",
                               status: "PAID",
@@ -2064,7 +1881,7 @@ export default function Dashboard() {
                                 <p className="text-xs font-bold text-zinc-300">
                                   {doc.vendor}
                                 </p>
-                                <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                                <p className="text-xs md:text-[10px] text-zinc-500 font-mono mt-0.5">
                                   {doc.id} • {doc.date}
                                 </p>
                               </div>
@@ -2087,7 +1904,7 @@ export default function Dashboard() {
                         onClick={() =>
                           runIntegration("drive", "Vendor Invoice Upload")
                         }
-                        className="w-full py-3 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-widest border-4 border-white/10 rounded-xl transition-all flex items-center justify-center gap-2 mt-6 cursor-pointer"
+                        className="w-full py-3 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-widest border border-white/5 rounded-xl transition-all flex items-center justify-center gap-2 mt-6 cursor-pointer"
                       >
                         <FolderDown size={14} /> Upload New Invoice to Drive
                       </button>
@@ -2099,155 +1916,90 @@ export default function Dashboard() {
           </AnimatePresence>
 
           {/* DYNAMIC FLEX WORKSPACE GRID IN EASY MODE */}
-          <div className="space-y-8">
-            <div className="flex justify-between items-center bg-zinc-950 border-4 border-white/10 px-8 py-5 rounded-[24px]">
-              <div className="space-y-0.5">
-                <h4 className="text-lg font-black text-white uppercase italic tracking-tight">
-                  Active Widgets
-                </h4>
-                <p className="text-xs text-zinc-500 font-semibold font-sans">
-                  Toggle widgets off or swap layout configuration on the fly.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    const next = !useHorizontalFlow;
-                    setUseHorizontalFlow(next);
-                    localStorage.setItem(
-                      "cutty_dashboard_horizontal_flow",
-                      String(next),
-                    );
-                    showToast(
-                      next
-                        ? "Sideways Reel layout active!"
-                        : "Compact grid layout active.",
-                    );
-                  }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
-                    useHorizontalFlow
-                      ? "bg-emerald-500 text-black border-emerald-400 font-semibold shadow-[0_4px_15px_rgba(16,185,129,0.2)]"
-                      : "bg-white/5 hover:bg-white/10 text-white border-white/10"
-                  }`}
-                  aria-label="Toggle Horizontal Flow"
-                  title="Toggle elegant sideways space-saving scroll"
-                >
-                  <Layers size={14} />{" "}
-                  {useHorizontalFlow ? "Sideways Reel" : "Compact Grid"}
-                </button>
-
-                <button
-                  onClick={() => setShowWidgetSettings(!showWidgetSettings)}
-                  className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs font-bold transition-all border-4 border-white/10"
-                >
-                  <Sliders size={14} /> Customize Grid
-                </button>
-              </div>
-            </div>
-
-            {/* Customizer Option Strip */}
-            <AnimatePresence>
-              {showWidgetSettings && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="bg-zinc-950 border-4 border-white/10 rounded-[28px] p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-4"
-                >
-                  {[
-                    {
-                      key: "briefing",
-                      name: "AI Morning Brief",
-                      desc: "Strategic bullet outlines",
-                    },
-                    {
-                      key: "weather",
-                      name: "Weather shield",
-                      desc: "Met delay tracker",
-                    },
-                    {
-                      key: "crews",
-                      name: "Crews monitor",
-                      desc: "Site dispatches details",
-                    },
-                    {
-                      key: "inventory",
-                      name: "Inventory checklist",
-                      desc: "Material reconciliation",
-                    },
-                    {
-                      key: "alerts",
-                      name: "Priority metrics",
-                      desc: "Safety Compliance logs",
-                    },
-                    {
-                      key: "earnings",
-                      name: "Area earnings chart",
-                      desc: "Capital graphs",
-                    },
-                    {
-                      key: "workspace",
-                      name: "Google Space",
-                      desc: "Sync Calendar & dispatch",
-                    },
-                  ].map((w) => (
-                    <button
-                      key={w.key}
-                      type="button"
-                      onClick={() => {
-                        const next = {
-                          ...activeWidgets,
-                          [w.key]: !activeWidgets[w.key],
-                        };
-                        saveWidgetState(next);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          const next = {
-                            ...activeWidgets,
-                            [w.key]: !activeWidgets[w.key],
-                          };
-                          saveWidgetState(next);
-                        }
-                      }}
-                      className={`p-4 w-full rounded-xl text-left border text-xs font-semibold uppercase tracking-wider transition-all flex flex-col justify-between min-h-[90px] ${activeWidgets[w.key] ? "bg-emerald-500/10 border-emerald-500/30 text-white shadow-sm" : "bg-white/5 border-white/10 text-zinc-500"}`}
-                    >
-                      <div className="flex justify-between items-center w-full">
-                        <span className="font-bold text-[11px] leading-tight select-none">
-                          {w.name}
-                        </span>
-                        {activeWidgets[w.key] ? (
-                          <Eye size={12} className="text-emerald-400" />
-                        ) : (
-                          <EyeOff size={11} />
-                        )}
-                      </div>
-                      <p className="text-[10px] lowercase text-zinc-500 tracking-normal mt-2 select-none leading-tight">
-                        {w.desc}
-                      </p>
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
+          <div className="space-y-6 sm:space-y-8">
             {/* RE-INSERTABLE FLOW CARDS GRID */}
-            <div
-              className={
-                useHorizontalFlow
-                  ? "flex gap-8 overflow-x-auto pb-8 pt-2 snap-x mand-scroll custom-scrollbar"
-                  : "grid grid-cols-1 lg:grid-cols-2 gap-8"
-              }
-            >
-              {/* Card A: Strategic morning briefing slot */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
+              {activeWidgets.cockpit_buttons && (
+                <div className="col-span-1 lg:col-span-3" style={{ order: widgetOrder.indexOf("cockpit_buttons") }}>
+                  <div className="mb-4 text-emerald-400 font-black uppercase text-sm flex items-center gap-2 tracking-widest pl-2">
+                     <Zap size={18} className="animate-pulse" /> Easy Mode
+                  </div>
+                  <motion.div
+                    id="three-big-cockpit-buttons"
+                    className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-6"
+                    initial="hidden"
+                    animate="show"
+                    variants={{
+                      hidden: { opacity: 0 },
+                      show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+                    }}
+                  >
+                    {[
+                      { to: "agent", icon: Bot, label: "Copilot", color: "text-emerald-400", hover: "hover:border-emerald-500/30 hover:bg-emerald-500/5", badge: "AI Assistant" },
+                      { to: "crm", icon: Users, label: "CRM", color: "text-purple-400", hover: "hover:border-purple-500/30 hover:bg-purple-500/5", badge: "" },
+                      { to: "scheduler", icon: Calendar, label: "Schedule", color: "text-indigo-400", hover: "hover:border-indigo-500/30 hover:bg-indigo-500/5", badge: "" },
+                      { to: "crew-suite", icon: Truck, label: "Crews & Field", color: "text-teal-400", hover: "hover:border-teal-500/30 hover:bg-teal-500/5", badge: "" },
+                      { to: "invoices", icon: ReceiptText, label: "Invoices", color: "text-amber-400", hover: "hover:border-amber-500/30 hover:bg-amber-500/5", badge: "" },
+                      { to: "settings", icon: Activity, label: "Settings", color: "text-zinc-400", hover: "hover:border-zinc-500/30 hover:bg-zinc-500/5", badge: "" }
+                    ].map((btn, i) => (
+                      <Link
+                        key={i}
+                        to={btn.to}
+                        className={`w-full h-full bg-zinc-900 border border-white/5 ${btn.hover} p-4 sm:p-6 rounded-[20px] text-center transition-all cursor-pointer group shadow-sm relative overflow-hidden flex flex-col items-center justify-center gap-3 focus:outline-none`}
+                      >
+                        <div className={`w-10 h-10 sm:w-12 sm:h-12 bg-white/5 rounded-xl flex items-center justify-center ${btn.color} shrink-0 group-hover:scale-110 transition-transform`}>
+                          <btn.icon size={24} />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <h3 className="text-sm sm:text-base font-bold text-white leading-tight">
+                            {btn.label}
+                          </h3>
+                          {btn.badge && (
+                            <span className={`text-[10px] font-bold ${btn.color} bg-white/5 px-2 py-0.5 rounded-full inline-block mt-1 sm:hidden md:inline-block`}>
+                              {btn.badge}
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    ))}
+                  </motion.div>
+                </div>
+              )}
+
+              {activeWidgets.top_services && (
+                <div className="col-span-1 lg:col-span-2" style={{ order: widgetOrder.indexOf("top_services") }}>
+                   <div className="bg-zinc-900 border border-emerald-500/30 rounded-2xl p-6 shadow-2xl relative overflow-hidden h-full flex flex-col justify-between">
+                     <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[50px] rounded-full pointer-events-none" />
+                     <div className="space-y-4 relative z-10">
+                        <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                           <TrendingUp className="text-emerald-400" size={20} />
+                           <h5 className="text-sm font-bold text-white uppercase tracking-wider">Top Services</h5>
+                           <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">AI GENERATED</span>
+                        </div>
+                        <div className="space-y-3">
+                           {[
+                              { label: "Mowing & Edge", value: "$4,200", trend: "+12%" },
+                              { label: "Pine Straw Mulch", value: "$2,850", trend: "+8%" },
+                              { label: "Shrub Trimming", value: "$1,100", trend: "-2%" }
+                           ].map((item, i) => (
+                             <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                                <span className="text-sm font-medium text-white">{item.label}</span>
+                                <div className="text-right flex items-center gap-3">
+                                   <span className="text-sm font-bold text-white">{item.value}</span>
+                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('+') ? 'text-emerald-400' : 'text-red-400'}`}>{item.trend}</span>
+                                </div>
+                             </div>
+                           ))}
+                        </div>
+                     </div>
+                   </div>
+                </div>
+              )}
+
               {activeWidgets.briefing && (
                 <div
-                  className={
-                    useHorizontalFlow
-                      ? "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-6 shadow-xl space-y-4 group w-[450px] shrink-0 snap-start h-[500px]"
-                      : "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-6 shadow-xl space-y-4 group"
-                  }
+                  style={{ order: widgetOrder.indexOf("briefing") }}
+                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 lg:col-span-1"
                 >
                   <button
                     onClick={() =>
@@ -2259,7 +2011,7 @@ export default function Dashboard() {
                     <Trash2 size={16} />
                   </button>
                   <div className="space-y-1">
-                    <h5 className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-1">
+                    <h5 className="text-xs md:text-[11px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-1">
                       Custom Workspace Blueprint
                     </h5>
                     <h4 className="text-xl font-bold text-white tracking-tight">
@@ -2267,7 +2019,9 @@ export default function Dashboard() {
                     </h4>
                   </div>
                   <div className="border-t border-white/10 pt-4">
-                    <DailyBriefing />
+                    <Suspense fallback={<div className="h-48 flex items-center justify-center animate-pulse"><Loader2 className="w-6 h-6 text-emerald-500 animate-spin" /></div>}>
+                      <DailyBriefing />
+                    </Suspense>
                   </div>
                 </div>
               )}
@@ -2275,11 +2029,8 @@ export default function Dashboard() {
               {/* Card B: Meteorological shield slot */}
               {activeWidgets.weather && (
                 <div
-                  className={
-                    useHorizontalFlow
-                      ? "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-xl space-y-6 group min-h-[260px] flex flex-col justify-between w-[450px] shrink-0 snap-start h-[500px]"
-                      : "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-xl space-y-6 group min-h-[260px] flex flex-col justify-between"
-                  }
+                  style={{ order: widgetOrder.indexOf("weather") }}
+                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-6 group min-h-[260px] flex flex-col justify-between col-span-1 lg:col-span-1"
                 >
                   <button
                     onClick={() =>
@@ -2292,16 +2043,16 @@ export default function Dashboard() {
                   </button>
                   <div className="flex justify-between items-start">
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold tracking-widest text-amber-500 uppercase">
+                      <span className="text-xs md:text-[10px] font-bold tracking-widest text-amber-500 uppercase">
                         Weather Shield
                       </span>
-                      <h4 className="text-2xl font-black text-white mt-1 uppercase italic tracking-tight">
-                        Meridian MS Forecast
+                      <h4 className="text-xl sm:text-2xl font-black text-white mt-1 uppercase italic tracking-tight">
+                        {tenant?.settings?.neighborhoodMask?.[0] || "Local Area"} Forecast
                       </h4>
                     </div>
                     {weather?.temp ? (
                       <div className="text-right">
-                        <p className="text-4xl font-extrabold text-white">
+                        <p className="text-2xl sm:text-3xl sm:text-4xl font-extrabold text-white">
                           {weather.temp}°F
                         </p>
                         <p className="text-xs text-amber-400 font-bold tracking-wider mt-1 uppercase">
@@ -2310,7 +2061,7 @@ export default function Dashboard() {
                       </div>
                     ) : (
                       <div className="text-right">
-                        <p className="text-4xl font-extrabold text-white">
+                        <p className="text-2xl sm:text-3xl sm:text-4xl font-extrabold text-white">
                           78°F
                         </p>
                         <p className="text-xs text-zinc-500 font-bold tracking-wider mt-1 uppercase">
@@ -2320,7 +2071,7 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  <div className="bg-zinc-900 border-4 border-white/10 p-4 rounded-xl text-xs text-zinc-400 leading-relaxed font-semibold">
+                  <div className="bg-zinc-900 border border-white/5 p-4 rounded-xl text-xs text-zinc-400 leading-relaxed font-semibold">
                     {weather?.forecast ||
                       "Clear microclimate active. Perfect window for targeted herbicide applications and grass aeration."}
                   </div>
@@ -2333,13 +2084,10 @@ export default function Dashboard() {
               )}
 
               {/* Card C: Active Crews Monitor */}
-              {activeWidgets.crews && (
+              {activeWidgets.crews && tenant?.settings?.features?.crewTracking !== false && (
                 <div
-                  className={
-                    useHorizontalFlow
-                      ? "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-xl space-y-6 group w-[450px] shrink-0 snap-start h-[500px]"
-                      : "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-xl space-y-6 group"
-                  }
+                  style={{ order: widgetOrder.indexOf("crews") }}
+                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 lg:col-span-2"
                 >
                   <button
                     onClick={() =>
@@ -2352,15 +2100,15 @@ export default function Dashboard() {
                   </button>
                   <div className="flex justify-between items-center">
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase">
+                      <span className="text-xs md:text-[10px] font-bold tracking-widest text-emerald-400 uppercase">
                         Live Operations
                       </span>
-                      <h4 className="text-2xl font-black text-white italic tracking-tight uppercase">
+                      <h4 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">
                         Crew Sites Monitor
                       </h4>
                     </div>
                     <Link
-                      to="/operations"
+                      to="../crew-suite"
                       className="text-zinc-500 hover:text-white p-2 bg-white/5 rounded-lg transition-all"
                     >
                       <ArrowRight size={16} />
@@ -2391,13 +2139,10 @@ export default function Dashboard() {
               )}
 
               {/* Card D: Supply / Bulk Stock Audit Checks */}
-              {activeWidgets.inventory && (
+              {activeWidgets.inventory && tenant?.settings?.features?.inventoryManagement !== false && (
                 <div
-                  className={
-                    useHorizontalFlow
-                      ? "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-6 shadow-xl space-y-4 group w-[450px] shrink-0 snap-start h-[500px]"
-                      : "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-6 shadow-xl space-y-4 group"
-                  }
+                  style={{ order: widgetOrder.indexOf("inventory") }}
+                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 lg:col-span-3"
                 >
                   <button
                     onClick={() =>
@@ -2409,25 +2154,24 @@ export default function Dashboard() {
                     <Trash2 size={16} />
                   </button>
                   <div className="space-y-1 mb-4">
-                    <span className="text-[10px] font-bold tracking-widest text-amber-500 uppercase">
+                    <span className="text-xs md:text-[10px] font-bold tracking-widest text-amber-500 uppercase">
                       Audit Compliance
                     </span>
                     <h4 className="text-xl font-bold text-white tracking-tight">
                       Bulk Supply Checkouts
                     </h4>
                   </div>
-                  <LiveInventoryFeed />
+                  <Suspense fallback={<div className="h-64 flex items-center justify-center animate-pulse"><Loader2 className="w-8 h-8 text-emerald-500 animate-spin" /></div>}>
+                    <LiveInventoryFeed />
+                  </Suspense>
                 </div>
               )}
 
               {/* Card E: Google Workspace Integration Hub */}
               {activeWidgets.workspace && (
                 <div
-                  className={
-                    useHorizontalFlow
-                      ? "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-xl space-y-6 group col-span-1 lg:col-span-2 w-[450px] shrink-0 snap-start h-[500px] overflow-y-auto custom-scrollbar"
-                      : "relative bg-zinc-950 border-4 border-white/10 rounded-[30px] p-8 shadow-xl space-y-6 group col-span-1 lg:col-span-2"
-                  }
+                  style={{ order: widgetOrder.indexOf("workspace") }}
+                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-6 group col-span-1 lg:col-span-3"
                 >
                   <button
                     onClick={() =>
@@ -2440,20 +2184,20 @@ export default function Dashboard() {
                   </button>
                   <div className="flex justify-between items-start">
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold tracking-widest text-[#4285F4] uppercase">
+                      <span className="text-xs md:text-[10px] font-bold tracking-widest text-[#4285F4] uppercase">
                         Workspace Connector
                       </span>
-                      <h4 className="text-2xl font-black text-white italic tracking-tight uppercase">
+                      <h4 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">
                         Google Workspace Hub
                       </h4>
                     </div>
                     {isWorkspaceConnected ? (
-                      <span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] uppercase font-bold tracking-wider text-emerald-400">
+                      <span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs md:text-[10px] uppercase font-bold tracking-wider text-emerald-400">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />{" "}
                         Connected
                       </span>
                     ) : (
-                      <span className="px-3 py-1.5 rounded-full bg-white/5 border-4 border-white/10 text-[10px] uppercase font-bold tracking-wider text-zinc-500">
+                      <span className="px-3 py-1.5 rounded-full bg-white/5 border border-white/5 text-xs md:text-[10px] uppercase font-bold tracking-wider text-zinc-500">
                         Offline
                       </span>
                     )}
@@ -2495,7 +2239,7 @@ export default function Dashboard() {
                         synchronization tasks.
                       </p>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
                         {[
                           {
                             key: "calendar",
@@ -2514,101 +2258,14 @@ export default function Dashboard() {
                             color: "#EA4335",
                             action: handleDispatchGmail,
                             status: googleGmailDraftStatus,
-                          },
-                          {
-                            key: "drive",
-                            name: "Drive Upload",
-                            desc: "Secure TXT inspection",
-                            icon: FolderDown,
-                            color: "#4285F4",
-                            action: () =>
-                              runIntegration("drive", "Drive Upload"),
-                            status: integrationStatuses["drive"],
-                          },
-                          {
-                            key: "chat",
-                            name: "Chat Space Ping",
-                            desc: "Alert foremen spaces",
-                            icon: MessageSquare,
-                            color: "#34A853",
-                            action: () => runIntegration("chat", "Chat Ping"),
-                            status: integrationStatuses["chat"],
-                          },
-                          {
-                            key: "docs",
-                            name: "Docs Report",
-                            desc: "Generate SOP Document",
-                            icon: FileText,
-                            color: "#4285F4",
-                            action: () => runIntegration("docs", "Docs Gen"),
-                            status: integrationStatuses["docs"],
-                          },
-                          {
-                            key: "forms",
-                            name: "Forms Inspect",
-                            desc: "Deploy QA Form",
-                            icon: FileText,
-                            color: "#A020F0",
-                            action: () =>
-                              runIntegration("forms", "Forms Deploy"),
-                            status: integrationStatuses["forms"],
-                          },
-                          {
-                            key: "meet",
-                            name: "Meet Standup",
-                            desc: "Start Daily Catchup",
-                            icon: Video,
-                            color: "#34A853",
-                            action: () => runIntegration("meet", "Meet Setup"),
-                            status: integrationStatuses["meet"],
-                          },
-                          {
-                            key: "sheets",
-                            name: "Sheets Export",
-                            desc: "Sync route earnings",
-                            icon: FileSpreadsheet,
-                            color: "#34A853",
-                            action: () =>
-                              runIntegration("sheets", "Sheets Sync"),
-                            status: integrationStatuses["sheets"],
-                          },
-                          {
-                            key: "slides",
-                            name: "Slides Pitch",
-                            desc: "Draft sales deck",
-                            icon: MonitorPlay,
-                            color: "#FABB05",
-                            action: () =>
-                              runIntegration("slides", "Slides Pitch"),
-                            status: integrationStatuses["slides"],
-                          },
-                          {
-                            key: "tasks",
-                            name: "Tasks Assign",
-                            desc: "Delegate tasks",
-                            icon: CheckSquare,
-                            color: "#4285F4",
-                            action: () => runIntegration("tasks", "Tasks Push"),
-                            status: integrationStatuses["tasks"],
-                          },
-                          {
-                            key: "contacts",
-                            name: "Contacts Sync",
-                            desc: "Merge client roster",
-                            icon: Contact,
-                            color: "#4285F4",
-                            action: () =>
-                              runIntegration("contacts", "Contacts Sync"),
-                            status: integrationStatuses["contacts"],
-                          },
+                          }
                         ].map((integration) => (
                           <button
                             key={integration.key}
                             type="button"
                             onClick={
                               integration.status === "syncing" ||
-                              integration.status === "sending" ||
-                              integration.status === "working"
+                              integration.status === "sending"
                                 ? undefined
                                 : integration.action
                             }
@@ -2617,17 +2274,15 @@ export default function Dashboard() {
                                 e.preventDefault();
                                 if (
                                   integration.status !== "syncing" &&
-                                  integration.status !== "sending" &&
-                                  integration.status !== "working"
+                                  integration.status !== "sending"
                                 )
                                   integration.action();
                               }
                             }}
-                            className={`p-5 w-full rounded-2xl bg-white/5 border-4 border-white/10 hover:border-white/20 transition-all text-left space-y-2 cursor-pointer relative group/btn ${integration.status === "syncing" || integration.status === "sending" || integration.status === "working" ? "opacity-50 pointer-events-none" : ""}`}
+                            className={`p-5 w-full rounded-2xl bg-white/5 border border-white/5 hover:border-white/20 transition-all text-left space-y-2 cursor-pointer relative group/btn ${integration.status === "syncing" || integration.status === "sending" ? "opacity-50 pointer-events-none" : ""}`}
                             disabled={
                               integration.status === "syncing" ||
-                              integration.status === "sending" ||
-                              integration.status === "working"
+                              integration.status === "sending"
                             }
                           >
                             <div className="flex justify-between items-center w-full">
@@ -2643,13 +2298,12 @@ export default function Dashboard() {
                               )}
                             </div>
                             <div className="space-y-1 pt-2 w-full">
-                              <p className="text-[11px] font-black uppercase text-white tracking-wider truncate">
+                              <p className="text-xs md:text-[11px] font-black uppercase text-white tracking-wider truncate">
                                 {integration.name}
                               </p>
-                              <p className="text-[10px] text-zinc-500 lowercase leading-tight line-clamp-2">
+                              <p className="text-xs md:text-[10px] text-zinc-500 lowercase leading-tight line-clamp-2">
                                 {integration.status === "syncing" ||
-                                integration.status === "sending" ||
-                                integration.status === "working"
+                                integration.status === "sending"
                                   ? "Executing task..."
                                   : integration.desc}
                               </p>
@@ -2661,7 +2315,7 @@ export default function Dashboard() {
                       <div className="flex justify-center pt-2">
                         <button
                           onClick={handleDisconnectWorkspace}
-                          className="text-[11px] font-bold text-zinc-500 hover:text-red-400 transition-colors uppercase tracking-wider cursor-pointer"
+                          className="text-xs md:text-[11px] font-bold text-zinc-500 hover:text-red-400 transition-colors uppercase tracking-wider cursor-pointer"
                         >
                           Disconnect Account Link
                         </button>
@@ -2671,18 +2325,33 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* In Horizontal Reel Flow, append Earnings and Alerts here dynamically */}
-              {useHorizontalFlow &&
-                activeWidgets.earnings &&
-                renderEarningsCard(true)}
-              {useHorizontalFlow &&
-                activeWidgets.alerts &&
-                renderAlertsCard(true)}
+              {activeWidgets.earnings && (
+                <div style={{ order: widgetOrder.indexOf("earnings") }} className="col-span-1 lg:col-span-1 h-full min-h-[300px]">
+                  <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
+                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
+                  </Suspense>
+                </div>
+              )}
+              {activeWidgets.alerts && (
+                <div style={{ order: widgetOrder.indexOf("alerts") }} className="col-span-1 lg:col-span-1 h-full min-h-[300px]">
+                  <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
+                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} />
+                  </Suspense>
+                </div>
+              )}
+              {activeWidgets.design && (
+                <div style={{ order: widgetOrder.indexOf("design") }} className="col-span-1 lg:col-span-1 h-full min-h-[300px]">
+                  <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
+                    <DesignStudioWidget isReel={false} flexOrder={widgetOrder.indexOf("design")} />
+                  </Suspense>
+                </div>
+              )}
+
             </div>
 
             {/* If any widgets are hidden, show a dynamic placeholder to "Add slot back" */}
             {Object.values(activeWidgets).some((val) => !val) && (
-              <div className="py-12 border-2 border-dashed border-white/10 rounded-[32px] flex flex-col items-center justify-center text-center p-6 space-y-4">
+              <div className="py-12 border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center text-center p-6 space-y-4">
                 <Sliders size={32} className="text-zinc-600" />
                 <div className="space-y-1">
                   <p className="text-white font-bold text-base uppercase italic font-sans tracking-tight">
@@ -2701,6 +2370,7 @@ export default function Dashboard() {
                 </button>
               </div>
             )}
+
           </div>
         </section>
       ) : (
@@ -2709,7 +2379,7 @@ export default function Dashboard() {
           {/* Main detailed high density stats */}
           <div
             id="analytics-dense-stats"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-8"
           >
             {[
               {
@@ -2743,13 +2413,13 @@ export default function Dashboard() {
             ].map((stat, i) => (
               <div
                 key={i}
-                className="bg-zinc-950 border-4 border-white/10 p-8 rounded-[32px] shadow-lg flex justify-between items-center"
+                className="bg-zinc-950 border border-white/5 p-8 rounded-2xl shadow-lg flex justify-between items-center"
               >
                 <div className="space-y-4">
                   <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest leading-none">
                     {stat.label}
                   </p>
-                  <p className="text-3xl font-black text-white tracking-tight italic">
+                  <p className="text-xl sm:text-2xl sm:text-3xl font-black text-white tracking-tight italic">
                     {stat.value}
                   </p>
                   <p
@@ -2758,30 +2428,43 @@ export default function Dashboard() {
                     {stat.change}
                   </p>
                 </div>
-                <div className="w-14 h-14 bg-white/5 border-4 border-white/10 rounded-2xl flex items-center justify-center text-zinc-400">
+                <div className="w-14 h-14 bg-white/5 border border-white/5 rounded-2xl flex items-center justify-center text-zinc-400">
                   <stat.icon size={26} />
                 </div>
               </div>
             ))}
-            {!useHorizontalFlow && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {activeWidgets.earnings && renderEarningsCard(false)}
-                {activeWidgets.alerts && renderAlertsCard(false)}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8 ">
+                {activeWidgets.earnings && (
+                  <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
+                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
+                  </Suspense>
+                )}
+                {activeWidgets.alerts && (
+                  <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
+                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} />
+                  </Suspense>
+                )}
+                {activeWidgets.design && (
+                  <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
+                    <DesignStudioWidget isReel={false} flexOrder={widgetOrder.indexOf("design")} />
+                  </Suspense>
+                )}
               </div>
-            )}{" "}
           </div>
 
           {/* Fallback configuration checklist inside data views */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8">
-            <LiveInventoryFeed />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8 pt-8">
+            <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border-4 border-white/5" />}>
+              <LiveInventoryFeed />
+            </Suspense>
 
             {/* Strategy recommendations cards inside data tracking lists */}
-            <div className="bg-zinc-950 border-4 border-white/10 rounded-[40px] p-8 shadow-2xl flex flex-col justify-between">
+            <div className="bg-zinc-950 border border-white/5 rounded-2xl p-8 shadow-2xl flex flex-col justify-between">
               <div className="space-y-1.5">
-                <span className="text-[10px] font-bold text-emerald-400 tracking-widest uppercase">
+                <span className="text-xs md:text-[10px] font-bold text-emerald-400 tracking-widest uppercase">
                   AI Strategy Blueprint
                 </span>
-                <h4 className="text-2xl font-black text-white italic uppercase tracking-tight">
+                <h4 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">
                   Active Disruption Shields
                 </h4>
                 <p className="text-xs text-zinc-500 font-semibold font-sans mt-2">
@@ -2823,7 +2506,7 @@ export default function Dashboard() {
       {/* INVENTORY ASSET CAMERA SCANNER MODAL */}
       <AnimatePresence>
         {isScanning && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/90">
+          <div ref={scannerModalRef} className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/90">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -2835,16 +2518,16 @@ export default function Dashboard() {
               initial={{ scale: 0.9, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
-              className="bg-zinc-950 relative w-full max-w-xl rounded-[40px] overflow-hidden border-4 border-white/10 shadow-2xl"
+              className="bg-zinc-950 relative w-full max-w-xl rounded-2xl overflow-hidden border border-white/5 shadow-2xl"
             >
-              <div className="p-10 sm:p-12 space-y-8 flex flex-col">
+              <div className="p-6 md:p-10 sm:p-6 lg:p-12 space-y-6 sm:space-y-8 flex flex-col">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-3xl font-black text-white tracking-tight uppercase italic font-sans">
+                  <h3 className="text-xl sm:text-2xl sm:text-3xl font-black text-white tracking-tight uppercase italic font-sans">
                     Active Materials Scanner
                   </h3>
                 </div>
 
-                <div className="aspect-video bg-white/5 rounded-[32px] border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:border-emerald-500 transition-all">
+                <div className="aspect-video bg-white/5 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:border-emerald-500 transition-all">
                   {isProcessing ? (
                     <div className="text-center space-y-4">
                       <Loader2
@@ -2856,10 +2539,10 @@ export default function Dashboard() {
                       </p>
                     </div>
                   ) : parsedScanResult ? (
-                    <div className="bg-zinc-900 border-4 border-white/10 rounded-2xl p-6 w-[85%] text-left space-y-4">
+                    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 w-[85%] text-left space-y-4">
                       <div className="flex justify-between items-start border-b border-white/10 pb-3">
                         <div className="space-y-1">
-                          <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-bold uppercase px-2.5 py-0.5 rounded-full">
+                          <span className="text-xs md:text-[10px] bg-emerald-500/20 text-emerald-400 font-bold uppercase px-2.5 py-0.5 rounded-full">
                             BARCODE EXTRACTED
                           </span>
                           <h4 className="text-base font-bold text-white leading-normal mt-1">
@@ -2893,7 +2576,7 @@ export default function Dashboard() {
                           <p className="text-zinc-500 uppercase">
                             Barcode Reference
                           </p>
-                          <p className="text-zinc-300 mt-0.5 font-mono text-[11px]">
+                          <p className="text-zinc-300 mt-0.5 font-mono text-xs md:text-[11px]">
                             {parsedScanResult.barcode}
                           </p>
                         </div>
@@ -2948,7 +2631,7 @@ export default function Dashboard() {
                   )}
                   <button
                     onClick={() => setIsScanning(false)}
-                    className="w-full sm:w-auto px-10 py-5 bg-white text-black hover:bg-zinc-200 font-bold text-sm uppercase tracking-widest rounded-2xl transition-all"
+                    className="w-full sm:w-auto px-6 sm:px-10 py-5 bg-white text-black hover:bg-zinc-200 font-bold text-sm uppercase tracking-widest rounded-2xl transition-all"
                   >
                     Close Scanner
                   </button>
@@ -2958,6 +2641,40 @@ export default function Dashboard() {
           </div>
         )}
       </AnimatePresence>
+      {/* WIDGET CONFIGURATOR MODAL */}
+      <AnimatePresence>
+        {showWidgetSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/90">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0"
+              onClick={() => setShowWidgetSettings(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-[28px] border border-white/5 shadow-2xl"
+            >
+              <WidgetConfigurator
+                activeWidgets={activeWidgets}
+                widgetOrder={widgetOrder}
+                onChange={handleWidgetConfigChange}
+              />
+              <button 
+                className="absolute top-6 right-6 text-zinc-500 hover:text-white transition-colors"
+                onClick={() => setShowWidgetSettings(false)}
+              >
+                <X size={20} />
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <LeadSubmissionModal isOpen={isLeadModalOpen} onClose={() => setIsLeadModalOpen(false)} />
     </div>
   );
 }

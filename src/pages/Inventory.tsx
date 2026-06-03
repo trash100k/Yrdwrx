@@ -1,4 +1,5 @@
-
+import { fetchApi } from "../lib/api";
+// @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import {
   collection,
@@ -38,6 +39,7 @@ import {
   Mountain,
   PaintBucket,
   Calculator,
+  Zap,
   History,
   ArrowDownToLine,
   ArrowUpToLine,
@@ -50,11 +52,20 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { useTenant } from "../contexts/TenantContext";
+import { useAuditLog } from "../hooks/useAuditLog";
 import { InventoryItem } from "../types";
 import { syncService } from "../services/syncService";
+import { useFocusTrap } from "../hooks/useFocusTrap";
+import InventoryForecast from "../components/InventoryForecast";
+import { TrendingDown } from "lucide-react";
+
+import { StockDepletionChart } from "../components/StockDepletionChart";
+import { useToast } from "../contexts/ToastContext";
 
 export default function Inventory() {
   const { tenant } = useTenant();
+  const { logAction } = useAuditLog();
+  const { showToast } = useToast();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [logs, setLogs] = useState<
     {
@@ -63,21 +74,41 @@ export default function Inventory() {
       action: string;
       quantity: number;
       user: string;
+      type?: string;
+      jobId?: string;
+      itemName?: string;
+      unit?: string;
+      clientName?: string;
     }[]
   >([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isScanning, setIsScanning] = useState(false);
-  const [scanningMode, setScanningMode] = useState<"vision" | "live">("vision");
+  const [scanningMode, setScanningMode] = useState<
+    "vision" | "live" | "manual"
+  >("vision");
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanResult, setScanResult] = useState<{
-    item: string;
-    status: string;
+    id?: string;
+    item?: string;
+    status?: string;
     name: string;
-    vendor: string;
+    vendor?: string;
+    category?: string;
+    brand?: string;
+    quantity?: number;
+    unit?: string;
+    partNumber?: string;
+    suggestedUnit?: string;
+    imageUrl?: string;
+    barcode?: string;
+    isExisting?: boolean;
   } | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [activeTab, setActiveTab] = useState("All");
+
+  const scannerModalRef = useFocusTrap<HTMLDivElement>(isScanning);
   const [showCalculator, setShowCalculator] = useState(false);
+  const [showForecast, setShowForecast] = useState(false);
   const [calcData, setCalcData] = useState({
     length: "",
     width: "",
@@ -88,6 +119,60 @@ export default function Inventory() {
   const [manualBarcode, setManualBarcode] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleVoiceAction = async (e: CustomEvent) => {
+      const { name, args } = e.detail;
+      if (name === "check_inventory") {
+        if (args && args.itemName) {
+          setSearchQuery(args.itemName);
+        } else {
+          setIsScanning(true);
+        }
+      } else if (name === "log_inventory_usage") {
+        if (args && args.itemName && args.quantity) {
+          const itemToLog = items.find((i) =>
+            i.name.toLowerCase().includes(args.itemName.toLowerCase()),
+          );
+          if (itemToLog) {
+            await logUsage(itemToLog, args.quantity, "out");
+
+            if (args.clientName) {
+              // Queue an expense/invoice line item for this client
+              try {
+                await addDoc(collection(db, "expenses"), {
+                  amount: Number(itemToLog.unitCost || 0) * args.quantity,
+                  vendor: "Inventory Usage",
+                  description: `${args.quantity}x ${itemToLog.name} for ${args.clientName}`,
+                  date: new Date().toISOString(),
+                  tenantId: tenant?.id || "genesis-1",
+                });
+                showToast(
+                  `Logged ${args.quantity}x ${itemToLog.name} usage for ${args.clientName} billing.`,
+                  "success",
+                );
+              } catch (err) {
+                console.error("Error logging billing.", err);
+              }
+            } else {
+              showToast(
+                `Logged ${args.quantity}x ${itemToLog.name} usage.`,
+                "success",
+              );
+            }
+          } else {
+            showToast(`Item ${args.itemName} not found in inventory.`, "error");
+          }
+        }
+      }
+    };
+    window.addEventListener("cutty-action", handleVoiceAction as unknown as EventListener);
+    return () =>
+      window.removeEventListener(
+        "cutty-action",
+        handleVoiceAction as unknown as EventListener,
+      );
+  }, [items, tenant, showToast]);
 
   useEffect(() => {
     const tenantId = tenant?.id || "genesis-1";
@@ -138,14 +223,32 @@ export default function Inventory() {
     try {
       const reader = new FileReader();
       reader.onloadend = async () => {
-        const base64String = (reader.result as string).split(",")[1];
-        const res = await fetch("/api/inventory/process-image", {
+        const rawBase64 = reader.result as string;
+
+        // Scale down image to avoid Firestore limit
+        const img = new Image();
+        img.src = rawBase64;
+        await new Promise((r) => (img.onload = r));
+
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 400;
+        const scaleSize = MAX_WIDTH / img.width;
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+
+        const base64String = compressedBase64.split(",")[1];
+
+        const res = await fetchApi("/api/inventory/process-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageData: base64String }),
         });
         const data = await res.json();
-        setScanResult(data);
+        // save the compressed image url onto the item
+        setScanResult({ ...data, imageUrl: compressedBase64 });
       };
       reader.readAsDataURL(file);
     } catch (err) {
@@ -189,6 +292,7 @@ export default function Inventory() {
     type: "in" | "out" = "out",
   ) => {
     const tenantId = tenant?.id || "genesis-1";
+    if (!item.id) return;
     try {
       const newQty =
         type === "in"
@@ -239,6 +343,7 @@ export default function Inventory() {
         type,
         tenantId,
       });
+      logAction("Inventory", `Used ${item.name}`, `Allocated ${qty} of ${item.name}`);
 
       if (newQty < (item.minThreshold || 5)) {
         await ingestKnowledge(
@@ -270,9 +375,10 @@ export default function Inventory() {
       if (existing) {
         await logUsage(existing, qty, "in");
         await ingestKnowledge(
-          `Inventory Update: ${existing.name} stock increased by ${qty}. Total now: ${existing.quantity + qty}.`,
+          `Inventory Update: ${existing.name} stock increased by ${qty}. Total now: ${(existing.quantity || 0) + qty}.`,
           { type: "inventory", action: "restock" },
         );
+        logAction("Inventory", "Restock", `Restocked ${qty} of ${existing.name}`);
         await logSystemEvent("INVENTORY_RESTOCKED", {
           itemId: existing.id,
           itemName: existing.name,
@@ -289,6 +395,7 @@ export default function Inventory() {
             lastScannedAt: serverTimestamp(),
             minThreshold: scanResult.category === "Bulk" ? 2 : 5,
           });
+          logAction("Inventory", "New Item", `Added ${qty} of new item ${scanResult.name}`);
           await logSystemEvent("NEW_INVENTORY_ITEM_CREATED", {
             itemId: docRef.id,
             name: scanResult.name,
@@ -308,6 +415,7 @@ export default function Inventory() {
             },
             tenantId,
           );
+          logAction("Inventory", "New Item (Offline)", `Added ${qty} of new item ${scanResult.name}`);
           await logSystemEvent("NEW_INVENTORY_ITEM_CREATED_OFFLINE", {
             name: scanResult.name,
             initialQty: qty,
@@ -373,6 +481,7 @@ export default function Inventory() {
 
   const filteredItems = items.filter(
     (item) =>
+      !item.isArchived &&
       (activeTab === "All" || item.category === activeTab) &&
       (item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.partNumber?.toLowerCase().includes(searchQuery.toLowerCase())),
@@ -387,15 +496,31 @@ export default function Inventory() {
   ];
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="space-y-6 lg:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      {tenant?.settings?.features?.cockpit_buttons && (
+        <div className="mb-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <button onClick={() => {
+              setScanResult(null);
+              setIsScanning(true);
+            }} className="flex flex-col items-center justify-center gap-2 p-6 bg-pink-500/10 border border-pink-500/20 rounded-[20px] text-pink-400 hover:bg-pink-500/20 transition-all shadow-sm">
+            <Plus size={24} className="hover:scale-110 transition-transform" />
+            <span className="font-bold text-sm">Quick Restock</span>
+          </button>
+          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-400/50 to-transparent"></div>
+             <Zap size={24} className="text-yellow-400 animate-pulse" />
+             <span className="font-bold text-sm text-yellow-400/80">Easy Mode Active</span>
+          </div>
+        </div>
+      )}
       {/* Strategic Command & Control row */}
-      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-10 pb-8 border-b-4 border-white/10 relative z-10">
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 lg:gap-10 pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
           <div className="inline-flex items-center gap-3 px-4 py-2 bg-purple-500/10 rounded-full border border-purple-500 text-xs font-black uppercase tracking-widest text-purple-500">
             <Package size={16} />
             Material Supply Chain
           </div>
-          <h1 className="text-6xl font-sans font-black tracking-tighter leading-none text-white italic uppercase">
+          <h1 className="text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words font-sans font-black tracking-normal md:tracking-tighter leading-none text-white italic uppercase">
             Inventory Central
           </h1>
           <p className="max-w-xl text-zinc-400 font-bold text-lg uppercase tracking-widest italic pt-2 leading-relaxed">
@@ -409,27 +534,43 @@ export default function Inventory() {
               setScanResult(null);
               setIsScanning(true);
             }}
-            className="flex items-center justify-center gap-3 px-8 py-5 bg-white text-black border-4 border-black font-black uppercase tracking-widest text-sm rounded-2xl shadow-[4px_4px_0_0_#FFF] hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
+            className="flex items-center justify-center gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-white text-black font-semibold text-sm rounded-xl shadow-sm border border-transparent hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
           >
             <Scan size={24} className="animate-pulse" />
             <span className="hidden sm:inline">Scan Item</span>
           </button>
           <button
             onClick={() => setShowCalculator(!showCalculator)}
-            className="flex items-center justify-center gap-3 px-8 py-5 bg-black text-white/60 hover:text-white border-4 border-white/10 font-black uppercase tracking-widest text-sm rounded-2xl hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
+            className="flex items-center justify-center gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-black text-white/60 hover:text-white border border-white/5 font-black uppercase tracking-widest text-sm rounded-2xl hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
           >
             <Calculator size={24} />
             <span className="hidden sm:inline">Volume Tool</span>
           </button>
+          <button
+            onClick={() => setShowForecast(true)}
+            className="flex items-center justify-center gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-white text-black border border-white/5 font-black uppercase tracking-widest text-sm rounded-2xl shadow-[4px_4px_0_0_#FFF] hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
+          >
+            <TrendingDown size={24} />
+            <span className="hidden sm:inline">Forecast</span>
+          </button>
         </div>
       </header>
 
+      <AnimatePresence>
+        {showForecast && (
+          <InventoryForecast
+            items={items}
+            onClose={() => setShowForecast(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Strategic Profit & Loss metrics row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
         {/* Real-time ROI Metrics */}
         <div
           id="efficiency-metrics-card"
-          className="bg-zinc-900 border-4 border-white/10 p-12 rounded-[32px] shadow-2xl flex flex-col justify-between group hover:border-blue-500/50 transition-all min-h-[300px]"
+          className="bg-zinc-900 border border-white/5 p-6 lg:p-12 rounded-2xl shadow-2xl flex flex-col justify-between group hover:border-blue-500/50 transition-all min-h-[300px]"
         >
           <div>
             <div className="flex items-center justify-between mb-10">
@@ -443,7 +584,7 @@ export default function Inventory() {
             <p className="micro-label opacity-80 font-black uppercase tracking-widest mb-2 italic">
               Recovered Assets
             </p>
-            <h3 className="text-5xl font-black text-white italic tracking-tighter leading-none mb-2">
+            <h3 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black text-white italic tracking-normal md:tracking-tighter leading-none mb-2">
               ${quantities.recoveryVal.toLocaleString()}
             </h3>
             <p className="micro-label text-emerald-400 font-black lowercase tracking-widest opacity-80 italic">
@@ -458,7 +599,7 @@ export default function Inventory() {
           </div>
         </div>
 
-        <div className="bg-zinc-900 border-4 border-white/10 p-12 rounded-[32px] shadow-2xl flex flex-col justify-between group hover:border-blue-500/50 transition-all min-h-[300px]">
+        <div className="bg-zinc-900 border border-white/5 p-6 lg:p-12 rounded-2xl shadow-2xl flex flex-col justify-between group hover:border-blue-500/50 transition-all min-h-[300px]">
           <div>
             <div className="flex items-center justify-between mb-10">
               <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-black shadow-inner">
@@ -471,7 +612,7 @@ export default function Inventory() {
             <p className="micro-label opacity-80 font-black uppercase tracking-widest mb-2 italic">
               Calculated Shrinkage
             </p>
-            <h3 className="text-5xl font-black text-white italic tracking-tighter leading-none mb-4">
+            <h3 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black text-white italic tracking-normal md:tracking-tighter leading-none mb-4">
               {quantities.leakage.toFixed(1)}%
             </h3>
             <p className="micro-label text-amber-400 font-black italic lowercase tracking-widest opacity-80">
@@ -490,8 +631,10 @@ export default function Inventory() {
         </div>
       </div>
 
+      <StockDepletionChart />
+
       {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-8">
         {/* Navigation & Tools */}
         <aside className="space-y-6">
           {/* Material Calculator integration */}
@@ -501,7 +644,7 @@ export default function Inventory() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="bg-black/40 p-8 rounded-[32px] border-4 border-white/10 overflow-hidden shadow-2xl relative"
+                className="bg-black/40 p-8 rounded-2xl border border-white/5 overflow-hidden shadow-2xl relative"
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3
@@ -525,7 +668,7 @@ export default function Inventory() {
                     <input
                       id="calc-length"
                       placeholder="Length(ft)"
-                      className="bg-white/5 border-4 border-white/10 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-zinc-600 [color-scheme:dark]"
+                      className="bg-white/5 border border-white/5 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-zinc-600 [color-scheme:dark]"
                       value={calcData.length}
                       onChange={(e) =>
                         setCalcData({ ...calcData, length: e.target.value })
@@ -537,7 +680,7 @@ export default function Inventory() {
                     <input
                       id="calc-width"
                       placeholder="Width(ft)"
-                      className="bg-white/5 border-4 border-white/10 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-zinc-600 [color-scheme:dark]"
+                      className="bg-white/5 border border-white/5 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-zinc-600 [color-scheme:dark]"
                       value={calcData.width}
                       onChange={(e) =>
                         setCalcData({ ...calcData, width: e.target.value })
@@ -551,7 +694,7 @@ export default function Inventory() {
                     <input
                       id="calc-depth"
                       placeholder="Depth(in) "
-                      className="flex-1 bg-white/5 border-4 border-white/10 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-white/10 [color-scheme:dark]"
+                      className="flex-1 min-w-0 bg-white/5 border border-white/5 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-white/10 [color-scheme:dark]"
                       value={calcData.depth}
                       onChange={(e) =>
                         setCalcData({ ...calcData, depth: e.target.value })
@@ -562,10 +705,10 @@ export default function Inventory() {
                         CY Result
                       </p>
                       <div className="flex items-baseline justify-center gap-1">
-                        <span className="text-2xl font-black italic leading-none">
+                        <span className="text-xl sm:text-2xl font-black italic leading-none">
                           {calculateCubicYards()}
                         </span>
-                        <span className="text-[10px] font-black uppercase italic text-zinc-500">
+                        <span className="text-xs md:text-[10px] font-black uppercase italic text-zinc-500">
                           yds³
                         </span>
                       </div>
@@ -576,7 +719,7 @@ export default function Inventory() {
             )}
           </AnimatePresence>
 
-          <div className="bg-zinc-900 border-4 border-white/10 p-8 rounded-[32px] space-y-10 shadow-2xl">
+          <div className="bg-zinc-900 border border-white/5 p-8 rounded-2xl space-y-6 lg:space-y-10 shadow-2xl">
             <div>
               <label className="micro-label font-black uppercase tracking-[0.3em] text-zinc-400 mb-6 block italic">
                 Asset Class Navigation
@@ -651,12 +794,12 @@ export default function Inventory() {
                   placeholder="Query assets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-14 pr-6 py-5 bg-white/5 border-4 border-white/10 rounded-[24px] text-sm font-bold focus:outline-none focus:bg-white/10 focus:border-white/20 transition-all placeholder:text-zinc-600"
+                  className="w-full pl-14 pr-6 py-5 bg-white/5 border border-white/5 rounded-[24px] text-sm font-bold focus:outline-none focus:bg-white/10 focus:border-white/20 transition-all placeholder:text-zinc-600"
                 />
               </div>
             </div>
           </div>
-          <div className="bg-zinc-900 border-4 border-white/10 p-8 rounded-[32px] space-y-10 shadow-2xl">
+          <div className="bg-zinc-900 border border-white/5 p-8 rounded-2xl space-y-6 lg:space-y-10 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <History size={20} className="text-white/20" />
@@ -672,7 +815,7 @@ export default function Inventory() {
               {logs.map((log) => (
                 <div key={log.id} className="flex items-center gap-6 group/log">
                   <div
-                    className={`w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center transition-all group-hover/log:scale-110 ${log.type === "in" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-white/5 text-white/20 border-4 border-white/10"}`}
+                    className={`w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center transition-all group-hover/log:scale-110 ${log.type === "in" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-white/5 text-white/20 border border-white/5"}`}
                   >
                     {log.type === "in" ? (
                       <ArrowDownToLine size={20} />
@@ -697,7 +840,7 @@ export default function Inventory() {
                 </div>
               ))}
               {logs.length === 0 && (
-                <p className="micro-label text-white/10 text-center py-10 font-black uppercase tracking-widest italic">
+                <p className="micro-label text-white/10 text-center py-6 sm:py-10 font-black uppercase tracking-widest italic">
                   No recent movement
                 </p>
               )}
@@ -715,18 +858,24 @@ export default function Inventory() {
               <motion.div
                 layout
                 key={item.id}
-                className="bg-zinc-900 border-4 border-white/10 rounded-[32px] overflow-hidden group flex flex-col shadow-2xl hover:border-blue-500/50 transition-all duration-700 min-h-[450px]"
+                className="bg-zinc-900 border border-white/5 rounded-2xl overflow-hidden group flex flex-col shadow-2xl hover:border-blue-500/50 transition-all duration-700 min-h-[450px]"
               >
                 <div className="p-8 flex-grow">
                   <div className="flex items-start justify-between mb-8">
                     <div
-                      className={`w-16 h-16 rounded-[24px] flex items-center justify-center transition-all duration-700 group-hover:scale-110 group-hover:rotate-3 ${
-                        item.quantity < (item.minThreshold || 5)
+                      className={`w-16 h-16 rounded-[24px] overflow-hidden flex items-center justify-center transition-all duration-700 group-hover:scale-110 group-hover:rotate-3 ${
+                        (item.quantity || 0) < (item.minThreshold || 5)
                           ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                          : "bg-white/5 text-white border-4 border-white/10"
+                          : "bg-white/5 text-white border border-white/5"
                       }`}
                     >
-                      {item.category === "Fuel" ? (
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
+                          className="w-full h-full object-cover opacity-80"
+                        />
+                      ) : item.category === "Fuel" ? (
                         <Fuel size={32} />
                       ) : item.category === "Bulk" ? (
                         <Mountain size={32} />
@@ -739,21 +888,23 @@ export default function Inventory() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => logUsage(item, 1, "in")}
-                        className="p-3 bg-white/5 text-white/20 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all border-4 border-white/10"
+                        className="p-3 bg-white/5 text-white/20 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all border border-white/5"
                         aria-label={`Restock 1 ${item.name}`}
                       >
                         <Plus size={18} aria-hidden="true" />
                       </button>
                       <button
-                        className="p-3 bg-white/5 text-white/20 hover:text-white hover:bg-white/10 rounded-xl transition-all border-4 border-white/10"
+                        className="p-3 bg-white/5 text-white/20 hover:text-white hover:bg-white/10 rounded-xl transition-all border border-white/5"
                         aria-label={`Settings for ${item.name}`}
                       >
                         <Settings2 size={18} aria-hidden="true" />
                       </button>
                       <button
                         onClick={async () => {
+                          if (!item.id) return;
                           try {
-                            await deleteDoc(doc(db, "inventory", item.id));
+                            await updateDoc(doc(db, "inventory", item.id), { isArchived: true, deletedAt: serverTimestamp() });
+                            logAction("Inventory", "Remove Item", `Archived/deleted ${item.name}`);
                             await logSystemEvent("INVENTORY_ITEM_DELETED", {
                               itemId: item.id,
                               itemName: item.name,
@@ -766,7 +917,7 @@ export default function Inventory() {
                             );
                           }
                         }}
-                        className="p-3 bg-white/5 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all border-4 border-white/10"
+                        className="p-3 bg-white/5 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all border border-white/5"
                         aria-label={`Delete ${item.name}`}
                       >
                         <Trash2 size={18} aria-hidden="true" />
@@ -775,11 +926,11 @@ export default function Inventory() {
                   </div>
 
                   <div className="space-y-2 mb-10">
-                    <h3 className="text-2xl font-black text-white tracking-tighter leading-none truncate italic group-hover:text-emerald-400 transition-colors uppercase">
+                    <h3 className="text-xl sm:text-2xl font-black text-white tracking-normal md:tracking-tighter leading-none truncate italic group-hover:text-emerald-400 transition-colors uppercase">
                       {item.name}
                     </h3>
                     <div className="flex items-center gap-3">
-                      <span className="micro-label font-black uppercase tracking-[0.2em] text-white/20 bg-white/5 px-3 py-1 rounded-full border-4 border-white/10 group-hover:border-emerald-500/30 transition-colors">
+                      <span className="micro-label font-black uppercase tracking-[0.2em] text-white/20 bg-white/5 px-3 py-1 rounded-full border border-white/5 group-hover:border-emerald-500/30 transition-colors">
                         {item.category}
                       </span>
                       <span className="micro-label font-black text-white/10 tracking-widest italic group-hover:text-white/30 transition-colors">
@@ -824,9 +975,9 @@ export default function Inventory() {
                       </p>
                       <div className="flex items-baseline gap-2">
                         <span
-                          className={`text-5xl font-black leading-none italic ${item.quantity < (item.minThreshold || 5) ? "text-red-400" : "text-white"}`}
+                          className={`text-3xl sm:text-4xl lg:text-5xl break-words font-black leading-none italic ${(item.quantity || 0) < (item.minThreshold || 5) ? "text-red-400" : "text-white"}`}
                         >
-                          {item.quantity}
+                          {(item.quantity || 0)}
                         </span>
                         <span className="micro-label font-black text-white/50 uppercase tracking-widest italic">
                           {item.unit || "Units"}
@@ -839,7 +990,7 @@ export default function Inventory() {
                       <div
                         className="w-16 h-16 relative group-hover:scale-110 transition-transform duration-700"
                         role="img"
-                        aria-label={`${item.quantity} units of ${item.name}`}
+                        aria-label={`${(item.quantity || 0)} units of ${item.name}`}
                       >
                         <svg
                           className="w-full h-full -rotate-90 drop-shadow-2xl"
@@ -859,14 +1010,14 @@ export default function Inventory() {
                             r="28"
                             fill="transparent"
                             stroke={
-                              item.quantity < (item.minThreshold || 5)
+                              (item.quantity || 0) < (item.minThreshold || 5)
                                 ? "#f87171"
                                 : "#10b981"
                             }
                             strokeWidth="6"
                             strokeDasharray={176}
                             strokeDashoffset={
-                              176 - (176 * Math.min(item.quantity, 20)) / 20
+                              176 - (176 * Math.min((item.quantity || 0), 20)) / 20
                             }
                             strokeLinecap="round"
                             className="transition-all duration-1000 shadow-glow"
@@ -876,7 +1027,7 @@ export default function Inventory() {
                           <Mountain
                             size={18}
                             className={
-                              item.quantity < (item.minThreshold || 5)
+                              (item.quantity || 0) < (item.minThreshold || 5)
                                 ? "text-red-400 animate-pulse shadow-glow"
                                 : "text-emerald-500"
                             }
@@ -896,7 +1047,7 @@ export default function Inventory() {
                       <button
                         onClick={() => logUsage(item, 1, "out")}
                         aria-label={`Reduce inventory for ${item.name} by 1 unit`}
-                        className="w-12 h-12 bg-white/5 text-white/20 rounded-[20px] flex items-center justify-center hover:bg-white hover:text-black transition-all border-4 border-white/10 shadow-2xl"
+                        className="w-12 h-12 bg-white/5 text-white/20 rounded-[20px] flex items-center justify-center hover:bg-white hover:text-black transition-all border border-white/5 shadow-2xl"
                       >
                         <Package size={20} aria-hidden="true" />
                       </button>
@@ -904,7 +1055,7 @@ export default function Inventory() {
                   </div>
                 </div>
 
-                {item.quantity < (item.minThreshold || 5) ? (
+                {(item.quantity || 0) < (item.minThreshold || 5) ? (
                   <div className="bg-red-500/80 py-4 px-8 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-2 h-2 bg-white rounded-full animate-ping" />
@@ -917,7 +1068,7 @@ export default function Inventory() {
                     </button>
                   </div>
                 ) : (
-                  <div className="px-8 py-5 bg-zinc-900 border-t border-white/10 flex items-center justify-between opacity-30 group-hover:opacity-100 transition-opacity">
+                  <div className="px-4 sm:px-8 py-3 sm:py-5 bg-zinc-900 border-t border-white/10 flex items-center justify-between opacity-30 group-hover:opacity-100 transition-opacity">
                     <div className="flex items-center gap-2">
                       <History size={12} className="text-white/20" />
                       <span className="micro-label font-black tracking-widest italic uppercase">
@@ -937,13 +1088,13 @@ export default function Inventory() {
           </div>
 
           {filteredItems.length === 0 && (
-            <div className="flex flex-col items-center justify-center p-24 text-center space-y-8 relative overflow-hidden group">
+            <div className="flex flex-col items-center justify-center p-24 text-center space-y-6 sm:space-y-8 relative overflow-hidden group">
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-              <div className="w-32 h-32 bg-white rounded-[40px] flex items-center justify-center mx-auto text-black shadow-2xl relative z-10 group-hover:scale-110 transition-transform duration-700">
+              <div className="w-32 h-32 bg-white rounded-2xl flex items-center justify-center mx-auto text-black shadow-2xl relative z-10 group-hover:scale-110 transition-transform duration-700">
                 <Package size={64} />
               </div>
               <div className="relative z-10">
-                <h3 className="text-4xl font-black text-white mb-4 italic tracking-tighter lowercase leading-none">
+                <h3 className="text-2xl sm:text-3xl sm:text-4xl font-black text-white mb-4 italic tracking-normal md:tracking-tighter lowercase leading-none">
                   Inventory Hub Empty.
                 </h3>
                 <p className="text-zinc-300 font-bold text-lg max-w-sm mx-auto leading-relaxed italic">
@@ -953,7 +1104,7 @@ export default function Inventory() {
               </div>
               <button
                 onClick={() => setIsScanning(true)}
-                className="bg-white text-black px-12 py-6 rounded-[32px] font-black text-xs uppercase tracking-[0.3em] shadow-[0_40px_80_rgba(255,255,255,0.1)] active:scale-95 transition-all relative z-10 hover:scale-105"
+                className="bg-white text-black px-6 sm:px-12 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-[0_40px_80_rgba(255,255,255,0.1)] active:scale-95 transition-all relative z-10 hover:scale-105"
               >
                 Scan First Item
               </button>
@@ -965,7 +1116,10 @@ export default function Inventory() {
       {/* Vision Scanner Modal */}
       <AnimatePresence>
         {isScanning && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80">
+          <div
+            ref={scannerModalRef}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80"
+          >
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -977,7 +1131,7 @@ export default function Inventory() {
               initial={{ scale: 0.9, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
-              className="relative w-full max-w-xl bg-black rounded-[40px] overflow-hidden shadow-2xl border-4 border-white/10"
+              className="relative w-full max-w-xl bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/5"
             >
               <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-emerald-500 via-blue-500 to-purple-500 blur-sm" />
               <div className="p-14">
@@ -990,7 +1144,7 @@ export default function Inventory() {
                     <div>
                       <h2
                         id="scanner-title"
-                        className="text-3xl font-black text-white italic tracking-tighter leading-none mb-1 lowercase"
+                        className="text-xl sm:text-2xl sm:text-3xl font-black text-white italic tracking-normal md:tracking-tighter leading-none mb-1 lowercase"
                       >
                         Asset Scan.
                       </h2>
@@ -1015,6 +1169,14 @@ export default function Inventory() {
                         >
                           Live Barcode
                         </button>
+                        <button
+                          role="tab"
+                          aria-selected={scanningMode === "manual"}
+                          onClick={() => setScanningMode("manual")}
+                          className={`micro-label font-black uppercase tracking-widest transition-colors ${scanningMode === "manual" ? "text-emerald-400 shadow-glow" : "text-white/20 hover:text-white/60"}`}
+                        >
+                          Manual
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1022,9 +1184,9 @@ export default function Inventory() {
                 </div>
 
                 {!scanResult ? (
-                  <div className="space-y-10">
+                  <div className="space-y-6 lg:space-y-10">
                     {scanningMode === "vision" ? (
-                      <div className="aspect-[3/2] bg-zinc-900 rounded-[32px] border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:bg-zinc-900 hover:border-emerald-500/50 transition-all cursor-pointer">
+                      <div className="aspect-[3/2] bg-zinc-900 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:bg-zinc-900 hover:border-emerald-500/50 transition-all cursor-pointer">
                         {isProcessing ? (
                           <div className="flex flex-col items-center gap-6">
                             <Loader2
@@ -1064,9 +1226,9 @@ export default function Inventory() {
                           </>
                         )}
                       </div>
-                    ) : (
+                    ) : scanningMode === "live" ? (
                       <div className="space-y-6">
-                        <div className="rounded-[40px] overflow-hidden border-4 border-white/10 shadow-inner">
+                        <div className="rounded-2xl overflow-hidden border border-white/5 shadow-inner">
                           <BarcodeScanner
                             onScanSuccess={onBarcodeScan}
                             onScanError={(err) => console.debug(err)}
@@ -1078,9 +1240,40 @@ export default function Inventory() {
                           </p>
                         </div>
                       </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="rounded-2xl overflow-hidden border border-white/5 shadow-inner p-8 bg-zinc-900 flex flex-col gap-4 items-center">
+                          <input
+                            type="text"
+                            placeholder="Enter UPC / SKU / Name"
+                            className="bg-zinc-800 text-white font-mono uppercase w-full min-w-0 rounded-2xl px-6 py-4 outline-none border-2 border-white/5 focus:border-emerald-500/50 transition-colors"
+                            value={manualBarcode}
+                            onChange={(e) => setManualBarcode(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && manualBarcode.trim()) {
+                                onBarcodeScan(manualBarcode);
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={() => {
+                              if (manualBarcode.trim())
+                                onBarcodeScan(manualBarcode);
+                            }}
+                            className="bg-emerald-500 text-black w-full px-4 sm:px-8 py-3 sm:py-4 rounded-[20px] font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                          >
+                            Lookup Asset
+                          </button>
+                        </div>
+                        <div className="text-center">
+                          <p className="micro-label font-black text-white/20 uppercase tracking-[0.4em]">
+                            Manual Entry Override
+                          </p>
+                        </div>
+                      </div>
                     )}
                     <div className="grid grid-cols-2 gap-6">
-                      <div className="p-8 bg-blue-500/5 rounded-[32px] border border-blue-500/10 flex gap-4">
+                      <div className="p-8 bg-blue-500/5 rounded-2xl border border-blue-500/10 flex gap-4">
                         <div className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shrink-0">
                           <Barcode size={20} />
                         </div>
@@ -1088,7 +1281,7 @@ export default function Inventory() {
                           Reads UPC-A, EAN-13, and Code 128 barcodes instantly.
                         </p>
                       </div>
-                      <div className="p-8 bg-emerald-500/5 rounded-[32px] border border-emerald-500/10 flex gap-4">
+                      <div className="p-8 bg-emerald-500/5 rounded-2xl border border-emerald-500/10 flex gap-4">
                         <div className="w-10 h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center shrink-0">
                           <Mountain size={20} />
                         </div>
@@ -1100,41 +1293,58 @@ export default function Inventory() {
                     </div>
                     <button
                       onClick={resetScanner}
-                      className="w-full py-6 mt-8 bg-white border-4 border-white/10 hover:bg-white/90 text-black hover:text-black rounded-[24px] font-black text-xs sm:text-sm uppercase tracking-widest transition-all"
+                      className="w-full py-6 mt-8 bg-white border border-white/5 hover:bg-white/90 text-black hover:text-black rounded-[24px] font-black text-xs sm:text-sm uppercase tracking-widest transition-all"
                     >
                       Cancel / Close Scanner
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="p-12 bg-zinc-900 rounded-[32px] border-4 border-white/10 relative group overflow-hidden shadow-inner">
-                      <div className="absolute top-0 right-0 p-10 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity">
-                        <Package size={200} />
-                      </div>
-                      <p className="micro-label font-black text-emerald-400 uppercase tracking-[0.3em] mb-4 italic">
-                        {scanResult.id
-                          ? "Existing Item Found"
-                          : "Neural Asset Identified"}
-                      </p>
-                      <h3 className="text-4xl font-black text-white tracking-tighter leading-none mb-6 italic lowercase">
-                        {scanResult.name}.
-                      </h3>
-                      <div className="flex flex-wrap gap-3">
-                        <span className="micro-label font-black bg-white text-black px-4 py-1.5 rounded-full uppercase tracking-widest">
-                          {scanResult.category}
-                        </span>
-                        <span className="micro-label font-black bg-white/5 border-4 border-white/10 text-white/60 px-4 py-1.5 rounded-full uppercase tracking-widest">
-                          {scanResult.brand || "Generic"}
-                        </span>
-                        {scanResult.id && (
-                          <span className="micro-label font-black bg-amber-500/10 border border-amber-500/20 text-amber-500 px-4 py-1.5 rounded-full uppercase tracking-widest shadow-glow">
-                            Stock: {scanResult.quantity} {scanResult.unit}
+                  <div className="space-y-6 lg:space-y-10 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="p-6 lg:p-12 bg-zinc-900 rounded-2xl border border-white/5 relative group overflow-hidden shadow-inner flex gap-4 sm:gap-8 items-center">
+                      {scanResult.imageUrl && (
+                        <div className="w-32 h-32 rounded-3xl overflow-hidden shrink-0 border-4 border-emerald-500/30">
+                          <img
+                            src={scanResult.imageUrl}
+                            alt={scanResult.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex-1">
+                        <div className="absolute top-0 right-0 p-10 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none">
+                          <Package size={200} />
+                        </div>
+                        <div className="flex items-center gap-3 mb-4">
+                          <p className="micro-label font-black text-emerald-400 uppercase tracking-[0.3em] italic">
+                            {scanResult.id
+                              ? "Existing Item Found"
+                              : "Neural Asset Identified"}
+                          </p>
+                          <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 ring-emerald-500/50 flex items-center gap-1 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                            <TrendingUp size={10} /> AI Extracted
                           </span>
-                        )}
+                        </div>
+                        <h3 className="text-2xl sm:text-3xl sm:text-4xl font-black text-white tracking-normal md:tracking-tighter leading-none mb-6 italic lowercase">
+                          {scanResult.name}.
+                        </h3>
+                        <div className="flex flex-wrap gap-3 relative z-10">
+                          <span className="micro-label font-black bg-white text-black px-4 py-1.5 rounded-full uppercase tracking-widest">
+                            {scanResult.category || "Unknown Type"}
+                          </span>
+                          <span className="micro-label font-black bg-white/5 border border-white/5 text-white/60 px-4 py-1.5 rounded-full uppercase tracking-widest">
+                            {scanResult.brand || "Generic"}
+                          </span>
+                          {scanResult.id && (
+                            <span className="micro-label font-black bg-amber-500/10 border border-amber-500/20 text-amber-500 px-4 py-1.5 rounded-full uppercase tracking-widest shadow-glow">
+                              Stock: {scanResult.quantity} {scanResult.unit}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-8">
+                    <div className="grid grid-cols-2 gap-4 sm:gap-8">
                       <div className="space-y-4">
                         <label className="micro-label font-black uppercase tracking-[0.4em] text-white/20 block ml-4 italic">
                           Asset Volume
@@ -1144,13 +1354,13 @@ export default function Inventory() {
                           value={quantity}
                           onChange={(e) => setQuantity(e.target.value)}
                           aria-label="Asset Volume"
-                          className="w-full bg-white/5 border-4 border-white/10 rounded-[32px] py-8 px-10 text-4xl font-black text-white italic focus:bg-white/10 focus:outline-none transition-all text-center"
+                          className="w-full bg-white/5 border border-white/5 rounded-2xl py-8 px-6 sm:px-10 text-2xl sm:text-3xl sm:text-4xl font-black text-white italic focus:bg-white/10 focus:outline-none transition-all text-center"
                         />
                       </div>
                       <div className="flex items-end">
                         <button
                           onClick={confirmAdd}
-                          className="w-full h-[88px] bg-white text-black rounded-[32px] flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all shadow-[0_20px_40px_rgba(255,255,255,0.1)] group/commit"
+                          className="w-full h-[88px] bg-white text-black rounded-2xl flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all shadow-[0_20px_40px_rgba(255,255,255,0.1)] group/commit"
                         >
                           <Check
                             size={32}

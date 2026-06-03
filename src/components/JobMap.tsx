@@ -1,3 +1,5 @@
+import { fetchApi } from "../lib/api";
+// @ts-nocheck
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
@@ -24,16 +26,14 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-const API_KEY =
-  (import.meta as unknown as { env: { VITE_GOOGLE_MAPS_API_KEY: string } }).env
-    .VITE_GOOGLE_MAPS_API_KEY || "";
+
 interface Job {
   id: string;
   title: string;
   client: string;
   address: string;
   status: string;
-  progress: number;
+  progress?: number;
   coords?: { lat: number; lng: number };
 }
 interface JobMapProps {
@@ -51,26 +51,35 @@ export default function JobMap({
   onPolygonComplete,
 }: JobMapProps) {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  if (!API_KEY) {
+  const [apiKey, setApiKey] = useState("");
+
+  useEffect(() => {
+    fetchApi("/api/config/maps")
+      .then((res) => res.json())
+      .then((data) => setApiKey(data.apiKey))
+      .catch((err) => console.error("Failed to load maps key", err));
+  }, []);
+
+  if (!apiKey) {
     return (
       <div className="w-full h-full min-h-[400px] bg-white/5 rounded-[48px] flex items-center justify-center p-12 text-center border border-white/10">
         {" "}
         <div className="max-w-md space-y-6">
           {" "}
-          <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mx-auto border border-white/5">
+          <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mx-auto border border-white/5 animate-pulse">
             {" "}
             <Navigation2 size={32} className="text-white/20" />{" "}
           </div>{" "}
-          <h3 className="text-2xl font-black italic tracking-tighter text-white uppercase">
-            Map Inactive
+          <h3 className="text-xl sm:text-2xl font-black italic tracking-normal md:tracking-tighter text-white uppercase">
+            Map Initializing
           </h3>{" "}
           <p className="text-sm font-medium text-white/60 leading-relaxed">
             {" "}
-            Please provide a valid{" "}
+            Please wait or provide a valid secure{" "}
             <code className="bg-white/10 px-2 py-0.5 rounded text-emerald-400">
-              VITE_GOOGLE_MAPS_API_KEY
+              GOOGLE_MAPS_API_KEY
             </code>{" "}
-            in the environment secrets to enable real-time map tracking.{" "}
+            in the workspace settings to enable real-time map tracking.{" "}
           </p>{" "}
         </div>{" "}
       </div>
@@ -79,7 +88,7 @@ export default function JobMap({
   return (
     <div className="w-full h-full min-h-[400px] bg-black rounded-[48px] overflow-hidden relative border border-white/10 shadow-2xl ">
       {" "}
-      <APIProvider apiKey={API_KEY} libraries={["drawing", "geometry"]}>
+      <APIProvider apiKey={apiKey} libraries={["drawing", "geometry"]}>
         {" "}
         <Map
           defaultCenter={defaultCenter}
@@ -109,7 +118,7 @@ export default function JobMap({
               initial={{ x: "100%", opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: "100%", opacity: 0 }}
-              className="absolute top-8 right-8 bottom-8 w-80 bg-black/90 backdrop-blur-3xl border border-white/10 rounded-[32px] shadow-2xl z-50 p-6 flex flex-col pointer-events-auto"
+              className="absolute top-8 right-8 bottom-8 w-80 bg-black/90 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl z-50 p-6 flex flex-col pointer-events-auto"
             >
               {" "}
               <div className="flex items-center justify-between mb-8">
@@ -135,10 +144,10 @@ export default function JobMap({
                   </div>{" "}
                   <div>
                     {" "}
-                    <h3 className="text-2xl font-black italic tracking-tighter text-white uppercase leading-none">
+                    <h3 className="text-xl sm:text-2xl font-black italic tracking-normal md:tracking-tighter text-white uppercase leading-none">
                       {selectedJob.client}
                     </h3>{" "}
-                    <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mt-2">
+                    <p className="text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest mt-2">
                       Active Location
                     </p>{" "}
                   </div>{" "}
@@ -159,7 +168,7 @@ export default function JobMap({
                     <p className="text-[8px] font-bold text-white/20 uppercase">
                       Address
                     </p>{" "}
-                    <p className="text-[10px] font-bold text-white/60 uppercase leading-relaxed">
+                    <p className="text-xs md:text-[10px] font-bold text-white/60 uppercase leading-relaxed">
                       {selectedJob.address}
                     </p>{" "}
                   </div>{" "}
@@ -175,7 +184,7 @@ export default function JobMap({
                         <div
                           className={`w-1.5 h-1.5 rounded-full ${selectedJob.status === "completed" ? "bg-emerald-500" : "bg-blue-400"}`}
                         />{" "}
-                        <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                        <span className="text-xs md:text-[10px] font-black text-white uppercase tracking-widest">
                           {selectedJob.status}
                         </span>{" "}
                       </div>{" "}
@@ -185,7 +194,7 @@ export default function JobMap({
                       <p className="text-[8px] font-bold text-white/20 uppercase">
                         Progress
                       </p>{" "}
-                      <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                      <span className="text-xs md:text-[10px] font-black text-white uppercase tracking-widest">
                         {selectedJob.progress}%
                       </span>{" "}
                     </div>{" "}
@@ -205,7 +214,7 @@ export default function JobMap({
                         </div>{" "}
                         <div>
                           {" "}
-                          <p className="text-[10px] font-black text-white uppercase italic">
+                          <p className="text-xs md:text-[10px] font-black text-white uppercase italic">
                             Green Team
                           </p>{" "}
                           <p className="text-[8px] font-bold text-white/40 uppercase">
@@ -215,7 +224,7 @@ export default function JobMap({
                       </div>{" "}
                       <div className="text-right">
                         {" "}
-                        <p className="text-[10px] font-black text-emerald-400">
+                        <p className="text-xs md:text-[10px] font-black text-emerald-400">
                           96%
                         </p>{" "}
                         <p className="text-[7px] font-black text-white/20 uppercase">
@@ -254,13 +263,13 @@ export default function JobMap({
               <div className="mt-8 pt-8 border-t border-white/5 space-y-4">
                 {" "}
                 <Link
-                  to="/clients"
-                  className="w-full py-4 bg-emerald-500 text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3"
+                  to="../crm"
+                  className="w-full py-4 bg-emerald-500 text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-[0.2em] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3"
                 >
                   {" "}
                   <History size={16} /> View Client Profile{" "}
                 </Link>{" "}
-                <button className="w-full py-4 border-white/10 text-white/40 font-black text-[10px] uppercase tracking-[0.2em] hover:text-white transition-all">
+                <button className="w-full py-4 border-white/10 text-white/40 font-black text-xs md:text-[10px] uppercase tracking-[0.2em] hover:text-white transition-all">
                   {" "}
                   Get Directions{" "}
                 </button>{" "}
@@ -323,7 +332,7 @@ function Markers({ jobs, onMarkerClick }: MarkersProps) {
                 {" "}
                 <div
                   className={cn(
-                    "w-12 h-12 rounded-3xl rotate-45 flex items-center justify-center transition-all duration-500 group-hover:scale-125 border-4 border-black/40 shadow-2xl relative",
+                    "w-12 h-12 rounded-3xl rotate-45 flex items-center justify-center transition-all duration-500 group-hover:scale-125 border border-zinc-900/40 shadow-2xl relative",
                     job.status === "completed"
                       ? "bg-emerald-500"
                       : job.status === "in-progress" || job.status === "on-site"
@@ -366,7 +375,7 @@ function Markers({ jobs, onMarkerClick }: MarkersProps) {
                       </div>{" "}
                       <div>
                         {" "}
-                        <p className="text-[10px] font-black italic text-white uppercase tracking-widest">
+                        <p className="text-xs md:text-[10px] font-black italic text-white uppercase tracking-widest">
                           {job.client}
                         </p>{" "}
                         <p className="text-[7px] font-bold text-white/40 uppercase tracking-[0.2em]">

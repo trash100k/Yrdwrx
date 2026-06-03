@@ -1,3 +1,5 @@
+import { safeStorage } from '../lib/storage';
+// @ts-nocheck
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 
@@ -27,6 +29,7 @@ interface EnterpriseThemeContextType {
   ) => void;
   resetToDefaults: () => void;
   getSpacingClasses: () => string;
+  getInnerContainerClasses: () => string;
   getFontFamilyClass: () => string;
   getLabelCaseClass: () => string;
   getCardThemeClass: () => string;
@@ -52,7 +55,7 @@ export function EnterpriseThemeProvider({
 }) {
   const [themeSettings, setThemeSettings] = useState<EnterpriseDesignSystem>(
     () => {
-      const saved = localStorage.getItem("enterprise-theme-settings");
+      const saved = safeStorage.getItem("enterprise-theme-settings");
       if (saved) {
         try {
           return { ...defaultSettings, ...JSON.parse(saved) };
@@ -65,7 +68,7 @@ export function EnterpriseThemeProvider({
   );
 
   useEffect(() => {
-    localStorage.setItem(
+    safeStorage.setItem(
       "enterprise-theme-settings",
       JSON.stringify(themeSettings),
     );
@@ -97,15 +100,23 @@ export function EnterpriseThemeProvider({
     setThemeSettings(defaultSettings);
   };
 
+  const getInnerContainerClasses = () => {
+    switch (themeSettings.spacingMode) {
+      case 'compact': return 'max-w-6xl mx-auto px-4 sm:px-6 lg:px-8';
+      case 'spacious': return 'w-full px-4 sm:px-6 lg:px-12';
+      case 'standard': default: return 'max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8';
+    }
+  };
+
   const getSpacingClasses = () => {
     switch (themeSettings.spacingMode) {
       case "compact":
-        return "max-w-6xl mx-auto space-y-6 pb-12 pt-4";
+        return "w-full space-y-6 pb-12 pt-4";
       case "spacious":
-        return "max-w-full mx-auto space-y-12 pb-32 pt-12";
+        return "w-full space-y-12 pb-32 pt-12 text-lg";
       case "standard":
       default:
-        return "max-w-7xl mx-auto space-y-10 pb-20 pt-8";
+        return "w-full space-y-10 pb-20 pt-8";
     }
   };
 
@@ -152,6 +163,7 @@ export function EnterpriseThemeProvider({
         updateThemeSetting,
         resetToDefaults,
         getSpacingClasses,
+        getInnerContainerClasses,
         getFontFamilyClass,
         getLabelCaseClass,
         getCardThemeClass,

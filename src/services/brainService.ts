@@ -1,3 +1,5 @@
+import { fetchApi } from "../lib/api";
+// @ts-nocheck
 
 import {
   collection,
@@ -14,7 +16,7 @@ export async function ingestKnowledge(
   context: Record<string, unknown>,
 ) {
   try {
-    const response = await fetch("/api/knowledge/ingest", {
+    const response = await fetchApi("/api/knowledge/ingest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, context }),

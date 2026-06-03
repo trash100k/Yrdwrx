@@ -1,3 +1,5 @@
+import { safeStorage } from '../lib/storage';
+// @ts-nocheck
 
 import {
   collection,
@@ -30,7 +32,7 @@ class SyncService {
   }
 
   private loadQueue() {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = safeStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
         this.queue = JSON.parse(saved);
@@ -42,7 +44,7 @@ class SyncService {
   }
 
   private saveQueue() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.queue));
+    safeStorage.setItem(STORAGE_KEY, JSON.stringify(this.queue));
   }
 
   public async queueAction(

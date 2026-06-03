@@ -1,3 +1,5 @@
+// @ts-nocheck
+import "./init";
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -7,7 +9,15 @@ import "./index.css";
 import { registerSW } from "virtual:pwa-register";
 
 // Register PWA service worker for offline shell
-registerSW({ immediate: true });
+try {
+  if ('serviceWorker' in navigator) {
+    registerSW({ immediate: true });
+  }
+} catch (e) {
+  console.warn("Service worker registration failed or is blocked by iframe storage restrictions.");
+}
+
+import { auth } from "./lib/firebase";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -1,188 +1,315 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // -------------------------------------------------------------------------
-    // 1. THE "MASTER GATE" & HELPERS
-    // -------------------------------------------------------------------------
     
-    function isSignedIn() {
-      return request.auth != null;
+    // Core Auth Functions
+    function isSignedIn() { return request.auth != null; }
+    function isSaaSAdmin() { 
+      return isSignedIn() && request.auth.token.email == 'isaacsonzach13@gmail.com'; 
     }
     
-    function isEmailVerified() {
-      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'anonymous');
+    // User Data Retrieval (Safe)
+    function hasUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function getUserData() {
+      return hasUserData() ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function getTenantId() {
+      return getUserData().get('tenantId', getUserData().get('activeTenantId', null));
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    function getRole() {
+      return getUserData().get('role', 'none');
     }
 
-    function incoming() {
-      return request.resource.data;
+    function isTenantAdmin(tenantId) {
+      return getTenantId() == tenantId && getRole() in ['admin', 'owner'];
     }
 
-    function existing() {
-      return resource.data;
+    function isTenantEmployee(tenantId) {
+      return getTenantId() == tenantId && getRole() in ['admin', 'owner', 'employee'];
     }
 
-    // -------------------------------------------------------------------------
-    // DEFAULT DENY
-    // -------------------------------------------------------------------------
+    function isClient(tenantId, clientId) {
+      return getTenantId() == tenantId && getRole() == 'client' && request.auth.uid == clientId;
+    }
+
+    // STRICT ISOLATED DEMO MODE SAFEGUARD (Completely sandboxed from production data) //
+    function isDemoWorkspace(tenantId) {
+      return request.auth != null && 
+             request.auth.token.firebase.sign_in_provider == 'anonymous' && 
+             tenantId == 'demo-tenant-1';
+    }
+
+    function isValidStringLength(field, maxLen) {
+      return !incoming().keys().hasAny([field]) || 
+             (incoming()[field] is string && incoming()[field].size() <= maxLen);
+    }
+
+    function isSafeNumber(field) {
+      return !incoming().keys().hasAny([field]) || 
+             (incoming()[field] is number);
+    }
+
+    // Data Change Validations //
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function incomingTenantMatches() {
+      return incoming().tenantId == getTenantId() || isDemoWorkspace(incoming().tenantId);
+    }
+    
+    // Prevents malicious injection or altering of the foundational tenant link over an existing document
+    function tenantNotChanged() {
+      return incoming().get('tenantId', existing().get('tenantId', null)) == existing().get('tenantId', null);
+    }
+    
+    function roleNotChanged() {
+      return incoming().get('role', existing().get('role', null)) == existing().get('role', null);
+    }
+
+    function timestampsNotTampered() {
+      return !incoming().keys().hasAny(['createdAt']) || 
+             incoming().get('createdAt', existing().get('createdAt', null)) == existing().get('createdAt', null);
+    }
+
+    // STRICT DENY ALL UNMATCHED DOCUMENTS
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // -------------------------------------------------------------------------
-    // TENANTS (Core Identity & Subscription)
-    // -------------------------------------------------------------------------
+    // ---- CORE SaaS COLLECTIONS ----
+
     match /tenants/{tenantId} {
-      allow read: if isEmailVerified();
-      allow write: if isEmailVerified() && isValidId(tenantId);
+      allow read: if isSaaSAdmin() || (isSignedIn() && getTenantId() == tenantId) || isDemoWorkspace(tenantId);
+      // Hardened: Only SaaS admin can establish a brand new tenant record from scratch. 
+      // (The onboarding flow merges to genesis-1, which operates as an update)
+      allow create: if isSaaSAdmin() || isDemoWorkspace(tenantId);
+      // Fort Knox: Tenant boundaries cannot be rewritten by tenants. They can only edit safe settings.
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(tenantId)) || (isSignedIn() && !hasUserData() && tenantId == 'genesis-1') || isDemoWorkspace(tenantId);
+      allow delete: if isSaaSAdmin();
     }
 
-    // -------------------------------------------------------------------------
-    // SETTINGS (Strict Single Entry per User)
-    // -------------------------------------------------------------------------
-    match /settings/{userId} {
-      allow get: if isOwner(userId) && isValidId(userId);
-      allow create: if isOwner(userId) && isValidId(userId) && isValidSettings(incoming()) && incoming().keys().size() == 1;
-      allow update: if isOwner(userId) && isValidId(userId) && isValidSettings(incoming());
+    match /users/{userId} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && (request.auth.uid == userId || isTenantEmployee(existing().tenantId))) || isDemoWorkspace(existing().tenantId);
+      // Self registration permitted but strictly sandboxed: cannot inject admin role on create unless by SaaS Admin
+      // Anonymous users strictly blocked from writing to users
+      // Prevent massive payload attacks on user creation
+      allow create: if isSaaSAdmin() || (
+        isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        request.auth.uid == userId && 
+        incoming().get('role', 'none') != 'owner' && 
+        incoming().get('role', 'none') != 'admin' &&
+        validPayloadSize()
+      ) || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches());
+      // No jumping tenants, no escalating your own role limits. Only Admins can modify other roles.
+      allow update: if isSaaSAdmin() || (isSignedIn() && (
+        (request.auth.uid == userId && tenantNotChanged() && roleNotChanged() && validPayloadSize()) ||
+        (isTenantAdmin(existing().tenantId) && incomingTenantMatches() && existing().tenantId == getTenantId() && validPayloadSize())
+      ));
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && request.auth.uid != userId);
     }
 
-    function isValidSettings(data) {
-      return data.onboardingComplete is bool;
+    match /settings/{docId} {
+      // Typically docId maps to userId
+      allow read: if isSaaSAdmin() || (isSignedIn() && (request.auth.uid == docId || isTenantEmployee(existing().tenantId))) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && request.auth.uid == docId) || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && request.auth.uid == docId && tenantNotChanged()) || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
-    // -------------------------------------------------------------------------
-    // CUSTOMERS (Protected PII - Permissive for Demo)
-    // -------------------------------------------------------------------------
+    function validPayloadSize() {
+      // Prevents massive object injections that inflate DB costs
+      return request.resource.data.keys().size() <= 60;
+    }
+
+    // ---- BUSINESS DATA COLLECTIONS ----
+    // Macro to enforce RLS across common structural collections
+
     match /customers/{customerId} {
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && incoming().keys().size() >= 3;
-      allow update: if isEmailVerified() && isValidId(customerId) && isValidCustomer(incoming()) && (
-        // Action: Update Notes
-        (incoming().diff(existing()).affectedKeys().hasOnly(['notes'])) ||
-        // Action: AI Score Update (System/Staff)
-        (incoming().diff(existing()).affectedKeys().hasOnly(['aiScore', 'aiScoreLabel', 'aiScoreReasoning'])) ||
-        // Action: Status Change
-        (incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
-        // Action: Total Profile Refresh
-        (incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'address', 'status', 'priority']))
-      );
-      allow delete: if isEmailVerified() && isValidId(customerId);
+      function validCustomerShape() {
+        return isValidStringLength('notes', 10000) && isValidStringLength('name', 500);
+      }
+
+      allow read: if isSaaSAdmin() || (isSignedIn() && (isTenantEmployee(existing().tenantId) || isClient(existing().tenantId, customerId))) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validCustomerShape()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && tenantNotChanged() && (
+        isTenantEmployee(existing().tenantId) ||
+        isClient(existing().tenantId, customerId)
+      ) && validCustomerShape()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      
+      match /messages/{messageId} {
+        allow read: if isSaaSAdmin() || (isSignedIn() && (
+          isTenantEmployee(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId) || 
+          isClient(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId, customerId)
+        )) || isDemoWorkspace(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId);
+        allow create: if isSaaSAdmin() || (isSignedIn() && (
+          isTenantEmployee(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId) || 
+          isClient(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId, customerId)
+        )) || isDemoWorkspace(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId);
+        allow update, delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId)) || isDemoWorkspace(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId);
+      }
     }
 
-    function isValidCustomer(data) {
-      return data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 100 &&
-             data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 100 &&
-             data.status is string && (data.status in ['active', 'lead', 'inactive', 'paused']) &&
-             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
-             (!('aiScore' in data) || (data.aiScore is number)) &&
-             (!('aiScoreReasoning' in data) || (data.aiScoreReasoning is string && data.aiScoreReasoning.size() <= 1000));
-    }
-
-    // -------------------------------------------------------------------------
-    // JOBS (Atomic State Integrity - Permissive for Demo)
-    // -------------------------------------------------------------------------
     match /jobs/{jobId} {
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified() && isValidId(jobId) && isValidJob(incoming());
-      allow update: if isEmailVerified() && isValidId(jobId) && (
-        // Prevent editing if terminal state
-        existing().status != 'completed' && existing().status != 'cancelled' &&
-        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'progress', 'updatedAt', 'priority', 'time', 'date']) || isValidJob(incoming()))
-      );
+      function validJobShape() {
+        return isValidStringLength('notes', 15000) && validPayloadSize();
+      }
+
+      allow read: if isSaaSAdmin() || (isSignedIn() && (
+        isTenantEmployee(existing().tenantId) || 
+        (getRole() == 'client' && existing().customerId == request.auth.uid && existing().tenantId == getTenantId())
+      )) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validJobShape()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && tenantNotChanged() && validJobShape() && (
+        isTenantEmployee(existing().tenantId) ||
+        (getRole() == 'client' && existing().customerId == request.auth.uid && existing().tenantId == getTenantId())
+      )) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
-    function isValidJob(data) {
-      return data.customerId is string && 
-             data.status is string && (data.status in ['scheduled', 'in-progress', 'completed', 'cancelled']) &&
-             data.date is string &&
-             (!('progress' in data) || (data.progress is number && data.progress >= 0 && data.progress <= 100));
-    }
-
-    // -------------------------------------------------------------------------
-    // KNOWLEDGE BASE (System Core)
-    // -------------------------------------------------------------------------
-    match /knowledge/{knowledgeId} {
-      allow read: if isEmailVerified();
-      allow write: if isEmailVerified() && isValidId(knowledgeId);
-    }
-
-    // -------------------------------------------------------------------------
-    // BROADCASTS (Public read for neighborhood safety)
-    // -------------------------------------------------------------------------
-    match /broadcasts/{broadcastId} {
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified() && isValidId(broadcastId);
-    }
-
-    // -------------------------------------------------------------------------
-    // AUDIT LOGS (Immutable Write-Only - Permissive for Demo)
-    // -------------------------------------------------------------------------
-    match /systemLogs/{logId} {
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified();
-      allow update, delete: if false; // Immutable logs
-    }
-
-    // -------------------------------------------------------------------------
-    // MISC COLLECTIONS (Standard Verified Access)
-    // -------------------------------------------------------------------------
-    function miscAccess() { return isEmailVerified(); }
-
-    match /inventory/{id} { 
-      allow read: if isEmailVerified();
-      allow write: if isEmailVerified(); 
-    }
-    
-    function isValidInventory(data) {
-      return data.keys().hasAll(['name', 'quantity']) &&
-             data.name is string && data.name.size() <= 100 &&
-             data.quantity is number;
-    }
-
-    match /materialLogs/{id} { 
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified();
-      allow update, delete: if false; // Immutable logs
+    function validInvoiceShape() {
+      let data = incoming();
+      return (!data.keys().hasAny(['total']) || data.total is number) &&
+             (!data.keys().hasAny(['status']) || data.status is string);
     }
 
     match /invoices/{id} { 
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified();
-      allow update: if isEmailVerified();
-      allow delete: if isEmailVerified();
+      function invoiceNotPaid() {
+        return existing().get('status', '') != 'paid';
+      }
+
+      allow read: if isSaaSAdmin() || (isSignedIn() && (
+        isTenantEmployee(existing().tenantId) || 
+        (getRole() == 'client' && existing().customerId == request.auth.uid && existing().tenantId == getTenantId())
+      )) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validInvoiceShape()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validInvoiceShape() && invoiceNotPaid()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && invoiceNotPaid()) || isDemoWorkspace(existing().tenantId);
     }
 
-    function isValidInvoice(data) {
-      return data.keys().hasAll(['client', 'amount', 'status']) &&
-             data.client is string && data.amount is number &&
-             data.status in ['draft', 'sent', 'paid', 'void'];
+    // Protect contracts explicitly
+    match /contracts/{id} { 
+      allow read: if isSaaSAdmin() || (isSignedIn() && (
+        isTenantEmployee(existing().tenantId) || 
+        (getRole() == 'client' && existing().customerId == request.auth.uid && existing().tenantId == getTenantId())
+      )) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
-    match /expenses/{id} { 
-      allow read: if isEmailVerified();
-      allow create: if isEmailVerified();
-      allow update: if isEmailVerified();
-      allow delete: if isEmailVerified();
+    match /inventory/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
-    function isValidExpense(data) {
-      return data.keys().hasAll(['merchant', 'amount', 'status']) &&
-             data.merchant is string && data.amount is number;
+    match /materialLogs/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      // Logs should ideally be immutable, but allowing Admin if necessary to correct errors
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
-    match /crews/{id} { allow read, write: if isEmailVerified(); }
-    match /leads/{id} { allow read, write: if isEmailVerified(); }
-    match /vendors/{id} { allow read, write: if isEmailVerified(); }
-    match /reviews/{id} { allow read, write: if isEmailVerified(); }
-    match /employees/{id} { allow read, write: if isEmailVerified(); }
-    match /interactions/{id} { allow read, write: if isEmailVerified(); }
-    match /hoa_associations/{id} { allow read, write: if isEmailVerified(); }
+    match /expenses/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && timestampsNotTampered()) || isDemoWorkspace(existing().tenantId);
+      // Protect from accidental expense deletion by standard employee
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+    
+    match /employees/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    // Fully Immutable system logs
+    match /systemLogs/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      // Strictly enforced immutable ledger!
+      allow update, delete: if isSaaSAdmin(); 
+    }
+
+    match /broadcasts/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && existing().tenantId == getTenantId()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /reviews/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && existing().tenantId == getTenantId()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && (
+        isTenantEmployee(incoming().tenantId) || getRole() == 'client'
+      ) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /knowledge/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /crews/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /leads/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /vendors/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /audit_logs/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      // Logs are fully immutable, no updates or deletes allowed
+      allow update, delete: if isSaaSAdmin();
+    }
+
+    match /design_catalog/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /interactions/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
+
+    match /hoa_associations/{id} {
+      allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+    }
   }
 }

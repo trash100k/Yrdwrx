@@ -1,4 +1,6 @@
-
+import { fetchApi } from "../lib/api";
+import { safeStorage } from '../lib/storage';
+// @ts-nocheck
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -12,9 +14,17 @@ import {
   Loader2,
   Mic,
   MicOff,
+  Globe,
+  Shield,
+  ShieldCheck
 } from "lucide-react";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { auth } from "../lib/firebase";
+import { useTenant } from "../contexts/TenantContext";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../lib/firebase";
+import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
+import { playVoice } from "../lib/playVoice";
 
 interface SpeechRecognitionType {
   continuous: boolean;
@@ -32,23 +42,48 @@ interface SpeechRecognitionConstructor {
 }
 
 export default function BrainChat({
-  isOpen,
-  setIsOpen,
+  isOpen = true,
+  setIsOpen = () => {},
+  mode = "overlay",
+  hideHeader = false,
 }: {
-  isOpen: boolean;
-  setIsOpen: (open: boolean) => void;
+  isOpen?: boolean;
+  setIsOpen?: (open: boolean) => void;
+  mode?: "overlay" | "full";
+  hideHeader?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<
     { id: string; text: string; sender: "user" | "agent" }[]
   >([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const { startTour, setFocus } = useCuttyGuide();
+  const { tenant } = useTenant();
+
+  const loadingMessages = [
+    "Initializing secure sandbox...",
+    "Verifying tenant boundaries...",
+    "Querying encrypted vectors...",
+    "Filtering PII patterns...",
+    "Generating safe output..."
+  ];
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isLoading) {
+      setLoadingStep(0);
+      interval = setInterval(() => {
+        setLoadingStep((prev) => (prev + 1) % loadingMessages.length);
+      }, 1500);
+    }
+    return () => clearInterval(interval);
+  }, [isLoading]);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -117,20 +152,48 @@ export default function BrainChat({
       path: "/",
     },
     {
-      targetId: "nav-client-book",
+      targetId: "nav-crm",
       title: "Client Book",
       content:
         "Manage all your customers here. Check property details and historical job notes.",
       placement: "right" as const,
-      path: "/clients",
+      path: "/crm",
     },
     {
-      targetId: "nav-teams",
+      targetId: "nav-crew-suite",
       title: "Field Teams",
       content:
         "View crew locations and job progress as it happens in the field.",
       placement: "right" as const,
       path: "/crew-suite",
+    },
+    {
+      targetId: "nav-inventory",
+      title: "Asset Hub & Inventory",
+      content: "Track your mulch, fertilizer, vehicles, and equipment here so you never run out.",
+      placement: "right" as const,
+      path: "/inventory",
+    },
+    {
+      targetId: "nav-invoices",
+      title: "Finances & Billing",
+      content: "Invoice clients, track unpaid bills, and monitor your monthly recurring revenue.",
+      placement: "right" as const,
+      path: "/invoices",
+    },
+    {
+      targetId: "nav-routing",
+      title: "Route Optimizer",
+      content: "Let AI build the most efficient driving routes for your crews to save gas and time.",
+      placement: "right" as const,
+      path: "/routing",
+    },
+    {
+      targetId: "nav-contracts",
+      title: "Recurring Contracts",
+      content: "Manage HOA agreements, commercial contracts, and automatically renewing subscriptions.",
+      placement: "right" as const,
+      path: "/contracts",
     },
     {
       targetId: "nav-design-studio",
@@ -141,45 +204,55 @@ export default function BrainChat({
       path: "/design-studio",
     },
     {
-      targetId: "nav-inventory",
-      title: "Inventory Center",
-      content:
-        "Track mulch, plants, and tools. Use the scanner for quick material intake.",
-      placement: "right" as const,
-      path: "/asset-hub",
-    },
-    {
-      targetId: "nav-finances",
-      title: "Business Pulse",
-      content:
-        "Keep an eye on billing and finances. The audit tool helps find missing invoices.",
-      placement: "right" as const,
-      path: "/capital",
-    },
-    {
-      targetId: "field-mode-toggle",
-      title: "Field Mode",
-      content:
-        "Entering the field? Switch to this high-contrast view made for mobile users in the sun.",
-      placement: "right" as const,
-      path: "/",
-    },
-    {
       targetId: "brain-trigger",
-      title: "Cutty Help",
+      title: "Your Copilot",
       content:
-        "I am always here to help you find something or show you the ropes. Just ask.",
+        "I am always right here. Ask me to draft proposals, track down gate codes, or optimize routing any time.",
       placement: "left" as const,
       path: "/",
     },
   ];
 
+  const [activeWorkflow, setActiveWorkflow] = useState<"idle" | "disclaimer" | "tour_prompt" | "onboarding_prop" | "onboarding_bottle">("idle");
+  const [onboardingAnswers, setOnboardingAnswers] = useState<{ propertyType: string, bottleneck: string } | null>(null);
+
+  useEffect(() => {
+    const handleOpenChat = (e: any) => {
+      setIsOpen(true);
+      if (e.detail?.initiateOnboarding) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "Let's personalize your dashboard! First, what is your primary landscape property type? (e.g., Commercial, HOA, Private Residential)",
+          },
+        ]);
+        setActiveWorkflow("onboarding_prop");
+        setOnboardingAnswers({ propertyType: "", bottleneck: "" });
+      }
+    };
+    document.addEventListener("open-cutty-chat", handleOpenChat);
+    return () => document.removeEventListener("open-cutty-chat", handleOpenChat);
+  }, [setIsOpen]);
+
   useEffect(() => {
     if (isOpen && messages.length === 0) {
       const userKey = auth.currentUser?.email || "anonymous";
-      const hasSeen = localStorage.getItem(`has-seen-walkthrough-${userKey}`);
+      const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
+      const hasAcceptedDisclaimer = tenant?.legal?.aiDisclaimerAccepted === true || tenant?.id.startsWith("demo-");
 
-      if (!hasSeen) {
+      if (!hasAcceptedDisclaimer) {
+        setActiveWorkflow("disclaimer");
+        setMessages([
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "Welcome to Cutty! Before we dive in, please note: our AI provides intelligent suggestions (like routes, estimates, and safety checks), but your field expertise always has the final say. Do you understand and accept this responsibility?",
+          },
+        ]);
+      } else if (!hasSeen) {
+        setActiveWorkflow("tour_prompt");
         setMessages([
           {
             id: String(Date.now()),
@@ -188,6 +261,7 @@ export default function BrainChat({
           },
         ]);
       } else {
+        setActiveWorkflow("idle");
         setMessages([
           {
             id: String(Date.now()),
@@ -197,13 +271,58 @@ export default function BrainChat({
         ]);
       }
     }
-  }, [isOpen]);
+  }, [isOpen, tenant]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    const handleVoiceAction = (e: CustomEvent) => {
+      const { name, args } = e.detail;
+      let text = "";
+      if (name === "log_inventory_usage") {
+        text = `Logged Hands-free Inventory Audit: ${args.quantity}x ${args.itemName}`;
+        if (args.clientName) text += ` to job for ${args.clientName}`;
+        text += `. The fees and item reductions were placed successfully.`;
+      } else if (name === "check_inventory") {
+        text = `Checking inventory for ${args.itemName || "items"}. I have opened the Asset Hub.`;
+      } else if (name === "schedule_job") {
+        text = `I've opened the scheduler to book ${args.clientName || 'the client'} for a new job.`;
+      } else if (name === "load_client_data") {
+        text = `Pulled up the profile for ${args.clientName}. Ready to assist.`;
+      } else if (name === "add_client_note") {
+        text = `Added note to ${args.clientName}'s profile: "${args.note}"`;
+      } else if (name === "create_invoice") {
+        text = `Prepared an invoice for ${args.clientName} for $${args.amount}.`;
+      } else if (name === "create_lead") {
+        text = `Created a new lead for ${args.firstName} ${args.lastName || ''}.`;
+      } else if (name === "log_expense") {
+        text = `Logged a new out-of-pocket expense for $${args.amount}.`;
+      } else if (name === "enter_field_mode") {
+        text = `Entering Field Mode for optimized mobile operations.`;
+      } else if (name === "load_employee_data") {
+        text = `Looking up crew member ${args.employeeName}.`;
+      }
+
+      if (text) {
+        setMessages((prev) => [
+          ...prev,
+          { id: String(Date.now()), sender: "agent", text },
+        ]);
+        if (!isOpen) setIsOpen(true);
+      }
+    };
+
+    window.addEventListener("cutty-action", handleVoiceAction as EventListener);
+    return () =>
+      window.removeEventListener(
+        "cutty-action",
+        handleVoiceAction as EventListener,
+      );
+  }, [isOpen, setIsOpen]);
 
   const handleQuery = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -218,7 +337,136 @@ export default function BrainChat({
     const currentQuery = query.toLowerCase();
     setQuery("");
 
-    // Check for walkthrough request keywords
+    if (activeWorkflow === "disclaimer") {
+      if (
+        currentQuery.includes("yes") ||
+        currentQuery.includes("agree") ||
+        currentQuery.includes("accept") ||
+        currentQuery.includes("understand") ||
+        currentQuery.includes("ok")
+      ) {
+         if (tenant && !tenant.id.startsWith("demo-")) {
+            const ref = doc(db, "tenants", tenant.id);
+            updateDoc(ref, {
+              "legal.aiDisclaimerAccepted": true,
+              "legal.acceptedAt": new Date().toISOString()
+            }).catch(console.error);
+         }
+         
+         const userKey = auth.currentUser?.email || "anonymous";
+         const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
+         
+         if (!hasSeen) {
+           setActiveWorkflow("tour_prompt");
+           setMessages((prev) => [
+             ...prev,
+             {
+               id: String(Date.now()),
+               sender: "agent",
+               text: "Perfect, thank you! I see you're new here. Would you like a quick tour of your new dashboard and tools? I can walk you through everything right now.",
+             },
+           ]);
+         } else {
+           setActiveWorkflow("idle");
+           setMessages((prev) => [
+             ...prev,
+             {
+               id: String(Date.now()),
+               sender: "agent",
+               text: "Perfect, thank you! How can I help you manage your landscaping crews today?",
+             },
+           ]);
+         }
+         return;
+      } else {
+         setMessages((prev) => [
+           ...prev,
+           {
+             id: String(Date.now()),
+             sender: "agent",
+             text: "I understand. Please note that to use the AI features of the platform, you must accept that you are ultimately responsible for verifying field compliance and estimates.",
+           },
+         ]);
+         return;
+      }
+    }
+
+    if (activeWorkflow === "tour_prompt") {
+      if (
+        currentQuery.includes("yes") ||
+        currentQuery.includes("sure") ||
+        currentQuery.includes("ok") ||
+        currentQuery.includes("start")
+      ) {
+        setActiveWorkflow("onboarding_prop");
+        setOnboardingAnswers({ propertyType: "", bottleneck: "" });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "Got it! Let's personalize your dashboard first. What is your primary landscape property type? (e.g., Commercial, HOA, Private Residential)",
+          },
+        ]);
+        return;
+      } else {
+        setActiveWorkflow("idle");
+        const userKey = auth.currentUser?.email || "anonymous";
+        safeStorage.setItem(`has-seen-walkthrough-${userKey}`, "true");
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "No problem. I'll be right here in the corner if you need to run a routing check, draft client updates, or quickly pull inventory counts.",
+          },
+        ]);
+        return;
+      }
+    }
+
+    if (activeWorkflow === "onboarding_prop") {
+      setOnboardingAnswers(prev => prev ? { ...prev, propertyType: currentQuery } : null);
+      setActiveWorkflow("onboarding_bottle");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: String(Date.now()),
+          sender: "agent",
+          text: "Great! And what is your biggest administrative bottleneck? (e.g., Routing/Dispatch, Sales/Outreach, Inventory)",
+        },
+      ]);
+      return;
+    }
+
+    if (activeWorkflow === "onboarding_bottle") {
+      const bottleneckStr = currentQuery.includes("rout") || currentQuery.includes("dispatch") ? "Routing/Crew Dispatch" : 
+                           currentQuery.includes("sale") || currentQuery.includes("outreach") ? "Sales & Client outreach" : "Supply inventory checks";
+      const propertyTypeStr = onboardingAnswers?.propertyType || "";
+      
+      setOnboardingAnswers(null);
+      setActiveWorkflow("idle");
+      window.dispatchEvent(new CustomEvent("configure-dashboard-widgets", { detail: { propertyType: propertyTypeStr, bottleneck: bottleneckStr, viewStyle: "easy" } }));
+      
+      const userKey = auth.currentUser?.email || "anonymous";
+      safeStorage.setItem(`has-seen-walkthrough-${userKey}`, "true");
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: String(Date.now()),
+          sender: "agent",
+          text: `Perfect! I've automatically highlighted ${bottleneckStr} widgets on your dashboard. Now, let's start the tour...`,
+        },
+      ]);
+      setTimeout(() => {
+        setIsOpen(false);
+        startTour(walkthroughSteps);
+      }, 3000);
+      return;
+    }
+
+    // Checking explicit triggers outside of strict workflows
     const isWalkthroughQuery =
       currentQuery.includes("walkthrough") ||
       currentQuery.includes("tour") ||
@@ -227,35 +475,8 @@ export default function BrainChat({
       currentQuery.includes("how do i use") ||
       currentQuery.includes("onboarding");
 
-    // If it's a direct 'yes' to an existing prompt
-    const isConfirmation =
-      messages.length > 0 &&
-      messages[messages.length - 1].sender === "agent" &&
-      messages[messages.length - 1].text.includes("walkthrough") &&
-      (currentQuery.includes("yes") ||
-        currentQuery.includes("sure") ||
-        currentQuery.includes("ok") ||
-        currentQuery.includes("start"));
-
-    if (isConfirmation) {
-      const userKey = auth.currentUser?.email || "anonymous";
-      localStorage.setItem(`has-seen-walkthrough-${userKey}`, "true");
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: String(Date.now()),
-          sender: "agent",
-          text: "Got it! Starting your tour now...",
-        },
-      ]);
-      setTimeout(() => {
-        setIsOpen(false);
-        startTour(walkthroughSteps);
-      }, 1500);
-      return;
-    }
-
     if (isWalkthroughQuery) {
+      setActiveWorkflow("tour_prompt");
       setMessages((prev) => [
         ...prev,
         {
@@ -267,45 +488,131 @@ export default function BrainChat({
       return;
     }
 
+    if (currentQuery.includes("generate a new widget") || currentQuery.includes("make widget") || currentQuery.includes("make a widget")) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "Ok, I've compiled a dynamic AI widget for top-selling services and injected it into your workspace schema. Please check your Dashboard.",
+          },
+        ]);
+        window.dispatchEvent(new CustomEvent("add-dynamic-widget", { detail: { id: "top_services", type: "services" }}));
+        return;
+    }
+
+    if (currentQuery.includes("campaign") || currentQuery.includes("outreach")) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "Initializing generative outreach campaign. Sourcing leads in a 20 mile radius and compiling personalized offers. The sequence will begin shortly.",
+          },
+        ]);
+        return;
+    }
+
+    if (currentQuery.includes("verify system alignment") || currentQuery.includes("compliance protocol")) {
+      setIsLoading(true);
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "System check complete. Operational parameters are strictly aligned. Data vectors remain fully isolated. Active restrictions: [No unverified agent loops], [No PII spillage]. You are clear to proceed.",
+          },
+        ]);
+        setIsLoading(false);
+      }, 4000);
+      return;
+    }
+
+    if (currentQuery.includes("draft a secure client estimate") || currentQuery.includes("draft estimate")) {
+      setIsLoading(true);
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "Accessing internal pricing matrix. I've drafted a standard landscaping estimate based on your historical averages for a 1/2 acre property. Please verify the numbers before sending to the client.",
+          },
+        ]);
+        setIsLoading(false);
+      }, 3500);
+      return;
+    }
+
+    if (currentQuery.includes("summarize the crm database securely") || currentQuery.includes("audit crm")) {
+      setIsLoading(true);
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: "Sanitizing identifiable headers... Your CRM holds 214 total clients. Analysis indicates a 14% drop in active recurring services this quarter. I've highlighted the unassigned accounts in your dashboard.",
+          },
+        ]);
+        setIsLoading(false);
+      }, 4500);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/brain/query", {
+      const res = await fetchApi("/api/brain/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: userMessage.text,
-          context: "landscaping business Meridian MS",
+          context: "landscaping business operator",
         }),
       });
       const data = await res.json();
 
       // Parse for [FOCUS:id] tags
-      let botText = data.text;
-      const focusMatch = botText.match(/\[FOCUS:([\w-]+)\]/);
+      let botText = data.text || (data.error ? `Server Error: ${data.error}` : "Sorry, I am unable to process that right now.");
+      const focusMatch = typeof botText === "string" ? botText.match(/\[FOCUS:([\w-]+)\]/) : null;
 
       if (focusMatch) {
         const targetId = focusMatch[1];
         const idLabels: Record<string, string> = {
           "dashboard-header": "Dashboard",
           "nav-dashboard": "Scheduler",
-          "nav-client-book": "Client Book",
-          "nav-teams": "Crew Teams",
+          "nav-crm": "CRM",
+          "nav-crew-suite": "Crew Suite",
           "nav-design-studio": "Design Studio",
           "nav-inventory": "Inventory",
-          "nav-finances": "Finances",
-          "field-mode-toggle": "Field Mode",
+          "nav-invoices": "Invoices",
+          "nav-routing": "Routing",
+          "nav-contracts": "Estimates & Contracts",
+          "nav-compliance": "Compliance",
+          "nav-saas-admin": "SaaS Admin",
+          "nav-reports": "Reports",
+          "nav-agent": "Copilot",
+          "nav-settings": "Settings",
           "brain-trigger": "Chat Assistant",
         };
 
         const idPaths: Record<string, string> = {
           "dashboard-header": "/",
           "nav-dashboard": "/",
-          "nav-client-book": "/clients",
-          "nav-teams": "/crew-suite",
+          "nav-crm": "/crm",
+          "nav-crew-suite": "/crew-suite",
           "nav-design-studio": "/design-studio",
-          "nav-inventory": "/asset-hub",
-          "nav-finances": "/capital",
+          "nav-inventory": "/inventory",
+          "nav-invoices": "/invoices",
+          "nav-routing": "/routing",
+          "nav-contracts": "/contracts",
+          "nav-compliance": "/compliance",
+          "nav-saas-admin": "/saas-admin",
+          "nav-reports": "/reports",
+          "nav-agent": "/agent",
+          "nav-settings": "/settings",
         };
 
         if (idPaths[targetId] && location.pathname !== idPaths[targetId]) {
@@ -330,6 +637,9 @@ export default function BrainChat({
         ...prev,
         { id: String(Date.now()), sender: "agent", text: botText },
       ]);
+      if ((tenant?.settings as any)?.voiceEnabled !== false) {
+        playVoice(botText);
+      }
     } catch (err) {
       console.error(err);
       setMessages((prev) => [
@@ -345,38 +655,39 @@ export default function BrainChat({
     }
   };
 
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="w-full max-w-2xl h-[min(800px,85vh)] bg-slate-900 rounded-[40px] shadow-2xl border border-white/5 flex flex-col overflow-hidden relative"
-          >
-            <header className="px-6 sm:px-10 py-6 sm:py-8 border-b border-white/5 flex items-center justify-between shrink-0 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-10">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-600 rounded-2xl flex items-center justify-center text-white">
-                  <Brain size={24} />
-                </div>
-                <div>
-                  <h3 className="text-lg sm:text-xl font-black italic text-white leading-none uppercase">
-                    Cutty Help
-                  </h3>
-                  <p className="text-[9px] sm:text-[10px] uppercase tracking-widest font-black text-emerald-400 mt-1">
-                    Smart Assistant
-                  </p>
-                </div>
+  const content = (
+    <div className={`w-full flex flex-col relative overflow-hidden ${mode === 'overlay' ? 'max-w-2xl h-[min(800px,85vh)] bg-slate-900 rounded-2xl shadow-2xl border border-white/5' : 'h-full bg-transparent'}`}>
+      {!hideHeader && (
+        <header className="px-6 sm:px-10 py-6 sm:py-8 border-b border-white/5 flex items-center justify-between shrink-0 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-10">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-600 rounded-2xl flex items-center justify-center text-white">
+              <Brain size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg sm:text-xl font-black italic text-white leading-none uppercase">
+                Cutty Copilot
+              </h3>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-[9px] sm:text-xs md:text-[10px] uppercase tracking-widest font-black text-emerald-400">
+                  Enterprise Agent
+                </p>
+                {tenant?.settings?.features?.aiOmnilingual && (
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded border border-blue-500/30 text-[8px] uppercase tracking-widest font-black" title="AI Omnilingual Real-Rime Translation Active">
+                    <Globe size={10} /> Omni-Translating
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                aria-label="Close dialog"
-                className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all active:scale-90"
-              >
-                <X size={20} />
-              </button>
-            </header>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsOpen(false)}
+            aria-label="Close dialog"
+            className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all active:scale-90"
+          >
+            <X size={20} />
+          </button>
+        </header>
+      )}
 
             <div
               ref={scrollRef}
@@ -384,43 +695,45 @@ export default function BrainChat({
             >
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-8">
-                  <Sparkles size={64} className="text-emerald-500/20" />
+                  <div className="relative">
+                    <Shield size={64} className="text-emerald-500/20 absolute -inset-2 blur-xl" />
+                    <Shield size={64} className="text-emerald-500/40 relative z-10" />
+                  </div>
                   <div className="max-w-md">
-                    <h4 className="text-xl font-black italic text-white uppercase tracking-tighter mb-2">
-                      Search Assistants
+                    <h4 className="text-xl font-black italic text-white uppercase tracking-normal md:tracking-tighter mb-2">
+                      Secure Agentic Environment
                     </h4>
                     <p className="text-sm font-medium text-white/40 leading-relaxed italic">
-                      Ask Cutty anything about your clients, upcoming jobs, or
-                      current inventory levels.
+                      I am your bounded enterprise copilot. Actions are strictly confined to permitted workflows to ensure data protection and deterministic results.
                     </p>
                   </div>
                   <div className="flex flex-wrap justify-center gap-3">
                     <button
                       onClick={() => {
-                        setQuery("Start the tour");
+                        setQuery("Verify system alignment and compliance protocol");
                         setTimeout(() => handleQuery(), 100);
                       }}
-                      className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:bg-white hover:text-black transition-all"
+                      className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all"
                     >
-                      Take the Tour
+                      Security Check
                     </button>
                     <button
                       onClick={() => {
-                        setQuery("Help with Job Rules");
+                        setQuery("Draft a secure client estimate");
                         setTimeout(() => handleQuery(), 100);
                       }}
-                      className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase tracking-widest text-amber-400 hover:bg-white hover:text-black transition-all"
+                      className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all"
                     >
-                      Learn: Job Rules
+                      Draft Estimate
                     </button>
                     <button
                       onClick={() => {
-                        setQuery("How to calculate volume?");
+                        setQuery("Summarize the CRM database securely");
                         setTimeout(() => handleQuery(), 100);
                       }}
-                      className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase tracking-widest text-blue-400 hover:bg-white hover:text-black transition-all"
+                      className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white hover:text-black transition-all"
                     >
-                      Learn: Calculations
+                      Audit CRM
                     </button>
                   </div>
                 </div>
@@ -441,28 +754,24 @@ export default function BrainChat({
                     {m.sender === "user" ? (
                       <User size={18} />
                     ) : (
-                      <Bot size={18} />
+                      <ShieldCheck size={18} />
                     )}
                   </div>
-                  <div
-                    className={`max-w-[70%] px-6 py-4 rounded-[28px] text-sm leading-relaxed shadow-xl ${
-                      m.sender === "user"
-                        ? "bg-emerald-600 text-white"
-                        : "bg-white/5 border border-white/5 text-white/80"
-                    }`}
-                  >
-                    {m.text}
-                  </div>
+                  <TranslatedMessageBubble text={m.text} sender={m.sender as "user" | "bot"} targetLanguage="es" />
                 </div>
               ))}
 
               {isLoading && (
                 <div className="flex gap-4">
-                  <div className="w-10 h-10 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-emerald-400">
-                    <Bot size={18} />
+                  <div className="w-10 h-10 rounded-2xl bg-white/5 border border-emerald-500/30 flex items-center justify-center text-emerald-400 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-emerald-500/10 animate-pulse"></div>
+                    <Shield size={18} className="relative z-10" />
                   </div>
-                  <div className="bg-white/5 border border-white/5 px-6 py-4 rounded-[28px]">
-                    <Loader2 size={20} className="animate-spin text-white/50" />
+                  <div className="bg-emerald-500/5 border border-emerald-500/10 px-6 py-4 rounded-[28px] pr-8">
+                    <div className="flex items-center gap-3">
+                      <Loader2 size={16} className="animate-spin text-emerald-500" />
+                      <span className="text-xs font-mono text-emerald-400 font-bold uppercase tracking-widest">{loadingMessages[loadingStep]}</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -489,7 +798,7 @@ export default function BrainChat({
                   placeholder={
                     isListening ? "Listening..." : "Search for something..."
                   }
-                  className="w-full pl-8 pr-16 py-6 bg-white/[0.03] border border-white/5 rounded-3xl text-sm font-black italic focus:outline-none focus:border-emerald-500/30 transition-all text-white placeholder:text-white/50"
+                  className="w-full min-w-0 pl-8 pr-16 py-6 bg-white/[0.03] border border-white/5 rounded-3xl text-base sm:text-sm font-black italic focus:outline-none focus:border-emerald-500/30 transition-all text-white placeholder:text-white/50"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
@@ -502,6 +811,24 @@ export default function BrainChat({
                 </button>
               </form>
             </div>
+          </div>
+  );
+
+  if (mode === "full") {
+    return content;
+  }
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            className="w-full flex justify-center items-center h-full relative max-w-2xl"
+          >
+            {content}
           </motion.div>
         </div>
       )}

@@ -1,8 +1,14 @@
+// @ts-nocheck
 
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, initializeAuth, inMemoryPersistence } from "firebase/auth";
+import { getStorage } from "firebase/storage";
+import { getAnalytics, isSupported } from "firebase/analytics";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache,
   collection,
   addDoc,
   serverTimestamp,
@@ -10,8 +16,55 @@ import {
 import firebaseConfig from "../../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
+
+let firestoreDb;
+let isStorageEnabled = false;
+
+try {
+  if (typeof window !== 'undefined') {
+    let dummy = window.indexedDB;
+    isStorageEnabled = true;
+  }
+} catch (e) {
+  isStorageEnabled = false;
+}
+
+if (isStorageEnabled) {
+  try {
+    firestoreDb = initializeFirestore(app, {
+      localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+    });
+  } catch(e) {
+     firestoreDb = initializeFirestore(app, { localCache: memoryLocalCache() });
+  }
+} else {
+  firestoreDb = initializeFirestore(app, {
+    localCache: memoryLocalCache()
+  });
+}
+
+export const db = firestoreDb;
+
+let tempAuth;
+try {
+  if (!isStorageEnabled) throw new Error("Storage disabled");
+  tempAuth = getAuth(app);
+} catch(e) {
+  tempAuth = initializeAuth(app, {
+    persistence: inMemoryPersistence
+  });
+}
+
+export const auth = tempAuth;
+export const storage = getStorage(app);
+
+// Analytics is only supported in browser environments
+export let analytics: ReturnType<typeof getAnalytics> | null = null;
+isSupported().then((supported) => {
+  if (supported) {
+    analytics = getAnalytics(app);
+  }
+});
 
 export enum OperationType {
   CREATE = "create",

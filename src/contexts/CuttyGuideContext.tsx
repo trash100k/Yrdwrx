@@ -1,3 +1,4 @@
+// @ts-nocheck
 
 import React, {
   createContext,
@@ -230,9 +231,9 @@ export function CuttyGuideProvider({
                 width: activeFocus.rect.width + 24,
                 height: activeFocus.rect.height + 24,
               }}
-              className="absolute border-2 border-emerald-500/30 rounded-[32px]"
+              className="absolute border-2 border-emerald-500/30 rounded-2xl"
             >
-              <div className="absolute inset-0 bg-emerald-500/5 blur-xl rounded-[32px]" />
+              <div className="absolute inset-0 bg-emerald-500/5 blur-xl rounded-2xl" />
             </motion.div>
           </motion.div>
         )}

@@ -1,3 +1,4 @@
+// @ts-nocheck
 
 import React from "react";
 import { ErrorBoundary } from "react-error-boundary";
@@ -11,18 +12,18 @@ function ErrorFallback({
   resetErrorBoundary: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center p-12 bg-black h-screen text-center">
-      <div className="w-20 h-20 bg-rose-500/10 border border-rose-500/20 rounded-[32px] flex items-center justify-center text-rose-500 mb-8 shadow-2xl shadow-rose-500/10">
+    <div className="flex flex-col items-center justify-center p-12 bg-black h-[100dvh] text-center">
+      <div className="w-20 h-20 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center justify-center text-rose-500 mb-8 shadow-2xl shadow-rose-500/10">
         <AlertTriangle size={40} />
       </div>
-      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-white mb-4">
+      <h2 className="text-2xl sm:text-3xl font-black italic tracking-normal md:tracking-tighter uppercase text-white mb-4">
         Neural Grid Disrupted
       </h2>
       <p className="text-white/40 max-w-md mx-auto mb-10 font-medium leading-relaxed">
         The system encountered a logic reconciliation error. Your local state
         has been preserved, but the view must be recalibrated.
       </p>
-      <pre className="text-[10px] font-mono text-rose-400 bg-rose-500/5 p-6 rounded-2xl border border-rose-500/10 mb-8 max-w-lg overflow-auto">
+      <pre className="text-xs md:text-[10px] font-mono text-rose-400 bg-rose-500/5 p-6 rounded-2xl border border-rose-500/10 mb-8 max-w-lg overflow-auto">
         {error.message}
       </pre>
       <button

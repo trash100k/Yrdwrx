@@ -1,0 +1,34 @@
+steps:
+# 1. Build the multi-stage Docker image
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA', '.']
+
+# 2. Push the image to Container Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA']
+
+# 3. Deploy to Cloud Run automatically
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+  - 'run'
+  - 'deploy'
+  - 'react-example-app'
+  - '--image'
+  - 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA'
+  - '--region'
+  - 'us-central1'
+  - '--port'
+  - '3000'
+  - '--allow-unauthenticated'
+  - '--cpu'
+  - '2' # Leverage the Node.js cluster we added!
+  - '--memory'
+  - '1024Mi'
+  - '--concurrency'
+  - '80'
+  - '--min-instances'
+  - '1' # Keep one instance warm for immediate responses
+
+images:
+- 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA'

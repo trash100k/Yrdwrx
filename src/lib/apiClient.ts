@@ -1,3 +1,6 @@
+import { fetchApi } from "../lib/api";
+// @ts-nocheck
+import { auth } from "./firebase";
 
 export class ApiError extends Error {
   public status: number;
@@ -51,17 +54,27 @@ export class ApiClient {
     endpoint: string,
     options: ApiOptions = {},
   ): Promise<T> {
-    const { body, retries = 0, ...customConfig } = options;
+    const { body, retries = 3, ...customConfig } = options;
 
-    const headers = {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...customConfig.headers,
+      ...(customConfig.headers as Record<string, string>),
     };
+    
+    if (auth.currentUser) {
+      try {
+        const token = await auth.currentUser.getIdToken();
+        headers["x-firebase-auth"] = `Bearer ${token}`;
+      } catch (e) {
+        console.warn("Failed to get Firebase token", e);
+      }
+    }
 
     const config: RequestInit = {
       ...customConfig,
       headers,
     };
+
 
     if (body) {
       config.body = JSON.stringify(body);
@@ -69,10 +82,15 @@ export class ApiClient {
 
     let lastError: unknown;
 
+    let url = `${this.baseURL}${endpoint}`;
+    if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+      url = endpoint;
+    }
+
     // Simple retry mechanism for network transient errors (not 4xx errors)
     for (let i = 0; i <= retries; i++) {
       try {
-        const response = await fetch(`${this.baseURL}${endpoint}`, config);
+        const response = await fetchApi(url, config);
         return await this.handleResponse<T>(response);
       } catch (error) {
         lastError = error;

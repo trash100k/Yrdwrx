@@ -1,0 +1,102 @@
+src/App.tsx:342:          "Standard email/password was not fully configured online. Entering simulated safe local mode...",
+src/App.tsx:427:                    placeholder="000000"
+src/App.tsx:530:                  placeholder="supervisor@landscapes.com"
+src/App.tsx:546:                  placeholder="••••••••"
+src/pages/CRM.tsx:328:          // Fallback to mock data silently if permissions are denied
+src/pages/CRM.tsx:585:            aiScore: Math.floor(Math.random() * 40) + 40, // Simulated initial score
+src/pages/CRM.tsx:738:                placeholder="Search registries..."
+src/pages/CRM.tsx:739:                className="w-full pl-16 pr-8 py-5 bg-black border-4 border-white/10 rounded-3xl text-xl uppercase font-black tracking-widest focus:bg-zinc-900 focus:border-emerald-500/50 focus:outline-none placeholder:text-zinc-600 transition-all shadow-inner"
+src/pages/CRM.tsx:791:                      placeholder="Search clients hub..."
+src/pages/CRM.tsx:794:                      className="w-full pl-12 pr-6 py-3 bg-white/5 border-4 border-white/10 rounded-2xl text-sm font-bold focus:bg-white/10 focus:border-emerald-500/30 focus:outline-none placeholder:text-zinc-600 transition-all"
+src/pages/CRM.tsx:1639:                        className="w-full min-h-[220px] bg-zinc-900 border-4 border-white/10 shadow-2xl p-10 text-lg text-white font-medium focus:border-emerald-500/30 focus:outline-none transition-all leading-relaxed placeholder:text-white/10"
+src/pages/CRM.tsx:1640:                        placeholder="Special instructions, gate codes, pet info..."
+src/pages/Settings.tsx:455:                                placeholder="E.g., We always use #57 stone for driveway borders. Prefer pine straw over mulch in backyards."
+src/pages/Settings.tsx:540:                     placeholder="DELETE"
+src/pages/DesignStudio.tsx:272:                placeholder={
+src/pages/DesignStudio.tsx:277:                className="w-full bg-transparent border-none p-0 text-lg font-bold italic text-white placeholder:text-zinc-500 focus:ring-0"
+src/pages/Inventory.tsx:635:                      placeholder="Length(ft)"
+src/pages/Inventory.tsx:636:                      className="bg-white/5 border-4 border-white/10 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-zinc-600 [color-scheme:dark]"
+src/pages/Inventory.tsx:647:                      placeholder="Width(ft)"
+src/pages/Inventory.tsx:648:                      className="bg-white/5 border-4 border-white/10 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-zinc-600 [color-scheme:dark]"
+src/pages/Inventory.tsx:661:                      placeholder="Depth(in) "
+src/pages/Inventory.tsx:662:                      className="flex-1 bg-white/5 border-4 border-white/10 rounded-2xl p-4 text-base font-black italic text-white focus:bg-white/10 focus:outline-none transition-all placeholder:text-white/10 [color-scheme:dark]"
+src/pages/Inventory.tsx:759:                  placeholder="Query assets..."
+src/pages/Inventory.tsx:762:                  className="w-full pl-14 pr-6 py-5 bg-white/5 border-4 border-white/10 rounded-[24px] text-sm font-bold focus:outline-none focus:bg-white/10 focus:border-white/20 transition-all placeholder:text-zinc-600"
+src/pages/Inventory.tsx:1211:                            placeholder="Enter UPC / SKU / Name"
+src/pages/ClientPortal.tsx:355:                    {/* Mock Image Placeholder */}
+src/pages/ClientPortal.tsx:477:                  placeholder="Reply to Cutty team..." 
+src/pages/Reviews.tsx:314:                        className="w-full bg-zinc-900 border border-emerald-500/20 rounded-[32px] p-5 sm:p-8 text-sm text-emerald-100 leading-relaxed focus:outline-none focus:bg-white/5 transition-all shadow-inner placeholder:text-zinc-500 italic"
+src/pages/CrewSuite.tsx:168:              placeholder="Query crews..."
+src/pages/CrewSuite.tsx:169:              className="w-full pl-16 pr-8 py-5 bg-black border-4 border-white/10 rounded-3xl text-sm font-black tracking-widest uppercase focus:bg-zinc-900 focus:border-emerald-500/50 focus:outline-none placeholder:text-zinc-600 transition-all shadow-inner"
+src/pages/CrewSuite.tsx:296:               alert("Sandbox Workspace: Sent field report to owner via simulated Gmail.");
+src/pages/Compliance.tsx:18:  // Mock checking weather
+src/pages/Compliance.tsx:87:                placeholder="e.g. JB-9091 (Gable Manor)"
+src/pages/Compliance.tsx:97:                placeholder="e.g. Glyphosate 41%"
+src/pages/Compliance.tsx:107:                placeholder="e.g. 2 oz / gal"
+src/pages/Compliance.tsx:172:                  className="w-full bg-zinc-900 border-b-2 border-white/20 p-4 text-white font-serif italic text-xl focus:outline-none focus:border-white mb-6 placeholder:text-white/20"
+src/pages/Compliance.tsx:173:                  placeholder="Type your full name to sign..."
+src/pages/Dashboard.tsx:398:      // Let's create a simulated sandbox session for testing so they are never blocked
+src/pages/Dashboard.tsx:571:    // Attempt real API if live, else mock Wait
+src/pages/Dashboard.tsx:686:      showToast(`${actionLabel} triggered (Simulated via Graceful Fallback)`);
+src/pages/Dashboard.tsx:1210:                        placeholder="e.g. Optimized for commercial slope managers, do not show active stock checks"
+src/pages/Dashboard.tsx:1303:                    placeholder="e.g. Richard Gable"
+src/pages/Dashboard.tsx:1321:                    placeholder="e.g. 601-555-4921"
+src/pages/Dashboard.tsx:1338:                    placeholder="e.g. 4502 Poplar Springs Dr, MS"
+src/pages/Dashboard.tsx:1542:                              showToast(`Simulated dispatch to ${selectedCrewForSMS.job} via App Portal Notification!`);
+src/pages/Dashboard.tsx:2469:            {/* If any widgets are hidden, show a dynamic placeholder to "Add slot back" */}
+src/pages/Scheduler.tsx:300:                  placeholder="e.g. Lawn Aeration & Overseeding"
+src/pages/RouteOptimizer.tsx:20:  // Simulated initial waypoints representing scheduled jobs
+src/pages/CRM.test.tsx:7:// Mock the context and firebase
+src/pages/CRM.test.tsx:8:vi.mock('../contexts/TenantContext', () => ({
+src/pages/CRM.test.tsx:12:vi.mock('../contexts/ToastContext', () => ({
+src/pages/CRM.test.tsx:16:vi.mock('../hooks/useFocusTrap', () => ({
+src/pages/CRM.test.tsx:20:vi.mock('firebase/firestore', () => ({
+src/pages/CRM.test.tsx:35:vi.mock('../lib/firebase', () => ({
+src/pages/CRM.test.tsx:43:vi.mock('firebase/auth', () => ({
+src/pages/CRM.test.tsx:48:vi.mock('../services/brainService', () => ({
+src/pages/CRM.test.tsx:53:vi.mock('recharts', () => ({
+src/components/Layout.tsx:336:                placeholder="Search for customers, equipment, or jobs..."
+src/components/Layout.tsx:337:                className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold focus:bg-white/10 focus:border-emerald-500/30 focus:outline-none placeholder:text-zinc-500 transition-all text-white"
+src/components/VoiceMemoJobModal.tsx:196:                 className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/20 focus:border-emerald-500 outline-none min-h-[120px]"
+src/components/VoiceMemoJobModal.tsx:197:                 placeholder="Processed notes will appear here..."
+src/components/ServicePricingCatalog.tsx:181:                 placeholder={bulkActionType === "percentage" ? "e.g. 10 for +10%" : "New Price"}
+src/components/ServicePricingCatalog.tsx:259:             placeholder="Service Name"
+src/components/ServicePricingCatalog.tsx:268:                placeholder="Rate"
+src/components/Onboarding.tsx:171:                    placeholder="Business Name"
+src/components/Onboarding.tsx:172:                    className="w-full bg-white/5 border border-white/5 rounded-3xl py-6 pl-16 pr-8 focus:bg-white/10 focus:border-white/20 focus:outline-none placeholder:text-white/20 transition-all font-bold text-lg"
+src/components/Onboarding.tsx:188:                    placeholder="Contact Frequency"
+src/components/Onboarding.tsx:189:                    className="w-full bg-white/5 border border-white/5 rounded-3xl py-6 pl-16 pr-8 focus:bg-white/10 focus:border-white/20 focus:outline-none placeholder:text-white/20 transition-all font-bold text-lg"
+src/components/Onboarding.tsx:232:                    placeholder="e.g. North Hills, Poplar Springs"
+src/components/Onboarding.tsx:233:                    className="w-full bg-white/5 border border-white/5 rounded-3xl py-6 pl-16 pr-8 focus:bg-white/10 focus:border-white/20 focus:outline-none placeholder:text-white/20 transition-all font-bold text-lg"
+src/components/StripeConnectSection.tsx:37:      showToast("Backend connection simulated: Using Demo Stripe Connect.");
+src/components/InventoryForecast.tsx:56:        // Simple mock intelligence: does job title suggest we need this item?
+src/components/CuttyChat.tsx:674:                  placeholder={
+src/components/CuttyChat.tsx:677:                  className="w-full pl-8 pr-16 py-6 bg-white/[0.03] border border-white/5 rounded-3xl text-sm font-black italic focus:outline-none focus:border-emerald-500/30 transition-all text-white placeholder:text-white/50"
+src/components/FieldModeInterface.tsx:575:                placeholder="DESCRIBE SITUATION..."
+src/components/FieldModeInterface.tsx:576:                className={`w-full h-48 p-6 rounded-3xl border-4 outline-none resize-none font-black text-xl uppercase ${isHighContrast ? "bg-black/5 border-black placeholder:text-black/20 focus:bg-yellow-400/20" : "bg-black border-white/20 placeholder:text-white/20 focus:border-rose-500/50 focus:bg-rose-500/5"}`}
+src/contexts/FieldModeContext.tsx:46:  // Simulated "Preload" protocol
+src/contexts/FieldModeContext.tsx:80:  // Simulated Geofence Alert
+src/App.test.tsx:5:describe('Placeholder tests to get vitest working', () => {
+server.ts:43:// Mock the Gemini API generation when running without a key
+server.ts:46:    "Running in Mock Mode: GEMINI_API_KEY is not set. API calls will be simulated.",
+server.ts:62:        content: "Loves tulips and mock data",
+server.ts:68:    return "This is a mock landscaping proposal drafted to improve the property. It includes specific treatments and estimates.";
+server.ts:73:        title: "Mock Flagstone Path",
+server.ts:85:      summary: "Mock SMS follow up",
+server.ts:91:      clientName: "Mock Client",
+server.ts:99:      { time: "09:00", address: "123 Mock St", reason: "Proximity logic" },
+server.ts:109:        customerId: "mock-id",
+server.ts:110:        name: "John Mock",
+server.ts:119:      title: "Mock Daily Brief",
+server.ts:144:      name: "Mock Part",
+server.ts:203:  return "I'm a mock AI response since the system is running without a GEMINI_API_KEY.";
+server.ts:1065:           simulated: true, 
+server.ts:1103:        return res.json({ error: "Stripe key missing. Multi-tenant setup simulated." });
+server.ts:1137:          error: "Stripe key missing. Payment simulated.",
+server.ts:1138:          simulatedUrl: successUrl || "http://localhost:3000?success=mock",
+server.ts:1449:        Evaluate the safety of applying this chemical given current simulated weather conditions.
+server.ts:1839:      // FIXME(Management): Replace mock DB with actual inventory count queries
+server.ts:1840:      const lowStock = items.filter(() => Math.random() < 0.2); // Demoted from 0.5 to 0.2 for realistic mock threshold
+server.ts:1845:          current: Math.floor(Math.random() * 5), // Mock current levels below min
+server.ts:2377:        Enrich this landscaping customer's data using simulated "Local Market Intelligence" for Meridian, MS.
+server.ts:2649:              // To keep Gemini happy, we'll send a dummy success response.
