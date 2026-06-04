@@ -8,7 +8,7 @@ export default function TermsOfService() {
   const summaryCards = [
     {
       title: "1. Who This Contract Is For",
-      desc: "Our terms connect you (the entity owner), your hard-working crews operating on their mobile phones, and your clients reviewing work on their private portal. It represents our pledge to work safely, fairly, and respectably together.",
+      desc: "Our terms connect you (the entity owner), your hard-working crews operating on their mobile phones, and your clients reviewing work on their private portal. It represents our pledge to work safely, fairly, and respectably together. Also, if you are in Europe, the UK, or Switzerland, you must be on a paid tier.",
     },
     {
       title: "2. Your Account Security",
@@ -16,7 +16,7 @@ export default function TermsOfService() {
     },
     {
       title: "3. Professional Fair Play",
-      desc: "We are all honest business operators. No using the system for malicious attempts, scraping, reverse-engineering our software, or trying to jailbreak the Cutty AI model. Play by the rules, and we will protect your workspace.",
+      desc: "We are all honest business operators. No using the system for malicious attempts, scraping, reverse-engineering our software, or trying to jailbreak the Cutty AI model. Play by the rules (no bypassing AI safety filters or doing illegal stuff), and we will protect your workspace.",
     },
     {
       title: "4. Practical Liability Limits & Leak Fixes",
@@ -28,7 +28,7 @@ export default function TermsOfService() {
     },
     {
       title: "6. Bad Actors Policy (Immediate Term & No Refunds)",
-      desc: "If you are found doing something even remotely malicious, abusive, or harmful on CuttyOS, we reserve the right to ban you instantly with NO refund. This definition of a bad actor is a living document that can evolve, but 99% of honest folks have absolutely nothing to worry about.",
+      desc: "If you are found doing something even remotely malicious, abusive, or harmful on CuttyOS, we reserve the right to ban you instantly with NO refund. You explicitly forfeit any right to legal recourse or compensation. This definition of a bad actor is a living document that can evolve, but 99% of honest folks have absolutely nothing to worry about.",
     },
     {
       title: "7. Steal, Cheat, or Lie (We Will Act Legally)",
@@ -36,7 +36,7 @@ export default function TermsOfService() {
     },
     {
       title: "8. Third-Party Connections (Your Keys, Your Rules)",
-      desc: "If you hook up any and all external third-party tools, platforms, or services to CuttyOS using your own API keys or webhooks, that is purely your responsibility. We provide the socket, but you own the pipeline. If any external tools misfire or cause damage, we hold ZERO liability for those outside platforms.",
+      desc: "If you hook up any and all external third-party tools, platforms, or services to CuttyOS using your own API keys or webhooks, that is purely your responsibility. We provide the socket, but you own the pipeline. If any external tools misfire or cause damage, we hold ZERO liability for those outside platforms. Note that third-party names like Gemini, Redis, Stripe, and Firebase are their own trademarks.",
     },
     {
       title: "9. Service Level (The 'As-Is' Reality)",
@@ -47,7 +47,7 @@ export default function TermsOfService() {
   const verbatimSections = [
     {
       title: "1. Acceptance of Terms",
-      text: "By accessing or using the CuttyOS platform, provided by Gaelworx AI, you agree to be bound by these Terms of Service. This applies collectively to you as the business owner, your authorized contractors/employees utilizing the field application, and your clients utilizing the client portal. CuttyOS provides a business operations software solution for field service professionals.",
+      text: "By accessing or using the CuttyOS (a product brought to market by Solano Resources and owned by Gaelworx AI), you agree to be bound by these Terms of Service. This applies collectively to you as the business owner, your authorized contractors/employees utilizing the field application, and your clients utilizing the client portal. CuttyOS provides a business operations software solution for field service professionals. Note: To comply with regional infrastructure costs and Google API policies, users operating within Europe, the United Kingdom (UK), or Switzerland are strictly required to use a paid billing tier.",
     },
     {
       title: "2. Account Responsibility",
@@ -55,7 +55,7 @@ export default function TermsOfService() {
     },
     {
       title: "3. Acceptable Use",
-      text: "You agree not to use CuttyOS for any unlawful purpose or to conduct any activity that would constitute a civil or criminal offense or violate any law. You may not attempt to reverse-engineer, disrupt, or compromise the integrity of Gaelworx AI's software or artificial intelligence pipelines. Client interfaces must not be abused for malicious intent.",
+      text: "You agree not to use CuttyOS for any unlawful purpose or to conduct any activity that would constitute a civil or criminal offense or violate any law. You may not attempt to reverse-engineer, disrupt, or compromise the integrity of Gaelworx AI's software or artificial intelligence pipelines. Client interfaces must not be abused for malicious intent. You are strictly prohibited from attempting to bypass built-in AI safety filters or utilizing the platform to facilitate any illegal activities.",
     },
     {
       title: "4. Limitation of Liability & Leak Rectification",
@@ -67,7 +67,7 @@ export default function TermsOfService() {
     },
     {
       title: "6. Bad Actors Policy & Discretionary Termination",
-      text: "Gaelworx AI operates a strict policy against disruptive, malicious, or abusive activities. If any tenant is discovered in breach of this conduct, Gaelworx AI reserves the absolute right to suspend or delete all tenant profiles instantly with no prior notice and zero eligibility for refunds. This definition of a 'bad actor' represents a living document subject to updates at Gaelworx AI's sole discretion. 99% of normal, well-meaning operators are fully protected under our co-equal system of good-faith partnerships.",
+      text: "Gaelworx AI operates a strict policy against disruptive, malicious, or abusive activities. If any tenant is discovered in breach of this conduct, Gaelworx AI reserves the absolute right to suspend or delete all tenant profiles instantly with no prior notice and zero eligibility for refunds. By using CuttyOS, you expressly forfeit any right to take legal action or seek recourse for such termination. This definition of a 'bad actor' represents a living document subject to updates at Gaelworx AI's sole discretion. 99% of normal, well-meaning operators are fully protected under our co-equal system of good-faith partnerships.",
     },
     {
       title: "7. Fraud Prevention & Mandatory Court Redress",
@@ -75,7 +75,7 @@ export default function TermsOfService() {
     },
     {
       title: "8. Third-Party Integrations & API Non-Liability",
-      text: "CuttyOS may provide webhook endpoints, OAuth connections, or API key slots enabling integrations with any and all external third-party providers, platforms, or services. You expressly acknowledge that Gaelworx AI exercises no control over these external services. You remain solely responsible for the configuration, billing, and operational consequences of any integrated third-party pipelines. Gaelworx AI holds absolutely zero liability for data corruption, service interruptions, or unauthorized access stemming from third-party connections or user-supplied API keys.",
+      text: "CuttyOS may provide webhook endpoints, OAuth connections, or API key slots enabling integrations with any and all external third-party providers, platforms, or services. You expressly acknowledge that Gaelworx AI exercises no control over these external services. You remain solely responsible for the configuration, billing, and operational consequences of any integrated third-party pipelines. Gaelworx AI holds absolutely zero liability for data corruption, service interruptions, or unauthorized access stemming from third-party connections or user-supplied API keys. Trademarks for third-party products including Google Gemini, Redis, Stripe, and Firebase belong exclusively to their respective owners and imply no direct endorsement.",
     },
     {
       title: "9. Service Level Agreement (SLA) Exclusion & 'As-Is' Provision",
