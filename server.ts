@@ -381,6 +381,10 @@ async function startServer() {
       ".sql", ".dmp", ".bak", ".db", // Database & Dumps
       ".env", ".ini", ".cfg", ".conf", // Sensitive Configs
       ".so", ".msi", ".jar", ".war", ".ear", // OS & Java Binaries
+      ".docm", ".xlsm", ".pptm", // Macro-enabled Office
+      ".lnk", ".scr", ".pif", ".hta", ".cpl", ".reg", ".msc", // Windows Exec vectors
+      ".apk", ".dmg", ".iso", ".cab", // Disk Images & Installers
+      ".git", ".htaccess", ".htpasswd", // Hidden/Source Control
     ];
     if (blockedExtensions.some(ext => url.includes(ext))) {
       logThreat(req.ip || '', "Restricted Binary/File Requested", req.url);
@@ -394,12 +398,22 @@ async function startServer() {
     const daxPatterns = ["evaluate ", "define ", "var ", "calculate(", "summarize(", "addcolumns("];
     
     // Common SQL/NoSQL Injection patterns
-    const sqlPatterns = ["drop table", "union select", "1=1", "waitfor delay", "db.collection.find("];
+    const sqlPatterns = [
+      "drop table", "union select", "1=1", "waitfor delay", "db.collection.find(",
+      "xp_cmdshell", "exec(", "--", "or 1=1", "union all", // Advanced SQL Injection
+      "$where", "$ne", "$gt", "$regex" // NoSQL Injection (Firestore/MongoDB)
+    ];
     
     // Path Traversal & Command Injection
-    const pathPatterns = ["../", "..\\", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
+    const pathPatterns = [
+      "../", "..\\", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows",
+      "$(whoami)", "`whoami`", "; cat ", "| awk", "&& ls", "system(", "eval("
+    ];
 
-    const allThreats = [...daxPatterns, ...sqlPatterns, ...pathPatterns];
+    // Cross-Site Scripting (XSS) Patterns
+    const xssPatterns = ["<script", "<svg ", "<iframe", "alert(", "document.cookie", "javascript:"];
+
+    const allThreats = [...daxPatterns, ...sqlPatterns, ...pathPatterns, ...xssPatterns];
 
     if (allThreats.some(pattern => rawPayload.includes(pattern) || url.includes(pattern))) {
        logThreat(req.ip || '', "Injection/Pentest Payload", req.url);
