@@ -1,3 +1,4 @@
+import { useToast } from '../contexts/ToastContext';
 import React, { useState } from "react";
 import { useTenant } from "../contexts/TenantContext";
 import { motion } from "motion/react";
@@ -22,6 +23,8 @@ import BrainChat from "../components/CuttyChat";
 import { DeepResearchTab, VideoMarketingTab } from "../components/AgentLabs";
 
 export default function Agent() {
+  const { showToast } = useToast();
+
   const { tenant } = useTenant();
   const [activeTab, setActiveTab] = useState("chat");
 
@@ -184,7 +187,7 @@ export default function Agent() {
                      <div className="max-w-3xl mx-auto space-y-6 w-full">
                        <div className="flex items-center justify-between">
                          <h3 className="text-xl font-bold text-white">Active Workflows</h3>
-                         <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-colors">
+                         <button onClick={() => showToast("Workflow Builder coming soon", "info")} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-colors">
                            Create New Workflow
                          </button>
                        </div>
@@ -203,7 +206,7 @@ export default function Agent() {
                              <span className={`text-xs font-bold px-2 py-1 rounded border uppercase ${wf.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
                                {wf.status}
                              </span>
-                             <button className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg">
+                             <button onClick={() => showToast("Opening settings", "info")} className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg">
                                <Settings size={16} />
                              </button>
                            </div>
@@ -217,7 +220,7 @@ export default function Agent() {
                      <div className="max-w-3xl mx-auto space-y-6 w-full">
                        <div className="flex items-center justify-between">
                          <h3 className="text-xl font-bold text-white">Knowledge Base Sources</h3>
-                         <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-colors">
+                         <button onClick={() => showToast("Data source wizard opened", "info")} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-colors">
                            Add Source
                          </button>
                        </div>
@@ -233,7 +236,7 @@ export default function Agent() {
                                <div className="w-10 h-10 rounded bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400">
                                  <BrainCircuit size={20} />
                                </div>
-                               <button className="text-xs font-medium text-emerald-400 hover:text-emerald-300">Sync</button>
+                               <button onClick={() => showToast("Knowledge Base synced", "success")} className="text-xs font-medium text-emerald-400 hover:text-emerald-300">Sync</button>
                              </div>
                              <h4 className="text-white font-medium text-sm mb-1">{kb.name}</h4>
                              <div className="flex justify-between items-center mt-3">
@@ -414,7 +417,7 @@ export default function Agent() {
                                <p className="text-zinc-500 text-xs">POST payload to your backend: https://api.yoursite.com/secdev/webhook</p>
                              </div>
                            </div>
-                           <button className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-medium text-white transition-colors">
+                           <button onClick={() => showToast("Configuration saved", "success")} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-medium text-white transition-colors">
                              Configure
                            </button>
                          </div>

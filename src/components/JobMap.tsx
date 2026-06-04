@@ -2,6 +2,7 @@ import { fetchApi } from "../lib/api";
 // @ts-nocheck
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { useToast } from '../contexts/ToastContext';
 import {
   APIProvider,
   Map,
@@ -236,7 +237,7 @@ export default function JobMap({
                 </div>{" "}
                 <div className="space-y-3 pt-4 border-t border-white/5">
                   {" "}
-                  <button className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white text-white/60 hover:text-black transition-all group">
+                  <button onClick={() => setSelectedJob(job.id)} className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white text-white/60 hover:text-black transition-all group">
                     {" "}
                     <span className="flex items-center gap-3">
                       {" "}
@@ -247,7 +248,7 @@ export default function JobMap({
                     </span>{" "}
                     <ChevronRight size={14} />{" "}
                   </button>{" "}
-                  <button className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white text-white/60 hover:text-black transition-all group">
+                  <button onClick={() => setSelectedJob(job.id)} className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white text-white/60 hover:text-black transition-all group">
                     {" "}
                     <span className="flex items-center gap-3">
                       {" "}
@@ -269,7 +270,7 @@ export default function JobMap({
                   {" "}
                   <History size={16} /> View Client Profile{" "}
                 </Link>{" "}
-                <button className="w-full py-4 border-white/10 text-white/40 font-black text-xs md:text-[10px] uppercase tracking-[0.2em] hover:text-white transition-all">
+                <button onClick={() => showToast("Loading more routes...", "info")} className="w-full py-4 border-white/10 text-white/40 font-black text-xs md:text-[10px] uppercase tracking-[0.2em] hover:text-white transition-all">
                   {" "}
                   Get Directions{" "}
                 </button>{" "}

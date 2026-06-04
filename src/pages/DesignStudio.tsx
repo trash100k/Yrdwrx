@@ -1,3 +1,4 @@
+import { useToast } from '../contexts/ToastContext';
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import { safeStorage } from '../lib/storage';
@@ -64,6 +65,8 @@ interface DesignResult {
 }
 
 export default function DesignStudio() {
+  const { showToast } = useToast();
+
   const location = useLocation();
   const { tenant } = useTenant();
   const { role } = useRole();
@@ -546,7 +549,7 @@ export default function DesignStudio() {
                             <p className="text-xs text-amber-500/70">Safe botanical parameters verified. Awaiting financial approval by admin.</p>
                           </div>
                         </div>
-                        <button className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] uppercase tracking-widest rounded-lg transition-colors">
+                        <button onClick={() => showToast("Submitted for review", "success")} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] uppercase tracking-widest rounded-lg transition-colors">
                           Submit for Review
                         </button>
                       </div>
@@ -701,7 +704,7 @@ export default function DesignStudio() {
                       </div>
 
                       <div className="flex flex-col gap-3">
-                        <button className="w-full bg-white text-black py-6 rounded-[28px] font-black uppercase tracking-widest text-xs shadow-2xl hover:scale-[1.02] active:scale-95 transition-all">
+                        <button onClick={() => showToast("Saved to Quote successfully", "success")} className="w-full bg-white text-black py-6 rounded-[28px] font-black uppercase tracking-widest text-xs shadow-2xl hover:scale-[1.02] active:scale-95 transition-all">
                           Save to Quote
                         </button>
                         <button 

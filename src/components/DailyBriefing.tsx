@@ -162,7 +162,7 @@ export function DailyBriefing() {
                   <Info size={14} />{" "}
                 </button>{" "}
                 {alert.action === "email_supplier" && (
-                  <button className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-black rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all">
+                  <button onClick={() => window.location.href = "mailto:supplier@example.com?subject=Material%20Order"} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-black rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all">
                     {" "}
                     <Mail size={12} /> Email{" "}
                   </button>
@@ -230,7 +230,7 @@ export function DailyBriefing() {
             ),
           )}{" "}
         </div>{" "}
-        <button className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">
+        <button onClick={() => setShow(false)} className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">
           {" "}
           Start Your Day <ChevronRight size={14} />{" "}
         </button>{" "}

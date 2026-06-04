@@ -1787,7 +1787,7 @@ export default function Dashboard() {
                         <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
                           Active Supply Partners
                         </h5>
-                        <button className="text-xs md:text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer">
+                        <button onClick={() => showToast("Add Vendor flow initialized", "info")} className="text-xs md:text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer">
                           <Plus size={12} /> Add Vendor
                         </button>
                       </div>

@@ -1,3 +1,4 @@
+import { useToast } from '../contexts/ToastContext';
 // @ts-nocheck
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
@@ -8,6 +9,8 @@ import { MapPin, Calendar, CreditCard, Droplet, Leaf, CheckCircle2, Lock, Send, 
 import { useTenant } from "../contexts/TenantContext";
 
 export default function ClientPortal() {
+  const { showToast } = useToast();
+
   
   
   const { clientId } = useParams();
@@ -274,7 +277,7 @@ export default function ClientPortal() {
                 <div className="bg-emerald-900/20 border-4 border-emerald-500/20 rounded-2xl p-5 sm:p-8">
                   <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-2">Quick Action</h2>
                   <p className="text-white/60 text-sm mb-6">Need an extra service or have a special request for the crew?</p>
-                  <button className="w-full bg-emerald-500 text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl hover:bg-emerald-400 transition-colors">
+                  <button onClick={() => showToast("Service request submitted", "success")} className="w-full bg-emerald-500 text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl hover:bg-emerald-400 transition-colors">
                     Request Additional Service
                   </button>
                 </div>
@@ -368,7 +371,7 @@ export default function ClientPortal() {
                     <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-1">Visualizer</h2>
                     <h3 className="text-xl sm:text-2xl font-black italic tracking-tight text-white">Capture Your Vision</h3>
                   </div>
-                  <button className="bg-emerald-500 text-black py-3 px-6 rounded-xl font-black uppercase tracking-widest text-xs md:text-[10px] hover:scale-[1.02] transition-transform shadow-xl flex items-center gap-2">
+                  <button onClick={() => showToast("Starting visualizer", "info")} className="bg-emerald-500 text-black py-3 px-6 rounded-xl font-black uppercase tracking-widest text-xs md:text-[10px] hover:scale-[1.02] transition-transform shadow-xl flex items-center gap-2">
                     <Leaf size={14} /> Start New Design
                   </button>
                 </div>

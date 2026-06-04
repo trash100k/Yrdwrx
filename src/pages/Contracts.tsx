@@ -1,9 +1,12 @@
+import { useToast } from '../contexts/ToastContext';
 // @ts-nocheck
 import React, { useState } from "react";
 import { FileText, Plus, Search, CalendarClock, CreditCard, ChevronRight, CheckCircle2, AlertCircle, X, Save } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export default function Contracts() {
+  const { showToast } = useToast();
+
   const [activeTab, setActiveTab] = useState('active');
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -152,7 +155,7 @@ export default function Contracts() {
                   {contract.risk && <span className="ml-2 px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-xs md:text-[10px] font-black uppercase tracking-widest">At Risk</span>}
                 </td>
                 <td className="p-4 pr-6 text-right">
-                  <button className="text-zinc-500 group-hover:text-white transition-colors">
+                  <button onClick={() => showToast(`Opening contract...`, "info")} className="text-zinc-500 group-hover:text-white transition-colors">
                     <ChevronRight size={20} />
                   </button>
                 </td>

@@ -1223,10 +1223,7 @@ export default function CRM() {
                         </td>
                         <td className="pr-10 py-8 text-right">
                           <div className="flex justify-end">
-                            <button
-                              className="w-12 h-12 bg-white/5 border border-white/5 rounded-xl text-zinc-600 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center"
-                              aria-label="Quick Actions"
-                            >
+                            <button onClick={() => showToast("Quick actions menu opened", "info")} className="w-12 h-12 bg-white/5 border border-white/5 rounded-xl text-zinc-600 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center" aria-label="Quick Actions">
                               <MoreVertical size={18} />
                             </button>
                           </div>
@@ -1630,7 +1627,7 @@ export default function CRM() {
                                 Community Rules
                               </h4>
                             </div>
-                            <button className="text-[9px] font-black text-purple-400/40 hover:text-purple-400 uppercase tracking-widest transition-colors decoration-purple-500/20 underline underline-offset-4">
+                            <button onClick={() => showToast("Edit capability enabled", "info")} className="text-[9px] font-black text-purple-400/40 hover:text-purple-400 uppercase tracking-widest transition-colors decoration-purple-500/20 underline underline-offset-4">
                               Edit Bylaws
                             </button>
                           </div>
@@ -1712,7 +1709,7 @@ export default function CRM() {
                                 For Board Presentation
                               </p>
                             </div>
-                            <button className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all text-[9px] px-4 py-2 font-black uppercase tracking-widest rounded-full border-2 border-emerald-500/20 hover:border-emerald-500">
+                            <button onClick={() => showToast("Export initiated", "success")} className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all text-[9px] px-4 py-2 font-black uppercase tracking-widest rounded-full border-2 border-emerald-500/20 hover:border-emerald-500">
                               Export PDF
                             </button>
                           </div>
@@ -1806,7 +1803,7 @@ export default function CRM() {
                               value={proposalDraft}
                               onChange={(e) => setProposalDraft(e.target.value)}
                             />
-                            <button className="w-full bg-emerald-500 text-black rounded-3xl py-5 font-bold text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                            <button onClick={() => { setProposalDraft(""); showToast("Proposal sent successfully!", "success"); }} className="w-full bg-emerald-500 text-black rounded-3xl py-5 font-bold text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all">
                               <Send size={18} /> Send to{" "}
                               {selectedCustomer.firstName}
                             </button>

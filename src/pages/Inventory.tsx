@@ -620,7 +620,7 @@ export default function Inventory() {
             </p>
           </div>
           <div className="pt-8 border-t border-white/10">
-            <button className="w-full text-left micro-label font-black uppercase tracking-widest text-white/20 hover:text-white transition-colors flex items-center justify-between group/btn">
+            <button onClick={() => showToast("Loading loss report...", "info")} className="w-full text-left micro-label font-black uppercase tracking-widest text-white/20 hover:text-white transition-colors flex items-center justify-between group/btn">
               <span>Loss Identification Report</span>
               <ChevronRight
                 size={16}
@@ -807,7 +807,7 @@ export default function Inventory() {
                   Activity Log
                 </h4>
               </div>
-              <button className="micro-label font-black uppercase text-white/10 hover:text-white transition-colors">
+              <button onClick={() => setSearchTerm("")} className="micro-label font-black uppercase text-white/10 hover:text-white transition-colors">
                 Clear
               </button>
             </div>
@@ -893,10 +893,7 @@ export default function Inventory() {
                       >
                         <Plus size={18} aria-hidden="true" />
                       </button>
-                      <button
-                        className="p-3 bg-white/5 text-white/20 hover:text-white hover:bg-white/10 rounded-xl transition-all border border-white/5"
-                        aria-label={`Settings for ${item.name}`}
-                      >
+                      <button onClick={() => showToast(`Opened settings for ${item.name}`, "info")} className="p-3 bg-white/5 text-white/20 hover:text-white hover:bg-white/10 rounded-xl transition-all border border-white/5" aria-label={`Settings for ${item.name}`}>
                         <Settings2 size={18} aria-hidden="true" />
                       </button>
                       <button
@@ -1063,7 +1060,7 @@ export default function Inventory() {
                         Depletion Risk Critical
                       </span>
                     </div>
-                    <button className="micro-label font-black text-white underline underline-offset-4 hover:text-white/80 transition-colors">
+                    <button onClick={() => showToast("Recovery process initiated", "success")} className="micro-label font-black text-white underline underline-offset-4 hover:text-white/80 transition-colors">
                       Initiate Recovery
                     </button>
                   </div>
