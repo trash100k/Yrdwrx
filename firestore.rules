@@ -24,6 +24,10 @@ service cloud.firestore {
       return getUserData().get('role', 'none');
     }
 
+    function isTenantOwner(tenantId) {
+      return getTenantId() == tenantId && getRole() == 'owner';
+    }
+
     function isTenantAdmin(tenantId) {
       return getTenantId() == tenantId && getRole() in ['admin', 'owner'];
     }
@@ -88,7 +92,7 @@ service cloud.firestore {
       // (The onboarding flow merges to genesis-1, which operates as an update)
       allow create: if isSaaSAdmin() || isDemoWorkspace(tenantId);
       // Fort Knox: Tenant boundaries cannot be rewritten by tenants. They can only edit safe settings.
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(tenantId)) || (isSignedIn() && !hasUserData() && tenantId == 'genesis-1') || isDemoWorkspace(tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(tenantId)) || (isSignedIn() && !hasUserData() && tenantId == 'genesis-1') || isDemoWorkspace(tenantId);
       allow delete: if isSaaSAdmin();
     }
 
@@ -103,21 +107,21 @@ service cloud.firestore {
         incoming().get('role', 'none') != 'owner' && 
         incoming().get('role', 'none') != 'admin' &&
         validPayloadSize()
-      ) || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches());
+      ) || (isSignedIn() && isTenantOwner(incoming().tenantId) && incomingTenantMatches());
       // No jumping tenants, no escalating your own role limits. Only Admins can modify other roles.
       allow update: if isSaaSAdmin() || (isSignedIn() && (
         (request.auth.uid == userId && tenantNotChanged() && roleNotChanged() && validPayloadSize()) ||
-        (isTenantAdmin(existing().tenantId) && incomingTenantMatches() && existing().tenantId == getTenantId() && validPayloadSize())
+        (isTenantOwner(existing().tenantId) && incomingTenantMatches() && existing().tenantId == getTenantId() && validPayloadSize())
       ));
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && request.auth.uid != userId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId) && request.auth.uid != userId);
     }
 
     match /settings/{docId} {
       // Typically docId maps to userId
       allow read: if isSaaSAdmin() || (isSignedIn() && (request.auth.uid == docId || isTenantEmployee(existing().tenantId))) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && request.auth.uid == docId) || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && request.auth.uid == docId && tenantNotChanged()) || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && request.auth.uid == docId) || (isSignedIn() && isTenantOwner(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && request.auth.uid == docId && tenantNotChanged()) || (isSignedIn() && isTenantOwner(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     function validPayloadSize() {
@@ -139,7 +143,7 @@ service cloud.firestore {
         isTenantEmployee(existing().tenantId) ||
         isClient(existing().tenantId, customerId)
       ) && validCustomerShape()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       
       match /messages/{messageId} {
         allow read: if isSaaSAdmin() || (isSignedIn() && (
@@ -150,7 +154,7 @@ service cloud.firestore {
           isTenantEmployee(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId) || 
           isClient(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId, customerId)
         )) || isDemoWorkspace(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId);
-        allow update, delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId)) || isDemoWorkspace(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId);
+        allow update, delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId)) || isDemoWorkspace(get(/databases/$(database)/documents/customers/$(customerId)).data.tenantId);
       }
     }
 
@@ -168,7 +172,7 @@ service cloud.firestore {
         isTenantEmployee(existing().tenantId) ||
         (getRole() == 'client' && existing().customerId == request.auth.uid && existing().tenantId == getTenantId())
       )) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     function validInvoiceShape() {
@@ -187,8 +191,8 @@ service cloud.firestore {
         (getRole() == 'client' && existing().customerId == request.auth.uid && existing().tenantId == getTenantId())
       )) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validInvoiceShape()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validInvoiceShape() && invoiceNotPaid()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && invoiceNotPaid()) || isDemoWorkspace(existing().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged() && validInvoiceShape() && invoiceNotPaid()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId) && invoiceNotPaid()) || isDemoWorkspace(existing().tenantId);
     }
 
     // Protect contracts explicitly
@@ -199,22 +203,22 @@ service cloud.firestore {
       )) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /inventory/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /materialLogs/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       // Logs should ideally be immutable, but allowing Admin if necessary to correct errors
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /expenses/{id} {
@@ -222,14 +226,14 @@ service cloud.firestore {
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && timestampsNotTampered()) || isDemoWorkspace(existing().tenantId);
       // Protect from accidental expense deletion by standard employee
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
     
     match /employees/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     // Fully Immutable system logs
@@ -243,8 +247,8 @@ service cloud.firestore {
     match /broadcasts/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && existing().tenantId == getTenantId()) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /reviews/{id} {
@@ -252,36 +256,36 @@ service cloud.firestore {
       allow create: if isSaaSAdmin() || (isSignedIn() && (
         isTenantEmployee(incoming().tenantId) || getRole() == 'client'
       ) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /knowledge/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /crews/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /leads/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /vendors/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /audit_logs/{id} {
@@ -295,21 +299,21 @@ service cloud.firestore {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /interactions/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /hoa_associations/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
-      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
+      allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantOwner(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
   }
 }
