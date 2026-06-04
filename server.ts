@@ -14,8 +14,36 @@ import { WebSocketServer } from "ws";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import { LRUCache } from "lru-cache";
+import { Logging } from "@google-cloud/logging";
 
 dotenv.config();
+
+// Setup Google Cloud Logging
+const logging = new Logging();
+const log = logging.log('cutty-backend-logs');
+
+export function logToGCP(severity: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL', text: string, metadata?: any) {
+  // Always log to stdout/stderr for Cloud Run to pick up via default streams
+  const logObj = { severity, message: text, ...metadata };
+  if (severity === 'ERROR' || severity === 'CRITICAL') {
+     console.error(JSON.stringify(logObj));
+  } else if (severity === 'WARNING') {
+     console.warn(JSON.stringify(logObj));
+  } else {
+     console.log(JSON.stringify(logObj));
+  }
+
+  // Explicitly write to structured log if needed (Cloud Run often handles stdout natively if formatted as JSON)
+  if (process.env.NODE_ENV === 'production') {
+      const metadataObj = {
+        resource: { type: 'global' },
+        severity: severity,
+      };
+      const entry = log.entry(metadataObj, { message: text, ...metadata });
+      log.write(entry).catch(console.error);
+  }
+}
 
 // Enforce required secrets in production
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
@@ -267,7 +295,10 @@ ai.models.generateContent = async (request: any) => {
 // =================================================
 
 // ==== In-Memory API Cache Middlewares ====
-const apiCacheStore = new Map<string, { expires: number; data: any }>();
+const apiCacheStore = new LRUCache<string, { expires: number; data: any }>({
+  max: 500, // Maximum number of cached responses
+  ttl: 1000 * 60 * 60 * 24, // Optional: absolute maximum TTL across all entries (24 hours)
+});
 
 function cacheApiResponse(durationSeconds: number) {
   return (req: any, res: any, next: any) => {
@@ -409,7 +440,7 @@ async function startServer() {
 
     if (allThreats.some(pattern => rawPayload.includes(pattern) || url.includes(pattern))) {
        logThreat(req.ip || '', "Injection/Pentest Payload", req.url);
-       console.warn(`[ENTERPRISE SECURITY EVENT] Potential Injection or Pentest detected from IP ${req.ip} on route ${req.url}`);
+       logToGCP('WARNING', 'Potential Injection or Pentest detected', { ip: req.ip, route: req.url, type: 'SecurityEvent' });
        return res.status(403).json({ error: "Governance & Compliance Violation: Malicious payload structure detected. Event logged." });
     }
 
@@ -1285,7 +1316,7 @@ async function startServer() {
       // SECURITY: Sanitize logging of payment provider errors to prevent leaking sensitive variables
       const safeErrorMsg = error?.message || "Unknown Stripe Error";
       const safeErrorCode = error?.raw?.code || error?.code || "unknown_code";
-      console.error("Stripe Error (Sanitized):", { code: safeErrorCode, msg: safeErrorMsg });
+      logToGCP('ERROR', "Stripe Checkout Error", { code: safeErrorCode, msg: safeErrorMsg, type: 'PaymentError' });
       res.status(500).json({ error: safeErrorMsg }); // Only return safe message to client
     }
   });

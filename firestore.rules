@@ -237,7 +237,7 @@ service cloud.firestore {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       // Strictly enforced immutable ledger!
-      allow update, delete: if isSaaSAdmin(); 
+      allow update, delete: if false;
     }
 
     match /broadcasts/{id} {
@@ -288,7 +288,7 @@ service cloud.firestore {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
       // Logs are fully immutable, no updates or deletes allowed
-      allow update, delete: if isSaaSAdmin();
+      allow update, delete: if false;
     }
 
     match /design_catalog/{id} {
