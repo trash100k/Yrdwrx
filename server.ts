@@ -17,6 +17,23 @@ import helmet from "helmet";
 
 dotenv.config();
 
+// Enforce required secrets in production
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET must be set in production.");
+  process.exit(1);
+}
+
+// Global Firebase Admin Initialization
+import admin from "firebase-admin";
+if (!admin.apps.length) {
+  let config = {};
+  if (fs.existsSync('./firebase-applet-config.json')) {
+     const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+     config = { projectId: appletConfig.projectId };
+  }
+  admin.initializeApp(config);
+}
+
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
   try {
@@ -321,17 +338,6 @@ async function startServer() {
         const session = event.data.object;
         
         // Find invoice or update status securely using admin
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-            const fs = require("fs");
-            let config = {};
-            if (fs.existsSync('./firebase-applet-config.json')) {
-               const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-               config = { projectId: appletConfig.projectId };
-            }
-            admin.initializeApp(config);
-        }
-        
         // Use session.metadata.invoiceId if we passed it in checkout
         if (session.metadata && session.metadata.invoiceId) {
            await admin.firestore().collection("invoices").doc(session.metadata.invoiceId).update({
@@ -429,16 +435,6 @@ async function startServer() {
     }
     try {
         const token = tokenHeader.split('Bearer ')[1];
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-          const fs = require("fs");
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-             config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
-        }
         const decodedToken = await admin.auth().verifyIdToken(token);
         req.user = decodedToken;
         next();
@@ -455,7 +451,7 @@ async function startServer() {
     limit: 1000,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    validate: { trustProxy: true, xForwardedForHeader: true, forwardedHeader: true },
   });
 
   const strictLimiter = rateLimit({
@@ -463,7 +459,7 @@ async function startServer() {
     limit: 100,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    validate: { trustProxy: true, xForwardedForHeader: true, forwardedHeader: true },
     message: { error: "Too many requests to sensitive endpoints. Please try again after 1 hour." },
   });
 
@@ -472,7 +468,7 @@ async function startServer() {
     limit: 100, // Max 100 requests per day per user/IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false },
+    validate: { trustProxy: true, xForwardedForHeader: true, forwardedHeader: true, keyGeneratorIpFallback: false },
     keyGenerator: (req) => {
       // Use Firebase UID if present (via our verifyFirebaseToken middleware), else IP
       return (req as any).user?.uid || req.ip;
@@ -605,7 +601,7 @@ async function startServer() {
       });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed auto-proposal" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -634,7 +630,7 @@ async function startServer() {
       });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed weather reroute" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -677,7 +673,7 @@ async function startServer() {
       });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed reorder workflow" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -734,7 +730,7 @@ async function startServer() {
           "Beautiful HTML Thank You email dispatched successfully via Gmail.",
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed followup workflow" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -983,7 +979,7 @@ async function startServer() {
       await draftRes.json();
       res.json({ message: "Seasonal upsell drafted successfully." });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed seasonal workflow" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1063,7 +1059,7 @@ async function startServer() {
 
       res.json({ message: `Payroll AI audit completed. Finding: ${output}` });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed payroll workflow" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1075,7 +1071,7 @@ async function startServer() {
           "Retention discount securely dispatched to at-risk client via Portal notification.",
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed retention workflow" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1165,7 +1161,7 @@ async function startServer() {
       res.json({ message: "Route optimized via Google Maps Routes API.", data });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed routing workflow" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1221,7 +1217,7 @@ async function startServer() {
       res.json({ url: accountLink.url, stripeAccountId: account.id });
     } catch (error: any) {
       console.error("Stripe Connect Error:", error.message);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1242,16 +1238,6 @@ async function startServer() {
       // Prevent client-side manipulation of payment amounts by fetching the source of truth from Firestore
       if (invoiceId) {
         try {
-          const admin = require("firebase-admin");
-          if (!admin.apps.length) {
-             const fs = require("fs");
-             let config = {};
-             if (fs.existsSync('./firebase-applet-config.json')) {
-                const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-                config = { projectId: appletConfig.projectId };
-             }
-             admin.initializeApp(config);
-          }
           const db = admin.firestore();
           const invSnap = await db.collection("invoices").doc(invoiceId).get();
           if (invSnap.exists) {
@@ -1267,7 +1253,8 @@ async function startServer() {
           return res.status(500).json({ error: "Failed to securely validate invoice price." });
         }
       } else {
-        console.warn("SECURITY WARNING: Stripe checkout processed a client-side amount without an invoiceId. This is vulnerable to price modification.");
+        console.warn("SECURITY REJECTION: Stripe checkout attempted without an invoiceId.");
+        return res.status(400).json({ error: "Secure checkout requires a valid invoiceId." });
       }
 
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
@@ -1349,7 +1336,7 @@ async function startServer() {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Ingest Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1388,7 +1375,7 @@ async function startServer() {
       res.json(parsed);
     } catch (e: any) {
       console.error("Hands-free error:", e);
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1414,7 +1401,7 @@ async function startServer() {
       res.json({ audio });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1453,7 +1440,7 @@ async function startServer() {
       res.json({ text: response.text });
     } catch (error: any) {
       console.error("Agent Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1508,7 +1495,7 @@ async function startServer() {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1523,7 +1510,7 @@ async function startServer() {
       });
       res.json({ compressedContext: response.text });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1606,7 +1593,7 @@ async function startServer() {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1806,7 +1793,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1824,7 +1811,7 @@ async function startServer() {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1870,7 +1857,7 @@ async function startServer() {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Briefing Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -1927,7 +1914,7 @@ async function startServer() {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Extraction Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2098,7 +2085,7 @@ async function startServer() {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Optimization Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2126,7 +2113,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2166,7 +2153,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2214,7 +2201,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2320,7 +2307,7 @@ async function startServer() {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Design Process Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2527,7 +2514,7 @@ async function startServer() {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Design Tiers Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2640,7 +2627,7 @@ async function startServer() {
       res.json({ success: true, message: "Draft created successfully with PDF attachment." });
     } catch (error: any) {
       console.error("PDF Generate Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2665,7 +2652,7 @@ async function startServer() {
       res.json({ success: true, message: "Note synced to Google Keep." });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2694,7 +2681,7 @@ async function startServer() {
       res.json({ success: true, messages });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2717,7 +2704,7 @@ async function startServer() {
       res.json({ success: true, message: "Dispatched to Google Chat." });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2752,7 +2739,7 @@ async function startServer() {
       res.json({ success: true, file: await driveRes.json() });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2792,7 +2779,7 @@ async function startServer() {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Vision Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2821,7 +2808,7 @@ async function startServer() {
 
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2858,7 +2845,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2893,7 +2880,7 @@ async function startServer() {
       res.json(parsed);
     } catch (e: any) {
       console.error("Snapshot check failed:", e);
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2914,7 +2901,7 @@ async function startServer() {
       });
       res.json({ message: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2941,7 +2928,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -2966,7 +2953,7 @@ async function startServer() {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -3006,7 +2993,7 @@ async function startServer() {
       });
       res.json(JSON.parse(response.text || '{"drafts":[]}'));
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -3040,7 +3027,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -3075,7 +3062,7 @@ async function startServer() {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -3127,7 +3114,7 @@ async function startServer() {
       res.json(parsed);
     } catch (error: any) {
       console.error("Voice Memo Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -3163,7 +3150,7 @@ async function startServer() {
       res.json({ translatedText: response.text?.trim() });
     } catch (error: any) {
       console.error("Translation ERROR:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
@@ -3209,7 +3196,7 @@ async function startServer() {
       
       res.json({ success: true, token, magicLink });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
