@@ -27,8 +27,8 @@ export default function TermsOfService() {
       desc: "Your clients, your schedules, and your business details are your sovereign property—not ours. You can download or export them to CSV anytime. We never sell or share your personal identities or private client files. However, you do grant us the right to commercialize and sell strictly anonymized, non-identifiable usage statistics (the 'trends') to help improve industry analytics.",
     },
     {
-      title: "6. Bad Actors Policy (Immediate Term & No Refunds)",
-      desc: "If you are found doing something even remotely malicious, abusive, or harmful on CuttyOS, we reserve the right to ban you instantly with NO refund. This definition of a bad actor is a living document that can evolve, but 99% of honest folks have absolutely nothing to worry about.",
+      title: "6. Bad Actors Policy & Discretionary Termination",
+      desc: "We strictly forbid malicious actions. However, for honest users leaving the platform, we provide a 30-day 'soft delete' rollback window. If you accidentally delete your account, you have 30 days to recover it before it is permanently and irreversibly destroyed. Once it's gone, it's gone.",
     },
     {
       title: "7. Steal, Cheat, or Lie (We Will Act Legally)",
@@ -63,19 +63,19 @@ export default function TermsOfService() {
     },
     {
       title: "5. Data Rights & Portability",
-      text: "Gaelworx AI ensures you have full, unencumbered rights to export your primary data at any time through our native platform tools to guarantee data portability. However, by using CuttyOS, you grant Gaelworx AI the right to aggregate, anonymize, and commercialize strictly non-identifiable usage statistics and backend operational telemetry, which we may legally share or sell to third parties to improve industry analytics.",
+      text: "Gaelworx AI ensures you have full, unencumbered rights to export your primary data at any time through our Dual Export tools (providing both human-readable and machine-readable formats) to guarantee data portability. However, by using CuttyOS, you grant Gaelworx AI the right to aggregate, anonymize, and commercialize strictly non-identifiable usage statistics and backend operational telemetry, which we may legally share or sell to third parties to improve industry analytics.",
     },
     {
-      title: "6. Bad Actors Policy & Discretionary Termination",
-      text: "Gaelworx AI operates a strict policy against disruptive, malicious, or abusive activities. If any tenant is discovered in breach of this conduct, Gaelworx AI reserves the absolute right to suspend or delete all tenant profiles instantly with no prior notice and zero eligibility for refunds. This definition of a 'bad actor' represents a living document subject to updates at Gaelworx AI's sole discretion. 99% of normal, well-meaning operators are fully protected under our co-equal system of good-faith partnerships.",
+      title: "6. Deletion Rollback & Bad Actors Policy",
+      text: "Upon voluntary account deletion by the User, Gaelworx AI implements a thirty (30) day 'soft delete' period during which the account data remains securely vaulted and recoverable. Upon the expiration of this 30-day window, the data is permanently and irreversibly destroyed. Conversely, Gaelworx AI operates a strict policy against disruptive, malicious, or abusive activities. If any tenant is discovered in breach of this conduct, Gaelworx AI reserves the absolute right to suspend or delete all tenant profiles instantly with no prior notice and zero eligibility for refunds.",
     },
     {
       title: "7. Fraud Prevention & Mandatory Court Redress",
       text: "CuttyOS is founded upon a deep moral purpose: good people empowering good people. In the event that a tenant or user is caught attempting to steal, lie, cheat, defraud transaction paths, or submit fraudulent invoices to their clients through our integrations, Gaelworx AI reserves the absolute right to pursue civil litigation and criminal complaints in a court of law. Such unethical actions damage our collective reputation, raise server costs, and ruin community trust; we will meet them with unconditional legal opposition.",
     },
     {
-      title: "8. Third-Party Integrations & API Non-Liability",
-      text: "CuttyOS may provide webhook endpoints, OAuth connections, or API key slots enabling integrations with any and all external third-party providers, platforms, or services. You expressly acknowledge that Gaelworx AI exercises no control over these external services. You remain solely responsible for the configuration, billing, and operational consequences of any integrated third-party pipelines. Gaelworx AI holds absolutely zero liability for data corruption, service interruptions, or unauthorized access stemming from third-party connections or user-supplied API keys.",
+      title: "8. Secure Audit Vaulting & API Non-Liability",
+      text: "CuttyOS generates system audit logs securely. To prevent unauthorized scraping by client-side browser extensions, these logs are not viewable directly in the web browser. Instead, they are vaulted and securely exported directly to the User's integrated Google Workspace. Furthermore, you expressly acknowledge that Gaelworx AI exercises no control over external services. Gaelworx AI holds absolutely zero liability for data corruption stemming from third-party connections.",
     },
     {
       title: "9. Service Level Agreement (SLA) Exclusion & 'As-Is' Provision",

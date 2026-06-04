@@ -3,10 +3,11 @@ import { safeStorage } from '../lib/storage';
 // @ts-nocheck
 import React, { useState } from "react";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, deleteDoc } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { auth, db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
-import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe } from "lucide-react";
+import { Scale, Heart, Sparkles, Building2, User, Key, Bell, Shield, Wallet, ChevronRight, LogOut, Download, AlertTriangle, CheckCircle2, Lock, FileText, Settings as SettingsIcon, CheckSquare } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { deleteUser, signOut } from "firebase/auth";
 
@@ -23,6 +24,8 @@ export default function Settings() {
   const [updating, setUpdating] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [hasExported, setHasExported] = useState(false);
+  const [deleteAcknowledge, setDeleteAcknowledge] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   if (!tenant) return null;

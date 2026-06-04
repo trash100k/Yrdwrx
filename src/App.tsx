@@ -199,6 +199,7 @@ export default function App() {
                       <Suspense fallback={<PageLoader />}>
                         <Routes>
                           <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/eula" element={<EULA />} />
                           <Route path="/terms" element={<TermsOfService />} />
                           <Route path="/data-map" element={<DataMap />} />
                           <Route path="/ai-usage" element={<AiUsage />} />

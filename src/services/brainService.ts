@@ -1,14 +1,8 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
 
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { collection, query, where, getDocs, serverTimestamp,  } from "firebase/firestore";
+import { safeAddDoc as addDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 
 export async function ingestKnowledge(

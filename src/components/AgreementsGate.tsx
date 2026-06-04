@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { auth, db } from "../lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { Shield, Brain, Database, FileText } from "lucide-react";
+import { doc, getDoc } from "firebase/firestore";
+import { safeSetDoc as setDoc } from "../lib/firebase";;
+import { Scale, CheckCircle2, ChevronRight, FileText, Shield, Loader2 } from "lucide-react";
 import { safeStorage } from "../lib/storage";
 
 export function AgreementsGate({ children }: { children: React.ReactNode }) {
@@ -14,7 +15,8 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
     tos: false,
     privacy: false,
     dataMap: false,
-    ai: false
+    ai: false,
+    eula: false
   });
   
   const location = useLocation();
@@ -80,7 +82,7 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
   }, [location.pathname, clientId, isPortal]);
 
   const handleAgree = async () => {
-    if (!agreements.tos || !agreements.privacy || !agreements.dataMap || !agreements.ai) return;
+    if (!agreements.tos || !agreements.privacy || !agreements.dataMap || !agreements.ai || !agreements.eula) return;
     
     const user = auth.currentUser;
     if (user) {
@@ -197,11 +199,31 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
                   </p>
                 </div>
               </label>
+
+              <label className="flex items-start gap-4 p-4 bg-white/5 border border-white/10 rounded-2xl cursor-pointer hover:bg-white/10 transition-colors">
+                <div className="pt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={agreements.eula}
+                    onChange={(e) => setAgreements(prev => ({ ...prev, eula: e.target.checked }))}
+                    className="w-5 h-5 accent-emerald-500 rounded bg-white/5 border-white/20 cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <p className="text-sm font-black uppercase tracking-widest text-white mb-1 flex items-center gap-2">
+                    <Scale size={14} className="text-indigo-400" /> End User License Agreement
+                  </p>
+                  <p className="text-xs text-white/40 font-medium leading-relaxed italic">
+                     I agree to the <a href="/eula" target="_blank" className="underline hover:text-white" onClick={(e) => e.stopPropagation()}>EULA</a> prohibiting reverse-engineering and establishing intellectual property protections.
+                  </p>
+                </div>
+              </label>
+
             </div>
 
             <div className="shrink-0 mt-6 sticky bottom-0 bg-zinc-900 pt-4 border-t border-white/10 z-20 pb-4">
               <button
-                disabled={!agreements.tos || !agreements.privacy || !agreements.dataMap || !agreements.ai}
+                disabled={!agreements.tos || !agreements.privacy || !agreements.dataMap || !agreements.ai || !agreements.eula}
                 onClick={handleAgree}
                 className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-4 rounded-xl font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 style={{ WebkitTapHighlightColor: 'transparent' }}

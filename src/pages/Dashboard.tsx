@@ -7,7 +7,8 @@ import React, { useState, useEffect, Suspense, lazy } from "react";
 import QuickActionMacros from "../components/QuickActionMacros";
 import { motion, AnimatePresence } from "motion/react";
 import WidgetConfigurator from "../components/WidgetConfigurator";
-import { collection, onSnapshot, query, where, addDoc, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, deleteDoc } from "firebase/firestore";
+import { safeAddDoc as addDoc, safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db, handleFirestoreError, auth } from "../lib/firebase";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {

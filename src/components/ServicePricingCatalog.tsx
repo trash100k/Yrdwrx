@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { INITIAL_SERVICE_CATALOG } from "../lib/constants";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { useToast } from "../contexts/ToastContext";
 import { Plus, X, Save } from "lucide-react";

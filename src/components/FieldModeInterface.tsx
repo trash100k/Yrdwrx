@@ -17,16 +17,8 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { useFieldMode } from "../contexts/FieldModeContext";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  limit,
-  orderBy,
-  updateDoc,
-  doc,
-} from "firebase/firestore";
+import { collection, query, where, onSnapshot, limit, orderBy, doc,  } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";

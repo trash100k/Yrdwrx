@@ -9,15 +9,8 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  updateDoc,
-  doc,
-  addDoc,
-} from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc,  } from "firebase/firestore";
+import { safeAddDoc as addDoc, safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { useTenant } from "../contexts/TenantContext";
 import { Job } from "../types";

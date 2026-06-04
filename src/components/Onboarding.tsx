@@ -1,7 +1,8 @@
 // @ts-nocheck
 
 import { useState } from "react";
-import { doc, setDoc } from "firebase/firestore";
+import { doc } from "firebase/firestore";
+import { safeSetDoc as setDoc } from "../lib/firebase";;
 import { auth, db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
 import { MagicSetupNode } from "./MagicSetupNode";
@@ -108,7 +109,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     setFormData(prev => ({
         ...prev,
         ...data,
-        agreements: { tos: true, privacy: true, dataMap: true, ai: true }
+        agreements: { tos: true, privacy: true, dataMap: true, ai: true, eula: true }
     }));
     setStep(4);
   };

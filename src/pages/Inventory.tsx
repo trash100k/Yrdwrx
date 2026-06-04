@@ -1,19 +1,8 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-  deleteDoc,
-  orderBy,
-  limit,
-  where,
-} from "firebase/firestore";
+import { collection, onSnapshot, query, doc, serverTimestamp, deleteDoc, orderBy, limit, where,  } from "firebase/firestore";
+import { safeAddDoc as addDoc, safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import {
   db,
   handleFirestoreError,

@@ -3,7 +3,8 @@ import { safeStorage } from '../lib/storage';
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { auth, db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { doc, onSnapshot, getDoc, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, getDoc } from "firebase/firestore";
+import { safeSetDoc as setDoc } from "../lib/firebase";;
 import { onAuthStateChanged } from "firebase/auth";
 
 interface TenantProfile {

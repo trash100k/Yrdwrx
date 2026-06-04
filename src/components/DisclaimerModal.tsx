@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState } from "react";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
 import { Leaf, Handshake, CheckCircle2 } from "lucide-react";

@@ -3,7 +3,8 @@ import { fetchApi } from "../lib/api";
 import React, { useState, useEffect, useRef } from "react";
 import { Mic, Loader2, Play, Square, FileText, CheckSquare, X, Wand2 } from "lucide-react";
 import { Job } from "../types";
-import { updateDoc, doc } from "firebase/firestore";
+import { doc } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 
 interface Props {

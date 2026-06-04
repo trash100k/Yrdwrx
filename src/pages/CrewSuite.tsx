@@ -3,17 +3,8 @@ import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  updateDoc,
-  addDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { collection, onSnapshot, query, where, deleteDoc, doc, serverTimestamp,  } from "firebase/firestore";
+import { safeAddDoc as addDoc, safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import {
   db,
   handleFirestoreError,

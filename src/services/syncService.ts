@@ -1,13 +1,8 @@
 import { safeStorage } from '../lib/storage';
 // @ts-nocheck
 
-import {
-  collection,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { collection, doc, serverTimestamp,  } from "firebase/firestore";
+import { safeAddDoc as addDoc, safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 
 interface PendingAction {

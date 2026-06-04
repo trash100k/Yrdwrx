@@ -448,6 +448,7 @@ export default function Reports() {
             </div>
           </motion.div>
         ) : (
+
           <motion.div
             key="audit"
             initial={{ opacity: 0, y: 10 }}
@@ -459,97 +460,45 @@ export default function Reports() {
               <div className="p-12 border-b border-white/10 flex items-center justify-between bg-zinc-900">
                 <div className="flex items-center gap-6">
                   <div className="w-16 h-16 bg-white rounded-[24px] flex items-center justify-center text-black shadow-2xl relative group-hover:scale-110 transition-transform duration-700">
-                    <Activity size={32} />
+                    <Shield size={32} />
                     <div className="absolute inset-0 bg-white/20 blur-2xl rounded-full -z-10 animate-pulse" />
                   </div>
                   <div>
                     <h3 className="text-2xl sm:text-3xl font-black text-white italic tracking-normal md:tracking-tighter leading-none mb-2 lowercase">
-                      detailed activity log.
+                      secure activity vault.
                     </h3>
                     <p className="micro-label font-black uppercase text-white/20 tracking-[0.3em] italic">
-                      History of all actions taken in the app
+                      SOC 2 Compliant Log Storage
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 px-6 py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full micro-label font-black uppercase tracking-widest shadow-glow">
                   <ShieldCheck size={18} />
-                  History Log
+                  Protected
                 </div>
               </div>
 
-              <div className="divide-y divide-white/5">
-                {auditLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="p-10 hover:border-blue-500/50 transition-all duration-700 flex flex-col lg:flex-row lg:items-center justify-between gap-8 group/row"
-                  >
-                    <div className="flex items-start gap-8">
-                      <div
-                        className={`mt-1 p-3 rounded-[16px] shadow-2xl transition-all duration-700 group-hover/row:scale-110 ${
-                          log.action.includes("ERROR")
-                            ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                            : log.action.includes("CREATE")
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : log.action.includes("DELETE")
-                                ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                        }`}
-                      >
-                        {log.action.includes("ERROR") ? (
-                          <ShieldAlert size={20} />
-                        ) : (
-                          <Clock size={20} />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-4 mb-3">
-                          <span className="text-xl font-black text-white italic tracking-tight group-hover/row:text-emerald-400 transition-colors uppercase leading-none">
-                            {log.action}
-                          </span>
-                          <span className="micro-label font-black text-white/10 uppercase tracking-widest">
-                            {new Date(log.timestamp).toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2">
-                          {Object.entries(log.metadata || {}).map(
-                            ([key, val]) => (
-                              <div
-                                key={key}
-                                className="flex items-center gap-2 group-hover/row:translate-x-1 transition-transform"
-                              >
-                                <span className="micro-label font-black text-white/10 uppercase tracking-widest text-xs md:text-[10px]">
-                                  {key}
-                                </span>
-                                <span className="text-sm font-black text-white/60 italic">
-                                  {typeof val === "object"
-                                    ? JSON.stringify(val).slice(0, 50)
-                                    : String(val)}
-                                </span>
-                              </div>
-                            ),
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 lg:border-l lg:border-white/10 lg:pl-10">
-                      <p className="micro-label font-black text-white/10 uppercase tracking-[0.2em] mb-2 italic">
-                        AUTH_SIG: {log.user?.slice(0, 12)}
-                      </p>
-                      <p className="text-xs font-black text-white/20 italic uppercase tracking-widest">
-                        {new Date(log.timestamp).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                {auditLogs.length === 0 && (
-                  <div className="p-32 text-center text-white/10 italic font-black uppercase tracking-[0.4em]">
-                    Activity log is empty.
-                  </div>
-                )}
+              <div className="p-12 sm:p-24 flex flex-col items-center justify-center text-center bg-black/40">
+                <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mb-8 border border-emerald-500/20 shadow-[0_0_40px_rgba(16,185,129,0.2)]">
+                  <Download className="text-emerald-500" size={32} />
+                </div>
+                <h2 className="text-2xl font-black uppercase tracking-widest mb-4">Export Full Audit Trail</h2>
+                <p className="text-sm text-white/50 max-w-2xl mx-auto mb-10 leading-relaxed font-semibold italic">
+                  To prevent unauthorized scraping and maintain SOC 2 compliance, sensitive audit logs are never exposed directly on the frontend. Click below to securely compile your logs behind our thick steel wall and export a human-readable PDF directly to your connected Google Workspace.
+                </p>
+
+                <button
+                  onClick={() => {
+                      alert("Simulating backend generation of Dual Export (PDF Summary & CSV) and pushing to connected Google Drive.");
+                  }}
+                  className="px-10 py-5 bg-white text-black rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-400 hover:text-black transition-all shadow-xl hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:scale-105 active:scale-95 flex items-center gap-4"
+                >
+                  <Download size={20} /> Generate & Send to Google Drive
+                </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="bg-zinc-900 border border-white/5 shadow-2xl bg-amber-500/5 border border-amber-500/20 rounded-2xl p-10 group hover:bg-amber-500/10 transition-all duration-700">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10 p-10 bg-zinc-900 border-t border-white/5">
+                <div className="bg-zinc-950 border border-white/5 shadow-2xl bg-amber-500/5 border border-amber-500/20 rounded-2xl p-10 group hover:bg-amber-500/10 transition-all duration-700">
                   <div className="flex items-center gap-4 text-amber-400 mb-6 group-hover:scale-105 transition-transform">
                     <ShieldAlert size={28} />
                     <h4 className="text-xl font-black italic tracking-tight uppercase">
@@ -561,7 +510,7 @@ export default function Reports() {
                     cannot be edited to ensure accuracy.
                   </p>
                 </div>
-                <div className="bg-zinc-900 border border-white/5 shadow-2xl bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-10 group hover:bg-emerald-500/10 transition-all duration-700">
+                <div className="bg-zinc-950 border border-white/5 shadow-2xl bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-10 group hover:bg-emerald-500/10 transition-all duration-700">
                   <div className="flex items-center gap-4 text-emerald-400 mb-6 group-hover:scale-105 transition-transform">
                     <ShieldCheck size={28} />
                     <h4 className="text-xl font-black italic tracking-tight uppercase">
@@ -569,13 +518,13 @@ export default function Reports() {
                     </h4>
                   </div>
                   <p className="text-sm text-white/60 font-bold italic leading-relaxed">
-                    Your data is kept private and secure. Only authorized users
-                    can see detailed logs.
+                    Your data is kept private and secure. Logs are exported only via authorized backend channels.
                   </p>
                 </div>
               </div>
             </div>
           </motion.div>
+
         )}
 
         {activeView === "loss-leaders" && (

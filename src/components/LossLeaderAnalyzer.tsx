@@ -19,17 +19,8 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  updateDoc,
-  doc,
-  getDocs,
-  serverTimestamp,
-  addDoc
-} from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, getDocs, serverTimestamp } from "firebase/firestore";
+import { safeAddDoc as addDoc, safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";

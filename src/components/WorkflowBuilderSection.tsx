@@ -2,7 +2,8 @@ import React, { useState, useMemo } from "react";
 import { Workflow, Plus, Trash2, ArrowRight, Save, Zap, Play, Activity, ChevronDown, ChevronUp, CheckCircle, UserPlus, DollarSign, FileText, Send, Mail, AlertTriangle, Pause, Clock } from "lucide-react";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { BarChart, Bar, ResponsiveContainer, Tooltip } from "recharts";
 

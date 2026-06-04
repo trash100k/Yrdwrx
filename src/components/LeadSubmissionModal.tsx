@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { X, Send, Target, Loader2 } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { collection, serverTimestamp } from "firebase/firestore";
+import { safeAddDoc as addDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { useTenant } from "../contexts/TenantContext";
 

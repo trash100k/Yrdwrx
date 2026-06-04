@@ -16,15 +16,15 @@ export default function PrivacyPolicy() {
     },
     {
       title: "3. Your California (CCPA) Rights",
-      desc: "For operators under California jurisdiction: you can view the exact items of personal data gathered over the last 12 months, demand deletion, and exercise absolute control without penalty. Your profiles remain yours.",
+      desc: "For operators under California jurisdiction: you can view the exact items of personal data gathered over the last 12 months, demand deletion, and exercise absolute control without penalty. We respect your right to say 'Do Not Sell My Personal Information.'",
     },
     {
       title: "4. Your Worldwide (GDPR) Protections",
       desc: "No locked digital traps. Under European or Global rules, you retain deep ownership to retrieve structured exports as simple, standard CSV bundles or execute a dry wipe of historical records anytime from settings.",
     },
     {
-      title: "5. The Right to Be Forgotten",
-      desc: "If you choose to close your storefront or move on from Cutty, you can click 'Delete' to securely clean out all association telemetry, client rosters, and job maps instantly and permanently.",
+      title: "5. The Right to Be Forgotten & 30-Day Rollback",
+      desc: "If you choose to close your storefront, your account goes into a 30-day secure deep-freeze (soft delete). If you change your mind, we can recover it. But after 30 days, we perform a total, irreversible wipe of your records. Once it's gone, it's gone.",
     },
   ];
 
@@ -39,15 +39,15 @@ export default function PrivacyPolicy() {
     },
     {
       title: "3. CCPA Data Rights (California)",
-      text: "The California Consumer Privacy Act (CCPA) provides California residents with specific rights regarding their personal information. You have the right to request access to the specific pieces of personal information we have collected about you over the past 12 months. You have the right to request deletion of your data. You have the right to non-discrimination for exercising your privacy rights. Cutty does not sell personal information as defined by the CCPA, though it may commercialize anonymized aggregates as described above.",
+      text: "The California Consumer Privacy Act (CCPA) provides California residents with specific rights regarding their personal information. You have the Right to Know the specific pieces of personal information we have collected. You have the Right to Delete your data. You have the Right to Opt-Out of the sale of personal information (often known as 'Do Not Sell My Personal Information'). You have the right to non-discrimination for exercising your privacy rights. Cutty does not sell personal information as defined by the CCPA, though it may commercialize anonymized aggregates as described above.",
     },
     {
       title: "4. Data Portability & Rights (EU/UK & Global)",
       text: "We are dedicated to transparent data portability. You maintain full ownership and access to your data, rather than being locked in by a data moat. Standard import/export features (such as CSV exports) are natively provided. In addition, under the General Data Protection Regulation (GDPR), users in the European Economic Area (EEA) and the UK have the right to access, rectify, port, and delete their personal data. Our lawful basis for processing your data is to fulfill contractual obligations and pursue legitimate business interests. To request a complete structured data export or invoke your right to be forgotten, use the 'Delete Data' action in your Settings or contact our Data Protection Officer.",
     },
     {
-      title: "5. Your Controls ('Right to be Forgotten')",
-      text: "You maintain full control over your personal data. If you wish to terminate your relationship with Cutty and exercise your right to be forgotten, you may securely delete all profile metadata, tenant association, and operational history from our servers using the Settings dashboard.",
+      title: "5. Your Controls & 30-Day Deletion Rollback",
+      text: "You maintain full control over your personal data. If you wish to terminate your relationship with Cutty and exercise your right to be forgotten, you may request deletion via the Settings dashboard. Note that we implement a 30-day 'soft delete' rollback window as a safeguard against accidental data loss. During this period, your data is completely inaccessible but held in cold storage. Upon the expiration of the 30-day period, the data is permanently and irreversibly destroyed.",
     },
   ];
 

@@ -156,3 +156,18 @@ export async function logSystemEvent(
     console.warn("[AUDIT LOG FAILED]", error);
   }
 }
+
+// DLP-Wrapped Firestore Operations
+import { setDoc as originalSetDoc, addDoc as originalAddDoc, updateDoc as originalUpdateDoc } from "firebase/firestore";
+
+export const safeSetDoc: typeof originalSetDoc = (reference, data, options) => {
+    return originalSetDoc(reference, sanitizePayload(data), options as any);
+};
+
+export const safeAddDoc: typeof originalAddDoc = (reference, data) => {
+    return originalAddDoc(reference, sanitizePayload(data));
+};
+
+export const safeUpdateDoc: typeof originalUpdateDoc = (reference, data, ...rest) => {
+    return originalUpdateDoc(reference, sanitizePayload(data) as any, ...rest as any);
+};

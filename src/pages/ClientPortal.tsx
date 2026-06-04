@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, collection, query, orderBy, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { safeAddDoc as addDoc } from "../lib/firebase";;
 import { auth, db } from "../lib/firebase";
 import { ApiClient } from "../lib/apiClient";
 import { MapPin, Calendar, CreditCard, Droplet, Leaf, CheckCircle2, Lock, Send, AlertCircle, Globe } from "lucide-react";

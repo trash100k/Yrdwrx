@@ -1,6 +1,7 @@
 import React from "react";
 import { Check, X, ShieldAlert, Target } from "lucide-react";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, deleteDoc } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { Customer } from "../types";
 import { useToast } from "../contexts/ToastContext";

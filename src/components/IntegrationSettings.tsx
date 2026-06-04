@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { Link, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc } from "firebase/firestore";
+import { safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 
 export function IntegrationSettings() {

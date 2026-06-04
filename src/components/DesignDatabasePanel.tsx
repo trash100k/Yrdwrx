@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, onSnapshot, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
+import { safeAddDoc as addDoc, safeUpdateDoc as updateDoc } from "../lib/firebase";;
 import { db } from "../lib/firebase";
 import { useTenant } from "../contexts/TenantContext";
 import { Trash2, Plus, GripVertical, Save, Zap, HelpCircle } from "lucide-react";
