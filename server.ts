@@ -2172,20 +2172,52 @@ async function startServer() {
 
   app.post("/api/inventory/check-and-alert", cacheApiResponse(60), async (req, res) => {
     try {
-      const { items } = req.body;
-      // FIXME(Management): Replace mock DB with actual inventory count queries
-      const lowStock = items.filter(() => Math.random() < 0.2); // Demoted from 0.5 to 0.2 for realistic mock threshold
+      const { items, tenantId } = req.body;
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ error: "Items must be an array" });
+      }
+
+      const admin = require("firebase-admin");
+      if (!admin.apps.length) {
+         const fs = require("fs");
+         let config = {};
+         if (fs.existsSync('./firebase-applet-config.json')) {
+            const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+            config = { projectId: appletConfig.projectId };
+         }
+         admin.initializeApp(config);
+      }
+      const db = admin.firestore();
+
+      const inventoryRef = db.collection("inventory");
+      const inventoryQuery = tenantId ? inventoryRef.where("tenantId", "==", tenantId) : inventoryRef;
+      const snapshot = await inventoryQuery.get();
+
+      const lowStockItems: any[] = [];
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        // Check if this item belongs to any of the categories/items we're checking
+        const matchesCategory = items.some(item =>
+          data.category?.toLowerCase().includes(item.toLowerCase()) ||
+          data.name?.toLowerCase().includes(item.toLowerCase())
+        );
+
+        if (matchesCategory && typeof data.currentLevel === 'number' && typeof data.minLevel === 'number' && data.currentLevel < data.minLevel) {
+          lowStockItems.push({
+            name: data.name,
+            current: data.currentLevel,
+            min: data.minLevel,
+            unit: data.unit || "Units",
+            supplierEmail: "supply@meridian-aggregate.com",
+          });
+        }
+      });
 
       res.json({
-        lowStockItems: lowStock.map((name: string) => ({
-          name,
-          current: Math.floor(Math.random() * 5), // Mock current levels below min
-          min: 10,
-          unit: "Yards",
-          supplierEmail: "supply@meridian-aggregate.com",
-        })),
+        lowStockItems,
       });
     } catch (error) {
+      console.error("Inventory sync failed:", error);
       res.status(500).json({ error: "Inventory sync failed" });
     }
   });

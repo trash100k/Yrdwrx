@@ -295,7 +295,7 @@ export default function CRM() {
         const checkRes = await fetchApi("/api/inventory/check-and-alert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: materialsToCheck }),
+          body: JSON.stringify({ items: materialsToCheck, tenantId: tenant?.id || "genesis-1" }),
         });
         const checkData = await checkRes.json();
         if (checkData.lowStockItems?.length > 0) {
