@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "async_hooks";
+export const tenantContext = new AsyncLocalStorage<string>();
 import jwt from "jsonwebtoken";
 // @ts-nocheck
 import express from "express";
@@ -206,15 +208,34 @@ function getMockText(request: any): string {
 }
 
 // ==== PERSISTENT FILE-BASED CACHE FOR GEMINI ====
+// We'll rename it to avoid breaking changes to semantic cache
 const CACHE_FILE = path.join(process.cwd(), ".gemini_cache.json");
+const SEMANTIC_CACHE_FILE = path.join(process.cwd(), ".gemini_semantic_cache.json");
+
 let geminiCache: Record<string, string> = {};
+interface SemanticCacheEntry {
+  text: string;
+  embedding: number[];
+  timestamp: number;
+}
+let geminiSemanticCache: Record<string, SemanticCacheEntry[]> = {};
 
 if (fs.existsSync(CACHE_FILE)) {
   try {
     geminiCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
-    console.log(`[Cache Loaded] Loaded ${Object.keys(geminiCache).length} cached Gemini responses.`);
+    console.log(`[Cache Loaded] Loaded ${Object.keys(geminiCache).length} exact cached Gemini responses.`);
   } catch (err) {
-    console.error("Failed to read gemini cache:", err);
+    console.error("Failed to read gemini exact cache:", err);
+  }
+}
+
+if (fs.existsSync(SEMANTIC_CACHE_FILE)) {
+  try {
+    geminiSemanticCache = JSON.parse(fs.readFileSync(SEMANTIC_CACHE_FILE, "utf-8"));
+    const entryCount = Object.values(geminiSemanticCache).reduce((acc, entries) => acc + entries.length, 0);
+    console.log(`[Semantic Cache Loaded] Loaded ${entryCount} cached items across ${Object.keys(geminiSemanticCache).length} tenants.`);
+  } catch (err) {
+    console.error("Failed to read gemini semantic cache:", err);
   }
 }
 
@@ -222,30 +243,172 @@ function saveGeminiCache() {
   try {
     fs.writeFileSync(CACHE_FILE, JSON.stringify(geminiCache, null, 2));
   } catch (err) {
-    console.error("Failed to write gemini cache:", err);
+    console.error("Failed to write gemini exact cache:", err);
   }
 }
+
+function saveGeminiSemanticCache() {
+  try {
+    fs.writeFileSync(SEMANTIC_CACHE_FILE, JSON.stringify(geminiSemanticCache, null, 2));
+  } catch (err) {
+    console.error("Failed to write gemini semantic cache:", err);
+  }
+}
+
+function cosineSimilarity(A: number[], B: number[]): number {
+    let dotProduct = 0, normA = 0, normB = 0;
+    for (let i = 0; i < A.length; i++) {
+        dotProduct += A[i] * B[i];
+        normA += A[i] * A[i];
+        normB += B[i] * B[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function extractTextFromRequest(request: any): string {
+    if (typeof request === "string") return request;
+    if (request.contents) {
+        if (typeof request.contents === "string") return request.contents;
+        if (Array.isArray(request.contents)) {
+             return request.contents.map((c: any) => {
+                 if (typeof c === "string") return c;
+                 if (c.parts) return c.parts.map((p: any) => p.text || "").join(" ");
+                 if (c.text) return c.text;
+                 return "";
+             }).join(" ");
+        }
+    }
+    return JSON.stringify(request);
+}
+
+// ==== MODEL CONSTANTS ====
+const SIMPLE_MODEL = "gemini-2.5-flash";
+const COMPLEX_MODEL = "gemini-2.5-pro";
+const TTS_PREVIEW_MODEL = "gemini-3.1-flash-tts-preview";
+const IMAGE_PREVIEW_MODEL = "gemini-3.1-flash-image";
+
+// ==== COMPLEXITY CLASSIFIER ====
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  // Fast heuristic: ~4 chars per token
+  return Math.ceil(text.length / 4);
+}
+
+function classifyComplexity(requestString: string): { tokenCount: number; isComplex: boolean } {
+  const tokenCount = estimateTokens(requestString);
+  // Consider complex if token count > 1000 or contains specific keywords indicative of deep reasoning
+  const isComplex = tokenCount > 1000 ||
+                    /analyze|reasoning|complex|systematic|evaluate|synthesize/i.test(requestString);
+  return { tokenCount, isComplex };
+}
+
+// ==== IN-FLIGHT REQUEST COALESCING ====
+interface InFlightRequest {
+  promise: Promise<any>;
+  timestamp: number;
+}
+const inFlightRequests = new Map<string, InFlightRequest>();
 
 const originalGenerateContent = ai.models.generateContent.bind(ai.models);
 // @ts-ignore
 ai.models.generateContent = async (request: any) => {
+  // Extract tenantId from AsyncLocalStorage if provided (set by express middleware)
+  let tenantId = tenantContext.getStore() || "default";
+
+  if (tenantId === "default") {
+      if (request.systemInstruction && typeof request.systemInstruction === "string") {
+         const match = request.systemInstruction.match(/\[TENANT_ID:([^\]]+)\]/);
+         if (match) tenantId = match[1];
+      } else if (request.systemInstruction && request.systemInstruction.parts) {
+         const text = request.systemInstruction.parts.map((p: any) => p.text || "").join(" ");
+         const match = text.match(/\[TENANT_ID:([^\]]+)\]/);
+         if (match) tenantId = match[1];
+      }
+  }
+
   const requestString = JSON.stringify(request);
+  const promptText = extractTextFromRequest(request);
   const hash = crypto.createHash("sha256").update(requestString).digest("hex");
   
+  // Model Routing & Complexity Override
+  const { tokenCount, isComplex } = classifyComplexity(promptText);
+  const originalModel = request.model;
+
+  // Only override standard routing, leave explicit TTS/Image models untouched.
+  if (originalModel && !originalModel.includes("tts") && !originalModel.includes("image")) {
+     const routedModel = isComplex ? COMPLEX_MODEL : SIMPLE_MODEL;
+     if (originalModel !== routedModel) {
+       console.log(`[Router] Overriding model ${originalModel} -> ${routedModel} (Tokens: ${tokenCount}, Complex: ${isComplex})`);
+       request.model = routedModel;
+     }
+  }
+
+  // Exact Match Cache
   if (geminiCache[hash]) {
-    console.log(`[Gemini Cache HIT] ${hash.substring(0, 8)} - Saving compute costs.`);
+    console.log(`[Gemini Exact Cache HIT] ${hash.substring(0, 8)} - Saving compute costs.`);
     return { text: geminiCache[hash] };
   }
-  
-  console.log(`[Gemini Cache MISS] ${hash.substring(0, 8)} - Calling LLM API...`);
-  const response = await originalGenerateContent(request);
-  
-  if (response && response.text) {
-    geminiCache[hash] = response.text;
-    saveGeminiCache();
+
+  // Semantic Match Cache
+  if (tenantId !== "default" && geminiSemanticCache[tenantId] && geminiSemanticCache[tenantId].length > 0) {
+      try {
+          const embeddingRes = await ai.models.embedContent({ model: "text-embedding-004", contents: promptText });
+          if (embeddingRes && embeddingRes.embeddings && embeddingRes.embeddings.length > 0 && embeddingRes.embeddings[0].values) {
+              const currentEmbedding = embeddingRes.embeddings[0].values;
+              for (const entry of geminiSemanticCache[tenantId]) {
+                  if (cosineSimilarity(currentEmbedding, entry.embedding) > 0.95) {
+                      console.log(`[Gemini Semantic Cache HIT] Tenant: ${tenantId} - Saving compute costs.`);
+                      return { text: entry.text };
+                  }
+              }
+          }
+      } catch (embErr) {
+          console.error("Failed to check semantic cache:", embErr);
+      }
   }
   
-  return response;
+  // Request Coalescing (Debouncing identical requests for the same tenant)
+  const coalescingKey = `${tenantId}:${hash}`;
+  if (inFlightRequests.has(coalescingKey)) {
+      console.log(`[Gemini Coalesce] Debouncing identical request for ${coalescingKey}`);
+      return inFlightRequests.get(coalescingKey)!.promise;
+  }
+
+  console.log(`[Gemini Cache MISS] ${hash.substring(0, 8)} - Calling LLM API...`);
+  const apiPromise = originalGenerateContent(request).then(async (response: any) => {
+      if (response && response.text) {
+          // Save to Exact Cache
+          geminiCache[hash] = response.text;
+          saveGeminiCache();
+
+          // Save to Semantic Cache if tenant is isolated
+          if (tenantId !== "default") {
+              try {
+                  const embeddingRes = await ai.models.embedContent({ model: "text-embedding-004", contents: promptText });
+                  if (embeddingRes && embeddingRes.embeddings && embeddingRes.embeddings.length > 0 && embeddingRes.embeddings[0].values) {
+                      if (!geminiSemanticCache[tenantId]) geminiSemanticCache[tenantId] = [];
+                      geminiSemanticCache[tenantId].push({
+                          text: response.text,
+                          embedding: embeddingRes.embeddings[0].values,
+                          timestamp: Date.now()
+                      });
+                      saveGeminiSemanticCache();
+                  }
+              } catch (embErr) {
+                 console.error("Failed to generate embedding for cache storage:", embErr);
+              }
+          }
+      }
+      inFlightRequests.delete(coalescingKey);
+      return response;
+  }).catch((err: any) => {
+      inFlightRequests.delete(coalescingKey);
+      throw err;
+  });
+
+  inFlightRequests.set(coalescingKey, { promise: apiPromise, timestamp: Date.now() });
+  return apiPromise;
 };
 // =================================================
 
@@ -449,6 +612,15 @@ async function startServer() {
   };
 
   app.use("/api/", verifyFirebaseToken);
+
+  app.use((req, res, next) => {
+    // Determine tenantId, default to genesis-1 or user.uid if available
+    const tenantId = req.headers['x-tenant-id'] || (req as any).user?.tenantId || (req as any).user?.uid || "default";
+    tenantContext.run(tenantId, () => {
+      next();
+    });
+  });
+
 
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -1329,7 +1501,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           {
             role: "user",
@@ -1378,7 +1550,7 @@ async function startServer() {
       }
       `;
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+      const model = ai.models.get({ model: SIMPLE_MODEL });
       const response = await model.generateContent({
         contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
@@ -1397,7 +1569,7 @@ async function startServer() {
       const { text } = req.body;
       if (!text) return res.status(400).json({ error: "No text provided" });
 
-      const model = ai.models.get({ model: "gemini-3.1-flash-tts-preview" });
+      const model = ai.models.get({ model: TTS_PREVIEW_MODEL });
       const response = await model.generateContent({
         contents: text,
         config: {
@@ -1443,7 +1615,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [{ role: "user", parts: [{ text: message }] }],
         config: {
           systemInstruction,
@@ -1478,7 +1650,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: COMPLEX_MODEL,
         contents: `Analyze property for: ${JSON.stringify(customer)}`,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
@@ -1502,7 +1674,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: "Draft proposal.",
         config: { systemInstruction },
       });
@@ -1516,7 +1688,7 @@ async function startServer() {
     try {
       const { history } = req.body;
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           "You are an AI memory manager. Summarize the following conversation history into a dense, chronological bulleted list. Preserve all specific dates, measurements, decisions, and constraints. Do not lose factual information. History: " + JSON.stringify(history)
         ]
@@ -1597,7 +1769,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: COMPLEX_MODEL,
         contents: query,
         config: { 
           systemInstruction,
@@ -1627,7 +1799,7 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+      const model = ai.models.get({ model: SIMPLE_MODEL });
       const response = await model.generateContent({
         contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
@@ -1667,7 +1839,7 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+      const model = ai.models.get({ model: SIMPLE_MODEL });
       const response = await model.generateContent({
         contents: rawText,
         config: { systemInstruction, responseMimeType: "application/json" }
@@ -1700,7 +1872,7 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+      const model = ai.models.get({ model: SIMPLE_MODEL });
       const response = await model.generateContent({
         contents: [
             { inlineData: { data: base64Data, mimeType } },
@@ -1741,7 +1913,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: prompt,
         config: {
           systemInstruction,
@@ -1800,7 +1972,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: `Chemical: ${chemical}, Amount: ${amount}, JobID: ${jobId}`,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
@@ -1818,7 +1990,7 @@ async function startServer() {
         Mention the current weather if relevant (${weather?.temp}°). Keep it under 160 characters.
       `;
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: "Draft notification.",
         config: { systemInstruction },
       });
@@ -1854,7 +2026,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           {
             role: "user",
@@ -1916,7 +2088,7 @@ async function startServer() {
       }
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [{ role: "user", parts }],
         config: {
           systemInstruction,
@@ -2078,7 +2250,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           {
             role: "user",
@@ -2113,7 +2285,7 @@ async function startServer() {
         ]
       `;
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           {
             role: "user",
@@ -2158,7 +2330,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           { role: "user", parts: [{ text: "Generate today's briefing." }] },
         ],
@@ -2201,7 +2373,7 @@ async function startServer() {
         ]
       `;
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           {
             role: "user",
@@ -2309,7 +2481,7 @@ async function startServer() {
       ];
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents,
         config: {
           systemInstruction,
@@ -2332,7 +2504,7 @@ async function startServer() {
 
       // Using the required Interactions API for the bleeding-edge image model
       const interaction = await ai.interactions.create({
-        model: 'gemini-3.1-flash-image',
+        model: IMAGE_PREVIEW_MODEL,
         input: [
             { type: "image", data: base64Data, mime_type: mimeType },
             { type: "text", text: "Transform this yard. " + description }
@@ -2516,7 +2688,7 @@ async function startServer() {
       ];
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents,
         config: {
           systemInstruction,
@@ -2778,7 +2950,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           { text: "Identify this landscaping part or barcode." },
           { inlineData: { mimeType: "image/jpeg", data: imageData } },
@@ -2812,7 +2984,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           { role: "user", parts: [{ text: review || "Analyze this review." }] },
         ],
@@ -2835,7 +3007,7 @@ async function startServer() {
         { "amount": number, "merchant": "string", "category": "string", "date": "YYYY-MM-DD" }
       `;
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           { text: "Process receipt." },
           { inlineData: { mimeType: "image/jpeg", data: imageData } },
@@ -2870,7 +3042,7 @@ async function startServer() {
       const base64Data = photo.split(',')[1];
       const mimeType = photo.split(';')[0].split(':')[1];
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+      const model = ai.models.get({ model: SIMPLE_MODEL });
       const prompt = `
         You are a construction and landscaping variance checker. 
         Review this completion photo of a landscaping job.
@@ -2908,7 +3080,7 @@ async function startServer() {
         Neighborhood is the general area.
       `;
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: "Generate broadcast.",
         config: { systemInstruction },
       });
@@ -2935,7 +3107,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: `Enrich profile for: ${JSON.stringify(customer)}`,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
@@ -2960,7 +3132,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: "Generate campaign copy.",
         config: { systemInstruction },
       });
@@ -2999,7 +3171,7 @@ async function startServer() {
       }
       `;
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+      const model = ai.models.get({ model: SIMPLE_MODEL });
       const response = await model.generateContent({
         contents: prompt,
         config: { responseMimeType: "application/json" }
@@ -3034,7 +3206,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: "Generate checklist now.",
         config: { systemInstruction, responseMimeType: "application/json" },
       });
@@ -3067,7 +3239,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           { role: "user", parts: [{ text: "Simulate the follow-up call." }] },
         ],
@@ -3099,7 +3271,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           {
             role: "user",
@@ -3150,7 +3322,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         contents: [
           {
             role: "user",
@@ -3239,7 +3411,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 
     try {
       const session = await ai.live.connect({
-        model: "gemini-2.0-flash",
+        model: SIMPLE_MODEL,
         callbacks: {
           onmessage: (message: LiveServerMessage) => {
             // Forward audio to client
