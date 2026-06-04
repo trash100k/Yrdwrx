@@ -3202,7 +3202,16 @@ async function startServer() {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
       
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
+      let secret = process.env.JWT_SECRET;
+      if (!secret) {
+        if (process.env.NODE_ENV === "production") {
+          console.error("FATAL: JWT_SECRET is not set in production environment.");
+          return res.status(500).json({ error: "Internal server configuration error" });
+        }
+        secret = "cutty-super-secret-key-for-development";
+      }
+
+      const token = jwt.sign({ clientId, email }, secret, { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
@@ -3218,7 +3227,16 @@ async function startServer() {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      let secret = process.env.JWT_SECRET;
+      if (!secret) {
+        if (process.env.NODE_ENV === "production") {
+          console.error("FATAL: JWT_SECRET is not set in production environment.");
+          return res.status(500).json({ error: "Internal server configuration error" });
+        }
+        secret = "cutty-super-secret-key-for-development";
+      }
+
+      const decoded = jwt.verify(token, secret);
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
