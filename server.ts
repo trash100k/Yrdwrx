@@ -11,6 +11,7 @@ import { createServer as createViteServer } from "vite";
 import puppeteer from "puppeteer";
 import { GoogleGenAI, Modality, Type, LiveServerMessage, GenerateVideosOperation } from "@google/genai";
 import { WebSocketServer } from "ws";
+import { createClient } from "redis";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
@@ -32,6 +33,24 @@ function parseGeminiJson(text: string | undefined) {
 }
 
 const isMockMode = !process.env.GEMINI_API_KEY;
+
+let redisClient: ReturnType<typeof createClient> | null = null;
+let useRedis = false;
+let inMemoryWsCount = 0;
+const MAX_WS_CONNECTIONS_PER_WORKER = parseInt(process.env.MAX_WS_CONNECTIONS || "50", 10);
+
+if (process.env.REDIS_URL) {
+  redisClient = createClient({ url: process.env.REDIS_URL });
+  redisClient.on("error", (err) => {
+    console.error("Redis Client Error", err);
+    useRedis = false;
+  });
+  redisClient.on("ready", () => {
+    console.log("Redis connected successfully for WS pooling.");
+    useRedis = true;
+  });
+  redisClient.connect().catch(console.error);
+}
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "mock_key_to_allow_init",
@@ -3230,12 +3249,126 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   });
 
   // WebSocket Server for Live Ear
-  // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale.
-  // Native node WS is sufficient for UI preview but crashes under heavy client multiplexing.
+  // Uses Redis for connection pooling across clustered processes, falling back to in-memory for local dev.
   const wss = new WebSocketServer({ server, path: "/api/live" });
 
+  async function attemptToAcquireConnectionSlot(sessionId: string): Promise<number> {
+    if (useRedis && redisClient) {
+      try {
+        const now = Date.now();
+        const ttlScore = now + 60000; // 60 seconds TTL
+
+        // 1. Clean up dead connections
+        await redisClient.zRemRangeByScore("global:websocket:connections", "-inf", now);
+
+        // 2. Check current count
+        const currentCount = await redisClient.zCard("global:websocket:connections");
+        const maxConns = MAX_WS_CONNECTIONS_PER_WORKER * os.cpus().length;
+
+        if (currentCount >= maxConns) {
+          return -1; // Capacity reached
+        }
+
+        // 3. Add the new session
+        await redisClient.zAdd("global:websocket:connections", [{ score: ttlScore, value: sessionId }]);
+        return currentCount + 1;
+      } catch (e) {
+        console.error("Redis zAdd error", e);
+        // Fallback to in-memory
+      }
+    }
+
+    // In-memory fallback
+    if (inMemoryWsCount >= MAX_WS_CONNECTIONS_PER_WORKER) {
+      return -1;
+    }
+    inMemoryWsCount++;
+    return inMemoryWsCount;
+  }
+
+  async function updateConnectionHeartbeat(sessionId: string) {
+    if (useRedis && redisClient) {
+      try {
+        const ttlScore = Date.now() + 60000;
+        await redisClient.zAdd("global:websocket:connections", [{ score: ttlScore, value: sessionId }]);
+      } catch (e) {
+        console.error("Redis heartbeat error", e);
+      }
+    }
+  }
+
+  async function releaseConnectionSlot(sessionId: string) {
+    if (useRedis && redisClient) {
+      try {
+        await redisClient.zRem("global:websocket:connections", sessionId);
+      } catch (e) {
+        console.error("Redis zRem error", e);
+      }
+    } else {
+      inMemoryWsCount = Math.max(0, inMemoryWsCount - 1);
+    }
+  }
+
   wss.on("connection", async (clientWs) => {
-    console.log("Live Ear Client Connected");
+    const sessionId = crypto.randomUUID();
+    let isClosed = false;
+    let geminiSession: any = null;
+    let hasAcquiredSlot = false;
+    let heartbeatInterval: NodeJS.Timeout | null = null;
+
+    const cleanup = async () => {
+      if (isClosed) return;
+      isClosed = true;
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+      if (hasAcquiredSlot) {
+        await releaseConnectionSlot(sessionId);
+        console.log(`Live Ear Client Disconnected. Released connection slot.`);
+      }
+      if (geminiSession) {
+        geminiSession.close();
+      }
+    };
+
+    clientWs.on("close", cleanup);
+    clientWs.on("error", (err) => {
+      console.error("WS Client Error:", err);
+      cleanup();
+      clientWs.close();
+    });
+
+    const currentConns = await attemptToAcquireConnectionSlot(sessionId);
+
+    // If client disconnected while we were awaiting Redis, we must clean up
+    if (isClosed) {
+      if (currentConns !== -1) {
+        await releaseConnectionSlot(sessionId);
+      }
+      return;
+    }
+
+    if (currentConns === -1) {
+      console.warn(`Server at global capacity. Shedding load.`);
+      clientWs.send(JSON.stringify({ error: "server_busy", message: "Server is currently at capacity. Please try again later." }));
+      // We must set isClosed true immediately, so that the ensuing 'close' event doesn't trigger cleanup logic
+      // although hasAcquiredSlot is false, this is just good practice.
+      isClosed = true;
+      clientWs.close(1013, "Try Again Later");
+      return;
+    }
+
+    // Mark as acquired so the close event handler knows to clean it up
+    hasAcquiredSlot = true;
+
+    // Start heartbeat to keep the session alive in Redis
+    if (useRedis) {
+      heartbeatInterval = setInterval(() => {
+        if (!isClosed) updateConnectionHeartbeat(sessionId);
+      }, 30000); // 30 seconds
+    }
+
+    console.log(`Live Ear Client Connected. Global connections: ${currentConns}`);
 
     try {
       const session = await ai.live.connect({
@@ -3487,12 +3620,11 @@ const server = app.listen(PORT, "0.0.0.0", () => {
         }
       });
 
-      clientWs.on("close", () => {
-        console.log("Live Ear Client Disconnected");
-        session.close();
-      });
+      geminiSession = session;
+
     } catch (error) {
       console.error("Gemini Live Connection Error:", error);
+      cleanup();
       clientWs.close();
     }
   });
