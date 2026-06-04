@@ -252,7 +252,7 @@ ai.models.generateContent = async (request: any) => {
 // ==== In-Memory API Cache Middlewares ====
 const apiCacheStore = new Map<string, { expires: number; data: any }>();
 
-function cacheApiResponse(durationSeconds: number) {
+function cacheApiResponse(durationSeconds: number, keyFields?: string[]) {
   return (req: any, res: any, next: any) => {
     // Only cache GET and well-formed POSTs
     if (req.method !== "GET" && req.method !== "POST") return next();
@@ -270,9 +270,23 @@ function cacheApiResponse(durationSeconds: number) {
       );
     }
 
+    let cachePayload = "";
+    if (req.method === "POST") {
+      if (!keyFields) {
+        return res.status(400).json({ error: "Cache key fields not explicitly defined for POST request" });
+      }
+
+      const payloadObj: any = {};
+      const body = req.body || {};
+      for (const field of keyFields) {
+        payloadObj[field] = body[field];
+      }
+      cachePayload = JSON.stringify(payloadObj);
+    }
+
     const key = crypto
       .createHash("sha256")
-      .update(req.originalUrl + "_" + JSON.stringify(req.body || {}))
+      .update(req.originalUrl + "_" + cachePayload)
       .digest("hex");
 
     const cached = apiCacheStore.get(key);
@@ -472,10 +486,10 @@ async function startServer() {
     limit: 100, // Max 100 requests per day per user/IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false, keyGeneratorIpFallback: false },
     keyGenerator: (req) => {
       // Use Firebase UID if present (via our verifyFirebaseToken middleware), else IP
-      return (req as any).user?.uid || req.ip;
+      return (req as any).user?.uid || req.ip || "unknown_ip";
     },
     message: { error: "Daily AI generation limit reached (100). Please try again tomorrow." },
   });
@@ -1457,7 +1471,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/crm/analyze-property", cacheApiResponse(300), async (req, res) => {
+  app.post("/api/crm/analyze-property", cacheApiResponse(300, ["customer"]), async (req, res) => {
     try {
       const { customer } = req.body;
       if (!customer || !customer.id) {
@@ -1828,7 +1842,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/crm/briefing", cacheApiResponse(120), async (req, res) => {
+  app.post("/api/crm/briefing", cacheApiResponse(120, ["customer", "interactions", "memory"]), async (req, res) => {
     try {
       const { customer, interactions, memory } = req.body;
 
@@ -1932,7 +1946,7 @@ async function startServer() {
   });
 
   // Weather API Proxy (Mocked or real)
-  app.all("/api/weather", cacheApiResponse(60), async (req, res) => {
+  app.all("/api/weather", cacheApiResponse(60, []), async (req, res) => {
     // Simulate real-time weather disruption for demo purposes
     const isRaining = Math.random() < 0.3;
     res.json({
@@ -1985,7 +1999,7 @@ async function startServer() {
     });
   });
 
-  app.all("/api/crm/clients", cacheApiResponse(30), (req, res) => {
+  app.all("/api/crm/clients", cacheApiResponse(30, []), (req, res) => {
     res.json({ status: "ok", message: "Registry active and synced." });
   });
 
@@ -2130,7 +2144,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/daily-briefing", cacheApiResponse(120), async (req, res) => {
+  app.post("/api/daily-briefing", cacheApiResponse(120, ["type"]), async (req, res) => {
     try {
       const { type } = req.body;
       const systemInstruction = `
@@ -2170,7 +2184,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/inventory/check-and-alert", cacheApiResponse(60), async (req, res) => {
+  app.post("/api/inventory/check-and-alert", cacheApiResponse(60, ["items"]), async (req, res) => {
     try {
       const { items } = req.body;
       // FIXME(Management): Replace mock DB with actual inventory count queries
@@ -2190,7 +2204,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/inventory/forecast", cacheApiResponse(300), async (req, res) => {
+  app.post("/api/inventory/forecast", cacheApiResponse(300, ["jobs"]), async (req, res) => {
     try {
       const { jobs } = req.body;
       const systemInstruction = `
@@ -2218,7 +2232,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/design/process", cacheApiResponse(120), async (req, res) => {
+  app.post("/api/design/process", cacheApiResponse(120, ["image", "markup", "prompt", "role", "settings"]), async (req, res) => {
     try {
       const { image, markup, prompt, role, settings = {} } = req.body;
 
@@ -2463,7 +2477,7 @@ async function startServer() {
      }
   });
 
-  app.post("/api/design/tiers", cacheApiResponse(300), async (req, res) => {
+  app.post("/api/design/tiers", cacheApiResponse(300, ["baselineResult", "settings"]), async (req, res) => {
     try {
       const { baselineResult, settings = {} } = req.body;
 
@@ -2756,7 +2770,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/inventory/process-image", cacheApiResponse(600), async (req, res) => {
+  app.post("/api/inventory/process-image", cacheApiResponse(600, ["imageData"]), async (req, res) => {
     try {
       const { imageData } = req.body; // base64 image data
 
@@ -2825,7 +2839,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/expenses/ocr", cacheApiResponse(600), async (req, res) => {
+  app.post("/api/expenses/ocr", cacheApiResponse(600, ["imageData"]), async (req, res) => {
     try {
       const { imageData } = req.body;
       const systemInstruction = `
@@ -2918,7 +2932,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/crm/enrich", cacheApiResponse(300), async (req, res) => {
+  app.post("/api/crm/enrich", cacheApiResponse(300, ["customer"]), async (req, res) => {
     try {
       const { customer } = req.body;
       const systemInstruction = `
