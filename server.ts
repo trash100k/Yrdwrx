@@ -17,6 +17,18 @@ import helmet from "helmet";
 
 dotenv.config();
 
+// Global Firebase Admin Initialization
+import admin from "firebase-admin";
+if (!admin.apps.length) {
+  if (fs.existsSync('./firebase-applet-config.json')) {
+     const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+     admin.initializeApp({ projectId: appletConfig.projectId });
+  } else {
+     admin.initializeApp();
+  }
+}
+const db = admin.firestore();
+
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
   try {
@@ -321,20 +333,10 @@ async function startServer() {
         const session = event.data.object;
         
         // Find invoice or update status securely using admin
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-            const fs = require("fs");
-            let config = {};
-            if (fs.existsSync('./firebase-applet-config.json')) {
-               const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-               config = { projectId: appletConfig.projectId };
-            }
-            admin.initializeApp(config);
-        }
         
         // Use session.metadata.invoiceId if we passed it in checkout
         if (session.metadata && session.metadata.invoiceId) {
-           await admin.firestore().collection("invoices").doc(session.metadata.invoiceId).update({
+           await db.collection("invoices").doc(session.metadata.invoiceId).update({
              status: "paid",
              updatedAt: admin.firestore.FieldValue.serverTimestamp()
            });
@@ -429,16 +431,6 @@ async function startServer() {
     }
     try {
         const token = tokenHeader.split('Bearer ')[1];
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-          const fs = require("fs");
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-             config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
-        }
         const decodedToken = await admin.auth().verifyIdToken(token);
         req.user = decodedToken;
         next();
@@ -1242,17 +1234,6 @@ async function startServer() {
       // Prevent client-side manipulation of payment amounts by fetching the source of truth from Firestore
       if (invoiceId) {
         try {
-          const admin = require("firebase-admin");
-          if (!admin.apps.length) {
-             const fs = require("fs");
-             let config = {};
-             if (fs.existsSync('./firebase-applet-config.json')) {
-                const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-                config = { projectId: appletConfig.projectId };
-             }
-             admin.initializeApp(config);
-          }
-          const db = admin.firestore();
           const invSnap = await db.collection("invoices").doc(invoiceId).get();
           if (invSnap.exists) {
             const data = invSnap.data();
@@ -2172,20 +2153,41 @@ async function startServer() {
 
   app.post("/api/inventory/check-and-alert", cacheApiResponse(60), async (req, res) => {
     try {
-      const { items } = req.body;
-      // FIXME(Management): Replace mock DB with actual inventory count queries
-      const lowStock = items.filter(() => Math.random() < 0.2); // Demoted from 0.5 to 0.2 for realistic mock threshold
+      const { items, tenantId = "genesis-1" } = req.body;
 
-      res.json({
-        lowStockItems: lowStock.map((name: string) => ({
-          name,
-          current: Math.floor(Math.random() * 5), // Mock current levels below min
-          min: 10,
-          unit: "Yards",
-          supplierEmail: "supply@meridian-aggregate.com",
-        })),
+      const inventoryRef = db.collection("inventory");
+      const snapshot = await inventoryRef.where("tenantId", "==", tenantId).get();
+
+      const lowStockItems: any[] = [];
+
+      snapshot.forEach((doc: any) => {
+        const data = doc.data();
+
+        // Ensure we handle variations in capitalization when matching
+        const matchesRequest = items.some((reqItem: string) =>
+          (data.name && data.name.toLowerCase().includes(reqItem.toLowerCase())) ||
+          (data.category && data.category.toLowerCase().includes(reqItem.toLowerCase()))
+        );
+
+        if (matchesRequest) {
+          const current = data.quantity ?? data.currentLevel ?? 0;
+          const min = data.minThreshold ?? data.minLevel ?? 5;
+
+          if (current <= min) {
+            lowStockItems.push({
+              name: data.name,
+              current,
+              min,
+              unit: data.unit || "Units",
+              supplierEmail: data.supplierEmail || "supply@meridian-aggregate.com"
+            });
+          }
+        }
       });
+
+      res.json({ lowStockItems });
     } catch (error) {
+      console.error("Inventory sync failed:", error);
       res.status(500).json({ error: "Inventory sync failed" });
     }
   });
