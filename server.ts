@@ -2345,13 +2345,22 @@ async function startServer() {
 
       let generatedImageUrl = null;
       if (interaction.steps) {
-        for (const step of interaction.steps) {
-          if (step.type === 'model_output') {
-            const imageContent = step.content?.find((c: any) => c.type === 'image');
+        // Iterate backwards since we only care about the final generated image
+        for (let i = interaction.steps.length - 1; i >= 0; i--) {
+          const step = interaction.steps[i];
+          if (step.type === 'model_output' && step.content) {
+            let imageContent = null;
+            for (let j = 0; j < step.content.length; j++) {
+              if (step.content[j].type === 'image') {
+                imageContent = step.content[j];
+                break;
+              }
+            }
             if (imageContent && imageContent.data) {
                 const base64Str = imageContent.data;
                 const mType = imageContent.mime_type || 'image/png';
                 generatedImageUrl = `data:${mType};base64,${base64Str}`;
+                break; // Found the latest image, stop searching
             }
           }
         }
@@ -2387,10 +2396,15 @@ async function startServer() {
           const interaction = await ai.interactions.get(interactionId);
           if (interaction.status === "completed") {
              let fullReport = "";
-             for (const step of interaction.steps) {
-                 if (step.type === 'model_output') {
-                     const textContent = step.content?.find((c: any) => c.type === 'text');
-                     if (textContent) fullReport += textContent.text;
+             for (let i = 0; i < interaction.steps.length; i++) {
+                 const step = interaction.steps[i];
+                 if (step.type === 'model_output' && step.content) {
+                     for (let j = 0; j < step.content.length; j++) {
+                         if (step.content[j].type === 'text') {
+                             fullReport += step.content[j].text;
+                             break;
+                         }
+                     }
                  }
              }
              res.json({ status: "completed", report: fullReport });
