@@ -2388,9 +2388,14 @@ async function startServer() {
           if (interaction.status === "completed") {
              let fullReport = "";
              for (const step of interaction.steps) {
-                 if (step.type === 'model_output') {
-                     const textContent = step.content?.find((c: any) => c.type === 'text');
-                     if (textContent) fullReport += textContent.text;
+                 if (step.type === 'model_output' && step.content) {
+                     for (let i = 0; i < step.content.length; i++) {
+                         const contentItem = step.content[i] as any;
+                         if (contentItem.type === 'text') {
+                             fullReport += contentItem.text;
+                             break;
+                         }
+                     }
                  }
              }
              res.json({ status: "completed", report: fullReport });
