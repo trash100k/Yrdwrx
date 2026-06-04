@@ -26,6 +26,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { cn } from "../lib/utils";
 
 interface Job {
   id: string;
@@ -392,9 +393,7 @@ function Markers({ jobs, onMarkerClick }: MarkersProps) {
     </>
   );
 }
-function cn(...inputs: (string | undefined | null | false)[]) {
-  return inputs.filter(Boolean).join(" ");
-}
+
 function DrawingControl({
   onPolygonComplete,
 }: {

@@ -22,6 +22,7 @@ import {
   auth
 } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { cn } from "../lib/utils";
 import {
   Users,
   Truck,
@@ -963,8 +964,4 @@ export default function CrewSuite() {
     <HandsFreeDictator />
     </SubscriptionGuard>
   );
-}
-
-function cn(...inputs: (string | undefined | null | false)[]) {
-  return inputs.filter(Boolean).join(" ");
 }
