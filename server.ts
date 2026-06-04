@@ -14,8 +14,27 @@ import { WebSocketServer } from "ws";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import admin from "firebase-admin";
+import Redis from "ioredis";
 
 dotenv.config();
+
+// Fallback in-memory map if Redis is not configured or unavailable
+let localConnectionCount = 0;
+const redisUrl = process.env.REDIS_URL;
+const redis = redisUrl ? new Redis(redisUrl, { maxRetriesPerRequest: 1 }) : null;
+if (redis) {
+  redis.on("error", (err) => console.warn("Redis connection warning:", err.message));
+}
+
+if (!admin.apps.length) {
+  let config = {};
+  if (fs.existsSync('./firebase-applet-config.json')) {
+     const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+     config = { projectId: appletConfig.projectId };
+  }
+  admin.initializeApp(config);
+}
 
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
@@ -321,16 +340,6 @@ async function startServer() {
         const session = event.data.object;
         
         // Find invoice or update status securely using admin
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-            const fs = require("fs");
-            let config = {};
-            if (fs.existsSync('./firebase-applet-config.json')) {
-               const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-               config = { projectId: appletConfig.projectId };
-            }
-            admin.initializeApp(config);
-        }
         
         // Use session.metadata.invoiceId if we passed it in checkout
         if (session.metadata && session.metadata.invoiceId) {
@@ -388,20 +397,30 @@ async function startServer() {
     }
 
     // 2. Anti-Pentesting / Advanced Injection Detection (DAX, SQL, NoSQL, XSS, Path Traversal)
-    const rawPayload = JSON.stringify(req.body || {}).toLowerCase();
+    let rawPayload = "";
+    try {
+      rawPayload = JSON.stringify(req.body || {}).toLowerCase();
+      // Normalize payload to prevent bypass via unicode escapes or obfuscated spacing
+      rawPayload = unescape(rawPayload.replace(/\\u([\d\w]{4})/gi, (match, grp) => String.fromCharCode(parseInt(grp, 16))));
+      rawPayload = rawPayload.replace(/\s+/g, ""); // strip all whitespace for strict pattern matching
+    } catch (e) {
+      // Ignore parsing errors here, it's just a string check
+    }
+
+    const normalizedUrl = url.replace(/\s+/g, "");
     
     // DAX Injection Patterns (PowerBI/SSAS)
-    const daxPatterns = ["evaluate ", "define ", "var ", "calculate(", "summarize(", "addcolumns("];
+    const daxPatterns = ["evaluate", "define", "var", "calculate(", "summarize(", "addcolumns("];
     
     // Common SQL/NoSQL Injection patterns
-    const sqlPatterns = ["drop table", "union select", "1=1", "waitfor delay", "db.collection.find("];
+    const sqlPatterns = ["droptable", "unionselect", "1=1", "waitfordelay", "db.collection.find("];
     
     // Path Traversal & Command Injection
     const pathPatterns = ["../", "..\\", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
 
     const allThreats = [...daxPatterns, ...sqlPatterns, ...pathPatterns];
 
-    if (allThreats.some(pattern => rawPayload.includes(pattern) || url.includes(pattern))) {
+    if (allThreats.some(pattern => rawPayload.includes(pattern) || normalizedUrl.includes(pattern))) {
        logThreat(req.ip || '', "Injection/Pentest Payload", req.url);
        console.warn(`[ENTERPRISE SECURITY EVENT] Potential Injection or Pentest detected from IP ${req.ip} on route ${req.url}`);
        return res.status(403).json({ error: "Governance & Compliance Violation: Malicious payload structure detected. Event logged." });
@@ -429,16 +448,6 @@ async function startServer() {
     }
     try {
         const token = tokenHeader.split('Bearer ')[1];
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-          const fs = require("fs");
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-             config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
-        }
         const decodedToken = await admin.auth().verifyIdToken(token);
         req.user = decodedToken;
         next();
@@ -472,10 +481,10 @@ async function startServer() {
     limit: 100, // Max 100 requests per day per user/IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false, keyGeneratorIpFallback: false },
     keyGenerator: (req) => {
       // Use Firebase UID if present (via our verifyFirebaseToken middleware), else IP
-      return (req as any).user?.uid || req.ip;
+      return (req as any).user?.uid || req.ip || 'unknown';
     },
     message: { error: "Daily AI generation limit reached (100). Please try again tomorrow." },
   });
@@ -1242,16 +1251,6 @@ async function startServer() {
       // Prevent client-side manipulation of payment amounts by fetching the source of truth from Firestore
       if (invoiceId) {
         try {
-          const admin = require("firebase-admin");
-          if (!admin.apps.length) {
-             const fs = require("fs");
-             let config = {};
-             if (fs.existsSync('./firebase-applet-config.json')) {
-                const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-                config = { projectId: appletConfig.projectId };
-             }
-             admin.initializeApp(config);
-          }
           const db = admin.firestore();
           const invSnap = await db.collection("invoices").doc(invoiceId).get();
           if (invSnap.exists) {
@@ -3199,10 +3198,15 @@ async function startServer() {
   // Magic Links API
   app.post("/api/auth/magic-link/generate", (req, res) => {
     try {
+      if (!process.env.JWT_SECRET) {
+        console.error("FATAL: JWT_SECRET environment variable is missing.");
+        return res.status(500).json({ error: "Internal Server Error: Authentication configuration missing." });
+      }
+
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
       
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
+      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET, { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
@@ -3215,10 +3219,15 @@ async function startServer() {
 
   app.post("/api/auth/magic-link/validate", (req, res) => {
     try {
+      if (!process.env.JWT_SECRET) {
+        console.error("FATAL: JWT_SECRET environment variable is missing.");
+        return res.status(500).json({ error: "Internal Server Error: Authentication configuration missing." });
+      }
+
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
@@ -3230,12 +3239,44 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   });
 
   // WebSocket Server for Live Ear
-  // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale.
-  // Native node WS is sufficient for UI preview but crashes under heavy client multiplexing.
+  // Uses Redis for clustered connection tracking and limits, falling back to local counts.
   const wss = new WebSocketServer({ server, path: "/api/live" });
+  const MAX_GLOBAL_CONNECTIONS = 5000;
 
-  wss.on("connection", async (clientWs) => {
+  wss.on("connection", async (clientWs, req) => {
     console.log("Live Ear Client Connected");
+
+    let clientId = req.headers['sec-websocket-key'] || crypto.randomUUID();
+    let isConnected = true;
+
+    try {
+      if (redis) {
+        const count = await redis.zcard("active_ws_connections");
+        if (count >= MAX_GLOBAL_CONNECTIONS) {
+          clientWs.send(JSON.stringify({ error: "Server at maximum capacity for voice AI." }));
+          return clientWs.close(1013, "Try again later"); // 1013 = Try Again Later
+        }
+        await redis.zadd("active_ws_connections", Date.now(), clientId);
+      } else {
+        if (localConnectionCount >= MAX_GLOBAL_CONNECTIONS) {
+           clientWs.send(JSON.stringify({ error: "Server at maximum capacity for voice AI." }));
+           return clientWs.close(1013, "Try again later");
+        }
+        localConnectionCount++;
+      }
+
+      // Heartbeat to keep redis record alive
+      const heartbeat = setInterval(async () => {
+        if (!isConnected) {
+          clearInterval(heartbeat);
+          return;
+        }
+        if (redis) {
+           await redis.zadd("active_ws_connections", Date.now(), clientId);
+           // Cleanup stale connections (older than 30s)
+           await redis.zremrangebyscore("active_ws_connections", "-inf", Date.now() - 30000);
+        }
+      }, 15000);
 
     try {
       const session = await ai.live.connect({
@@ -3494,6 +3535,20 @@ const server = app.listen(PORT, "0.0.0.0", () => {
     } catch (error) {
       console.error("Gemini Live Connection Error:", error);
       clientWs.close();
+    }
+
+    clientWs.on("close", async () => {
+       isConnected = false;
+       if (redis) {
+         await redis.zrem("active_ws_connections", clientId).catch(() => {});
+       } else {
+         localConnectionCount = Math.max(0, localConnectionCount - 1);
+       }
+    });
+
+    } catch (outerErr) {
+       console.error("WebSocket cluster setup error:", outerErr);
+       clientWs.close();
     }
   });
 }

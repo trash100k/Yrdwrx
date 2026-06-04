@@ -24,16 +24,20 @@ service cloud.firestore {
       return getUserData().get('role', 'none');
     }
 
+    function hasValidTenantId() {
+      return getTenantId() != null;
+    }
+
     function isTenantAdmin(tenantId) {
-      return getTenantId() == tenantId && getRole() in ['admin', 'owner'];
+      return hasValidTenantId() && getTenantId() == tenantId && getRole() in ['admin', 'owner'];
     }
 
     function isTenantEmployee(tenantId) {
-      return getTenantId() == tenantId && getRole() in ['admin', 'owner', 'employee'];
+      return hasValidTenantId() && getTenantId() == tenantId && getRole() in ['admin', 'owner', 'employee'];
     }
 
     function isClient(tenantId, clientId) {
-      return getTenantId() == tenantId && getRole() == 'client' && request.auth.uid == clientId;
+      return hasValidTenantId() && getTenantId() == tenantId && getRole() == 'client' && request.auth.uid == clientId;
     }
 
     // STRICT ISOLATED DEMO MODE SAFEGUARD (Completely sandboxed from production data) //
@@ -93,7 +97,12 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isSaaSAdmin() || (isSignedIn() && (request.auth.uid == userId || isTenantEmployee(existing().tenantId))) || isDemoWorkspace(existing().tenantId);
+      allow read: if isSaaSAdmin() || (
+        isSignedIn() && (
+          request.auth.uid == userId ||
+          (hasValidTenantId() && existing().tenantId != null && existing().tenantId == getTenantId() && isTenantEmployee(existing().tenantId))
+        )
+      ) || isDemoWorkspace(existing().tenantId);
       // Self registration permitted but strictly sandboxed: cannot inject admin role on create unless by SaaS Admin
       // Anonymous users strictly blocked from writing to users
       // Prevent massive payload attacks on user creation
