@@ -28,7 +28,8 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       tos: false,
       privacy: false,
       dataMap: false,
-      ai: false
+      ai: false,
+      eula: false
     },
   });
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +109,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     setFormData(prev => ({
         ...prev,
         ...data,
-        agreements: { tos: true, privacy: true, dataMap: true, ai: true }
+        agreements: { tos: true, privacy: true, dataMap: true, ai: true, eula: true }
     }));
     setStep(4);
   };
@@ -134,8 +135,8 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       }
     }
     if (step === 4) {
-      if (!formData.agreements.tos || !formData.agreements.privacy || !formData.agreements.dataMap || !formData.agreements.ai) {
-        setError("You must agree to all operational terms, data policies, and AI guidelines to activate your CuttyOS account.");
+      if (!formData.agreements.tos || !formData.agreements.privacy || !formData.agreements.dataMap || !formData.agreements.ai || !formData.agreements.eula) {
+        setError("You must agree to all operational terms, data policies, AI guidelines, and the EULA to activate your CuttyOS account.");
         return;
       }
     }
@@ -504,7 +505,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-white/60">Required Agreements</h3>
                     <button
-                      onClick={() => setFormData(prev => ({ ...prev, agreements: { tos: true, privacy: true, dataMap: true, ai: true } }))}
+                      onClick={() => setFormData(prev => ({ ...prev, agreements: { tos: true, privacy: true, dataMap: true, ai: true, eula: true } }))}
                       className="px-5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-full font-bold text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2 self-start sm:self-auto shrink-0"
                     >
                       <Sparkles size={12} />
@@ -603,6 +604,30 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                       </p>
                       <p className="text-xs md:text-[10px] text-white/40 font-medium leading-relaxed italic uppercase">
                         I accept the <a href="/ai-usage" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>CuttyOS AI Usage Policy</a>, stipulating human-in-the-loop review mandates for all AI-generated outputs and communications.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-4 p-4 bg-white/5 border border-white/10 rounded-2xl cursor-pointer hover:bg-white/10 transition-colors">
+                    <div className="pt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.agreements.eula}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            agreements: { ...prev.agreements, eula: e.target.checked }
+                          }))
+                        }
+                        className="w-5 h-5 accent-emerald-500 rounded bg-white/5 border-white/20 cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-white mb-1">
+                        End User License Agreement
+                      </p>
+                      <p className="text-xs md:text-[10px] text-white/40 font-medium leading-relaxed italic uppercase">
+                        I accept the <a href="/eula" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>Proprietary EULA</a>, binding my usage of the software to strict proprietary terms.
                       </p>
                     </div>
                   </label>

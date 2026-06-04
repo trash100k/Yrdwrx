@@ -57,6 +57,7 @@ const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 const TermsOfService = lazy(() => import("./pages/TermsOfService"));
 const DataMap = lazy(() => import("./pages/DataMap"));
 const AiUsage = lazy(() => import("./pages/AiUsage"));
+const Eula = lazy(() => import("./pages/Eula"));
 const SaaSAdminDashboard = lazy(() => import("./pages/SaaSAdminDashboard"));
 
 const PageLoader = () => (
@@ -202,6 +203,7 @@ export default function App() {
                           <Route path="/terms" element={<TermsOfService />} />
                           <Route path="/data-map" element={<DataMap />} />
                           <Route path="/ai-usage" element={<AiUsage />} />
+                          <Route path="/eula" element={<Eula />} />
                           <Route
                             path="/portal/:clientId"
                             element={<ClientPortal />}
@@ -493,6 +495,7 @@ function AuthPage({
     privacy: false,
     dataMap: false,
     ai: false,
+    eula: false,
   });
   /* Email & Password Auth States */ const [activeTab, setActiveTab] = useState<
     "email" | "google"
@@ -508,7 +511,7 @@ function AuthPage({
   const [pendingUser, setPendingUser] = useState<any>(null);
 
   const allAgreed =
-    agreements.tos && agreements.privacy && agreements.dataMap && agreements.ai;
+    agreements.tos && agreements.privacy && agreements.dataMap && agreements.ai && agreements.eula;
 
   const handleDeviceCheck = (user: any) => {
     // 14-day Trust Window Logic
@@ -872,6 +875,30 @@ function AuthPage({
                         className="hover:underline"
                       >
                         AI Usage & Ethics Policy
+                      </a>
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={agreements.eula}
+                    onChange={(e) =>
+                      setAgreements((prev) => ({
+                        ...prev,
+                        eula: e.target.checked,
+                      }))
+                    }
+                    className="w-4 h-4 mt-0.5 accent-emerald-500 rounded bg-white/5 border-white/20"
+                  />
+                  <div>
+                    <p className="text-xs md:text-[10px] font-bold text-white uppercase">
+                      <a
+                        href="/eula"
+                        target="_blank"
+                        className="hover:underline"
+                      >
+                        End User License Agreement (EULA)
                       </a>
                     </p>
                   </div>
