@@ -136,10 +136,18 @@ export default function DesignStudio() {
     setIsGeneratingMockup(true);
     try {
         const description = result.identifiedAreas.map(a => a.suggestion).join(". ");
+
+        // Convert base64 DataURL back to a Blob for secure FormData upload
+        const responseData = await fetch(image);
+        const blob = await responseData.blob();
+
+        const formData = new FormData();
+        formData.append('image', blob, 'design.jpg');
+        formData.append('description', description);
+
         const response = await fetchApi("/api/design/generate-mockup", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: image, description })
+            body: formData, // fetchApi will automatically omit Content-Type so boundary is set properly
         });
         const data = await response.json();
         if (data.imageUrl) setMockupImage(data.imageUrl);

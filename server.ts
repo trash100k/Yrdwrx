@@ -16,6 +16,7 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 import admin from "firebase-admin";
 import Redis from "ioredis";
+import multer from "multer";
 
 dotenv.config();
 
@@ -2323,11 +2324,28 @@ async function startServer() {
     }
   });
 
-  app.post("/api/design/generate-mockup", aiLimiter, async (req, res) => {
+  // Configure Multer for secure in-memory file uploads (max 10MB)
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+      // Strict mimetype validation
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+         return cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
+      }
+      cb(null, true);
+    }
+  });
+
+  app.post("/api/design/generate-mockup", aiLimiter, upload.single('image'), async (req, res) => {
     try {
-      const { image, description } = req.body;
-      const base64Data = image.split(',')[1];
-      const mimeType = image.split(';')[0].split(':')[1];
+      if (!req.file) {
+         return res.status(400).json({ error: "No image file provided." });
+      }
+
+      const description = req.body.description || "Enhance the landscaping.";
+      const base64Data = req.file.buffer.toString('base64');
+      const mimeType = req.file.mimetype;
 
       // Using the required Interactions API for the bleeding-edge image model
       const interaction = await ai.interactions.create({
