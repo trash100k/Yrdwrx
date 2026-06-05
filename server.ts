@@ -416,7 +416,7 @@ async function startServer() {
       if (obj !== null && typeof obj === 'object') {
         const newObj: any = {};
         for (const [key, val] of Object.entries(obj)) {
-          newObj[key] = normalizeObject(val, depth + 1);
+          newObj[key.toLowerCase().replace(/[\s\n\r\t]+/g, "")] = normalizeObject(val, depth + 1);
         }
         return newObj;
       }
@@ -453,10 +453,9 @@ async function startServer() {
     // 3. Strict Request Origin & Lineage enforcement
     if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       const contentType = req.headers['content-type'];
-
       // Allow multipart/form-data for file uploads, otherwise require application/json
       if (!contentType || (!contentType.includes('application/json') && !contentType.includes('multipart/form-data'))) {
-         return res.status(415).json({ error: "Lineage Violation: Strict JSON application or multipart form required for mutation endpoints." });
+         return res.status(415).json({ error: "Lineage Violation: Strict JSON application or multipart required for mutation endpoints." });
       }
     }
 
