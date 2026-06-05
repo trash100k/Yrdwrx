@@ -430,8 +430,10 @@ async function startServer() {
     // 3. Strict Request Origin & Lineage enforcement
     if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       const contentType = req.headers['content-type'];
-      if (!contentType || !contentType.includes('application/json')) {
-         return res.status(415).json({ error: "Lineage Violation: Strict JSON application required for mutation endpoints." });
+
+      // Allow multipart/form-data for file uploads, otherwise require application/json
+      if (!contentType || (!contentType.includes('application/json') && !contentType.includes('multipart/form-data'))) {
+         return res.status(415).json({ error: "Lineage Violation: Strict JSON application or multipart form required for mutation endpoints." });
       }
     }
 
@@ -3285,14 +3287,18 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 
       // Heartbeat to keep redis record alive
       const heartbeat = setInterval(async () => {
-        if (!isConnected) {
-          clearInterval(heartbeat);
-          return;
-        }
-        if (redis) {
-           await redis.zadd("active_ws_connections", Date.now(), clientId);
-           // Cleanup stale connections (older than 30s)
-           await redis.zremrangebyscore("active_ws_connections", "-inf", Date.now() - 30000);
+        try {
+          if (!isConnected) {
+            clearInterval(heartbeat);
+            return;
+          }
+          if (redis) {
+             await redis.zadd("active_ws_connections", Date.now(), clientId);
+             // Cleanup stale connections (older than 30s)
+             await redis.zremrangebyscore("active_ws_connections", "-inf", Date.now() - 30000);
+          }
+        } catch (err) {
+          console.error("Redis heartbeat failed:", err);
         }
       }, 15000);
 
