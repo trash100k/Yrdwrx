@@ -398,17 +398,40 @@ async function startServer() {
     }
 
     // 2. Anti-Pentesting / Advanced Injection Detection (DAX, SQL, NoSQL, XSS, Path Traversal)
+
+    // Helper to deeply normalize object values for WAF checking (defeats newline/whitespace/unicode JSON escaping)
+    // Limits recursion depth to 10 to prevent DoS via Maximum Call Stack Size Exceeded attacks.
+    const normalizeObject = (obj: any, depth = 0): any => {
+      if (depth > 10) return obj;
+      if (typeof obj === 'string') {
+        let str = obj.toLowerCase();
+        // Decode unicode escapes if any were double-escaped
+        try {
+          str = decodeURIComponent(JSON.parse(`"${str.replace(/"/g, '\\"')}"`));
+        } catch(e) {}
+        // Strip out whitespace, newlines, tabs, carriage returns to defeat spacing obfuscation
+        return str.replace(/[\s\n\r\t]+/g, "");
+      }
+      if (Array.isArray(obj)) return obj.map(item => normalizeObject(item, depth + 1));
+      if (obj !== null && typeof obj === 'object') {
+        const newObj: any = {};
+        for (const [key, val] of Object.entries(obj)) {
+          newObj[key] = normalizeObject(val, depth + 1);
+        }
+        return newObj;
+      }
+      return obj;
+    };
+
     let rawPayload = "";
     try {
-      rawPayload = JSON.stringify(req.body || {}).toLowerCase();
-      // Normalize payload to prevent bypass via unicode escapes or obfuscated spacing
-      rawPayload = unescape(rawPayload.replace(/\\u([\d\w]{4})/gi, (match, grp) => String.fromCharCode(parseInt(grp, 16))));
-      rawPayload = rawPayload.replace(/\s+/g, ""); // strip all whitespace for strict pattern matching
+       const normalizedBody = normalizeObject(req.body || {});
+       rawPayload = JSON.stringify(normalizedBody);
     } catch (e) {
-      // Ignore parsing errors here, it's just a string check
+       rawPayload = JSON.stringify(req.body || {}).toLowerCase().replace(/[\s\n\r\t]+/g, "");
     }
 
-    const normalizedUrl = url.replace(/\s+/g, "");
+    const normalizedUrl = url.replace(/[\s\n\r\t]+/g, "");
     
     // DAX Injection Patterns (PowerBI/SSAS)
     const daxPatterns = ["evaluate", "define", "var", "calculate(", "summarize(", "addcolumns("];
