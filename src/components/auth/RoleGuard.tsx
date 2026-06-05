@@ -3,7 +3,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useRole } from '../../hooks/useRole';
 
 interface RoleGuardProps {
-  allowedRoles: Array<"admin" | "employee" | "client" | "owner">;
+  allowedRoles: Array<any>;
   redirectPath?: string;
   children?: React.ReactNode;
 }

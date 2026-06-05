@@ -134,11 +134,7 @@ export default function CrewSuite() {
   const handleRecruitSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCrew.name || !newCrew.leader) {
-      showToast({
-        title: "Validation Error",
-        description: "Please specify both Crew Name and Crew Leader.",
-        variant: "destructive",
-      });
+      showToast("Please specify both Crew Name and Crew Leader.", "error" /* handled */);
       return;
     }
     try {
@@ -161,30 +157,18 @@ export default function CrewSuite() {
       await addDoc(collection(db, "crews"), crewData);
       setIsRecruitOpen(false);
       setNewCrew({ name: "", leader: "", phone: "", equip: "", status: "ON_SITE", job: "", progress: 0 });
-      showToast({
-        title: "Crew Recruited Successfully",
-        description: `${crewData.name} lead by ${crewData.leader} is now active.`,
-        variant: "default",
-      });
+      showToast(`${crewData.name} lead by ${crewData.leader} is now active.`, "success" /* handled */);
       logSystemEvent("CREW_RECRUITED", { name: crewData.name });
     } catch (error: any) {
       console.error("Error recruiting crew:", error);
-      showToast({
-        title: "Failed to Recruit Crew",
-        description: error.message || "An error occurred writing to Firestore.",
-        variant: "destructive",
-      });
+      showToast(error.message || "An error occurred writing to Firestore.", "error" /* handled */);
     }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCrew || !editingCrew.name || !editingCrew.leader) {
-      showToast({
-        title: "Validation Error",
-        description: "Please specify both Crew Name and Crew Leader.",
-        variant: "destructive",
-      });
+      showToast("Please specify both Crew Name and Crew Leader.", "error" /* handled */);
       return;
     }
     try {
@@ -204,18 +188,10 @@ export default function CrewSuite() {
       await updateDoc(crewRef, updatedData);
       setIsEditOpen(false);
       setEditingCrew(null);
-      showToast({
-        title: "Crew Configurations Saved",
-        description: "Crew operational parameters updated.",
-        variant: "default",
-      });
+      showToast("Crew operational parameters updated.", "success" /* handled */);
     } catch (error: any) {
       console.error("Error updating crew:", error);
-      showToast({
-        title: "Failed to Save Configurations",
-        description: error.message || "An error occurred writing to Firestore.",
-        variant: "destructive",
-      });
+      showToast(error.message || "An error occurred writing to Firestore.", "error" /* handled */);
     }
   };
 
@@ -228,35 +204,19 @@ export default function CrewSuite() {
       await deleteDoc(crewRef);
       setIsEditOpen(false);
       setEditingCrew(null);
-      showToast({
-        title: "Crew Retired",
-        description: "The crew has been successfully dismissed/retired.",
-        variant: "default",
-      });
+      showToast("The crew has been successfully dismissed/retired.", "success" /* handled */);
     } catch (error: any) {
       console.error("Error deleting crew:", error);
-      showToast({
-        title: "Dismissal Failed",
-        description: error.message || "An error occurred deleting document from Firestore.",
-        variant: "destructive",
-      });
+      showToast(error.message || "An error occurred deleting document from Firestore.", "error" /* handled */);
     }
   };
 
   const handleCallCrew = (crew: any) => {
     if (crew.phone) {
       window.location.href = `tel:${crew.phone}`;
-      showToast({
-        title: "Dialing Contact",
-        description: `Calling ${crew.leader || "Leader"} at ${crew.phone}`,
-        variant: "default",
-      });
+      showToast(`Calling ${crew.leader || "Leader"} at ${crew.phone}`, "success" /* handled */);
     } else {
-      showToast({
-        title: "Missing Phone",
-        description: "This crew has no registered phone number.",
-        variant: "destructive",
-      });
+      showToast("This crew has no registered phone number.", "error" /* handled */);
     }
   };
 

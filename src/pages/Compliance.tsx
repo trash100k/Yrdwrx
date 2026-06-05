@@ -210,7 +210,7 @@ export default function Compliance() {
           )}
 
           {/* HUMAN IN THE LOOP SIGNATURE */}
-          {(!tenant?.settings?.subFeatures?.aiSafetyCheck || tenant.settings.subFeatures.aiSafetyCheck === false || weatherCheck) && (
+          {(!tenant?.settings?.subFeatures?.aiSafetyCheck || (tenant.settings.subFeatures.aiSafetyCheck as any) === false || weatherCheck) && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-black border border-white/20 p-6 rounded-2xl">
                <h3 className="text-sm font-black text-white/50 uppercase tracking-widest mb-4 flex items-center gap-2">
                  <PenTool size={16} /> Human-in-the-Loop Signoff
