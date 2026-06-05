@@ -1,3 +1,4 @@
+/// <reference types="@types/google.maps" />
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
 

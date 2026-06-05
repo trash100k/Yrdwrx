@@ -19,7 +19,7 @@ export function RoleGuard({ allowedRoles, redirectPath = '/', children }: RoleGu
     );
   }
 
-  const hasAccess = role && allowedRoles.includes(role);
+  const hasAccess = role && (allowedRoles as string[]).includes(role as string);
 
   if (!hasAccess) {
     // If they don't have access, redirect to their appropriate home

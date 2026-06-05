@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, X } from "lucide-react";
 
 interface ToastContextType {
-  showToast: (msg: string, type?: "success" | "error" | "info" | "warning") => void;
+  showToast: (msg: any, type?: "success" | "error" | "info" | "warning") => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);

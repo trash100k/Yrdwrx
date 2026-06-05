@@ -165,7 +165,7 @@ export default function Compliance() {
               onClick={checkSafety}
               disabled={loading || !chemical || !amount || !jobId}
               className={`w-full mt-4 py-4 rounded-xl font-black uppercase tracking-widest transition-all ${
-                tenant?.settings?.subFeatures?.aiSafetyCheck === false 
+                (tenant?.settings?.subFeatures as any)?.aiSafetyCheck === false
                   ? "bg-white/5 text-white/20 cursor-not-allowed hidden"
                   : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 disabled:opacity-50"
               }`}
@@ -210,7 +210,7 @@ export default function Compliance() {
           )}
 
           {/* HUMAN IN THE LOOP SIGNATURE */}
-          {(!tenant?.settings?.subFeatures?.aiSafetyCheck || tenant.settings.subFeatures.aiSafetyCheck === false || weatherCheck) && (
+          {(!tenant?.settings?.subFeatures?.aiSafetyCheck || (tenant.settings.subFeatures.aiSafetyCheck as unknown as boolean) === false || weatherCheck) && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-black border border-white/20 p-6 rounded-2xl">
                <h3 className="text-sm font-black text-white/50 uppercase tracking-widest mb-4 flex items-center gap-2">
                  <PenTool size={16} /> Human-in-the-Loop Signoff

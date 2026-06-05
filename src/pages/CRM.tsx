@@ -160,7 +160,7 @@ export default function CRM() {
       const data = await res.json();
       setEnrichedData(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
+        await updateDoc(doc(db as any, "customers", customer.id || ""), {
           semanticEnrichment: data,
           updatedAt: serverTimestamp(),
         });
@@ -191,7 +191,7 @@ export default function CRM() {
       const data = await res.json();
       setPropertyInsights(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
+        await updateDoc(doc(db as any, "customers", customer.id || ""), {
           semanticInsights: data,
           updatedAt: serverTimestamp(),
         });
@@ -331,7 +331,7 @@ export default function CRM() {
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (!credential?.accessToken) throw new Error("No token");
 
-      const title = `Cutty Sync: ${selectedCustomer.firstName} ${selectedCustomer.lastName}`;
+      const title = `Cutty Sync: ${(selectedCustomer as any)?.firstName} ${(selectedCustomer as any)?.lastName}`;
       const body = `Contact: ${selectedCustomer.phone}\\nStatus: ${selectedCustomer.status}\\n\\nNotes:\\n${customerNotes}`;
 
       const res = await fetchApi("/api/integration/keep", {
@@ -342,7 +342,7 @@ export default function CRM() {
       if (!res.ok) throw new Error("Sync failed");
       console.log("Successfully synced to Google Keep!");
       
-      const payload = { clientId: selectedCustomer.id };
+      const payload = { clientId: selectedCustomer.id as string };
       await logSystemEvent("KEEP_SYNCED", payload);
     } catch (err: any) {
       console.error(err);
@@ -441,9 +441,9 @@ export default function CRM() {
         const clientName = args.clientName.toLowerCase();
         const found = customers.find(
           (c) =>
-            `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
-            c.firstName.toLowerCase().includes(clientName) ||
-            c.lastName.toLowerCase().includes(clientName),
+            `${(c as any)?.firstName} ${(c as any)?.lastName}`.toLowerCase().includes(clientName) ||
+            (c as any)?.firstName.toLowerCase().includes(clientName) ||
+            (c as any)?.lastName.toLowerCase().includes(clientName),
         );
 
         if (found) {
@@ -465,9 +465,9 @@ export default function CRM() {
         const clientName = args.clientName.toLowerCase();
         const found = customers.find(
           (c) =>
-            `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
-            c.firstName?.toLowerCase().includes(clientName) ||
-            c.lastName?.toLowerCase().includes(clientName),
+            `${(c as any)?.firstName} ${(c as any)?.lastName}`.toLowerCase().includes(clientName) ||
+            (c as any)?.firstName?.toLowerCase().includes(clientName) ||
+            (c as any)?.lastName?.toLowerCase().includes(clientName),
         );
         if (found) {
           handleSelectCustomer(found);
@@ -513,7 +513,7 @@ export default function CRM() {
       
       if (!res.ok) throw new Error(data.error || 'Failed to generate link');
 
-      const docRef = doc(db, "customers", customer.id);
+      const docRef = doc(db as any, "customers", customer.id || "");
       await updateDoc(docRef, {
         magicLinkSentAt: new Date().toISOString(),
         magicLinkSentCount: (customer.magicLinkSentCount || 0) + 1,
@@ -567,7 +567,7 @@ export default function CRM() {
 
       // Store the score and reasoning in Firestore for analytics/persistence
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
+        await updateDoc(doc(db as any, "customers", customer.id || ""), {
           aiScore: data.aiScore,
           aiScoreLabel: data.aiScoreLabel,
           aiScoreReasoning: data.aiScoreReasoning,
@@ -794,7 +794,7 @@ export default function CRM() {
 
   const filteredCustomers = verifiedCustomers.filter((c) => {
     const matchesSearch =
-      `${c.firstName} ${c.lastName}`
+      `${(c as any)?.firstName} ${(c as any)?.lastName}`
         .toLowerCase()
         .includes(searchTerm.toLowerCase()) ||
       c.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1026,7 +1026,7 @@ export default function CRM() {
                         onClick={() => {
                             const csvContent = "data:text/csv;charset=utf-8," 
                                 + "First Name,Last Name,Email,Phone,Address,Notes\n"
-                                + customers.map((c: any) => `${c.firstName || ''},${c.lastName || ''},${c.email || ''},${c.phone || ''},"${c.address || ''}","${c.notes || ''}"`).join("\n");
+                                + customers.map((c: any) => `${(c as any)?.firstName || ''},${(c as any)?.lastName || ''},${c.email || ''},${c.phone || ''},"${c.address || ''}","${c.notes || ''}"`).join("\n");
                             const encodedUri = encodeURI(csvContent);
                             const link = document.createElement("a");
                             link.setAttribute("href", encodedUri);
@@ -1121,12 +1121,12 @@ export default function CRM() {
                                 className="w-14 h-14 bg-zinc-900 border border-white/5 rounded-2xl flex items-center justify-center text-zinc-400 font-black text-xl group-hover:bg-emerald-500 group-hover:text-black transition-all duration-500 shadow-2xl shrink-0"
                                 aria-hidden="true"
                               >
-                                {client.firstName[0]}
-                                {client.lastName[0]}
+                                {(client as any)?.firstName[0]}
+                                {(client as any)?.lastName[0]}
                               </div>
                               <div className="min-w-0">
                                 <div className="text-xl font-black italic tracking-normal md:tracking-tighter flex items-center gap-3 lowercase mb-1 leading-none truncate">
-                                  {client.firstName} {client.lastName}
+                                  {(client as any)?.firstName} {(client as any)?.lastName}
                                   {client.priority && (
                                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]" />
                                   )}
@@ -1145,7 +1145,7 @@ export default function CRM() {
                             </p>
                             <p className="text-xs text-zinc-400 group-hover:text-white/80 transition-colors line-clamp-2 italic leading-relaxed">
                               "Shared project brief for property development at{" "}
-                              {client.address.split(",")[0]}."
+                              {(client as any)?.address.split(",")[0]}."
                             </p>
                           </div>
                         </td>
@@ -1171,32 +1171,32 @@ export default function CRM() {
                                   strokeDasharray={163.3}
                                   strokeDashoffset={
                                     163.3 -
-                                    (163.3 * (client.aiScore || 0)) / 100
+                                    (163.3 * ((client as any)?.aiScore || 0)) / 100
                                   }
                                   strokeLinecap="round"
                                   className={`${
-                                    client.aiScore > 80
+                                    (client as any)?.aiScore > 80
                                       ? "text-emerald-500"
-                                      : client.aiScore > 50
+                                      : (client as any)?.aiScore > 50
                                         ? "text-blue-500"
                                         : "text-zinc-500"
                                   } transition-all duration-1000 shadow-glow`}
                                 />
                               </svg>
                               <span className="absolute text-[12px] font-black italic">
-                                {client.aiScore || "--"}
+                                {(client as any)?.aiScore || "--"}
                               </span>
                             </div>
                             <span
                               className={`text-[8px] font-black uppercase tracking-widest mt-3 px-2 py-0.5 rounded-full border border-white/5 ${
-                                client.aiScoreLabel === "Growth Potential"
+                                (client as any)?.aiScoreLabel === "Growth Potential"
                                   ? "text-emerald-400 bg-emerald-500/5"
-                                  : client.aiScoreLabel === "High Promise"
+                                  : (client as any)?.aiScoreLabel === "High Promise"
                                     ? "text-blue-400 bg-blue-500/5"
                                     : "text-white/20"
                               }`}
                             >
-                              {client.aiScoreLabel || "Evaluating"}
+                              {(client as any)?.aiScoreLabel || "Evaluating"}
                             </span>
                           </div>
                         </td>
@@ -1375,8 +1375,8 @@ export default function CRM() {
                       className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 bg-emerald-500 text-black rounded-3xl flex items-center justify-center text-xl sm:text-2xl sm:text-3xl font-black italic shadow-2xl"
                       aria-hidden="true"
                     >
-                      {selectedCustomer.firstName[0]}
-                      {selectedCustomer.lastName[0]}
+                      {(selectedCustomer as any)?.firstName[0]}
+                      {(selectedCustomer as any)?.lastName[0]}
                     </div>
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-3 flex-wrap">
@@ -1384,8 +1384,8 @@ export default function CRM() {
                           id="modal-client-name"
                           className="text-2xl sm:text-3xl sm:text-4xl font-black tracking-normal md:tracking-tighter uppercase leading-none truncate"
                         >
-                          {selectedCustomer.firstName}{" "}
-                          {selectedCustomer.lastName}
+                          {(selectedCustomer as any)?.firstName}{" "}
+                          {(selectedCustomer as any)?.lastName}
                         </h2>
                         {selectedCustomer.isHOA && (
                           <div className="micro-label bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-1 rounded-lg">
@@ -1401,7 +1401,7 @@ export default function CRM() {
                   <div className="flex flex-wrap items-center gap-2 sm:gap-4 shrink-0">
                     <button
                       onClick={() => {
-                        const url = `${window.location.origin}/portal/${selectedCustomer.id}`;
+                        const url = `${window.location.origin}/portal/${selectedCustomer.id as string}`;
                         navigator.clipboard.writeText(url);
                         showToast("Client Portal Link copied to clipboard", "success");
                       }}
@@ -1635,7 +1635,7 @@ export default function CRM() {
                             </button>
                           </div>
                           <div className="grid grid-cols-1 gap-3">
-                            {selectedCustomer.hoaRules?.map(
+                            {(selectedCustomer as any).hoaRules?.map(
                               (rule: string, i: number) => (
                                 <div
                                   key={i}
@@ -1648,8 +1648,8 @@ export default function CRM() {
                                 </div>
                               ),
                             )}
-                            {(!selectedCustomer.hoaRules ||
-                              selectedCustomer.hoaRules.length === 0) && (
+                            {(!(selectedCustomer as any).hoaRules ||
+                              (selectedCustomer as any).hoaRules.length === 0) && (
                               <p className="text-xs text-white/20 italic p-4">
                                 No specific ordinances synced for this location.
                               </p>
@@ -1668,7 +1668,7 @@ export default function CRM() {
                               Size
                             </p>
                             <p className="text-lg font-bold tracking-tight">
-                              {selectedCustomer.propertyDetails?.size || "N/A"}
+                              {(selectedCustomer as any).propertyDetails?.size || "N/A"}
                             </p>
                           </div>
                           <div className="space-y-1">
@@ -1676,7 +1676,7 @@ export default function CRM() {
                               Grass Type
                             </p>
                             <p className="text-lg font-bold tracking-tight">
-                              {selectedCustomer.propertyDetails?.grassType ||
+                              {(selectedCustomer as any).propertyDetails?.grassType ||
                                 "N/A"}
                             </p>
                           </div>
@@ -1685,7 +1685,7 @@ export default function CRM() {
                               Features
                             </p>
                             <div className="flex flex-wrap gap-2">
-                              {selectedCustomer.propertyDetails?.features?.map(
+                              {(selectedCustomer as any).propertyDetails?.features?.map(
                                 (f: string, i: number) => (
                                   <span
                                     key={i}
@@ -1753,7 +1753,7 @@ export default function CRM() {
                                   }}
                                   itemStyle={{ color: '#10b981', fontSize: '14px', fontWeight: 'bold' }}
                                   labelStyle={{ color: '#ffffff80', fontSize: '10px', textTransform: 'uppercase' }}
-                                  formatter={(value: number) => [`${value.toLocaleString()}`, 'Est. Value']}
+                                  formatter={(value: any) => [`${value.toLocaleString()}`, 'Est. Value']}
                                 />
                                 <Area 
                                   type="monotone" 
@@ -1808,7 +1808,7 @@ export default function CRM() {
                             />
                             <button className="w-full bg-emerald-500 text-black rounded-3xl py-5 font-bold text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all">
                               <Send size={18} /> Send to{" "}
-                              {selectedCustomer.firstName}
+                              {(selectedCustomer as any)?.firstName}
                             </button>
                           </motion.div>
                         )}
@@ -1869,7 +1869,7 @@ export default function CRM() {
                         onChange={(e) => {
                           setCustomerNotes(e.target.value);
                           handleUpdateNotes(
-                            selectedCustomer.id,
+                            selectedCustomer.id as string,
                             e.target.value,
                           );
                         }}
@@ -1962,9 +1962,9 @@ export default function CRM() {
                     to="../scheduler"
                     state={{
                       clientName:
-                        selectedCustomer.firstName +
+                        (selectedCustomer as any)?.firstName +
                         " " +
-                        selectedCustomer.lastName,
+                        (selectedCustomer as any)?.lastName,
                       address: selectedCustomer.address,
                     }}
                     className="flex-1 py-5 bg-white text-black rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
@@ -1976,9 +1976,9 @@ export default function CRM() {
                     to="../invoices"
                     state={{
                       client:
-                        selectedCustomer.firstName +
+                        (selectedCustomer as any)?.firstName +
                         " " +
-                        selectedCustomer.lastName,
+                        (selectedCustomer as any)?.lastName,
                     }}
                     className="flex-1 py-5 bg-zinc-900 border border-white/5 shadow-2xl text-white font-black text-xs uppercase tracking-[0.2em] hover:bg-white hover:text-black transition-all flex items-center justify-center gap-3"
                   >
@@ -2048,12 +2048,12 @@ export default function CRM() {
                         {item.name}
                       </h3>
                       <p className="text-xs text-white/40">
-                        Current: {item.current} {item.unit} (Min: {item.min})
+                        Current: {(item as any).current} {(item as any).unit} (Min: {(item as any).min})
                       </p>
                     </div>
                     <button
                       onClick={() => {
-                        showToast(`Drafting email to ${item.supplierEmail}...`);
+                        showToast(`Drafting email to ${(item as any).supplierEmail}...`);
                         setShowLowStockModal(false);
                       }}
                       className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-xs md:text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"
