@@ -71,7 +71,7 @@ export function WorkflowBuilderSection() {
   const { showToast } = useToast();
   
   const [workflows, setWorkflows] = useState<AutomationRule[]>(
-    tenant?.settings?.workflows || []
+    (tenant?.settings as any)?.workflows || []
   );
   const [isSaving, setIsSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);

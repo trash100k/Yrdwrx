@@ -160,7 +160,7 @@ export default function CRM() {
       const data = await res.json();
       setEnrichedData(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
+        await updateDoc(doc(db, "customers", customer.id || ""), {
           semanticEnrichment: data,
           updatedAt: serverTimestamp(),
         });
@@ -191,7 +191,7 @@ export default function CRM() {
       const data = await res.json();
       setPropertyInsights(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
+        await updateDoc(doc(db, "customers", customer.id || ""), {
           semanticInsights: data,
           updatedAt: serverTimestamp(),
         });
@@ -442,8 +442,8 @@ export default function CRM() {
         const found = customers.find(
           (c) =>
             `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
-            c.firstName.toLowerCase().includes(clientName) ||
-            c.lastName.toLowerCase().includes(clientName),
+            (c.firstName || '').toLowerCase().includes(clientName) ||
+            (c.lastName || '').toLowerCase().includes(clientName),
         );
 
         if (found) {
@@ -466,8 +466,8 @@ export default function CRM() {
         const found = customers.find(
           (c) =>
             `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
-            c.firstName?.toLowerCase().includes(clientName) ||
-            c.lastName?.toLowerCase().includes(clientName),
+            (c.firstName || '').toLowerCase().includes(clientName) ||
+            (c.lastName || '').toLowerCase().includes(clientName),
         );
         if (found) {
           handleSelectCustomer(found);
@@ -513,7 +513,7 @@ export default function CRM() {
       
       if (!res.ok) throw new Error(data.error || 'Failed to generate link');
 
-      const docRef = doc(db, "customers", customer.id);
+      const docRef = doc(db, "customers", customer.id || "");
       await updateDoc(docRef, {
         magicLinkSentAt: new Date().toISOString(),
         magicLinkSentCount: (customer.magicLinkSentCount || 0) + 1,
@@ -567,7 +567,7 @@ export default function CRM() {
 
       // Store the score and reasoning in Firestore for analytics/persistence
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
+        await updateDoc(doc(db, "customers", customer.id || ""), {
           aiScore: data.aiScore,
           aiScoreLabel: data.aiScoreLabel,
           aiScoreReasoning: data.aiScoreReasoning,
@@ -1121,8 +1121,8 @@ export default function CRM() {
                                 className="w-14 h-14 bg-zinc-900 border border-white/5 rounded-2xl flex items-center justify-center text-zinc-400 font-black text-xl group-hover:bg-emerald-500 group-hover:text-black transition-all duration-500 shadow-2xl shrink-0"
                                 aria-hidden="true"
                               >
-                                {client.firstName[0]}
-                                {client.lastName[0]}
+                                {client.firstName?.[0] || ""}
+                                {client.lastName?.[0] || ""}
                               </div>
                               <div className="min-w-0">
                                 <div className="text-xl font-black italic tracking-normal md:tracking-tighter flex items-center gap-3 lowercase mb-1 leading-none truncate">
@@ -1145,7 +1145,7 @@ export default function CRM() {
                             </p>
                             <p className="text-xs text-zinc-400 group-hover:text-white/80 transition-colors line-clamp-2 italic leading-relaxed">
                               "Shared project brief for property development at{" "}
-                              {client.address.split(",")[0]}."
+                              {client.address?.split(",")[0]}."
                             </p>
                           </div>
                         </td>
@@ -1175,9 +1175,9 @@ export default function CRM() {
                                   }
                                   strokeLinecap="round"
                                   className={`${
-                                    client.aiScore > 80
+                                    (client.aiScore || 0) > 80
                                       ? "text-emerald-500"
-                                      : client.aiScore > 50
+                                      : (client.aiScore || 0) > 50
                                         ? "text-blue-500"
                                         : "text-zinc-500"
                                   } transition-all duration-1000 shadow-glow`}
@@ -1375,8 +1375,8 @@ export default function CRM() {
                       className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 bg-emerald-500 text-black rounded-3xl flex items-center justify-center text-xl sm:text-2xl sm:text-3xl font-black italic shadow-2xl"
                       aria-hidden="true"
                     >
-                      {selectedCustomer.firstName[0]}
-                      {selectedCustomer.lastName[0]}
+                      {selectedCustomer.firstName?.[0] || ""}
+                      {selectedCustomer.lastName?.[0] || ""}
                     </div>
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-3 flex-wrap">
@@ -1753,7 +1753,7 @@ export default function CRM() {
                                   }}
                                   itemStyle={{ color: '#10b981', fontSize: '14px', fontWeight: 'bold' }}
                                   labelStyle={{ color: '#ffffff80', fontSize: '10px', textTransform: 'uppercase' }}
-                                  formatter={(value: number) => [`${value.toLocaleString()}`, 'Est. Value']}
+                                  formatter={(value: any) => [`${value.toLocaleString()}`, 'Est. Value']}
                                 />
                                 <Area 
                                   type="monotone" 
@@ -1869,7 +1869,7 @@ export default function CRM() {
                         onChange={(e) => {
                           setCustomerNotes(e.target.value);
                           handleUpdateNotes(
-                            selectedCustomer.id,
+                            selectedCustomer.id || "",
                             e.target.value,
                           );
                         }}
@@ -2048,12 +2048,12 @@ export default function CRM() {
                         {item.name}
                       </h3>
                       <p className="text-xs text-white/40">
-                        Current: {item.current} {item.unit} (Min: {item.min})
+                        Current: {(item as any).current} {(item as any).unit} (Min: {(item as any).min})
                       </p>
                     </div>
                     <button
                       onClick={() => {
-                        showToast(`Drafting email to ${item.supplierEmail}...`);
+                        showToast(`Drafting email to ${(item as any).supplierEmail}...`);
                         setShowLowStockModal(false);
                       }}
                       className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-xs md:text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"

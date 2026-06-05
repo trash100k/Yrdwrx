@@ -25,7 +25,7 @@ function parseGeminiJson(text: string | undefined) {
       .replace(/```/g, "")
       .trim();
     return JSON.parse(raw);
-  } catch (err) {
+  } catch (err: any) {
     console.error("Failed to parse Gemini JSON:", text);
     throw err;
   }
@@ -213,7 +213,7 @@ if (fs.existsSync(CACHE_FILE)) {
   try {
     geminiCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
     console.log(`[Cache Loaded] Loaded ${Object.keys(geminiCache).length} cached Gemini responses.`);
-  } catch (err) {
+  } catch (err: any) {
     console.error("Failed to read gemini cache:", err);
   }
 }
@@ -221,7 +221,7 @@ if (fs.existsSync(CACHE_FILE)) {
 function saveGeminiCache() {
   try {
     fs.writeFileSync(CACHE_FILE, JSON.stringify(geminiCache, null, 2));
-  } catch (err) {
+  } catch (err: any) {
     console.error("Failed to write gemini cache:", err);
   }
 }
@@ -863,7 +863,7 @@ async function startServer() {
         args: ["--no-sandbox"],
       });
       const page = await browser.newPage();
-      await page.setContent(invoiceHtml, { waitUntil: "networkidle0" });
+      await page.setContent(invoiceHtml, { waitUntil: "load" });
       const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
       await browser.close();
 
@@ -1378,8 +1378,8 @@ async function startServer() {
       }
       `;
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash",
         contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
@@ -1397,11 +1397,8 @@ async function startServer() {
       const { text } = req.body;
       if (!text) return res.status(400).json({ error: "No text provided" });
 
-      const model = ai.models.get({ model: "gemini-3.1-flash-tts-preview" });
-      const response = await model.generateContent({
-        contents: text,
-        config: {
-          responseModalities: ["AUDIO"],
+
+      const response = await ai.models.generateContent({ model: "gemini-3.1-flash-tts-preview", contents: text, config: { responseModalities: ["AUDIO"],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: "Puck" },
@@ -1522,7 +1519,7 @@ async function startServer() {
         ]
       });
       res.json({ compressedContext: response.text });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -1627,14 +1624,14 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash",
         contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
       const data = JSON.parse(response.text || '{}');
       res.json(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: "Failed to process magic setup" });
     }
@@ -1667,14 +1664,14 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash",
         contents: rawText,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
       const data = JSON.parse(response.text || '{}');
       res.json(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: "Failed to process website extraction" });
     }
@@ -1700,8 +1697,8 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash",
         contents: [
             { inlineData: { data: base64Data, mimeType } },
             { text: "Extract details from this image." }
@@ -1710,7 +1707,7 @@ async function startServer() {
       });
       const data = JSON.parse(response.text || '{}');
       res.json(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: "Failed to process image extraction" });
     }
@@ -2347,7 +2344,7 @@ async function startServer() {
       if (interaction.steps) {
         for (const step of interaction.steps) {
           if (step.type === 'model_output') {
-            const imageContent = step.content?.find((c: any) => c.type === 'image');
+            const imageContent = step.content?.find((c: any) => c.type === 'image') as any;
             if (imageContent && imageContent.data) {
                 const base64Str = imageContent.data;
                 const mType = imageContent.mime_type || 'image/png';
@@ -2389,7 +2386,7 @@ async function startServer() {
              let fullReport = "";
              for (const step of interaction.steps) {
                  if (step.type === 'model_output') {
-                     const textContent = step.content?.find((c: any) => c.type === 'text');
+                     const textContent = step.content?.find((c: any) => c.type === 'text') as any;
                      if (textContent) fullReport += textContent.text;
                  }
              }
@@ -2585,7 +2582,7 @@ async function startServer() {
       // Generate PDF with Puppeteer
       const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
       const page = await browser.newPage();
-      await page.setContent(invoiceHtml, { waitUntil: 'networkidle0' });
+      await page.setContent(invoiceHtml, { waitUntil: 'load' });
       const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
       await browser.close();
 
@@ -2612,12 +2609,12 @@ async function startServer() {
         `Content-Disposition: attachment; filename="Invoice-${merchant.replace(/\\s+/g, "_")}.pdf"`,
         `Content-Transfer-Encoding: base64`,
         ``,
-        pdfBuffer.toString("base64"),
+        Buffer.from(pdfBuffer).toString("base64"),
         ``,
         `--${boundary}--`
       ].join("\\r\\n");
 
-      const encodedRaw = Buffer.from(emailContent).toString("base64").replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      const encodedRaw = Buffer.from(emailContent).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
       const draftRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
         method: "POST",
@@ -2870,7 +2867,7 @@ async function startServer() {
       const base64Data = photo.split(',')[1];
       const mimeType = photo.split(';')[0].split(':')[1];
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+
       const prompt = `
         You are a construction and landscaping variance checker. 
         Review this completion photo of a landscaping job.
@@ -2882,7 +2879,7 @@ async function startServer() {
           "qualityScore": number (0-100)
         }
       `;
-      const response = await model.generateContent({
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash",
         contents: [
           prompt,
           { inlineData: { data: base64Data, mimeType } }
@@ -2999,8 +2996,8 @@ async function startServer() {
       }
       `;
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash",
         contents: prompt,
         config: { responseMimeType: "application/json" }
       });
@@ -3208,7 +3205,7 @@ async function startServer() {
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
       
       res.json({ success: true, token, magicLink });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -3218,9 +3215,9 @@ async function startServer() {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development") as any;
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
-    } catch (err) {
+    } catch (err: any) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
     }
   });
@@ -3482,7 +3479,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
               video: { data: msg.image, mimeType: "image/jpeg" },
             });
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error("WS Message Error:", err);
         }
       });
