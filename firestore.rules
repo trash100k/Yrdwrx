@@ -206,53 +206,53 @@ service cloud.firestore {
         isTenantEmployee(existing().tenantId) || 
         (getRole() == 'client' && existing().customerId == request.auth.uid && existing().tenantId == getTenantId())
       )) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /inventory/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /materialLogs/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
       // Logs should ideally be immutable, but allowing Admin if necessary to correct errors
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /expenses/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && timestampsNotTampered()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && timestampsNotTampered() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       // Protect from accidental expense deletion by standard employee
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
     
     match /employees/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     // Fully Immutable system logs
     match /systemLogs/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
       // Strictly enforced immutable ledger!
       allow update, delete: if isSaaSAdmin(); 
     }
 
     match /broadcasts/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && existing().tenantId == getTenantId()) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
@@ -260,64 +260,64 @@ service cloud.firestore {
       allow read: if isSaaSAdmin() || (isSignedIn() && existing().tenantId == getTenantId()) || isDemoWorkspace(existing().tenantId);
       allow create: if isSaaSAdmin() || (isSignedIn() && (
         isTenantEmployee(incoming().tenantId) || getRole() == 'client'
-      ) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      ) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /knowledge/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /crews/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /leads/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /vendors/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /audit_logs/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
       // Logs are fully immutable, no updates or deletes allowed
       allow update, delete: if isSaaSAdmin();
     }
 
     match /design_catalog/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /interactions/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
 
     match /hoa_associations/{id} {
       allow read: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
-      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches()) || isDemoWorkspace(incoming().tenantId);
-      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged()) || isDemoWorkspace(existing().tenantId);
+      allow create: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(incoming().tenantId) && incomingTenantMatches() && validPayloadSize()) || isDemoWorkspace(incoming().tenantId);
+      allow update: if isSaaSAdmin() || (isSignedIn() && isTenantEmployee(existing().tenantId) && tenantNotChanged() && validPayloadSize()) || isDemoWorkspace(existing().tenantId);
       allow delete: if isSaaSAdmin() || (isSignedIn() && isTenantAdmin(existing().tenantId)) || isDemoWorkspace(existing().tenantId);
     }
   }

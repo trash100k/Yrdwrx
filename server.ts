@@ -438,7 +438,7 @@ async function startServer() {
   });
 
   const verifyFirebaseToken = async (req: any, res: any, next: any) => {
-    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
+    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/stripe/webhook'];
     if (excludedRoutes.includes(req.path) || !req.path.startsWith('/api/')) {
         return next();
     }
@@ -1417,7 +1417,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/agent/chat", async (req, res) => {
+  app.post("/api/agent/chat", aiLimiter, async (req, res) => {
     try {
       const { message, context, knowledge, memory } = req.body;
 
