@@ -32,11 +32,20 @@ The field is chaotic; the Crew Suite brings order. Designed for extreme mobility
 *   **The Gemini Difference:** Voice-to-text intelligence allows crew chiefs to log job completion notes, report hazards, or request materials entirely hands-free while driving or working.
 *   **Key Features:** Real-time GPS shift tracking, secure job-site photo processing (photos are only accepted while actively "on the clock" to prevent fraud), and automated, verifiable timecards that prove work completion to clients instantly.
 
-### 3. Design Studio: Creative Precision
-![Design Studio Screenshot](./screenshots/DesignStudio.png)
-Where landscape and service planning meets hard data.
-*   **The Gemini Difference:** AI-assisted material estimation. Describe a project to the Copilot, and it will cross-reference the Design Database to generate an instant, accurate bill of materials and estimated labor costs.
-*   **Key Features:** Interactive mapping and layout tools, secure integration with the master design database, and real-time cost-to-profit margin visualization during the design phase.
+### 3. Design Studio: Creative Precision & AI Material Estimation
+The Design Studio is where creative planning meets operational execution and hard data.
+
+**The Workspace View:**
+![Design Studio Screenshot](./screenshots/DesignStudio_Clean.png)
+*   **Key Features:** Interactive mapping and markup tools. Designers can sketch layouts directly over uploaded property photos or satellite imagery.
+
+**AI Analysis & Tiered Estimation:**
+![Design Studio Analysis Screenshot](./screenshots/DesignStudio_Analysis.png)
+*   **The Gemini Difference:** Once a design is plotted, Gemini instantly analyzes the spatial data to generate a comprehensive Bill of Materials. It cross-references the internal catalog to estimate labor costs and provides *Tiered Pricing* (Standard, Good, Better, Best), allowing contractors to immediately up-sell clients based on material quality—all generated automatically from a single photo and voice prompt.
+
+**The Design Database:**
+![Design Studio Database Screenshot](./screenshots/DesignStudio_Database.png)
+*   **Key Features:** A secure, searchable repository of all past designs, botanical rules, and architectural guidelines. The AI uses this database to ensure all new designs are contextually accurate and botanically viable.
 
 ### 4. Smart Inventory: Predictive Procurement
 ![Inventory Screenshot](./screenshots/Inventory.png)
