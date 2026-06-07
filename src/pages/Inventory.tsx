@@ -448,16 +448,24 @@ export default function Inventory() {
     );
 
     // Revenue Recovery: Quantifying materials logged to specific jobs vs baseline 'untracked' state
-    const recovery = logs
-      .filter((l) => l.jobId && l.type === "out")
-      .reduce((acc, l) => acc + Number(l.quantity) * 65, 0);
+    let recovery = 0;
+    let jobLogCount = 0;
+    for (let i = 0; i < logs.length; i++) {
+      const l = logs[i];
+      if (l.jobId) {
+        jobLogCount++;
+        if (l.type === "out") {
+          recovery += Number(l.quantity) * 65;
+        }
+      }
+    }
 
     setQuantities({
       totalVal: total,
       recoveryVal: recovery,
       leakage:
         logs.length > 0
-          ? Math.max(0.8, 4.2 - logs.filter((l) => l.jobId).length * 0.1)
+          ? Math.max(0.8, 4.2 - jobLogCount * 0.1)
           : 4.2,
     });
   }, [items, logs]);

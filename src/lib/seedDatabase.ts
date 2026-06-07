@@ -201,7 +201,6 @@ export const seedDatabaseIfEmpty = async (formData?: any) => {
         batch.set(doc(collection(db, "crews"), crew.id), crew);
       });
       await batch.commit();
-      console.log("Seeded crews");
     }
 
     const leadsSnap = await getDocs(query(collection(db, "leads"), where("tenantId", "==", tenantId)));
@@ -211,7 +210,6 @@ export const seedDatabaseIfEmpty = async (formData?: any) => {
         batch.set(doc(collection(db, "leads"), lead.id), lead);
       });
       await batch.commit();
-      console.log("Seeded leads");
     }
 
     const vendorsSnap = await getDocs(query(collection(db, "vendors"), where("tenantId", "==", tenantId)));
@@ -221,7 +219,6 @@ export const seedDatabaseIfEmpty = async (formData?: any) => {
         batch.set(doc(collection(db, "vendors"), vendor.id), vendor);
       });
       await batch.commit();
-      console.log("Seeded vendors");
     }
 
     const customersSnap = await getDocs(query(collection(db, "customers"), where("tenantId", "==", tenantId)));
@@ -231,7 +228,6 @@ export const seedDatabaseIfEmpty = async (formData?: any) => {
         batch.set(doc(collection(db, "customers"), "demo-" + index), customer);
       });
       await batch.commit();
-      console.log("Seeded customers");
     }
 
     const inventorySnap = await getDocs(query(collection(db, "inventory"), where("tenantId", "==", tenantId)));
@@ -241,7 +237,6 @@ export const seedDatabaseIfEmpty = async (formData?: any) => {
         batch.set(doc(collection(db, "inventory")), item);
       });
       await batch.commit();
-      console.log("Seeded inventory");
     }
 
   } catch (err) {

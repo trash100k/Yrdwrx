@@ -295,7 +295,7 @@ export default function CRM() {
         const checkRes = await fetchApi("/api/inventory/check-and-alert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: materialsToCheck }),
+          body: JSON.stringify({ items: materialsToCheck, tenantId: tenant?.id }),
         });
         const checkData = await checkRes.json();
         if (checkData.lowStockItems?.length > 0) {
@@ -402,9 +402,6 @@ export default function CRM() {
         // Only log if it's not a standard permission error while in demo mode
         if (error.code !== "permission-denied") {
           handleFirestoreError(error, OperationType.LIST, "customers");
-        } else {
-          // Fallback to mock data silently if permissions are denied
-          /* setCustomers(mockCustomers) removed for strict data model */
         }
       },
     );
