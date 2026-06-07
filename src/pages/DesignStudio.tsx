@@ -69,6 +69,7 @@ export default function DesignStudio() {
   const { role } = useRole();
   const { logAction } = useAuditLog();
   const [image, setImage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<DesignResult | null>(null);
   const [mockupImage, setMockupImage] = useState<string | null>(null);
@@ -123,6 +124,7 @@ export default function DesignStudio() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setImageFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
         setImage(event.target?.result as string);
@@ -132,15 +134,19 @@ export default function DesignStudio() {
   };
 
   const generateMockup = async () => {
-    if (!image || !result) return;
+    if (!imageFile || !result) return;
     setIsGeneratingMockup(true);
     try {
         const description = result.identifiedAreas.map(a => a.suggestion).join(". ");
+        const formData = new FormData();
+        formData.append("image", imageFile);
+        formData.append("description", description);
+
         const response = await fetchApi("/api/design/generate-mockup", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: image, description })
+            body: formData
         });
+
         const data = await response.json();
         if (data.imageUrl) setMockupImage(data.imageUrl);
     } catch(e) {
