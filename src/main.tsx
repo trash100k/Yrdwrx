@@ -11,7 +11,12 @@ import { registerSW } from "virtual:pwa-register";
 // Register PWA service worker for offline shell
 try {
   if ('serviceWorker' in navigator) {
-    registerSW({ immediate: true });
+    registerSW({ 
+      immediate: true,
+      onRegisterError: (err: any) => {
+        console.warn("Service worker registration fallback:", err);
+      }
+    });
   }
 } catch (e) {
   console.warn("Service worker registration failed or is blocked by iframe storage restrictions.");

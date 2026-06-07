@@ -6,8 +6,6 @@ import { getStorage } from "firebase/storage";
 import { getAnalytics, isSupported } from "firebase/analytics";
 import {
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   memoryLocalCache,
   collection,
   addDoc,
@@ -17,45 +15,24 @@ import firebaseConfig from "../../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
 
-let firestoreDb;
-let isStorageEnabled = false;
-
-try {
-  if (typeof window !== 'undefined') {
-    let dummy = window.indexedDB;
-    isStorageEnabled = true;
-  }
-} catch (e) {
-  isStorageEnabled = false;
-}
-
-if (isStorageEnabled) {
-  try {
-    firestoreDb = initializeFirestore(app, {
-      localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-    });
-  } catch(e) {
-     firestoreDb = initializeFirestore(app, { localCache: memoryLocalCache() });
-  }
-} else {
-  firestoreDb = initializeFirestore(app, {
-    localCache: memoryLocalCache()
-  });
-}
+const firestoreDb = initializeFirestore(app, {
+  localCache: memoryLocalCache()
+});
 
 export const db = firestoreDb;
 
 let tempAuth;
 try {
-  if (!isStorageEnabled) throw new Error("Storage disabled");
-  tempAuth = getAuth(app);
-} catch(e) {
   tempAuth = initializeAuth(app, {
     persistence: inMemoryPersistence
   });
+} catch(e) {
+  // Fallback in case it's already initialized
+  tempAuth = getAuth(app);
 }
 
 export const auth = tempAuth;
+
 export const storage = getStorage(app);
 
 // Analytics is only supported in browser environments
@@ -98,8 +75,8 @@ export function handleFirestoreError(
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      emailVerified: auth.currentUser?.emailVerified,
+      userId: auth?.currentUser?.uid,
+      emailVerified: auth?.currentUser?.emailVerified,
     },
     operationType,
     path,
@@ -134,7 +111,7 @@ export async function logSystemEvent(
     if (navigator.onLine) {
       await addDoc(collection(db, "systemLogs"), {
         event,
-        userId: auth.currentUser?.uid || "system",
+        userId: auth?.currentUser?.uid || "system",
         timestamp: new Date().toISOString(),
         serverTimestamp: serverTimestamp(),
         metadata,
@@ -145,7 +122,7 @@ export async function logSystemEvent(
         "systemLogs",
         {
           event,
-          userId: auth.currentUser?.uid || "system",
+          userId: auth?.currentUser?.uid || "system",
           timestamp: new Date().toISOString(),
           metadata,
         },

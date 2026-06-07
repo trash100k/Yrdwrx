@@ -1,5 +1,5 @@
-import { fetchApi } from "../lib/api";
 // @ts-nocheck
+import { fetchApi } from "../lib/api";
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Shield, CloudRain, Wind, AlertTriangle, CheckCircle, PenTool, Droplets, Info, List } from "lucide-react";
@@ -15,7 +15,7 @@ export default function Compliance() {
   const { tenant } = useTenant();
   const { role } = useRole();
   const { logAction } = useAuditLog();
-  const [activeTab, setActiveTab] = useState<"epa" | "audit" | "frameworks">("epa");
+  const [activeTab, setActiveTab] = useState<"epa" | "audit">("epa");
 
   // EPA Form State
   const [chemical, setChemical] = useState("");
@@ -116,14 +116,6 @@ export default function Compliance() {
             >
               Enterprise Audit Trail
             </button>
-            <button
-              onClick={() => setActiveTab("frameworks")}
-              className={`py-2 px-6 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
-                activeTab === "frameworks" ? "bg-white text-black shadow-md scale-[1.02]" : "text-white/40 hover:text-white"
-              }`}
-            >
-              Frameworks
-            </button>
           </div>
         )}
       </header>
@@ -218,7 +210,7 @@ export default function Compliance() {
           )}
 
           {/* HUMAN IN THE LOOP SIGNATURE */}
-          {(!tenant?.settings?.subFeatures?.aiSafetyCheck || (tenant.settings.subFeatures.aiSafetyCheck as any) === false || weatherCheck) && (
+          {(!tenant?.settings?.subFeatures?.aiSafetyCheck || tenant.settings.subFeatures.aiSafetyCheck === false || weatherCheck) && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-black border border-white/20 p-6 rounded-2xl">
                <h3 className="text-sm font-black text-white/50 uppercase tracking-widest mb-4 flex items-center gap-2">
                  <PenTool size={16} /> Human-in-the-Loop Signoff
@@ -294,26 +286,6 @@ export default function Compliance() {
                 </div>
               ))
             )}
-          </div>
-        </div>
-      )}
-
-      {activeTab === "frameworks" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
-            <h3 className="text-lg font-black text-white mb-2">SOC 2 Type II</h3>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-4">Continuous security monitoring, access control enforcement, and immutable audit logging to meet AICPA Trust Services Criteria.</p>
-            <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase"><CheckCircle size={14} /> Active Enforced</div>
-          </div>
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
-            <h3 className="text-lg font-black text-white mb-2">GDPR & CCPA</h3>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-4">Built-in data portability tools, strict tenant isolation via Row Level Security, and automated right-to-erasure workflows.</p>
-            <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase"><CheckCircle size={14} /> Active Enforced</div>
-          </div>
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
-            <h3 className="text-lg font-black text-white mb-2">PCI-DSS</h3>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-4">No sensitive cardholder data is stored on CuttyOS servers. All transactions route securely via Stripe Connect.</p>
-            <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase"><CheckCircle size={14} /> Active Enforced</div>
           </div>
         </div>
       )}

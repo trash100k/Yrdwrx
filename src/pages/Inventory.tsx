@@ -1,4 +1,5 @@
 import { fetchApi } from "../lib/api";
+import { compressImage } from "../lib/imageUtils";
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -221,36 +222,17 @@ export default function Inventory() {
 
     setIsProcessing(true);
     try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const rawBase64 = reader.result as string;
+      const base64StringWithPrefix = await compressImage(file, 400, 400, 0.6);
+      const base64String = base64StringWithPrefix.split(",")[1] || base64StringWithPrefix;
 
-        // Scale down image to avoid Firestore limit
-        const img = new Image();
-        img.src = rawBase64;
-        await new Promise((r) => (img.onload = r));
-
-        const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 400;
-        const scaleSize = MAX_WIDTH / img.width;
-        canvas.width = MAX_WIDTH;
-        canvas.height = img.height * scaleSize;
-        const ctx = canvas.getContext("2d");
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
-
-        const base64String = compressedBase64.split(",")[1];
-
-        const res = await fetchApi("/api/inventory/process-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageData: base64String }),
-        });
-        const data = await res.json();
-        // save the compressed image url onto the item
-        setScanResult({ ...data, imageUrl: compressedBase64 });
-      };
-      reader.readAsDataURL(file);
+      const res = await fetchApi("/api/inventory/process-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageData: base64String }),
+      });
+      const data = await res.json();
+      // save the compressed image url onto the item
+      setScanResult({ ...data, imageUrl: base64StringWithPrefix });
     } catch (err) {
       console.error(err);
     } finally {
@@ -448,24 +430,16 @@ export default function Inventory() {
     );
 
     // Revenue Recovery: Quantifying materials logged to specific jobs vs baseline 'untracked' state
-    let recovery = 0;
-    let jobLogCount = 0;
-    for (let i = 0; i < logs.length; i++) {
-      const l = logs[i];
-      if (l.jobId) {
-        jobLogCount++;
-        if (l.type === "out") {
-          recovery += Number(l.quantity) * 65;
-        }
-      }
-    }
+    const recovery = logs
+      .filter((l) => l.jobId && l.type === "out")
+      .reduce((acc, l) => acc + Number(l.quantity) * 65, 0);
 
     setQuantities({
       totalVal: total,
       recoveryVal: recovery,
       leakage:
         logs.length > 0
-          ? Math.max(0.8, 4.2 - jobLogCount * 0.1)
+          ? Math.max(0.8, 4.2 - logs.filter((l) => l.jobId).length * 0.1)
           : 4.2,
     });
   }, [items, logs]);

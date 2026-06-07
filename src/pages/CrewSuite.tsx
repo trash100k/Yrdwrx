@@ -1,7 +1,6 @@
+// @ts-nocheck
 import { fetchApi } from "../lib/api";
-// @ts-nocheck
 import { safeStorage } from '../lib/storage';
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import {
   collection,
@@ -134,7 +133,11 @@ export default function CrewSuite() {
   const handleRecruitSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCrew.name || !newCrew.leader) {
-      showToast("Please specify both Crew Name and Crew Leader.", "error" /* handled */);
+      showToast({
+        title: "Validation Error",
+        description: "Please specify both Crew Name and Crew Leader.",
+        variant: "destructive",
+      });
       return;
     }
     try {
@@ -157,18 +160,30 @@ export default function CrewSuite() {
       await addDoc(collection(db, "crews"), crewData);
       setIsRecruitOpen(false);
       setNewCrew({ name: "", leader: "", phone: "", equip: "", status: "ON_SITE", job: "", progress: 0 });
-      showToast(`${crewData.name} lead by ${crewData.leader} is now active.`, "success" /* handled */);
+      showToast({
+        title: "Crew Recruited Successfully",
+        description: `${crewData.name} lead by ${crewData.leader} is now active.`,
+        variant: "default",
+      });
       logSystemEvent("CREW_RECRUITED", { name: crewData.name });
     } catch (error: any) {
       console.error("Error recruiting crew:", error);
-      showToast(error.message || "An error occurred writing to Firestore.", "error" /* handled */);
+      showToast({
+        title: "Failed to Recruit Crew",
+        description: error.message || "An error occurred writing to Firestore.",
+        variant: "destructive",
+      });
     }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCrew || !editingCrew.name || !editingCrew.leader) {
-      showToast("Please specify both Crew Name and Crew Leader.", "error" /* handled */);
+      showToast({
+        title: "Validation Error",
+        description: "Please specify both Crew Name and Crew Leader.",
+        variant: "destructive",
+      });
       return;
     }
     try {
@@ -188,10 +203,18 @@ export default function CrewSuite() {
       await updateDoc(crewRef, updatedData);
       setIsEditOpen(false);
       setEditingCrew(null);
-      showToast("Crew operational parameters updated.", "success" /* handled */);
+      showToast({
+        title: "Crew Configurations Saved",
+        description: "Crew operational parameters updated.",
+        variant: "default",
+      });
     } catch (error: any) {
       console.error("Error updating crew:", error);
-      showToast(error.message || "An error occurred writing to Firestore.", "error" /* handled */);
+      showToast({
+        title: "Failed to Save Configurations",
+        description: error.message || "An error occurred writing to Firestore.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -204,19 +227,35 @@ export default function CrewSuite() {
       await deleteDoc(crewRef);
       setIsEditOpen(false);
       setEditingCrew(null);
-      showToast("The crew has been successfully dismissed/retired.", "success" /* handled */);
+      showToast({
+        title: "Crew Retired",
+        description: "The crew has been successfully dismissed/retired.",
+        variant: "default",
+      });
     } catch (error: any) {
       console.error("Error deleting crew:", error);
-      showToast(error.message || "An error occurred deleting document from Firestore.", "error" /* handled */);
+      showToast({
+        title: "Dismissal Failed",
+        description: error.message || "An error occurred deleting document from Firestore.",
+        variant: "destructive",
+      });
     }
   };
 
   const handleCallCrew = (crew: any) => {
     if (crew.phone) {
       window.location.href = `tel:${crew.phone}`;
-      showToast(`Calling ${crew.leader || "Leader"} at ${crew.phone}`, "success" /* handled */);
+      showToast({
+        title: "Dialing Contact",
+        description: `Calling ${crew.leader || "Leader"} at ${crew.phone}`,
+        variant: "default",
+      });
     } else {
-      showToast("This crew has no registered phone number.", "error" /* handled */);
+      showToast({
+        title: "Missing Phone",
+        description: "This crew has no registered phone number.",
+        variant: "destructive",
+      });
     }
   };
 

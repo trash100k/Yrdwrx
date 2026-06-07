@@ -1,7 +1,5 @@
-/// <reference types="@types/google.maps" />
-import { fetchApi } from "../lib/api";
 // @ts-nocheck
-
+import { fetchApi } from "../lib/api";
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   APIProvider,

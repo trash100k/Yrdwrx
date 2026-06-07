@@ -45,8 +45,8 @@ export class ApiClient {
 
     try {
       return await response.json();
-    } catch (e) {
-      throw new ApiError("Failed to parse JSON response", response.status);
+    } catch {
+      return {} as T;
     }
   }
 
@@ -77,14 +77,7 @@ export class ApiClient {
 
 
     if (body) {
-      if (body instanceof FormData) {
-        config.body = body;
-        // fetch automatically sets the correct Content-Type with boundary for FormData
-        // We must remove the explicit Content-Type header from the actual config object so the browser can set it
-        delete (config.headers as Record<string, string>)["Content-Type"];
-      } else {
-        config.body = JSON.stringify(body);
-      }
+      config.body = JSON.stringify(body);
     }
 
     let lastError: unknown;

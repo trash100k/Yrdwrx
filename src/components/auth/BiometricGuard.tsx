@@ -8,19 +8,24 @@ export function BiometricGuard({ children }: { children: React.ReactNode }) {
   const [isSupported, setIsSupported] = useState(false);
 
   useEffect(() => {
-    // Check if WebAuthn is supported
-    if (window.PublicKeyCredential) {
+    // Check if WebAuthn is supported and not nested in a sandboxed iframe
+    if (window.PublicKeyCredential && window.self === window.top) {
       setIsSupported(true);
       // Automatically attempt to unlock if credential exists
       const hasInit = safeStorage.getItem("biometric_initialized");
       if (hasInit === "true") {
-        handleUnlock();
+        try {
+          handleUnlock();
+        } catch (e) {
+          console.error("Biometric auto-unlock failed:", e);
+        }
       } else {
         // If not set up yet, require them to set it up
         setIsLocked(true);
       }
     } else {
-      setIsLocked(false); // Not supported, bypass
+      setIsSupported(false);
+      setIsLocked(false); // Not supported or inside a restricted iframe, bypass to prevent security exceptions
     }
   }, []);
 

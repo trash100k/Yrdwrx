@@ -91,8 +91,12 @@ export default function LiveEar() {
             canvas.width = 640;
             canvas.height = 480;
             ctx?.drawImage(videoEl, 0, 0, 640, 480);
-            const base64Jpeg = canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
-            ws.send(JSON.stringify({ image: base64Jpeg }));
+            try {
+              const base64Jpeg = canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
+              ws.send(JSON.stringify({ image: base64Jpeg }));
+            } catch(e) {
+              console.warn("LiveEar: unable to extract frame from video element.", e);
+            }
           }
         }, 3000); // Send a frame every 3 seconds for environmental context
       }

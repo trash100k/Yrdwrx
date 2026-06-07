@@ -8,8 +8,6 @@ import {
   getDocs,
   addDoc,
   serverTimestamp,
-  writeBatch,
-  doc
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
@@ -25,22 +23,13 @@ export async function ingestKnowledge(
     });
     const nodes = await response.json();
 
-    // Store in Firestore using batch writes to resolve N+1 performance issue
-    if (nodes && nodes.length > 0) {
-      const CHUNK_SIZE = 450;
-      for (let i = 0; i < nodes.length; i += CHUNK_SIZE) {
-        const chunk = nodes.slice(i, i + CHUNK_SIZE);
-        const batch = writeBatch(db);
-        chunk.forEach((node: any) => {
-          const docRef = doc(collection(db, "knowledge"));
-          batch.set(docRef, {
-            ...node,
-            lastUpdated: new Date().toISOString(),
-            relevanceCount: 0,
-          });
-        });
-        await batch.commit();
-      }
+    // Store in Firestore
+    for (const node of nodes) {
+      await addDoc(collection(db, "knowledge"), {
+        ...node,
+        lastUpdated: new Date().toISOString(),
+        relevanceCount: 0,
+      });
     }
     return nodes;
   } catch (error) {

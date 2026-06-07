@@ -7,24 +7,27 @@ export async function playVoice(text: string) {
     });
     const data = await res.json();
     if (data.audio) {
-      // Decode base64 audio into a playable Blob URL
-      // According to the skill, it's sample rate 24000 PCM, wait it might be raw PCM or WAV.
-      // Wait, skill says:
-      // "Return this base64 audio to the client for playback (sample rate 24000)"
-      // Usually it's encoded as WAV or PCM. We'll use the raw web audio API or just HTMLAudioElement if it's WAV.
-      // If the SDK returns PCM 16-bit 24000Hz, we must create a WAV header or decode it properly.
-      
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      const binaryStr = atob(data.audio);
-      // Construct Float32Array from Int16Array
-      const len = binaryStr.length / 2;
-      const buffer = audioCtx.createBuffer(1, len, 24000);
+      
+      const b64 = data.audio.replace(/[\s\r\n]+$/, ''); // clear trailing lines
+      const binaryStr = window.atob(b64);
+      const bytesCount = binaryStr.length;
+      const samplesCount = Math.floor(bytesCount / 2);
+      
+      const buffer = audioCtx.createBuffer(1, samplesCount, 24000);
       const channelData = buffer.getChannelData(0);
-      for (let i = 0; i < len; i++) {
-        const int16 = binaryStr.charCodeAt(i*2) + (binaryStr.charCodeAt(i*2 + 1) << 8);
-        const signedInt16 = int16 >= 32768 ? int16 - 65536 : int16;
-        channelData[i] = signedInt16 / 32768;
+      
+      for (let i = 0; i < samplesCount; i++) {
+        const byte0 = binaryStr.charCodeAt(i * 2);
+        const byte1 = binaryStr.charCodeAt(i * 2 + 1);
+        
+        let val = byte0 | (byte1 << 8);
+        if (val & 0x8000) {
+          val -= 0x10000;
+        }
+        channelData[i] = val / 32768.0;
       }
+      
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(audioCtx.destination);

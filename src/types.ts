@@ -75,8 +75,6 @@ export interface Customer {
   semanticBriefing?: any;
   semanticEnrichment?: any;
   semanticInsights?: any;
-  hoaRules?: string[];
-  propertyDetails?: { size?: number; terrain?: string; hazards?: string[]; access?: string; grassType?: string; features?: string[]; assets?: { id: string; type: string; conditions: string; location: string }[]; };
 }
 
 export interface Invoice {
