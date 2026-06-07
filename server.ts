@@ -748,7 +748,7 @@ async function startServer() {
 
       const htmlBody = `
         <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 8px; border: 1px solid #eaeaec;">
-          <h2 style="color: #1a1a1a; margin-top: 0;">Thank you for choosing Cutty.</h2>
+          <h2 style="color: #1a1a1a; margin-top: 0;">Thank you for choosing YardWorx.</h2>
           <p style="color: #4a4a4a; line-height: 1.6; font-size: 16px;">
             We appreciate your recent business. Our team is dedicated to providing the highest quality service.
           </p>
@@ -759,7 +759,7 @@ async function startServer() {
             </p>
           </div>
           <p style="color: #888888; font-size: 12px; margin-bottom: 0;">
-            Cutty Operations • Meridian, MS
+            YardWorx Operations • Meridian, MS
           </p>
         </div>
       `;
@@ -853,7 +853,7 @@ async function startServer() {
           <div style="max-width: 800px; margin: 0 auto; border: 1px solid #eee; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
             <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 20px; text-transform: uppercase;">
               <div>
-                <h1 style="margin:0; font-size: 32px; font-weight: 900; letter-spacing: -1px;">CUTTY INC.</h1>
+                <h1 style="margin:0; font-size: 32px; font-weight: 900; letter-spacing: -1px;">YARDWORX INC.</h1>
                 <p style="margin:5px 0 0 0; font-size: 12px; color: #888;">Meridian, MS • (555) 012-3456</p>
               </div>
               <div style="text-align: right;">
@@ -902,7 +902,7 @@ async function startServer() {
 
             <div style="display: flex; justify-content: space-between; border-top: 2px solid #000; padding-top: 20px;">
               <div style="width: 50%;">
-                <p style="margin: 0; font-size: 12px; color: #888;">Note: Thank you for your continued partnership. Please make checks payable to "Cutty Inc".</p>
+                <p style="margin: 0; font-size: 12px; color: #888;">Note: Thank you for your continued partnership. Please make checks payable to "YardWorx Inc".</p>
               </div>
               <div style="width: 40%; text-align: right;">
                 <p style="margin: 0 0 10px 0; font-size: 14px;">Subtotal: <span style="font-weight: bold;">$3,050.00</span></p>
@@ -929,14 +929,14 @@ async function startServer() {
       const boundary = "cutty_boundary_" + Date.now().toString(16);
       const emailRaw = [
         "To: client@example.com",
-        "Subject: Your Monthly Invoice - Cutty Inc.",
+        "Subject: Your Monthly Invoice - YardWorx Inc.",
         "MIME-Version: 1.0",
         `Content-Type: multipart/mixed; boundary="${boundary}"`,
         "",
         `--${boundary}`,
         "Content-Type: text/html; charset=utf-8",
         "",
-        "<p>Hello,</p><p>Please find attached your invoice for this month's service.</p><p>Thank you,<br>Cutty Operations</p>",
+        "<p>Hello,</p><p>Please find attached your invoice for this month's service.</p><p>Thank you,<br>YardWorx Operations</p>",
         "",
         `--${boundary}`,
         'Content-Type: application/pdf; name="Invoice.pdf"',
@@ -1478,7 +1478,7 @@ async function startServer() {
       const { message, context, knowledge, memory } = req.body;
 
       const systemInstruction = `
-        You are "Cutty", the helpful assistant for a landscaping company.
+        You are "YardWorx", the helpful assistant for a landscaping company.
         
         RECALLED MEMORY:
         ${memory || "No specific memories recalled for this customer yet."}
@@ -1522,7 +1522,7 @@ async function startServer() {
         });
       }
       const systemInstruction = `
-        You are a Master Landscape Architect at Cutty.
+        You are a Master Landscape Architect at YardWorx.
         Analyze this property data and provide 3 visionary design suggestions that would increase property value.
         Focus on: ${customer.propertyDetails?.grassType || "the lawn"}, ${customer.propertyDetails?.size || "the space"}, and climate resilience.
         
@@ -1587,7 +1587,7 @@ async function startServer() {
     try {
       const { query, context } = req.body;
       const systemInstruction = `
-        You are "Cutty", an all-knowing, helpful assistant for a landscaping company.
+        You are "YardWorx", an all-knowing, helpful assistant for a landscaping company.
         
         DATABASE ACCESS:
         You have real-time access to the entire application database, including:
@@ -1624,7 +1624,7 @@ async function startServer() {
         - nav-compliance (Compliance)
         - nav-saas-admin (SaaS Admin)
         - nav-reports (Reports)
-        - nav-agent (Cutty Copilot)
+        - nav-agent (YardPilot)
         - nav-settings (Settings)
         - brain-trigger (Chat assistant)
         
@@ -1643,7 +1643,7 @@ async function startServer() {
         12. "How do I manage integrations or configure widgets?": Direct them to Settings. [FOCUS:nav-settings].
         
         APP METADATA & INSTRUCTIONS:
-        - Cutty OS is designed to be "Old People Proof". Do NOT use overly complex jargon.
+        - YardWorx is designed to be "Old People Proof". Do NOT use overly complex jargon.
         - Encourage users to click the "Make Widget" or "Tour" buttons if they are unsure what to do.
         - Reassure users that they cannot "break" anything and the system is designed to handle mistakes.
         
@@ -1670,7 +1670,7 @@ async function startServer() {
     try {
       const { transcript } = req.body;
       const systemInstruction = `
-      You are CuttyOS onboarding agent. The user is dictating their business information.
+      You are YardWorx onboarding agent. The user is dictating their business information.
       Extract their operational details into a structured JSON configuration.
       Infer the best matching services from their description.
       Valid services are: ["Lawn Mowing", "Irrigation Repair", "Landscape Design", "Hardscaping", "Seasonal Cleanup", "Pest Control", "Fertilization"]
@@ -1710,7 +1710,7 @@ async function startServer() {
       }
 
       const systemInstruction = `
-      You are CuttyOS onboarding agent. The user provided their website URL to configure their account.
+      You are YardWorx onboarding agent. The user provided their website URL to configure their account.
       Extract their business details from the raw webpage text.
       Infer the matching services from their description.
       Valid services are: ["Lawn Mowing", "Irrigation Repair", "Landscape Design", "Hardscaping", "Seasonal Cleanup", "Pest Control", "Fertilization"]
@@ -1743,7 +1743,7 @@ async function startServer() {
       const mimeType = image.split(';')[0].split(':')[1];
 
       const systemInstruction = `
-      You are CuttyOS onboarding agent. The user provided an image (e.g. business card, truck decal, logo).
+      You are YardWorx onboarding agent. The user provided an image (e.g. business card, truck decal, logo).
       Extract their business details from the image.
       Infer the matching services from their description or imagery.
       Valid services are: ["Lawn Mowing", "Irrigation Repair", "Landscape Design", "Hardscaping", "Seasonal Cleanup", "Pest Control", "Fertilization"]
@@ -1781,7 +1781,7 @@ async function startServer() {
     }
     try {
       const systemInstruction = `
-        You are "Cutty Dashboard AI Designer", an expert workspace optimization agent.
+        You are "YardWorx Dashboard AI Designer", an expert workspace optimization agent.
         Analyze the user's operational requirements prompt (e.g., "I support luxury HOA properties and don't care about inventory") and output a optimal tailored dashboard layout configuration.
         
         OUTPUT FORMAT: JSON only.
@@ -1889,7 +1889,7 @@ async function startServer() {
       const { customer, interactions, memory } = req.body;
 
       const systemInstruction = `
-        You are a high-level account manager for Cutty Landscaping.
+        You are a high-level account manager for YardWorx Landscaping.
         Create a "Briefing" for the crew or owner before they visit this customer.
         
         INPUT DATA:
@@ -1944,7 +1944,7 @@ async function startServer() {
       }
 
       const systemInstruction = `
-        You are an expert billing assistant for Cutty.
+        You are an expert billing assistant for YardWorx.
         Extract a structured invoice from the following conversation and optional image.
         
         OUTPUT FORMAT: JSON only.
@@ -2356,10 +2356,10 @@ async function startServer() {
       ` : "";
 
       const systemInstruction = `
-        You are "Cutty Logic Core", an expert, pragmatic landscape architect and property analysis agent natively integrated into the Cutty platform.
+        You are "YardWorx Logic Core", an expert, pragmatic landscape architect and property analysis agent natively integrated into the YardWorx platform.
         You take a picture of a yard with markup (circles, lines) and a text/voice prompt, then suggest a highly realistic, specific landscaping transformation.
         
-        STRICT RULES (The "Cutty Way"):
+        STRICT RULES (The "YardWorx Way"):
         - NO AI FLEX: Do not use flowery or overly enthusiastic language. Be direct, authoritative, and logistical.
         - NO HALLUCINATIONS: Respect physics and existing hardscapes. Never suggest planting a tree, bush, or flower bed on solid concrete, asphalt, or driveways.
         - ABSOLUTE SPECIFICITY: Never use generic placeholders like "a pretty tree" or "some bushes." You MUST use specific trade names (e.g., "Natchez Crepe Myrtle (Adolescent, 45-Gallon)", "Limelight Hydrangea (3-Gallon)", "Double-Shredded Hardwood Mulch").
@@ -2566,7 +2566,7 @@ async function startServer() {
       ` : "";
 
       const systemInstruction = `
-        You are "Cutty Logic Core", an expert landscape architect agent. 
+        You are "YardWorx Logic Core", an expert landscape architect agent.
         You are given a baseline design result (which is a JSON string of the current single-tier estimation).
         Your job is to generate three pricing tiers (Good, Better, Best) based on the baseline.
         
@@ -2574,7 +2574,7 @@ async function startServer() {
         "Better" should be the baseline (or slightly improved).
         "Best" should be a premium option (larger mature plants, premium stones, added features like lighting or minor water features).
 
-        STRICT RULES (The "Cutty Way"):
+        STRICT RULES (The "YardWorx Way"):
         - NO HALLUCINATIONS: Respect physics and existing hardscapes.
         - BOTANICAL REALITY: Provide proper horticultural installation guidelines.
         ${semanticLearningPrompt}
@@ -2669,7 +2669,7 @@ async function startServer() {
             </div>
             
             <div style="margin-top: 80px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; color: #999;">
-              <p>Thank you for choosing Cutty Landscape Management.</p>
+              <p>Thank you for choosing YardWorx Landscape Management.</p>
             </div>
           </body>
         </html>
@@ -2684,7 +2684,7 @@ async function startServer() {
 
       // Email draft configuration
       const boundary = "foo_bar_baz_boundary";
-      const subject = `Invoice from Cutty - ${merchant}`;
+      const subject = `Invoice from YardWorx - ${merchant}`;
       const emailContent = [
         `To: ${clientEmail || "client@example.com"}`,
         `Subject: ${subject}`,
@@ -2698,7 +2698,7 @@ async function startServer() {
         `Please find attached your generated invoice for $${amount}.`,
         ``,
         `Best,`,
-        `Cutty Landscape Management`,
+        `YardWorx Landscape Management`,
         ``,
         `--${boundary}`,
         `Content-Type: application/pdf; name="Invoice-${merchant.replace(/\\s+/g, "_")}.pdf"`,
@@ -3141,7 +3141,7 @@ async function startServer() {
     try {
       const { customer, context } = req.body;
       const systemInstruction = `
-        You are "Meridian Voice", the outbound calling agent for Cutty Green.
+        You are "Meridian Voice", the outbound calling agent for YardWorx Green.
         Your goal is to simulate a professional, southern-hospitable follow-up call to ${customer.firstName}.
         
         CONTEXT:
@@ -3176,7 +3176,7 @@ async function startServer() {
     try {
       const { transcript, job } = req.body;
       const systemInstruction = `
-        You are a landscaping operations assistant for Cutty Landscaping.
+        You are a landscaping operations assistant for YardWorx Landscaping.
         A crew member just recorded a voice memo regarding a specific job.
         Parse the transcript and extract:
         1. Summarize the transcript into a highly scannable string of "Actionable Bullet Points" for the job "notes". Use standard dash bullets (- ) and separate them with newlines.

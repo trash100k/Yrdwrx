@@ -72,7 +72,7 @@ export default function DisclaimerModal() {
 
           <div className="space-y-6 text-sm text-white/80 relative z-10">
             <p>
-              Welcome to the Cutty Green platform. Before we get to work, let's set a few quick expectations about how our AI assistant operates to keep things smooth and safe:
+              Welcome to the YardWorx Green platform. Before we get to work, let's set a few quick expectations about how our AI assistant operates to keep things smooth and safe:
             </p>
 
             <div className="space-y-4">

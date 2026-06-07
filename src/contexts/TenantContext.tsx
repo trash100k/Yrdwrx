@@ -68,7 +68,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           setUserRole("admin");
           setTenant({
             id: "demo-tenant-1",
-            name: "Cutty Local Operations (Demo)",
+            name: "YardWorx Local Operations (Demo)",
             tier: "enterprise",
             legal: {
               aiDisclaimerAccepted: false,
@@ -150,7 +150,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             } else {
               setTenant({
                 id: activeTenantId,
-                name: "Cutty Sandbox",
+                name: "YardWorx Sandbox",
                 tier: "free",
                 legal: {
                   aiDisclaimerAccepted: false,
