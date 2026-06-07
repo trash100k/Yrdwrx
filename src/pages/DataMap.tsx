@@ -39,15 +39,15 @@ export default function DataMap() {
   const verbatimSections = [
     {
       title: "1. Data Architecture & Enterprise Lineage",
-      text: "This Data Processing Map explains how data flows through the YardWorx platform, developed and maintained by Gaelworx AI. You (the owner), your contractors (employees/crews), and your clients are all actors within the system. All data generated and processed within this ecosystem is strictly segregated by tenant to ensure privacy, data lineage, and audit compliance.",
+      text: "This Data Processing Map explains how data flows through the CuttyOS platform, developed and maintained by Gaelworx AI. You (the owner), your contractors (employees/crews), and your clients are all actors within the system. All data generated and processed within this ecosystem is strictly segregated by tenant to ensure privacy, data lineage, and audit compliance.",
     },
     {
       title: "2. Active Governance & Threat Exclusion",
-      text: "YardWorx utilizes enterprise-grade middleware to protect tenant environments from advanced persistent threats, including automated pentesting, DAX (Data Analysis Expressions) injection, and malicious raw binaries. Specifically, the system explicitly rejects and blackholes risky file types such as .pbix, .exe, and shell scripts prior to them ever reaching the database layer. Every incoming payload is strictly validated against expected JSON structures to maintain unbreakable lineage.",
+      text: "CuttyOS utilizes enterprise-grade middleware to protect tenant environments from advanced persistent threats, including automated pentesting, DAX (Data Analysis Expressions) injection, and malicious raw binaries. Specifically, the system explicitly rejects and blackholes risky file types such as .pbix, .exe, and shell scripts prior to them ever reaching the database layer. Every incoming payload is strictly validated against expected JSON structures to maintain unbreakable lineage.",
     },
     {
       title: "3. Data Portability",
-      text: "We believe you should stay with YardWorx because of its features, ease of use, and revenue-adding capabilities—not because of a data moat. You maintain full ownership of your data with transparent data portability. Complete import and export functionalities (e.g., CSV client exports) are provided natively so your data is never held hostage.",
+      text: "We believe you should stay with CuttyOS because of its features, ease of use, and revenue-adding capabilities—not because of a data moat. You maintain full ownership of your data with transparent data portability. Complete import and export functionalities (e.g., CSV client exports) are provided natively so your data is never held hostage.",
     },
     {
       title: "4. Owner Data & Aggregation",
@@ -59,7 +59,7 @@ export default function DataMap() {
     },
     {
       title: "6. Client Data",
-      text: "Client data including property boundaries, service history, payment methods (via Stripe tokenization), and communication logs are stored for the purpose of CRM management and service fulfillment. Clients have access to their designated portal where they can manage their profiles and oversee project milestones in YardWorx.",
+      text: "Client data including property boundaries, service history, payment methods (via Stripe tokenization), and communication logs are stored for the purpose of CRM management and service fulfillment. Clients have access to their designated portal where they can manage their profiles and oversee project milestones in CuttyOS.",
     },
     {
       title: "7. External Providers",

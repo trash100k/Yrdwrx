@@ -77,7 +77,7 @@ export function IntegrationSettings() {
           <Link className="text-amber-400" size={24} /> Verified Integrations Hub
         </h2>
         <p className="text-xs text-white/50 leading-relaxed mt-1 max-w-2xl">
-          YardWorx serves as your central command hub. You can seamlessly connect approved external tools as "add-ons" to run alongside your core operations via Webhooks. By adding your custom webhook endpoints here, you assume full responsibility for these external data pipelines (as per Section 8 of our Terms of Service).
+          CuttyOS serves as your central command hub. You can seamlessly connect approved external tools as "add-ons" to run alongside your core operations via Webhooks. By adding your custom webhook endpoints here, you assume full responsibility for these external data pipelines (as per Section 8 of our Terms of Service).
         </p>
       </div>
       

@@ -7,8 +7,8 @@ export default function AiUsage() {
 
   const summaryCards = [
     {
-      title: "1. The Scope of YardWorx AI",
-      desc: "YardWorx uses advanced AI models to speed up invoice creation, draft quick customer quotes, plan routes, and listen to voice scheduling on-site. It's built to automate your administrative chores.",
+      title: "1. The Scope of Cutty AI",
+      desc: "Cutty uses advanced AI models to speed up invoice creation, draft quick customer quotes, plan routes, and listen to voice scheduling on-site. It's built to automate your administrative chores.",
     },
     {
       title: "2. The 'You Are the Boss' Rule",
@@ -16,7 +16,7 @@ export default function AiUsage() {
     },
     {
       title: "3. Friendly & Ethical Interaction",
-      desc: "No hacking, jailbreaking, or attempting to force YardWorx to output harmful, illegal, or discriminatory content. Attempts to use the Assistant for spam or malicious code generation will result in immediate termination of service. Play nice and keep the assistant focused on landscaping growth.",
+      desc: "No hacking, jailbreaking, or attempting to force Cutty to output harmful, illegal, or discriminatory content. Attempts to use the Assistant for spam or malicious code generation will result in immediate termination of service. Play nice and keep the assistant focused on landscaping growth.",
     },
     {
       title: "4. Locktight Isolated Training",
@@ -24,14 +24,14 @@ export default function AiUsage() {
     },
     {
       title: "5. Core Enterprise Workflows (No Autonomous Wildcards)",
-      desc: "YardWorx is a tool, not a human replacement. We bound our AI rigidly to proven, enterprise-level workflows. We do not permit or deploy 'frontier', fully autonomous, 'finger-crossing' multi-agent loops that run wildly unchecked in the background. If you need chaotic rogue agents, look elsewhere.",
+      desc: "Cutty is a tool, not a human replacement. We bound our AI rigidly to proven, enterprise-level workflows. We do not permit or deploy 'frontier', fully autonomous, 'finger-crossing' multi-agent loops that run wildly unchecked in the background. If you need chaotic rogue agents, look elsewhere.",
     },
   ];
 
   const verbatimSections = [
     {
-      title: "1. The Scope of YardWorx AI",
-      text: "YardWorx, operated by Gaelworx AI, integrates advanced machine learning models, including generative AI (LLMs) and computer vision, to assist with scheduling, routing, drafting communications, and analyzing terrain. These systems are designed to augment your operational capabilities, not replace final human judgment.",
+      title: "1. The Scope of CuttyOS AI",
+      text: "CuttyOS, operated by Gaelworx AI, integrates advanced machine learning models, including generative AI (LLMs) and computer vision, to assist with scheduling, routing, drafting communications, and analyzing terrain. These systems are designed to augment your operational capabilities, not replace final human judgment.",
     },
     {
       title: "2. Human-in-the-Loop Requirement",
@@ -39,15 +39,15 @@ export default function AiUsage() {
     },
     {
       title: "3. Ethical Interaction Bounds",
-      text: "You agree not to bypass, jailbreak, or attempt to force the YardWorx AI agents to generate harmful, illegal, or discriminatory content. The internal cognitive engine (the 'Brain') is strictly scoped to landscape management, CRM, and operational heuristics. Attempts to utilize the models for unrelated mass-marketing spam or malicious code generation will result in immediate termination of service.",
+      text: "You agree not to bypass, jailbreak, or attempt to force the CuttyOS AI agents to generate harmful, illegal, or discriminatory content. The internal cognitive engine (the 'Brain') is strictly scoped to landscape management, CRM, and operational heuristics. Attempts to utilize the models for unrelated mass-marketing spam or malicious code generation will result in immediate termination of service.",
     },
     {
       title: "4. Data Isolation",
-      text: "Gaelworx AI ensures that any vectorization or embeddings created from your company documents (such as PDF contracts or client history) remain strictly within your tenant boundaries. Your proprietary data is never pooled or used to fine-tune the core inference models shared across other companies using YardWorx.",
+      text: "Gaelworx AI ensures that any vectorization or embeddings created from your company documents (such as PDF contracts or client history) remain strictly within your tenant boundaries. Your proprietary data is never pooled or used to fine-tune the core inference models shared across other companies using CuttyOS.",
     },
     {
       title: "5. Functional Boundaries & Agentic Limitations",
-      text: "Gaelworx AI strictly enforces operational boundaries to maintain system deterministic integrity. The YardWorx generative components are strictly restricted to predefined, enterprise-level workflows (e.g., text summarization, data extraction, guided drafting). We do not deploy, authorize, or support unbounded, 'frontier-style' autonomous agentic loops capable of unverified, self-directed external actions. Any attempts to manipulate system prompts to achieve unbounded autonomous execution are strictly prohibited.",
+      text: "Gaelworx AI strictly enforces operational boundaries to maintain system deterministic integrity. The CuttyOS generative components are strictly restricted to predefined, enterprise-level workflows (e.g., text summarization, data extraction, guided drafting). We do not deploy, authorize, or support unbounded, 'frontier-style' autonomous agentic loops capable of unverified, self-directed external actions. Any attempts to manipulate system prompts to achieve unbounded autonomous execution are strictly prohibited.",
     },
   ];
 

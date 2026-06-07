@@ -47,7 +47,7 @@ import {
 } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import YardChat from "./YardChat";
+import CuttyChat from "./CuttyChat";
 import LiveEar from "./LiveEar";
 import WalkthroughOverlay from "./WalkthroughOverlay";
 import FieldModeInterface from "./FieldModeInterface";
@@ -176,7 +176,7 @@ export default function Layout() {
     {
       id: "agent",
       icon: Bot,
-      label: "YardPilot",
+      label: "Cutty Copilot",
       path: `${rolePrefix}/agent`,
       group: "BUSINESS",
       allowedRoles: ["owner", "admin"],
@@ -302,7 +302,7 @@ export default function Layout() {
                 {isSidebarOpen && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                     <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white uppercase">
-                      YardWorx
+                      Cutty
                     </h1>
                     <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest">
                       Management
@@ -442,7 +442,7 @@ export default function Layout() {
                 <Leaf size={24} className="sm:w-7 sm:h-7" />
               </div>
               <span className="font-bold tracking-tight text-xl sm:text-3xl text-white">
-                YARDWORX
+                CUTTY
               </span>
             </Link>
 
@@ -656,7 +656,7 @@ export default function Layout() {
             </div>
           </motion.nav>
 
-          <YardChat isOpen={isBrainOpen} setIsOpen={setIsBrainOpen} />
+          <CuttyChat isOpen={isBrainOpen} setIsOpen={setIsBrainOpen} />
           <WalkthroughOverlay />
           <AgenticOutreachDrawer
             isOpen={isOutreachOpen}

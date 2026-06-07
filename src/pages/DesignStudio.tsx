@@ -241,7 +241,7 @@ export default function DesignStudio() {
       const credential = GoogleAuthProvider.credentialFromResult(authResult);
       if (!credential?.accessToken) throw new Error("No token");
 
-      const filename = `YardWorx-Design-${Date.now()}.json`;
+      const filename = `Cutty-Design-${Date.now()}.json`;
       const content = JSON.stringify(result, null, 2);
 
       const res = await fetchApi("/api/integration/drive", {
@@ -279,7 +279,7 @@ export default function DesignStudio() {
           <p className="max-w-xl text-zinc-400 font-bold text-lg uppercase tracking-widest italic pt-2 leading-relaxed">
             {activeCustomer
               ? `Architecting transformation for ${activeCustomer.firstName} ${activeCustomer.lastName}'s property at ${activeCustomer.address}.`
-              : "Upload a photo of the yard, mark what you want changed, and let YardWorx help you design."}
+              : "Upload a photo of the yard, mark what you want changed, and let Cutty help you design."}
           </p>
 
           {(role === "admin" || role === "owner") && (
@@ -468,7 +468,7 @@ export default function DesignStudio() {
                       Creating Design...
                     </p>
                     <p className="micro-label opacity-40">
-                      YardWorx is working on your request...
+                      Cutty is working on your request...
                     </p>
                   </div>
                 </motion.div>
@@ -601,7 +601,7 @@ export default function DesignStudio() {
                         
                         {tenant?.settings?.subFeatures?.semanticStyleLearning && (
                           <div className="mb-4 p-4 bg-black/20 border border-white/5 rounded-2xl text-xs text-white/50 leading-relaxed font-bold">
-                            <span className="text-white">YardWorx Logic: </span>
+                            <span className="text-white">Cutty Logic: </span>
                             Gemini pulled directly from your custom contractor installation heuristics:<br/>
                             <span className="italic opacity-80 mt-1 block border-l-2 border-emerald-500/50 pl-2">
                               "{tenant?.settings?.customInstallRules || 'No custom rules applied.'}"
@@ -780,14 +780,14 @@ export default function DesignStudio() {
                   <BrainCircuit size={40} />
                 </div>
                 <div>
-                  <h2 className="text-2xl sm:text-3xl font-black italic text-white uppercase tracking-normal md:tracking-tighter mb-1">YardWorx Logic Engine</h2>
+                  <h2 className="text-2xl sm:text-3xl font-black italic text-white uppercase tracking-normal md:tracking-tighter mb-1">Cutty Logic Engine</h2>
                   <p className="text-emerald-400 font-bold uppercase tracking-widest text-xs md:text-[11px] bg-emerald-500/10 inline-block px-3 py-1 rounded-md">Semantic Style Learning Active</p>
                 </div>
               </div>
               
               <div className="space-y-6 text-white/70 leading-relaxed text-sm mb-10 text-center sm:text-left">
                 <p>
-                  Welcome to the AI Design Studio. Unlike generic AI tools, YardWorx uses <span className="text-white font-bold">Semantic Style Learning</span> to adopt your specific installation methods and bidding logic automatically.
+                  Welcome to the AI Design Studio. Unlike generic AI tools, Cutty uses <span className="text-white font-bold">Semantic Style Learning</span> to adopt your specific installation methods and bidding logic automatically.
                 </p>
                 <div className="bg-black/40 border border-white/10 rounded-3xl p-6 md:p-8 space-y-6">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
@@ -802,7 +802,7 @@ export default function DesignStudio() {
                     <Trees size={20} className="text-emerald-400 shrink-0 mt-1 sm:mt-0" />
                     <div>
                       <h3 className="text-white font-black uppercase tracking-widest text-xs md:text-[11px] mb-1">Actionable Nuance</h3>
-                      <p className="text-xs text-white/50">YardWorx reads your <span className="text-white">Custom Installation Heuristics</span> from settings to select your preferred plant spacing, soils, and material volumes.</p>
+                      <p className="text-xs text-white/50">Cutty reads your <span className="text-white">Custom Installation Heuristics</span> from settings to select your preferred plant spacing, soils, and material volumes.</p>
                     </div>
                   </div>
 

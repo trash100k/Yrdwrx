@@ -16,7 +16,7 @@ export default function TermsOfService() {
     },
     {
       title: "3. Professional Fair Play",
-      desc: "We are all honest business operators. No using the system for malicious attempts, scraping, reverse-engineering our software, or trying to jailbreak the YardWorx AI model. Play by the rules, and we will protect your workspace.",
+      desc: "We are all honest business operators. No using the system for malicious attempts, scraping, reverse-engineering our software, or trying to jailbreak the Cutty AI model. Play by the rules, and we will protect your workspace.",
     },
     {
       title: "4. Practical Liability Limits & Leak Fixes",
@@ -28,7 +28,7 @@ export default function TermsOfService() {
     },
     {
       title: "6. Bad Actors Policy (Immediate Term & No Refunds)",
-      desc: "If you are found doing something even remotely malicious, abusive, or harmful on YardWorx, we reserve the right to ban you instantly with NO refund. This definition of a bad actor is a living document that can evolve, but 99% of honest folks have absolutely nothing to worry about.",
+      desc: "If you are found doing something even remotely malicious, abusive, or harmful on CuttyOS, we reserve the right to ban you instantly with NO refund. This definition of a bad actor is a living document that can evolve, but 99% of honest folks have absolutely nothing to worry about.",
     },
     {
       title: "7. Steal, Cheat, or Lie (We Will Act Legally)",
@@ -36,18 +36,18 @@ export default function TermsOfService() {
     },
     {
       title: "8. Third-Party Connections (Your Keys, Your Rules)",
-      desc: "If you hook up any and all external third-party tools, platforms, or services to YardWorx using your own API keys or webhooks, that is purely your responsibility. We provide the socket, but you own the pipeline. If any external tools misfire or cause damage, we hold ZERO liability for those outside platforms.",
+      desc: "If you hook up any and all external third-party tools, platforms, or services to CuttyOS using your own API keys or webhooks, that is purely your responsibility. We provide the socket, but you own the pipeline. If any external tools misfire or cause damage, we hold ZERO liability for those outside platforms.",
     },
     {
       title: "9. Service Level (The 'As-Is' Reality)",
-      desc: "YardWorx is robust as hell and built on top-tier cloud architecture. But, we explicitly DO NOT guarantee 99.9% uptime or flawless perfection at all times. The platform is provided 'As-Is'. Sometimes the digital weather gets rough, and you accept that risk by operating here.",
+      desc: "CuttyOS is robust as hell and built on top-tier cloud architecture. But, we explicitly DO NOT guarantee 99.9% uptime or flawless perfection at all times. The platform is provided 'As-Is'. Sometimes the digital weather gets rough, and you accept that risk by operating here.",
     },
   ];
 
   const verbatimSections = [
     {
       title: "1. Acceptance of Terms",
-      text: "By accessing or using the YardWorx platform, provided by Gaelworx AI, you agree to be bound by these Terms of Service. This applies collectively to you as the business owner, your authorized contractors/employees utilizing the field application, and your clients utilizing the client portal. YardWorx provides a business operations software solution for field service professionals.",
+      text: "By accessing or using the CuttyOS platform, provided by Gaelworx AI, you agree to be bound by these Terms of Service. This applies collectively to you as the business owner, your authorized contractors/employees utilizing the field application, and your clients utilizing the client portal. CuttyOS provides a business operations software solution for field service professionals.",
     },
     {
       title: "2. Account Responsibility",
@@ -55,7 +55,7 @@ export default function TermsOfService() {
     },
     {
       title: "3. Acceptable Use",
-      text: "You agree not to use YardWorx for any unlawful purpose or to conduct any activity that would constitute a civil or criminal offense or violate any law. You may not attempt to reverse-engineer, disrupt, or compromise the integrity of Gaelworx AI's software or artificial intelligence pipelines. Client interfaces must not be abused for malicious intent.",
+      text: "You agree not to use CuttyOS for any unlawful purpose or to conduct any activity that would constitute a civil or criminal offense or violate any law. You may not attempt to reverse-engineer, disrupt, or compromise the integrity of Gaelworx AI's software or artificial intelligence pipelines. Client interfaces must not be abused for malicious intent.",
     },
     {
       title: "4. Limitation of Liability & Leak Rectification",
@@ -63,7 +63,7 @@ export default function TermsOfService() {
     },
     {
       title: "5. Data Rights & Portability",
-      text: "Gaelworx AI ensures you have full, unencumbered rights to export your primary data at any time through our native platform tools to guarantee data portability. However, by using YardWorx, you grant Gaelworx AI the right to aggregate, anonymize, and commercialize strictly non-identifiable usage statistics and backend operational telemetry, which we may legally share or sell to third parties to improve industry analytics.",
+      text: "Gaelworx AI ensures you have full, unencumbered rights to export your primary data at any time through our native platform tools to guarantee data portability. However, by using CuttyOS, you grant Gaelworx AI the right to aggregate, anonymize, and commercialize strictly non-identifiable usage statistics and backend operational telemetry, which we may legally share or sell to third parties to improve industry analytics.",
     },
     {
       title: "6. Bad Actors Policy & Discretionary Termination",
@@ -71,15 +71,15 @@ export default function TermsOfService() {
     },
     {
       title: "7. Fraud Prevention & Mandatory Court Redress",
-      text: "YardWorx is founded upon a deep moral purpose: good people empowering good people. In the event that a tenant or user is caught attempting to steal, lie, cheat, defraud transaction paths, or submit fraudulent invoices to their clients through our integrations, Gaelworx AI reserves the absolute right to pursue civil litigation and criminal complaints in a court of law. Such unethical actions damage our collective reputation, raise server costs, and ruin community trust; we will meet them with unconditional legal opposition.",
+      text: "CuttyOS is founded upon a deep moral purpose: good people empowering good people. In the event that a tenant or user is caught attempting to steal, lie, cheat, defraud transaction paths, or submit fraudulent invoices to their clients through our integrations, Gaelworx AI reserves the absolute right to pursue civil litigation and criminal complaints in a court of law. Such unethical actions damage our collective reputation, raise server costs, and ruin community trust; we will meet them with unconditional legal opposition.",
     },
     {
       title: "8. Third-Party Integrations & API Non-Liability",
-      text: "YardWorx may provide webhook endpoints, OAuth connections, or API key slots enabling integrations with any and all external third-party providers, platforms, or services. You expressly acknowledge that Gaelworx AI exercises no control over these external services. You remain solely responsible for the configuration, billing, and operational consequences of any integrated third-party pipelines. Gaelworx AI holds absolutely zero liability for data corruption, service interruptions, or unauthorized access stemming from third-party connections or user-supplied API keys.",
+      text: "CuttyOS may provide webhook endpoints, OAuth connections, or API key slots enabling integrations with any and all external third-party providers, platforms, or services. You expressly acknowledge that Gaelworx AI exercises no control over these external services. You remain solely responsible for the configuration, billing, and operational consequences of any integrated third-party pipelines. Gaelworx AI holds absolutely zero liability for data corruption, service interruptions, or unauthorized access stemming from third-party connections or user-supplied API keys.",
     },
     {
       title: "9. Service Level Agreement (SLA) Exclusion & 'As-Is' Provision",
-      text: "While Gaelworx AI deploys enterprise-grade reliability measures, YardWorx is provided on a strictly 'AS-IS' and 'AS-AVAILABLE' basis with no express or implied warranty of uninterrupted service. Gaelworx AI explicitly disclaims any Service Level Agreement (SLA) guarantees, including any specific percentage of uptime (e.g., 99.9%). You waive any right to claim financial damages, lost revenue, or operational compensation arising from service downtime, degraded performance, or scheduled maintenance.",
+      text: "While Gaelworx AI deploys enterprise-grade reliability measures, CuttyOS is provided on a strictly 'AS-IS' and 'AS-AVAILABLE' basis with no express or implied warranty of uninterrupted service. Gaelworx AI explicitly disclaims any Service Level Agreement (SLA) guarantees, including any specific percentage of uptime (e.g., 99.9%). You waive any right to claim financial damages, lost revenue, or operational compensation arising from service downtime, degraded performance, or scheduled maintenance.",
     },
   ];
 

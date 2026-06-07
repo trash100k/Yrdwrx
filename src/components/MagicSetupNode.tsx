@@ -100,7 +100,7 @@ export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }
             <Sparkles size={20} /> Zero-Touch Setup
         </h3>
         <p className="text-sm text-emerald-400/80 mb-6 font-medium relative z-10 max-w-sm">
-            Skip the forms. Dictate your info, scan a website, or upload a business card to let YardWorx architect your system automatically.
+            Skip the forms. Dictate your info, scan a website, or upload a business card to let Cutty architect your system automatically.
         </p>
 
         {!isUrlMode ? (

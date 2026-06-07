@@ -35,7 +35,7 @@ const mockSocialProofReviews = [
   {
     author: "Evelyn K.",
     property: "North Hills HOA President",
-    text: "YardWorx saved us $15k in water overhauls this spring alone. Outstanding diligence.",
+    text: "Cutty saved us $15k in water overhauls this spring alone. Outstanding diligence.",
     rating: 5,
   },
   {
@@ -164,7 +164,7 @@ export default function AgenticOutreachDrawer({
 
       bodyText += `Would you be open to a 5-minute visual walkthrough of how our real-time inventory feed minimizes water waste and lowers HOA liability?\n\n`;
       bodyText += `Best regards,\n`;
-      bodyText += `YardWorx Enterprise Group\n`;
+      bodyText += `Cutty Enterprise Group\n`;
       bodyText += `Operational Command Unit`;
 
       setEmailSubject(subject);

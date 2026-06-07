@@ -4,7 +4,7 @@ import { db } from "./firebase";
 
 export const seedDatabaseIfEmpty = async (formData?: any) => {
   const loc = formData?.serviceArea || "Meridian, MS";
-  const comp = formData?.companyName || "YardWorx Local Operations";
+  const comp = formData?.companyName || "Cutty Local Operations";
   const tenantId = formData?.tenantId || "genesis-1";
 
   const generateMockCustomers = () => [

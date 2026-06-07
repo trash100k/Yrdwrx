@@ -117,7 +117,7 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
                 </div>
                 <h1 className="text-2xl font-black uppercase tracking-normal md:tracking-tighter text-white">Required Agreements</h1>
                 <p className="text-white/60 text-xs mt-2 leading-relaxed pb-4 border-b border-white/5">
-                  To continue using YardWorx (operated by Gaelworx AI), you must review and accept our updated operational terms and data policies.
+                  To continue using CuttyOS (operated by Gaelworx AI), you must review and accept our updated operational terms and data policies.
                 </p>
             </header>
 

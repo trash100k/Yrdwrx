@@ -94,7 +94,7 @@ export default function ClientPortal() {
     try {
       const res = await ApiClient.post<any>("/api/stripe/checkout", { 
         amount: 145, 
-        description: "YardWorx Landscapes Invoice: INV-2026-104",
+        description: "Cutty Landscapes Invoice: INV-2026-104",
         successUrl: window.location.href, 
         cancelUrl: window.location.href,
         tenantStripeAccountId: tenant?.stripeAccountId
@@ -206,7 +206,7 @@ export default function ClientPortal() {
           </div>
           <div className="bg-white/5 border-2 border-white/10 rounded-2xl p-4 sm:text-right">
             <p className="text-xs md:text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Serviced By</p>
-            <p className="font-bold text-lg leading-none">YardWorx Landscapes</p>
+            <p className="font-bold text-lg leading-none">Cutty Landscapes</p>
           </div>
         </header>
 
@@ -378,7 +378,7 @@ export default function ClientPortal() {
               <div className="bg-zinc-900 border-4 border-emerald-500/10 rounded-2xl p-5 sm:p-8 shadow-2xl relative overflow-hidden">
                 {/* Branding Watermark */}
                 <div className="absolute -top-10 -right-10 text-[120px] font-black italic text-white/[0.02] uppercase select-none pointer-events-none">
-                  YARDWORX
+                  CUTTY
                 </div>
 
                 <div className="flex flex-col xl:flex-row gap-4 sm:gap-8 relative z-10">
@@ -488,10 +488,10 @@ export default function ClientPortal() {
               <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2 custom-scrollbar">
                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4 self-start max-w-[85%]">
                     <p className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2">Automated Notification</p>
-                    <p className="text-sm">YardWorx crew has finished their weekly maintenance. Check your overview tab for details!</p>
+                    <p className="text-sm">Cutty crew has finished their weekly maintenance. Check your overview tab for details!</p>
                  </div>
                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 self-start max-w-[85%]">
-                    <p className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2">YardWorx Dispatch</p>
+                    <p className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2">Cutty Dispatch</p>
                     <p className="text-sm">Hi there! We are pushing your mow back by one day due to the forecasted rain tomorrow.</p>
                  </div>
                  
@@ -501,7 +501,7 @@ export default function ClientPortal() {
                       className={`rounded-2xl p-4 max-w-[85%] ${m.sender === 'client' ? 'bg-blue-500/10 border border-blue-500/20 self-end ml-auto' : 'bg-emerald-500/10 border border-emerald-500/20 self-start'}`}
                     >
                       <p className={`text-xs md:text-[10px] font-bold uppercase tracking-widest mb-2 ${m.sender === 'client' ? 'text-blue-400' : 'text-emerald-400'}`}>
-                        {m.sender === 'client' ? 'You' : 'YardWorx Dispatch'}
+                        {m.sender === 'client' ? 'You' : 'Cutty Dispatch'}
                       </p>
                       <p className="text-sm">{m.text}</p>
                     </div>
@@ -510,14 +510,14 @@ export default function ClientPortal() {
               </div>
 
               <form onSubmit={handleSendMessage} className="relative mt-auto pt-4 border-t border-white/10 flex gap-2">
-                <label htmlFor="portal-message-input" className="sr-only">Message YardWorx Dispatch</label>
+                <label htmlFor="portal-message-input" className="sr-only">Message Cutty Dispatch</label>
                 <input 
                   id="portal-message-input"
                   type="text" 
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
-                  placeholder="Reply to YardWorx team..."
-                  aria-label="Reply to YardWorx team"
+                  placeholder="Reply to Cutty team..."
+                  aria-label="Reply to Cutty team"
                   className="w-full bg-black/50 border-2 border-white/10 rounded-xl py-3 px-4 text-sm text-white focus:border-emerald-500/50 focus:outline-none transition-colors" 
                 />
                 <button 

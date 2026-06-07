@@ -24,22 +24,22 @@ export default function PrivacyPolicy() {
     },
     {
       title: "5. The Right to Be Forgotten",
-      desc: "If you choose to close your storefront or move on from YardWorx, you can click 'Delete' to securely clean out all association telemetry, client rosters, and job maps instantly and permanently.",
+      desc: "If you choose to close your storefront or move on from Cutty, you can click 'Delete' to securely clean out all association telemetry, client rosters, and job maps instantly and permanently.",
     },
   ];
 
   const verbatimSections = [
     {
       title: "1. Information We Collect",
-      text: "We collect personal information that you provide to us when you register for YardWorx, operated by Gaelworx AI. For owners, this includes business details, billing information, and operational metrics. For contractors, this includes location data during shifts and performance logs. For clients, this includes property metrics and communication histories. We also automatically collect telemetry such as IP addresses and device usage data.",
+      text: "We collect personal information that you provide to us when you register for CuttyOS, operated by Gaelworx AI. For owners, this includes business details, billing information, and operational metrics. For contractors, this includes location data during shifts and performance logs. For clients, this includes property metrics and communication histories. We also automatically collect telemetry such as IP addresses and device usage data.",
     },
     {
       title: "2. How We Use Information",
-      text: "Gaelworx AI uses the information we collect to operate, maintain, and provide the features of YardWorx. Your data may be used to deliver targeted notifications to clients, improve algorithmic scheduling for contractors, and train localized heuristics for the owner's tenant environment. While we do not sell any personally identifiable data, we may aggregate and anonymize backend operational capabilities and usage metadata. This completely anonymized data may be commercialized or sold by Gaelworx AI in compliance with standard legal processes to improve broader industry analytics and heuristics.",
+      text: "Gaelworx AI uses the information we collect to operate, maintain, and provide the features of CuttyOS. Your data may be used to deliver targeted notifications to clients, improve algorithmic scheduling for contractors, and train localized heuristics for the owner's tenant environment. While we do not sell any personally identifiable data, we may aggregate and anonymize backend operational capabilities and usage metadata. This completely anonymized data may be commercialized or sold by Gaelworx AI in compliance with standard legal processes to improve broader industry analytics and heuristics.",
     },
     {
       title: "3. CCPA Data Rights (California)",
-      text: "The California Consumer Privacy Act (CCPA) provides California residents with specific rights regarding their personal information. You have the right to request access to the specific pieces of personal information we have collected about you over the past 12 months. You have the right to request deletion of your data. You have the right to non-discrimination for exercising your privacy rights. YardWorx does not sell personal information as defined by the CCPA, though it may commercialize anonymized aggregates as described above.",
+      text: "The California Consumer Privacy Act (CCPA) provides California residents with specific rights regarding their personal information. You have the right to request access to the specific pieces of personal information we have collected about you over the past 12 months. You have the right to request deletion of your data. You have the right to non-discrimination for exercising your privacy rights. Cutty does not sell personal information as defined by the CCPA, though it may commercialize anonymized aggregates as described above.",
     },
     {
       title: "4. Data Portability & Rights (EU/UK & Global)",
@@ -47,7 +47,7 @@ export default function PrivacyPolicy() {
     },
     {
       title: "5. Your Controls ('Right to be Forgotten')",
-      text: "You maintain full control over your personal data. If you wish to terminate your relationship with YardWorx and exercise your right to be forgotten, you may securely delete all profile metadata, tenant association, and operational history from our servers using the Settings dashboard.",
+      text: "You maintain full control over your personal data. If you wish to terminate your relationship with Cutty and exercise your right to be forgotten, you may securely delete all profile metadata, tenant association, and operational history from our servers using the Settings dashboard.",
     },
   ];
 

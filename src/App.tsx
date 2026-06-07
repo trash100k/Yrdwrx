@@ -173,7 +173,7 @@ export default function App() {
         <div className="atmosphere" aria-hidden="true" />{" "}
         <div className="text-white/40 animate-pulse font-sans text-sm font-black uppercase tracking-[0.3em] text-center">
           {" "}
-          Starting YardWorx...{" "}
+          Starting Cutty...{" "}
         </div>{" "}
       </main>
     );
@@ -666,7 +666,7 @@ function AuthPage({
           </div>{" "}
         </div>{" "}
         <h1 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black italic tracking-normal md:tracking-tighter leading-none mb-3 sf-text-gradient uppercase">
-          YardWorx
+          Cutty
         </h1>{" "}
         <p className="text-zinc-400 mb-8 font-semibold text-sm tracking-wide uppercase">
           Operational Cockpit Portal

@@ -17,7 +17,7 @@ import {
   Webhook
 } from "lucide-react";
 
-import BrainChat from "../components/YardChat";
+import BrainChat from "../components/CuttyChat";
 
 import { DeepResearchTab, VideoMarketingTab } from "../components/AgentLabs";
 
@@ -32,7 +32,7 @@ export default function Agent() {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/10 rounded-md border border-emerald-500/20 text-xs font-medium tracking-wide text-emerald-400">
             <Sparkles size={14} />
-            YardWorx Agent Workspace
+            Cutty Agent Workspace
           </div>
           <h1 className="text-3xl sm:text-4xl font-sans font-bold tracking-tight text-white mt-2">
             Copilot Studio
@@ -163,7 +163,7 @@ export default function Agent() {
                     </div>
                     <div>
                       <h2 className="text-sm font-bold text-white leading-tight capitalize">
-                        {activeTab === "chat" ? "YardPilot" : activeTab.replace("-", " ")}
+                        {activeTab === "chat" ? "Cutty Copilot" : activeTab.replace("-", " ")}
                       </h2>
                       <p className="text-[10px] text-zinc-400 font-medium font-mono uppercase tracking-widest leading-none mt-1">
                         System ready
@@ -255,7 +255,7 @@ export default function Agent() {
                          <div className="space-y-4">
                            <div>
                              <label className="block text-sm font-medium text-zinc-300 mb-1">Agent Name</label>
-                             <input type="text" defaultValue="YardPilot" className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                             <input type="text" defaultValue="Cutty Copilot" className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-emerald-500" />
                            </div>
                            <div>
                              <label className="block text-sm font-medium text-zinc-300 mb-1">System Prompt / Persona</label>

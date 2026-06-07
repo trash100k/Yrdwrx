@@ -135,7 +135,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     }
     if (step === 4) {
       if (!formData.agreements.tos || !formData.agreements.privacy || !formData.agreements.dataMap || !formData.agreements.ai) {
-        setError("You must agree to all operational terms, data policies, and AI guidelines to activate your YardWorx account.");
+        setError("You must agree to all operational terms, data policies, and AI guidelines to activate your CuttyOS account.");
         return;
       }
     }
@@ -232,7 +232,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   Company <br /> Details.
                 </h1>{" "}
                 <p className="text-white/40 font-medium text-lg leading-relaxed">
-                  Let's get your landscaping business set up in YardWorx.
+                  Let's get your landscaping business set up in Cutty.
                 </p>{" "}
               </header>{" "}
               <div className="space-y-6">
@@ -458,7 +458,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   Ready to <br /> Grow.
                 </h1>{" "}
                 <p className="text-white/40 font-medium text-lg leading-relaxed">
-                  Your account is ready. YardWorx is now active and ready for your
+                  Your account is ready. Cutty is now active and ready for your
                   first job.
                 </p>{" "}
               </header>{" "}
@@ -467,7 +467,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <Zap size={24} className="text-emerald-400 mt-1 shrink-0" />
                   <div>
                     <p className="text-sm font-black uppercase tracking-widest text-white mb-1">
-                      YardWorx Help Active
+                      Cutty Help Active
                     </p>
                     <p className="text-xs md:text-[11px] text-white/40 font-medium leading-relaxed italic uppercase">
                       Ask for client details or site info anytime.
@@ -495,7 +495,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                       Load Practice Data
                     </p>
                     <p className="text-xs md:text-[11px] text-emerald-400/70 font-medium leading-relaxed italic uppercase">
-                      Pre-fill your account with example clients, jobs, and inventory so you can see how YardWorx works immediately.
+                      Pre-fill your account with example clients, jobs, and inventory so you can see how Cutty works immediately.
                     </p>
                   </div>
                 </label>
@@ -530,7 +530,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                         Terms of Service
                       </p>
                       <p className="text-xs md:text-[10px] text-white/40 font-medium leading-relaxed italic uppercase">
-                        I agree to the <a href="/terms" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>YardWorx Terms of Service</a> governing system usage, liability, and contractor behavior under my tenant.
+                        I agree to the <a href="/terms" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>CuttyOS Terms of Service</a> governing system usage, liability, and contractor behavior under my tenant.
                       </p>
                     </div>
                   </label>
@@ -554,7 +554,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                         Privacy Policy
                       </p>
                       <p className="text-xs md:text-[10px] text-white/40 font-medium leading-relaxed italic uppercase">
-                        I agree to the <a href="/privacy" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>YardWorx Privacy Policy</a> regarding the collection and routing of owner, contractor, and client data.
+                        I agree to the <a href="/privacy" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>CuttyOS Privacy Policy</a> regarding the collection and routing of owner, contractor, and client data.
                       </p>
                     </div>
                   </label>
@@ -602,7 +602,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                         AI Usage & Ethics
                       </p>
                       <p className="text-xs md:text-[10px] text-white/40 font-medium leading-relaxed italic uppercase">
-                        I accept the <a href="/ai-usage" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>YardWorx AI Usage Policy</a>, stipulating human-in-the-loop review mandates for all AI-generated outputs and communications.
+                        I accept the <a href="/ai-usage" target="_blank" className="underline hover:text-white" onClick={e => e.stopPropagation()}>CuttyOS AI Usage Policy</a>, stipulating human-in-the-loop review mandates for all AI-generated outputs and communications.
                       </p>
                     </div>
                   </label>

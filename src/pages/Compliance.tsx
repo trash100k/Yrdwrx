@@ -312,7 +312,7 @@ export default function Compliance() {
           </div>
           <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
             <h3 className="text-lg font-black text-white mb-2">PCI-DSS</h3>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-4">No sensitive cardholder data is stored on YardWorx servers. All transactions route securely via Stripe Connect.</p>
+            <p className="text-sm text-zinc-400 leading-relaxed mb-4">No sensitive cardholder data is stored on CuttyOS servers. All transactions route securely via Stripe Connect.</p>
             <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase"><CheckCircle size={14} /> Active Enforced</div>
           </div>
         </div>

@@ -331,7 +331,7 @@ export default function CRM() {
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (!credential?.accessToken) throw new Error("No token");
 
-      const title = `YardWorx Sync: ${selectedCustomer.firstName} ${selectedCustomer.lastName}`;
+      const title = `Cutty Sync: ${selectedCustomer.firstName} ${selectedCustomer.lastName}`;
       const body = `Contact: ${selectedCustomer.phone}\\nStatus: ${selectedCustomer.status}\\n\\nNotes:\\n${customerNotes}`;
 
       const res = await fetchApi("/api/integration/keep", {
