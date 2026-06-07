@@ -146,7 +146,7 @@ export default function Portfolio() {
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.8, ease: "easeInOut" }}
-                    className="absolute inset-0 w-full h-full object-cover opacity-80"
+                    className="w-full h-full object-cover shadow-2xl absolute inset-0"
                 />
             </AnimatePresence>
             

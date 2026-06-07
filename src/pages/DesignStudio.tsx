@@ -314,6 +314,7 @@ export default function DesignStudio() {
               ref={fileInputRef}
               onChange={handleImageUpload}
               accept="image/*"
+              capture="environment"
               className="hidden"
             />
           </div>
@@ -558,12 +559,14 @@ export default function DesignStudio() {
                       <div className="flex flex-col gap-4">
                         {mockupImage ? (
                           <div className="rounded-2xl overflow-hidden border border-emerald-500/20 shadow-[0_0_40px_-15px_rgba(16,185,129,0.3)]">
-                            <div className="p-3 bg-emerald-500/10 border-b border-emerald-500/20 flex items-center justify-between">
+                            <div className="p-3 bg-emerald-500/10 border-b border-emerald-500/20 flex items-center justify-between z-10 relative backdrop-blur-sm">
                               <span className="text-emerald-400 font-bold uppercase tracking-widest text-[10px] flex items-center gap-2">
                                 <Sparkles size={12} /> AI Generative Mockup (Gemini)
                               </span>
                             </div>
-                            <img src={mockupImage} alt="AI Generated Mockup" className="w-full h-auto" />
+                            <div className="relative w-full aspect-video bg-black/50">
+                              <img src={mockupImage} alt="AI Generated Mockup" className="absolute inset-0 w-full h-full object-cover" />
+                            </div>
                           </div>
                         ) : (
                           <button

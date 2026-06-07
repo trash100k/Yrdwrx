@@ -71,26 +71,10 @@ export default function MarkupCanvas({
   useEffect(() => {
     if (!fabricCanvas || !backgroundImage) return;
 
-    fabric.FabricImage.fromURL(backgroundImage).then((img) => {
-      // Scale image to fit canvas
-      const canvasWidth = fabricCanvas.width!;
-      const canvasHeight = fabricCanvas.height!;
-      const scaleX = canvasWidth / img.width!;
-      const scaleY = canvasHeight / img.height!;
-      const scale = Math.min(scaleX, scaleY);
-
-      img.set({
-        scaleX: scale,
-        scaleY: scale,
-        left: (canvasWidth - img.width! * scale) / 2,
-        top: (canvasHeight - img.height! * scale) / 2,
-        selectable: false,
-        evented: false,
-      });
-
-      fabricCanvas.backgroundImage = img;
-      fabricCanvas.renderAll();
-    });
+    // We no longer set the background image on the fabric canvas itself.
+    // The native HTML <img> tag handles it. We just ensure the canvas is transparent.
+    fabricCanvas.backgroundColor = 'transparent';
+    fabricCanvas.renderAll();
   }, [fabricCanvas, backgroundImage]);
 
   const setTool = (tool: "select" | "pencil" | "rect" | "circle" | "x") => {
@@ -158,39 +142,46 @@ export default function MarkupCanvas({
   const clearCanvas = () => {
     if (!fabricCanvas) return;
     fabricCanvas.clear();
-    // Re-render background if it exists
-    if (backgroundImage) {
-      fabric.FabricImage.fromURL(backgroundImage).then((img) => {
-        const canvasWidth = fabricCanvas.width!;
-        const canvasHeight = fabricCanvas.height!;
-        const scaleX = canvasWidth / img.width!;
-        const scaleY = canvasHeight / img.height!;
-        const scale = Math.min(scaleX, scaleY);
-        img.set({
-          scaleX: scale,
-          scaleY: scale,
-          left: (canvasWidth - img.width! * scale) / 2,
-          top: (canvasHeight - img.height! * scale) / 2,
-          selectable: false,
-          evented: false,
-        });
-        fabricCanvas.backgroundImage = img;
-        fabricCanvas.renderAll();
-      });
-    }
+    fabricCanvas.backgroundColor = 'transparent';
+    fabricCanvas.renderAll();
   };
 
   const exportCanvas = () => {
-    if (!fabricCanvas) return;
-    const dataUrl = fabricCanvas.toDataURL({
-      format: "jpeg",
-      quality: 0.8,
-    });
-    onSave(dataUrl);
+    if (!fabricCanvas || !backgroundImage) return;
+
+    // Create a temporary off-screen canvas to composite the background image
+    // and the drawn fabric canvas together.
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = fabricCanvas.width!;
+    tempCanvas.height = fabricCanvas.height!;
+    const ctx = tempCanvas.getContext("2d");
+    if (!ctx) return;
+
+    // First draw the background image
+    const img = new Image();
+    img.onload = () => {
+      // Replicate object-cover logic
+      const scale = Math.max(tempCanvas.width / img.width, tempCanvas.height / img.height);
+      const x = (tempCanvas.width / 2) - (img.width / 2) * scale;
+      const y = (tempCanvas.height / 2) - (img.height / 2) * scale;
+
+      ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+      // Then draw the fabric canvas on top
+      const fabricDataUrl = fabricCanvas.toDataURL({ format: "png" });
+      const fabricImg = new Image();
+      fabricImg.onload = () => {
+        ctx.drawImage(fabricImg, 0, 0);
+        // Export final composite
+        onSave(tempCanvas.toDataURL("image/jpeg", 0.8));
+      };
+      fabricImg.src = fabricDataUrl;
+    };
+    img.src = backgroundImage;
   };
 
   return (
-    <div className="flex flex-col gap-6 h-full">
+    <div className="flex flex-col gap-6 h-full w-full">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-white/10">
           <ToolButton
@@ -245,9 +236,19 @@ export default function MarkupCanvas({
 
       <div
         ref={containerRef}
-        className="flex-1 bg-black/40 rounded-2xl border border-white/10 overflow-hidden relative group"
+        className="flex-1 bg-black/40 rounded-2xl border border-white/10 overflow-hidden relative group min-h-[400px] w-full"
       >
-        <canvas ref={canvasRef} />
+        {backgroundImage && (
+          <img
+            src={backgroundImage}
+            alt="Design Workspace"
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          />
+        )}
+        <div className="absolute inset-0 z-10">
+          <canvas ref={canvasRef} className="w-full h-full" />
+        </div>
+
         {!backgroundImage && (
           <div className="absolute inset-0 flex items-center justify-center flex-col gap-4 pointer-events-none">
             <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center border border-white/10">
