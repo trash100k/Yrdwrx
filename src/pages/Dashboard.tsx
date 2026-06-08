@@ -475,8 +475,8 @@ export default function Dashboard() {
       // Create active dispatches for today in their genuine Google Calendar!
       for (const crew of crews) {
         const eventPayload = {
-          summary: `Cutty Job: ${crew.job} (${crew.name})`,
-          description: `Supervised by ${crew.leader}. Equipment in transit: ${crew.equip}. Synced by Cutty Workspace Assistant.`,
+          summary: `YardWorx Job: ${crew.job} (${crew.name})`,
+          description: `Supervised by ${crew.leader}. Equipment in transit: ${crew.equip}. Synced by YardWorx Workspace Assistant.`,
           start: {
             dateTime: new Date().toISOString(),
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -531,7 +531,7 @@ export default function Dashboard() {
 
     const htmlBody = `
       <div style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 24px; border-radius: 12px;">
-        <h2 style="color: #10b981; text-transform: uppercase; font-size: 18px; margin-bottom: 4px;">Cutty Workspace Sync</h2>
+        <h2 style="color: #10b981; text-transform: uppercase; font-size: 18px; margin-bottom: 4px;">YardWorx Workspace Sync</h2>
         <h1 style="font-size: 24px; margin-top: 0; margin-bottom: 20px;">Active Daily Dispatch Overview</h1>
         <p>Operational summary dispatched for today's weather threshold.</p>
         <div style="background-color: #f9fafb; border-left: 4px solid #10b981; padding: 16px; margin-bottom: 20px;">
@@ -545,7 +545,7 @@ export default function Dashboard() {
           <li><strong>Gamma Crew:</strong> Hillside Manor ( Wilson )</li>
         </ul>
         <hr style="border: 0; border-top: 1px solid #eee; margin: 24px 0;" />
-        <p style="font-size: 11px; color: #9ca3af; text-align: center;">Cutty AI • Simple Software for Smart Landscaping</p>
+        <p style="font-size: 11px; color: #9ca3af; text-align: center;">YardWorx AI • Simple Software for Smart Landscaping</p>
       </div>
     `;
 
@@ -561,7 +561,7 @@ export default function Dashboard() {
         `To: ${userEmail}`,
         "Content-Type: text/html; charset=utf-8",
         "MIME-Version: 1.0",
-        "Subject: Cutty Strategic Morning Dispatch Briefing",
+        "Subject: YardWorx Strategic Morning Dispatch Briefing",
         "",
         htmlBody,
       ].join("\r\n");
@@ -621,7 +621,7 @@ export default function Dashboard() {
       if (key === "drive") {
         const boundary = "foo_bar_baz";
         const metadata = {
-          name: `Cutty Inspection Report - ${new Date().toLocaleDateString()}.txt`,
+          name: `YardWorx Inspection Report - ${new Date().toLocaleDateString()}.txt`,
           mimeType: "text/plain",
         };
         const content = `MERIDIAN GREEN\nInspection Report\nDate: ${new Date().toLocaleDateString()}\nStatus: All clear.`;

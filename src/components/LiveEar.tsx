@@ -183,7 +183,7 @@ export default function LiveEar() {
     const call = toolCall.functionCalls[0];
     setLastAction(call);
 
-    // Cutty Guidance Logic
+    // YardWorx Guidance Logic
     if (call.name === "schedule_job") {
       setJobStatus(`Scheduling Job...`);
       if (location.pathname !== "/scheduler") navigate("/scheduler");

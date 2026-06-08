@@ -248,7 +248,7 @@ export default function BrainChat({
           {
             id: String(Date.now()),
             sender: "agent",
-            text: "Welcome to Cutty! Before we dive in, please note: our AI provides intelligent suggestions (like routes, estimates, and safety checks), but your field expertise always has the final say. Do you understand and accept this responsibility?",
+            text: "Welcome to YardWorx! Before we dive in, please note: our AI provides intelligent suggestions (like routes, estimates, and safety checks), but your field expertise always has the final say. Do you understand and accept this responsibility?",
           },
         ]);
       } else if (!hasSeen) {
@@ -257,7 +257,7 @@ export default function BrainChat({
           {
             id: String(Date.now()),
             sender: "agent",
-            text: "Welcome to Cutty. I see you're new here. Would you like a quick tour of your new dashboard and tools? I can walk you through everything right now.",
+            text: "Welcome to YardWorx. I see you're new here. Would you like a quick tour of your new dashboard and tools? I can walk you through everything right now.",
           },
         ]);
       } else {
@@ -665,7 +665,7 @@ export default function BrainChat({
             </div>
             <div>
               <h3 className="text-lg sm:text-xl font-black italic text-white leading-none uppercase">
-                Cutty Copilot
+                YardPilot
               </h3>
               <div className="flex items-center gap-2 mt-1">
                 <p className="text-[9px] sm:text-xs md:text-[10px] uppercase tracking-widest font-black text-emerald-400">
