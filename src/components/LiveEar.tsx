@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useCuttyGuide } from "../contexts/CuttyGuideContext";
+import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
 import { useToast } from "../contexts/ToastContext";
 
 import { useFieldMode } from "../contexts/FieldModeContext";
@@ -24,7 +24,7 @@ import { useFieldMode } from "../contexts/FieldModeContext";
 export default function LiveEar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setFocus, setJobStatus } = useCuttyGuide();
+  const { setFocus, setJobStatus } = useYardWorxGuide();
   const { toggleFieldMode } = useFieldMode();
   const { showToast } = useToast();
   const [isActive, setIsActive] = useState(false);
@@ -187,7 +187,7 @@ export default function LiveEar() {
     const call = toolCall.functionCalls[0];
     setLastAction(call);
 
-    // Cutty Guidance Logic
+    // YardWorx Guidance Logic
     if (call.name === "schedule_job") {
       setJobStatus(`Scheduling Job...`);
       if (location.pathname !== "/scheduler") navigate("/scheduler");

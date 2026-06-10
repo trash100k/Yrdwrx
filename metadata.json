@@ -1,5 +1,5 @@
 {
-  "name": "Cutty",
+  "name": "YardWorx",
   "description": "Simplified landscaping management platform for precision field operations, HOA coordination, and smart inventory tracking.",
   "requestFramePermissions": ["geolocation", "microphone", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

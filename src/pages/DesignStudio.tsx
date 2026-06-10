@@ -196,25 +196,46 @@ export default function DesignStudio() {
     }
   }, [location.state]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const base64 = await compressImage(file, 1200, 1200, 0.8);
-        
-        setImage(base64);
-        setActiveTab("scribble");
-        
-        // Also capture the original natural aspect ratio
-        const img = new Image();
-        img.onload = () => {
-          setImageAspectRatio(img.width / img.height);
-        };
-        img.src = base64;
-      } catch (err) {
-        console.error("Image compression error:", err);
+    if (!file) return;
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      const MAX_WIDTH = 1080;
+      const MAX_HEIGHT = 1080;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
       }
-    }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      ctx?.drawImage(img, 0, 0, width, height);
+
+      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75);
+      setImage(compressedBase64);
+      setActiveTab("scribble");
+      setImageAspectRatio(width / height);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
   };
 
   const generateMockup = async () => {
@@ -324,7 +345,7 @@ export default function DesignStudio() {
       const credential = GoogleAuthProvider.credentialFromResult(authResult);
       if (!credential?.accessToken) throw new Error("No token");
 
-      const filename = `Cutty-Design-${Date.now()}.json`;
+      const filename = `YardWorx-Design-${Date.now()}.json`;
       const content = JSON.stringify(result, null, 2);
 
       const res = await fetchApi("/api/integration/drive", {
@@ -362,7 +383,7 @@ export default function DesignStudio() {
           <p className="max-w-xl text-zinc-400 font-bold text-lg uppercase tracking-widest italic pt-2 leading-relaxed">
             {activeCustomer
               ? `Architecting transformation for ${activeCustomer.firstName} ${activeCustomer.lastName}'s property at ${activeCustomer.address}.`
-              : "Upload a photo of the yard, mark what you want changed, and let Cutty help you design."}
+              : "Upload a photo of the yard, mark what you want changed, and let YardWorx help you design."}
           </p>
 
           {(role === "admin" || role === "owner") && (
@@ -732,7 +753,7 @@ export default function DesignStudio() {
                             
                             {tenant?.settings?.subFeatures?.semanticStyleLearning && (
                               <div className="mb-4 p-3 bg-black/40 border border-white/5 rounded-xl text-[11px] text-white/50 leading-relaxed font-bold">
-                                <span className="text-white">Cutty Custom Rule:</span><br/>
+                                <span className="text-white">YardWorx Custom Rule:</span><br/>
                                 <span className="italic opacity-80 mt-1 block border-l-2 border-emerald-500/50 pl-2">
                                   "{tenant?.settings?.customInstallRules || 'No custom rules applied.'}"
                                 </span>
@@ -910,14 +931,14 @@ export default function DesignStudio() {
                   <BrainCircuit size={40} />
                 </div>
                 <div>
-                  <h2 className="text-2xl sm:text-3xl font-black italic text-white uppercase tracking-normal md:tracking-tighter mb-1">Cutty Logic Engine</h2>
+                  <h2 className="text-2xl sm:text-3xl font-black italic text-white uppercase tracking-normal md:tracking-tighter mb-1">YardWorx Logic Engine</h2>
                   <p className="text-emerald-400 font-bold uppercase tracking-widest text-xs md:text-[11px] bg-emerald-500/10 inline-block px-3 py-1 rounded-md">Semantic Style Learning Active</p>
                 </div>
               </div>
               
               <div className="space-y-6 text-white/70 leading-relaxed text-sm mb-10 text-center sm:text-left">
                 <p>
-                  Welcome to the AI Design Studio. Unlike generic AI tools, Cutty uses <span className="text-white font-bold">Semantic Style Learning</span> to adopt your specific installation methods and bidding logic automatically.
+                  Welcome to the AI Design Studio. Unlike generic AI tools, YardWorx uses <span className="text-white font-bold">Semantic Style Learning</span> to adopt your specific installation methods and bidding logic automatically.
                 </p>
                 <div className="bg-black/40 border border-white/10 rounded-3xl p-6 md:p-8 space-y-6">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
@@ -932,7 +953,7 @@ export default function DesignStudio() {
                     <Trees size={20} className="text-emerald-400 shrink-0 mt-1 sm:mt-0" />
                     <div>
                       <h3 className="text-white font-black uppercase tracking-widest text-xs md:text-[11px] mb-1">Actionable Nuance</h3>
-                      <p className="text-xs text-white/50">Cutty reads your <span className="text-white">Custom Installation Heuristics</span> from settings to select your preferred plant spacing, soils, and material volumes.</p>
+                      <p className="text-xs text-white/50">YardWorx reads your <span className="text-white">Custom Installation Heuristics</span> from settings to select your preferred plant spacing, soils, and material volumes.</p>
                     </div>
                   </div>
 

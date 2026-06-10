@@ -47,14 +47,14 @@ import {
 } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import CuttyChat from "./CuttyChat";
+import YardChat from "./YardChat";
 import LiveEar from "./LiveEar";
 import WalkthroughOverlay from "./WalkthroughOverlay";
 import FieldModeInterface from "./FieldModeInterface";
 import { BiometricGuard } from "./auth/BiometricGuard";
 import AgenticOutreachDrawer from "./AgenticOutreachDrawer";
 import { useEnterpriseTheme } from "../contexts/EnterpriseThemeContext";
-import { useCuttyGuide } from "../contexts/CuttyGuideContext";
+import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
 import { useFieldMode } from "../contexts/FieldModeContext";
 import { useOfflineStatus } from "../hooks/useOfflineStatus";
 import { useTenant } from "../contexts/TenantContext";
@@ -80,7 +80,7 @@ export default function Layout() {
   const [isBrainOpen, setIsBrainOpen] = useState(false);
   const [isOutreachOpen, setIsOutreachOpen] = useState(false);
   const { getSpacingClasses } = useEnterpriseTheme();
-  const { activeFocus, jobStatus } = useCuttyGuide();
+  const { activeFocus, jobStatus } = useYardWorxGuide();
 
   const {
     isFieldMode,
@@ -176,7 +176,7 @@ export default function Layout() {
     {
       id: "agent",
       icon: Bot,
-      label: "Cutty Copilot",
+      label: "YardWorx Copilot",
       path: `${rolePrefix}/agent`,
       group: "BUSINESS",
       allowedRoles: ["owner", "admin"],
@@ -302,7 +302,7 @@ export default function Layout() {
                 {isSidebarOpen && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                     <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white uppercase">
-                      Cutty
+                      YardWorx
                     </h1>
                     <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest">
                       Management
@@ -656,7 +656,7 @@ export default function Layout() {
             </div>
           </motion.nav>
 
-          <CuttyChat isOpen={isBrainOpen} setIsOpen={setIsBrainOpen} />
+          <YardChat isOpen={isBrainOpen} setIsOpen={setIsBrainOpen} />
           <WalkthroughOverlay />
           <AgenticOutreachDrawer
             isOpen={isOutreachOpen}
