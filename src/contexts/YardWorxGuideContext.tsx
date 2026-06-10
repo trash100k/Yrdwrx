@@ -26,7 +26,7 @@ interface TourStep {
   path?: string;
 }
 
-interface CuttyGuideContextType {
+interface YardWorxGuideContextType {
   activeFocus: GuideFocus | null;
   setFocus: (id: string | null, label?: string, description?: string) => void;
   jobStatus: string;
@@ -39,11 +39,11 @@ interface CuttyGuideContextType {
   endTour: () => void;
 }
 
-const CuttyGuideContext = createContext<CuttyGuideContextType | undefined>(
+const YardWorxGuideContext = createContext<YardWorxGuideContextType | undefined>(
   undefined,
 );
 
-export function CuttyGuideProvider({
+export function YardWorxGuideProvider({
   children,
 }: {
   children: React.ReactNode;
@@ -193,7 +193,7 @@ export function CuttyGuideProvider({
   }, [activeFocus]);
 
   return (
-    <CuttyGuideContext.Provider
+    <YardWorxGuideContext.Provider
       value={{
         activeFocus,
         setFocus,
@@ -238,14 +238,14 @@ export function CuttyGuideProvider({
           </motion.div>
         )}
       </AnimatePresence>
-    </CuttyGuideContext.Provider>
+    </YardWorxGuideContext.Provider>
   );
 }
 
-export function useCuttyGuide() {
-  const context = useContext(CuttyGuideContext);
+export function useYardWorxGuide() {
+  const context = useContext(YardWorxGuideContext);
   if (context === undefined) {
-    throw new Error("useCuttyGuide must be used within a CuttyGuideProvider");
+    throw new Error("useYardWorxGuide must be used within a YardWorxGuideProvider");
   }
   return context;
 }

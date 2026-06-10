@@ -22,7 +22,7 @@ import Onboarding from "./components/Onboarding";
 import Layout from "./components/Layout";
 import { InfrastructureGuard } from "./components/InfrastructureGuard";
 import { TenantProvider } from "./contexts/TenantContext";
-import { CuttyGuideProvider } from "./contexts/CuttyGuideContext";
+import { YardWorxGuideProvider } from "./contexts/YardWorxGuideContext";
 import { FieldModeProvider } from "./contexts/FieldModeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { EnterpriseThemeProvider } from "./contexts/EnterpriseThemeContext";
@@ -141,7 +141,7 @@ export default function App() {
         <div className="atmosphere" aria-hidden="true" />{" "}
         <div className="text-white/40 animate-pulse font-sans text-sm font-black uppercase tracking-[0.3em] text-center">
           {" "}
-          Starting Cutty...{" "}
+          Starting YardWorx...{" "}
         </div>{" "}
       </main>
     );
@@ -161,7 +161,7 @@ export default function App() {
                 <PageTracker />{" "}
                 <FieldModeProvider>
                   {" "}
-                  <CuttyGuideProvider>
+                  <YardWorxGuideProvider>
                     {" "}
                     <AgreementsGate>
                       <Suspense fallback={<PageLoader />}>
@@ -439,7 +439,7 @@ export default function App() {
                       </Suspense>
                       <ConsentBanner />
                     </AgreementsGate>
-                  </CuttyGuideProvider>{" "}
+                  </YardWorxGuideProvider>{" "}
                 </FieldModeProvider>{" "}
               </BrowserRouter>{" "}
             </ToastProvider>{" "}
@@ -634,7 +634,7 @@ function AuthPage({
           </div>{" "}
         </div>{" "}
         <h1 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black italic tracking-normal md:tracking-tighter leading-none mb-3 sf-text-gradient uppercase">
-          Cutty
+          YardWorx
         </h1>{" "}
         <p className="text-zinc-400 mb-8 font-semibold text-sm tracking-wide uppercase">
           Operational Cockpit Portal

@@ -40,7 +40,7 @@ export function BiometricGuard({ children }: { children: React.ReactNode }) {
       const credential = await navigator.credentials.create({
         publicKey: {
           challenge: challenge,
-          rp: { name: "Cutty OS Field Module", id: window.location.hostname },
+          rp: { name: "YardWorx Field Module", id: window.location.hostname },
           user: {
             id: userId,
             name: "field.staff@company.com",

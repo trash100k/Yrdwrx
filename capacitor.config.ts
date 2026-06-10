@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.cutty.app',
-  appName: 'Cutty',
+  appName: 'YardWorx',
   webDir: 'dist',
   plugins: {
     Camera: {

@@ -1,5 +1,5 @@
-// @ts-nocheck
 import jwt from "jsonwebtoken";
+// @ts-nocheck
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -25,7 +25,7 @@ function parseGeminiJson(text: string | undefined) {
       .replace(/```/g, "")
       .trim();
     return JSON.parse(raw);
-  } catch (err) {
+  } catch (err: any) {
     console.error("Failed to parse Gemini JSON:", text);
     throw err;
   }
@@ -213,7 +213,7 @@ if (fs.existsSync(CACHE_FILE)) {
   try {
     geminiCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
     console.log(`[Cache Loaded] Loaded ${Object.keys(geminiCache).length} cached Gemini responses.`);
-  } catch (err) {
+  } catch (err: any) {
     console.error("Failed to read gemini cache:", err);
   }
 }
@@ -221,7 +221,7 @@ if (fs.existsSync(CACHE_FILE)) {
 function saveGeminiCache() {
   try {
     fs.writeFileSync(CACHE_FILE, JSON.stringify(geminiCache, null, 2));
-  } catch (err) {
+  } catch (err: any) {
     console.error("Failed to write gemini cache:", err);
   }
 }
@@ -348,7 +348,7 @@ async function startServer() {
     }
   });
 
-  // Increased to 50mb to support large high-resolution base64 image uploads from phone cameras
+  // Added to 3mb to support compressed base64 image uploads without being absurdly open (DoS limit)
   app.use(express.json({ limit: "50mb" }));
 
   // --- IN-MEMORY THREAT LOG (For Founder Dashboard) ---
@@ -455,7 +455,7 @@ async function startServer() {
     limit: 1000,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, keyGeneratorIpFallback: false },
   });
 
   const strictLimiter = rateLimit({
@@ -463,7 +463,7 @@ async function startServer() {
     limit: 100,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, keyGeneratorIpFallback: false },
     message: { error: "Too many requests to sensitive endpoints. Please try again after 1 hour." },
   });
 
@@ -472,10 +472,9 @@ async function startServer() {
     limit: 100, // Max 100 requests per day per user/IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false, keyGeneratorIpFallback: false },
     keyGenerator: (req) => {
-      // Use Firebase UID if present (via our verifyFirebaseToken middleware), else IP
-      return (req as any).user?.uid || req.ip;
+      return (req as any).user?.uid || (req.ip || "unknown-ip").replace(/:/g, "_");
     },
     message: { error: "Daily AI generation limit reached (100). Please try again tomorrow." },
   });
@@ -690,7 +689,7 @@ async function startServer() {
 
       const htmlBody = `
         <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 8px; border: 1px solid #eaeaec;">
-          <h2 style="color: #1a1a1a; margin-top: 0;">Thank you for choosing Cutty.</h2>
+          <h2 style="color: #1a1a1a; margin-top: 0;">Thank you for choosing YardWorx.</h2>
           <p style="color: #4a4a4a; line-height: 1.6; font-size: 16px;">
             We appreciate your recent business. Our team is dedicated to providing the highest quality service.
           </p>
@@ -701,7 +700,7 @@ async function startServer() {
             </p>
           </div>
           <p style="color: #888888; font-size: 12px; margin-bottom: 0;">
-            Cutty Operations • Meridian, MS
+            YardWorx Operations • Meridian, MS
           </p>
         </div>
       `;
@@ -844,7 +843,7 @@ async function startServer() {
 
             <div style="display: flex; justify-content: space-between; border-top: 2px solid #000; padding-top: 20px;">
               <div style="width: 50%;">
-                <p style="margin: 0; font-size: 12px; color: #888;">Note: Thank you for your continued partnership. Please make checks payable to "Cutty Inc".</p>
+                <p style="margin: 0; font-size: 12px; color: #888;">Note: Thank you for your continued partnership. Please make checks payable to "YardWorx Inc".</p>
               </div>
               <div style="width: 40%; text-align: right;">
                 <p style="margin: 0 0 10px 0; font-size: 14px;">Subtotal: <span style="font-weight: bold;">$3,050.00</span></p>
@@ -863,7 +862,7 @@ async function startServer() {
         args: ["--no-sandbox"],
       });
       const page = await browser.newPage();
-      await page.setContent(invoiceHtml, { waitUntil: "networkidle0" });
+      await page.setContent(invoiceHtml, { waitUntil: "load" });
       const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
       await browser.close();
 
@@ -871,14 +870,14 @@ async function startServer() {
       const boundary = "cutty_boundary_" + Date.now().toString(16);
       const emailRaw = [
         "To: client@example.com",
-        "Subject: Your Monthly Invoice - Cutty Inc.",
+        "Subject: Your Monthly Invoice - YardWorx Inc.",
         "MIME-Version: 1.0",
         `Content-Type: multipart/mixed; boundary="${boundary}"`,
         "",
         `--${boundary}`,
         "Content-Type: text/html; charset=utf-8",
         "",
-        "<p>Hello,</p><p>Please find attached your invoice for this month's service.</p><p>Thank you,<br>Cutty Operations</p>",
+        "<p>Hello,</p><p>Please find attached your invoice for this month's service.</p><p>Thank you,<br>YardWorx Operations</p>",
         "",
         `--${boundary}`,
         'Content-Type: application/pdf; name="Invoice.pdf"',
@@ -1378,9 +1377,8 @@ async function startServer() {
       }
       `;
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
-        contents: transcript,
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
 
@@ -1397,11 +1395,8 @@ async function startServer() {
       const { text } = req.body;
       if (!text) return res.status(400).json({ error: "No text provided" });
 
-      const model = ai.models.get({ model: "gemini-3.1-flash-tts-preview" });
-      const response = await model.generateContent({
-        contents: text,
-        config: {
-          responseModalities: ["AUDIO"],
+
+      const response = await ai.models.generateContent({ model: "gemini-3.1-flash-tts-preview", contents: text, config: { responseModalities: ["AUDIO"],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: "Puck" },
@@ -1423,7 +1418,7 @@ async function startServer() {
       const { message, context, knowledge, memory } = req.body;
 
       const systemInstruction = `
-        You are "Cutty", the helpful assistant for a landscaping company.
+        You are "YardWorx", the helpful assistant for a landscaping company.
         
         RECALLED MEMORY:
         ${memory || "No specific memories recalled for this customer yet."}
@@ -1467,7 +1462,7 @@ async function startServer() {
         });
       }
       const systemInstruction = `
-        You are a Master Landscape Architect at Cutty.
+        You are a Master Landscape Architect at YardWorx.
         Analyze this property data and provide 3 visionary design suggestions that would increase property value.
         Focus on: ${customer.propertyDetails?.grassType || "the lawn"}, ${customer.propertyDetails?.size || "the space"}, and climate resilience.
         
@@ -1522,7 +1517,7 @@ async function startServer() {
         ]
       });
       res.json({ compressedContext: response.text });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -1531,7 +1526,7 @@ async function startServer() {
     try {
       const { query, context } = req.body;
       const systemInstruction = `
-        You are "Cutty", an all-knowing, helpful assistant for a landscaping company.
+        You are "YardWorx", an all-knowing, helpful assistant for a landscaping company.
         
         DATABASE ACCESS:
         You have real-time access to the entire application database, including:
@@ -1568,7 +1563,7 @@ async function startServer() {
         - nav-compliance (Compliance)
         - nav-saas-admin (SaaS Admin)
         - nav-reports (Reports)
-        - nav-agent (Cutty Copilot)
+        - nav-agent (YardWorx Copilot)
         - nav-settings (Settings)
         - brain-trigger (Chat assistant)
         
@@ -1587,7 +1582,7 @@ async function startServer() {
         12. "How do I manage integrations or configure widgets?": Direct them to Settings. [FOCUS:nav-settings].
         
         APP METADATA & INSTRUCTIONS:
-        - Cutty OS is designed to be "Old People Proof". Do NOT use overly complex jargon.
+        - YardWorx is designed to be "Old People Proof". Do NOT use overly complex jargon.
         - Encourage users to click the "Make Widget" or "Tour" buttons if they are unsure what to do.
         - Reassure users that they cannot "break" anything and the system is designed to handle mistakes.
         
@@ -1614,7 +1609,7 @@ async function startServer() {
     try {
       const { transcript } = req.body;
       const systemInstruction = `
-      You are CuttyOS onboarding agent. The user is dictating their business information.
+      You are YardWorx onboarding agent. The user is dictating their business information.
       Extract their operational details into a structured JSON configuration.
       Infer the best matching services from their description.
       Valid services are: ["Lawn Mowing", "Irrigation Repair", "Landscape Design", "Hardscaping", "Seasonal Cleanup", "Pest Control", "Fertilization"]
@@ -1627,14 +1622,13 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
-        contents: transcript,
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
       const data = JSON.parse(response.text || '{}');
       res.json(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: "Failed to process magic setup" });
     }
@@ -1654,7 +1648,7 @@ async function startServer() {
       }
 
       const systemInstruction = `
-      You are CuttyOS onboarding agent. The user provided their website URL to configure their account.
+      You are YardWorx onboarding agent. The user provided their website URL to configure their account.
       Extract their business details from the raw webpage text.
       Infer the matching services from their description.
       Valid services are: ["Lawn Mowing", "Irrigation Repair", "Landscape Design", "Hardscaping", "Seasonal Cleanup", "Pest Control", "Fertilization"]
@@ -1667,14 +1661,13 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
-        contents: rawText,
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: rawText,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
       const data = JSON.parse(response.text || '{}');
       res.json(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: "Failed to process website extraction" });
     }
@@ -1687,7 +1680,7 @@ async function startServer() {
       const mimeType = image.includes(";") ? image.split(';')[0].split(':')[1] : 'image/jpeg';
 
       const systemInstruction = `
-      You are CuttyOS onboarding agent. The user provided an image (e.g. business card, truck decal, logo).
+      You are YardWorx onboarding agent. The user provided an image (e.g. business card, truck decal, logo).
       Extract their business details from the image.
       Infer the matching services from their description or imagery.
       Valid services are: ["Lawn Mowing", "Irrigation Repair", "Landscape Design", "Hardscaping", "Seasonal Cleanup", "Pest Control", "Fertilization"]
@@ -1700,9 +1693,8 @@ async function startServer() {
         "services": ["Array of exact matched service strings"]
       }
       `;
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
-        contents: [
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: [
             { inlineData: { data: base64Data, mimeType } },
             { text: "Extract details from this image." }
         ],
@@ -1710,7 +1702,7 @@ async function startServer() {
       });
       const data = JSON.parse(response.text || '{}');
       res.json(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: "Failed to process image extraction" });
     }
@@ -1725,7 +1717,7 @@ async function startServer() {
     }
     try {
       const systemInstruction = `
-        You are "Cutty Dashboard AI Designer", an expert workspace optimization agent.
+        You are "YardWorx Dashboard AI Designer", an expert workspace optimization agent.
         Analyze the user's operational requirements prompt (e.g., "I support luxury HOA properties and don't care about inventory") and output a optimal tailored dashboard layout configuration.
         
         OUTPUT FORMAT: JSON only.
@@ -1833,7 +1825,7 @@ async function startServer() {
       const { customer, interactions, memory } = req.body;
 
       const systemInstruction = `
-        You are a high-level account manager for Cutty Landscaping.
+        You are a high-level account manager for YardWorx Landscaping.
         Create a "Briefing" for the crew or owner before they visit this customer.
         
         INPUT DATA:
@@ -1887,7 +1879,7 @@ async function startServer() {
       }
 
       const systemInstruction = `
-        You are an expert billing assistant for Cutty.
+        You are an expert billing assistant for YardWorx.
         Extract a structured invoice from the following conversation and optional image.
         
         OUTPUT FORMAT: JSON only.
@@ -2267,10 +2259,10 @@ async function startServer() {
       ` : "";
 
       const systemInstruction = `
-        You are "Cutty Logic Core", an expert, pragmatic landscape architect and property analysis agent natively integrated into the Cutty platform.
+        You are "YardWorx Logic Core", an expert, pragmatic landscape architect and property analysis agent natively integrated into the YardWorx platform.
         You take a picture of a yard with markup (circles, lines) and a text/voice prompt, then suggest a highly realistic, specific landscaping transformation.
         
-        STRICT RULES (The "Cutty Way"):
+        STRICT RULES (The "YardWorx Way"):
         - NO AI FLEX: Do not use flowery or overly enthusiastic language. Be direct, authoritative, and logistical.
         - NO HALLUCINATIONS: Respect physics and existing hardscapes. Never suggest planting a tree, bush, or flower bed on solid concrete, asphalt, or driveways.
         - ABSOLUTE SPECIFICITY: Never use generic placeholders like "a pretty tree" or "some bushes." You MUST use specific trade names (e.g., "Natchez Crepe Myrtle (Adolescent, 45-Gallon)", "Limelight Hydrangea (3-Gallon)", "Double-Shredded Hardwood Mulch").
@@ -2309,7 +2301,7 @@ async function startServer() {
       ];
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-2.5-pro",
         contents,
         config: {
           systemInstruction,
@@ -2347,7 +2339,7 @@ async function startServer() {
       if (interaction.steps) {
         for (const step of interaction.steps) {
           if (step.type === 'model_output') {
-            const imageContent = step.content?.find((c: any) => c.type === 'image');
+            const imageContent = step.content?.find((c: any) => c.type === 'image') as any;
             if (imageContent && imageContent.data) {
                 const base64Str = imageContent.data;
                 const mType = imageContent.mime_type || 'image/png';
@@ -2389,7 +2381,7 @@ async function startServer() {
              let fullReport = "";
              for (const step of interaction.steps) {
                  if (step.type === 'model_output') {
-                     const textContent = step.content?.find((c: any) => c.type === 'text');
+                     const textContent = step.content?.find((c: any) => c.type === 'text') as any;
                      if (textContent) fullReport += textContent.text;
                  }
              }
@@ -2473,7 +2465,7 @@ async function startServer() {
       ` : "";
 
       const systemInstruction = `
-        You are "Cutty Logic Core", an expert landscape architect agent. 
+        You are "YardWorx Logic Core", an expert landscape architect agent.
         You are given a baseline design result (which is a JSON string of the current single-tier estimation).
         Your job is to generate three pricing tiers (Good, Better, Best) based on the baseline.
         
@@ -2481,7 +2473,7 @@ async function startServer() {
         "Better" should be the baseline (or slightly improved).
         "Best" should be a premium option (larger mature plants, premium stones, added features like lighting or minor water features).
 
-        STRICT RULES (The "Cutty Way"):
+        STRICT RULES (The "YardWorx Way"):
         - NO HALLUCINATIONS: Respect physics and existing hardscapes.
         - BOTANICAL REALITY: Provide proper horticultural installation guidelines.
         ${semanticLearningPrompt}
@@ -2576,7 +2568,7 @@ async function startServer() {
             </div>
             
             <div style="margin-top: 80px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; color: #999;">
-              <p>Thank you for choosing Cutty Landscape Management.</p>
+              <p>Thank you for choosing YardWorx Landscape Management.</p>
             </div>
           </body>
         </html>
@@ -2585,13 +2577,13 @@ async function startServer() {
       // Generate PDF with Puppeteer
       const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
       const page = await browser.newPage();
-      await page.setContent(invoiceHtml, { waitUntil: 'networkidle0' });
+      await page.setContent(invoiceHtml, { waitUntil: 'load' });
       const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
       await browser.close();
 
       // Email draft configuration
       const boundary = "foo_bar_baz_boundary";
-      const subject = `Invoice from Cutty - ${merchant}`;
+      const subject = `Invoice from YardWorx - ${merchant}`;
       const emailContent = [
         `To: ${clientEmail || "client@example.com"}`,
         `Subject: ${subject}`,
@@ -2605,19 +2597,19 @@ async function startServer() {
         `Please find attached your generated invoice for $${amount}.`,
         ``,
         `Best,`,
-        `Cutty Landscape Management`,
+        `YardWorx Landscape Management`,
         ``,
         `--${boundary}`,
         `Content-Type: application/pdf; name="Invoice-${merchant.replace(/\\s+/g, "_")}.pdf"`,
         `Content-Disposition: attachment; filename="Invoice-${merchant.replace(/\\s+/g, "_")}.pdf"`,
         `Content-Transfer-Encoding: base64`,
         ``,
-        pdfBuffer.toString("base64"),
+        Buffer.from(pdfBuffer).toString("base64"),
         ``,
         `--${boundary}--`
       ].join("\\r\\n");
 
-      const encodedRaw = Buffer.from(emailContent).toString("base64").replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      const encodedRaw = Buffer.from(emailContent).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
       const draftRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
         method: "POST",
@@ -2870,7 +2862,7 @@ async function startServer() {
       const base64Data = photo.includes(",") ? photo.split(',')[1] : photo;
       const mimeType = photo.includes(";") ? photo.split(';')[0].split(':')[1] : 'image/jpeg';
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
+
       const prompt = `
         You are a construction and landscaping variance checker. 
         Review this completion photo of a landscaping job.
@@ -2882,8 +2874,7 @@ async function startServer() {
           "qualityScore": number (0-100)
         }
       `;
-      const response = await model.generateContent({
-        contents: [
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: [
           prompt,
           { inlineData: { data: base64Data, mimeType } }
         ],
@@ -2999,9 +2990,8 @@ async function startServer() {
       }
       `;
 
-      const model = ai.models.get({ model: "gemini-2.5-flash" });
-      const response = await model.generateContent({
-        contents: prompt,
+
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt,
         config: { responseMimeType: "application/json" }
       });
       res.json(JSON.parse(response.text || '{"drafts":[]}'));
@@ -3048,7 +3038,7 @@ async function startServer() {
     try {
       const { customer, context } = req.body;
       const systemInstruction = `
-        You are "Meridian Voice", the outbound calling agent for Cutty Green.
+        You are "Meridian Voice", the outbound calling agent for YardWorx Green.
         Your goal is to simulate a professional, southern-hospitable follow-up call to ${customer.firstName}.
         
         CONTEXT:
@@ -3083,7 +3073,7 @@ async function startServer() {
     try {
       const { transcript, job } = req.body;
       const systemInstruction = `
-        You are a landscaping operations assistant for Cutty Landscaping.
+        You are a landscaping operations assistant for YardWorx Landscaping.
         A crew member just recorded a voice memo regarding a specific job.
         Parse the transcript and extract:
         1. Summarize the transcript into a highly scannable string of "Actionable Bullet Points" for the job "notes". Use standard dash bullets (- ) and separate them with newlines.
@@ -3208,7 +3198,7 @@ async function startServer() {
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
       
       res.json({ success: true, token, magicLink });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -3218,9 +3208,9 @@ async function startServer() {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development") as any;
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
-    } catch (err) {
+    } catch (err: any) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
     }
   });
@@ -3482,7 +3472,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
               video: { data: msg.image, mimeType: "image/jpeg" },
             });
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error("WS Message Error:", err);
         }
       });

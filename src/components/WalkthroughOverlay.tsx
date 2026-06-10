@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useLayoutEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { useCuttyGuide } from "../contexts/CuttyGuideContext";
+import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
 import { ChevronRight, X, Sparkles, Target } from "lucide-react";
 export default function WalkthroughOverlay() {
   const {
@@ -12,7 +12,7 @@ export default function WalkthroughOverlay() {
     tourSteps,
     nextTourStep,
     endTour,
-  } = useCuttyGuide();
+  } = useYardWorxGuide();
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipSize, setTooltipSize] = useState({ width: 320, height: 280 });
   useLayoutEffect(() => {
