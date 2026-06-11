@@ -12,6 +12,7 @@ import {
   doc,
   updateDoc,
   deleteDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { auth, db, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
@@ -251,14 +252,25 @@ export default function CRM() {
     setIsSaving(true);
     try {
       const tagList = bulkTagInput.split(',').map(t => t.trim()).filter(Boolean);
-      for (const id of selectedClients) {
-        const client = customers.find(c => c.id === id);
-        if (client) {
-          const currentTags = client.tags || [];
-          const newTags = Array.from(new Set([...currentTags, ...tagList]));
-          await updateDoc(doc(db, "tenants", tenant.id, "customers", id), { tags: newTags });
+
+      // Firestore writeBatch has a limit of 500 operations per batch
+      const BATCH_LIMIT = 500;
+      for (let i = 0; i < selectedClients.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        const chunk = selectedClients.slice(i, i + BATCH_LIMIT);
+
+        for (const id of chunk) {
+          const client = customers.find(c => c.id === id);
+          if (client) {
+            const currentTags = client.tags || [];
+            const newTags = Array.from(new Set([...currentTags, ...tagList]));
+            const clientRef = doc(db, "tenants", tenant.id, "customers", id);
+            batch.update(clientRef, { tags: newTags });
+          }
         }
+        await batch.commit();
       }
+
       showToast(`${selectedClients.length} clients tagged successfully`, "success");
       setShowBulkTagModal(false);
       setBulkTagInput("");
