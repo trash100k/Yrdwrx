@@ -78,9 +78,9 @@ describe('fetchApi', () => {
   });
 
   it('should handle URL objects properly', async () => {
-    auth.currentUser = {
+    Object.defineProperty(auth, 'currentUser', { value: {
       getIdToken: vi.fn().mockResolvedValue('mock-token'),
-    } as any;
+    }, configurable: true });
 
     const url = new URL('http://localhost:3000/api/data');
 
@@ -151,9 +151,9 @@ describe('fetchApi', () => {
   it('should execute error path completely when auth.currentUser.getIdToken rejects', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    auth.currentUser = {
+    Object.defineProperty(auth, 'currentUser', { value: {
       getIdToken: vi.fn().mockRejectedValue(new Error('Simulated rejection for error path')),
-    } as any;
+    }, configurable: true });
 
     await fetchApi('/api/data', { headers: { 'X-Custom-Header': 'value' } });
 

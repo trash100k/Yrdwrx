@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import { useState } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
