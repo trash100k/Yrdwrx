@@ -1,5 +1,12 @@
 // @ts-nocheck
 
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
 export interface Crew {
   id: string;
   name: string;

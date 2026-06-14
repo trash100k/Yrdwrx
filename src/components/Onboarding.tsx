@@ -45,7 +45,6 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   ];
 
   const handleDictation = (field: "companyName" | "ownerPhone" | "serviceArea") => {
-    // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setError("Speech recognition is not supported in this browser.");

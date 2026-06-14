@@ -11,7 +11,6 @@ export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleMagicSetup = async () => {
-    // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("Speech recognition is not supported in this browser.");
