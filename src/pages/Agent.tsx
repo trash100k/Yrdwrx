@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   Lock,
   Bell,
-  Webhook
+  Webhook,
+  Video
 } from "lucide-react";
 
 import BrainChat from "../components/YardChat";
@@ -114,7 +115,7 @@ export default function Agent() {
                   : "text-zinc-400 hover:text-white hover:bg-white/5"
               }`}
             >
-              <Workflow size={18} /> {/* Need to fix icons if want but workflow is fine */}
+              <Video size={18} /> {/* Need to fix icons if want but workflow is fine */}
               Video Marketing
             </button>
             <button 
