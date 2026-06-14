@@ -26,16 +26,6 @@ import { db } from "../lib/firebase";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 
-interface SpeechRecognitionType {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: { results: { transcript: string }[][] }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
 
 export default function BrainChat({
   isOpen = true,

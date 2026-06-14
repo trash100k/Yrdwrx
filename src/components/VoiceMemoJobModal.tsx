@@ -22,7 +22,7 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "webkitSpeechRecognition" in window) {
+    if (typeof window !== "undefined" && "webkitSpeechRecognition" in window && window.webkitSpeechRecognition) {
       const SpeechRecognition = window.webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = true;

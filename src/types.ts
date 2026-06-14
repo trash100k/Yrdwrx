@@ -1,9 +1,19 @@
-// @ts-nocheck
-
 declare global {
+  interface SpeechRecognitionType {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onstart: (() => void) | null;
+    onresult: ((event: any) => void) | null;
+    onerror: ((event: any) => void) | null;
+    onend: (() => void) | null;
+    start: () => void;
+    stop: () => void;
+  }
+
   interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
+    SpeechRecognition: { new (): SpeechRecognitionType } | undefined;
+    webkitSpeechRecognition: { new (): SpeechRecognitionType } | undefined;
   }
 }
 
