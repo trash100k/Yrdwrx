@@ -356,7 +356,6 @@ export default function CRM() {
         body: JSON.stringify({ accessToken: credential.accessToken, title, body })
       });
       if (!res.ok) throw new Error("Sync failed");
-      console.log("Successfully synced to Google Keep!");
       
       const payload = { clientId: selectedCustomer.id };
       await logSystemEvent("KEEP_SYNCED", payload);

@@ -35,18 +35,18 @@ describe('fetchApi', () => {
   });
 
   it('should call fetch without modifications for non-api URLs', async () => {
-    auth.currentUser = {
+    (auth as any).currentUser = {
       getIdToken: vi.fn().mockResolvedValue('mock-token'),
     } as any;
 
     await fetchApi('https://example.com/data');
 
     expect(global.fetch).toHaveBeenCalledWith('https://example.com/data', {});
-    expect(auth.currentUser.getIdToken).not.toHaveBeenCalled();
+    expect(auth.currentUser!.getIdToken).not.toHaveBeenCalled();
   });
 
   it('should not add auth header for api URLs if user is not authenticated', async () => {
-    auth.currentUser = null;
+    (auth as any).currentUser = null;
 
     await fetchApi('/api/data');
 
@@ -54,7 +54,7 @@ describe('fetchApi', () => {
   });
 
   it('should add auth header for relative api URLs if user is authenticated', async () => {
-    auth.currentUser = {
+    (auth as any).currentUser = {
       getIdToken: vi.fn().mockResolvedValue('mock-token'),
     } as any;
 
@@ -69,7 +69,7 @@ describe('fetchApi', () => {
   });
 
   it('should add auth header for absolute api URLs matching the host if user is authenticated', async () => {
-    auth.currentUser = {
+    (auth as any).currentUser = {
       getIdToken: vi.fn().mockResolvedValue('mock-token'),
     } as any;
 
@@ -83,7 +83,7 @@ describe('fetchApi', () => {
   });
 
   it('should handle Request objects properly (using absolute URL)', async () => {
-    auth.currentUser = {
+    (auth as any).currentUser = {
       getIdToken: vi.fn().mockResolvedValue('mock-token'),
     } as any;
 
@@ -102,7 +102,7 @@ describe('fetchApi', () => {
   it('should gracefully handle errors when getting the auth token', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    auth.currentUser = {
+    (auth as any).currentUser = {
       getIdToken: vi.fn().mockRejectedValue(new Error('Token fetch failed')),
     } as any;
 
@@ -115,7 +115,7 @@ describe('fetchApi', () => {
   });
 
   it('should preserve existing headers when adding the auth token', async () => {
-    auth.currentUser = {
+    (auth as any).currentUser = {
       getIdToken: vi.fn().mockResolvedValue('mock-token'),
     } as any;
 
