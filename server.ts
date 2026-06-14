@@ -504,7 +504,13 @@ async function startServer() {
       directives: {
         defaultSrc: ["'self'"],
         connectSrc: ["'self'", "https://*.googleapis.com", "wss://*.googleapis.com", "https://*.stripe.com", "https://maps.googleapis.com", "https://*.firebaseio.com", "wss://*.firebaseio.com", "https://*.run.app", "wss://*.run.app"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://maps.googleapis.com", "https://js.stripe.com"], // Vite needs eval for dev, Stripe/Maps need external scripts
+        scriptSrc: [
+          "'self'",
+          process.env.NODE_ENV !== "production" ? "'unsafe-inline'" : "",
+          process.env.NODE_ENV !== "production" ? "'unsafe-eval'" : "",
+          "https://maps.googleapis.com",
+          "https://js.stripe.com"
+        ].filter(Boolean), // Vite needs eval for dev, Stripe/Maps need external scripts
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https://*.googleapis.com", "https://*.gstatic.com", "https://maps.googleapis.com"],
