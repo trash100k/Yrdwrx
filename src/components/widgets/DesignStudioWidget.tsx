@@ -50,7 +50,7 @@ export default function DesignStudioWidget({
       </div>
 
       <Link
-        to="/design"
+        to="design-studio"
         className="w-full mt-4 flex items-center justify-center gap-2 bg-pink-500 hover:bg-pink-400 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md group/btn outline-none focus:ring-2 focus:ring-pink-500 focus:ring-offset-2 focus:ring-offset-zinc-950"
       >
         <span>Open Studio Editor</span>

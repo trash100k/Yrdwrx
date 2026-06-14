@@ -1,7 +1,6 @@
+// @ts-nocheck
 import { fetchApi } from "../lib/api";
-// @ts-nocheck
 import { safeStorage } from '../lib/storage';
-// @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import {
   collection,
@@ -13,6 +12,7 @@ import {
   doc,
   updateDoc,
   deleteDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { auth, db, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
@@ -160,7 +160,7 @@ export default function CRM() {
       const data = await res.json();
       setEnrichedData(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id || ""), {
+        await updateDoc(doc(db, "customers", customer.id), {
           semanticEnrichment: data,
           updatedAt: serverTimestamp(),
         });
@@ -191,7 +191,7 @@ export default function CRM() {
       const data = await res.json();
       setPropertyInsights(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id || ""), {
+        await updateDoc(doc(db, "customers", customer.id), {
           semanticInsights: data,
           updatedAt: serverTimestamp(),
         });
@@ -230,9 +230,14 @@ export default function CRM() {
     
     setIsSaving(true);
     try {
-      // In a real app we might batch this
-      for (const id of selectedClients) {
-        await deleteDoc(doc(db, "tenants", tenant.id, "customers", id));
+      const chunkSize = 500;
+      for (let i = 0; i < selectedClients.length; i += chunkSize) {
+        const batch = writeBatch(db);
+        const chunk = selectedClients.slice(i, i + chunkSize);
+        for (const id of chunk) {
+          batch.delete(doc(db, "tenants", tenant.id, "customers", id));
+        }
+        await batch.commit();
       }
       showToast(`${selectedClients.length} clients deleted successfully`, "success");
       setSelectedClients([]);
@@ -252,14 +257,25 @@ export default function CRM() {
     setIsSaving(true);
     try {
       const tagList = bulkTagInput.split(',').map(t => t.trim()).filter(Boolean);
-      for (const id of selectedClients) {
-        const client = customers.find(c => c.id === id);
-        if (client) {
-          const currentTags = client.tags || [];
-          const newTags = Array.from(new Set([...currentTags, ...tagList]));
-          await updateDoc(doc(db, "tenants", tenant.id, "customers", id), { tags: newTags });
+
+      // Firestore writeBatch has a limit of 500 operations per batch
+      const BATCH_LIMIT = 500;
+      for (let i = 0; i < selectedClients.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        const chunk = selectedClients.slice(i, i + BATCH_LIMIT);
+
+        for (const id of chunk) {
+          const client = customers.find(c => c.id === id);
+          if (client) {
+            const currentTags = client.tags || [];
+            const newTags = Array.from(new Set([...currentTags, ...tagList]));
+            const clientRef = doc(db, "tenants", tenant.id, "customers", id);
+            batch.update(clientRef, { tags: newTags });
+          }
         }
+        await batch.commit();
       }
+
       showToast(`${selectedClients.length} clients tagged successfully`, "success");
       setShowBulkTagModal(false);
       setBulkTagInput("");
@@ -295,7 +311,7 @@ export default function CRM() {
         const checkRes = await fetchApi("/api/inventory/check-and-alert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: materialsToCheck, tenantId: tenant?.id }),
+          body: JSON.stringify({ items: materialsToCheck }),
         });
         const checkData = await checkRes.json();
         if (checkData.lowStockItems?.length > 0) {
@@ -402,6 +418,9 @@ export default function CRM() {
         // Only log if it's not a standard permission error while in demo mode
         if (error.code !== "permission-denied") {
           handleFirestoreError(error, OperationType.LIST, "customers");
+        } else {
+          // Fallback to mock data silently if permissions are denied
+          /* setCustomers(mockCustomers) removed for strict data model */
         }
       },
     );
@@ -439,8 +458,8 @@ export default function CRM() {
         const found = customers.find(
           (c) =>
             `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
-            (c.firstName || '').toLowerCase().includes(clientName) ||
-            (c.lastName || '').toLowerCase().includes(clientName),
+            c.firstName.toLowerCase().includes(clientName) ||
+            c.lastName.toLowerCase().includes(clientName),
         );
 
         if (found) {
@@ -463,8 +482,8 @@ export default function CRM() {
         const found = customers.find(
           (c) =>
             `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
-            (c.firstName || '').toLowerCase().includes(clientName) ||
-            (c.lastName || '').toLowerCase().includes(clientName),
+            c.firstName?.toLowerCase().includes(clientName) ||
+            c.lastName?.toLowerCase().includes(clientName),
         );
         if (found) {
           handleSelectCustomer(found);
@@ -510,7 +529,7 @@ export default function CRM() {
       
       if (!res.ok) throw new Error(data.error || 'Failed to generate link');
 
-      const docRef = doc(db, "customers", customer.id || "");
+      const docRef = doc(db, "customers", customer.id);
       await updateDoc(docRef, {
         magicLinkSentAt: new Date().toISOString(),
         magicLinkSentCount: (customer.magicLinkSentCount || 0) + 1,
@@ -564,7 +583,7 @@ export default function CRM() {
 
       // Store the score and reasoning in Firestore for analytics/persistence
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id || ""), {
+        await updateDoc(doc(db, "customers", customer.id), {
           aiScore: data.aiScore,
           aiScoreLabel: data.aiScoreLabel,
           aiScoreReasoning: data.aiScoreReasoning,
@@ -703,8 +722,15 @@ export default function CRM() {
             aiScoreLabel: "Evaluating",
           }));
 
-          for (const item of imports) {
-            await addDoc(collection(db, "customers"), item);
+          const BATCH_LIMIT = 500;
+          for (let i = 0; i < imports.length; i += BATCH_LIMIT) {
+            const batch = writeBatch(db);
+            const chunk = imports.slice(i, i + BATCH_LIMIT);
+            for (const item of chunk) {
+              const docRef = doc(collection(db, "customers"));
+              batch.set(docRef, item);
+            }
+            await batch.commit();
           }
 
           showToast(`Successfully imported ${imports.length} past customers`, "success");
@@ -772,8 +798,15 @@ export default function CRM() {
         }
       }
       
-      for (const item of imports) {
-        await addDoc(collection(db, "customers"), item);
+      const BATCH_LIMIT = 500;
+      for (let i = 0; i < imports.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        const chunk = imports.slice(i, i + BATCH_LIMIT);
+        for (const item of chunk) {
+          const docRef = doc(collection(db, "customers"));
+          batch.set(docRef, item);
+        }
+        await batch.commit();
       }
       
       showToast(`Imported ${imports.length} contacts from Google Workspace`, "success");
@@ -1118,8 +1151,8 @@ export default function CRM() {
                                 className="w-14 h-14 bg-zinc-900 border border-white/5 rounded-2xl flex items-center justify-center text-zinc-400 font-black text-xl group-hover:bg-emerald-500 group-hover:text-black transition-all duration-500 shadow-2xl shrink-0"
                                 aria-hidden="true"
                               >
-                                {client.firstName?.[0] || ""}
-                                {client.lastName?.[0] || ""}
+                                {client.firstName[0]}
+                                {client.lastName[0]}
                               </div>
                               <div className="min-w-0">
                                 <div className="text-xl font-black italic tracking-normal md:tracking-tighter flex items-center gap-3 lowercase mb-1 leading-none truncate">
@@ -1142,7 +1175,7 @@ export default function CRM() {
                             </p>
                             <p className="text-xs text-zinc-400 group-hover:text-white/80 transition-colors line-clamp-2 italic leading-relaxed">
                               "Shared project brief for property development at{" "}
-                              {client.address?.split(",")[0]}."
+                              {client.address.split(",")[0]}."
                             </p>
                           </div>
                         </td>
@@ -1172,9 +1205,9 @@ export default function CRM() {
                                   }
                                   strokeLinecap="round"
                                   className={`${
-                                    (client.aiScore || 0) > 80
+                                    client.aiScore > 80
                                       ? "text-emerald-500"
-                                      : (client.aiScore || 0) > 50
+                                      : client.aiScore > 50
                                         ? "text-blue-500"
                                         : "text-zinc-500"
                                   } transition-all duration-1000 shadow-glow`}
@@ -1372,8 +1405,8 @@ export default function CRM() {
                       className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 bg-emerald-500 text-black rounded-3xl flex items-center justify-center text-xl sm:text-2xl sm:text-3xl font-black italic shadow-2xl"
                       aria-hidden="true"
                     >
-                      {selectedCustomer.firstName?.[0] || ""}
-                      {selectedCustomer.lastName?.[0] || ""}
+                      {selectedCustomer.firstName[0]}
+                      {selectedCustomer.lastName[0]}
                     </div>
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-3 flex-wrap">
@@ -1750,7 +1783,7 @@ export default function CRM() {
                                   }}
                                   itemStyle={{ color: '#10b981', fontSize: '14px', fontWeight: 'bold' }}
                                   labelStyle={{ color: '#ffffff80', fontSize: '10px', textTransform: 'uppercase' }}
-                                  formatter={(value: any) => [`${value.toLocaleString()}`, 'Est. Value']}
+                                  formatter={(value: number) => [`${value.toLocaleString()}`, 'Est. Value']}
                                 />
                                 <Area 
                                   type="monotone" 
@@ -1866,7 +1899,7 @@ export default function CRM() {
                         onChange={(e) => {
                           setCustomerNotes(e.target.value);
                           handleUpdateNotes(
-                            selectedCustomer.id || "",
+                            selectedCustomer.id,
                             e.target.value,
                           );
                         }}
@@ -2045,12 +2078,12 @@ export default function CRM() {
                         {item.name}
                       </h3>
                       <p className="text-xs text-white/40">
-                        Current: {(item as any).current} {(item as any).unit} (Min: {(item as any).min})
+                        Current: {item.current} {item.unit} (Min: {item.min})
                       </p>
                     </div>
                     <button
                       onClick={() => {
-                        showToast(`Drafting email to ${(item as any).supplierEmail}...`);
+                        showToast(`Drafting email to ${item.supplierEmail}...`);
                         setShowLowStockModal(false);
                       }}
                       className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-xs md:text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"

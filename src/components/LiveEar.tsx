@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useCuttyGuide } from "../contexts/CuttyGuideContext";
+import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
 import { useToast } from "../contexts/ToastContext";
 
 import { useFieldMode } from "../contexts/FieldModeContext";
@@ -24,7 +24,7 @@ import { useFieldMode } from "../contexts/FieldModeContext";
 export default function LiveEar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setFocus, setJobStatus } = useCuttyGuide();
+  const { setFocus, setJobStatus } = useYardWorxGuide();
   const { toggleFieldMode } = useFieldMode();
   const { showToast } = useToast();
   const [isActive, setIsActive] = useState(false);
@@ -91,8 +91,12 @@ export default function LiveEar() {
             canvas.width = 640;
             canvas.height = 480;
             ctx?.drawImage(videoEl, 0, 0, 640, 480);
-            const base64Jpeg = canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
-            ws.send(JSON.stringify({ image: base64Jpeg }));
+            try {
+              const base64Jpeg = canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
+              ws.send(JSON.stringify({ image: base64Jpeg }));
+            } catch(e) {
+              console.warn("LiveEar: unable to extract frame from video element.", e);
+            }
           }
         }, 3000); // Send a frame every 3 seconds for environmental context
       }

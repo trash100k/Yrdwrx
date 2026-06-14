@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   Lock,
   Bell,
-  Webhook
+  Webhook,
+  Video
 } from "lucide-react";
 
 import BrainChat from "../components/YardChat";
@@ -114,7 +115,7 @@ export default function Agent() {
                   : "text-zinc-400 hover:text-white hover:bg-white/5"
               }`}
             >
-              <Workflow size={18} /> {/* Need to fix icons if want but workflow is fine */}
+              <Video size={18} /> {/* Need to fix icons if want but workflow is fine */}
               Video Marketing
             </button>
             <button 
@@ -163,7 +164,7 @@ export default function Agent() {
                     </div>
                     <div>
                       <h2 className="text-sm font-bold text-white leading-tight capitalize">
-                        {activeTab === "chat" ? "YardPilot" : activeTab.replace("-", " ")}
+                        {activeTab === "chat" ? "YardWorx Copilot" : activeTab.replace("-", " ")}
                       </h2>
                       <p className="text-[10px] text-zinc-400 font-medium font-mono uppercase tracking-widest leading-none mt-1">
                         System ready
@@ -255,7 +256,7 @@ export default function Agent() {
                          <div className="space-y-4">
                            <div>
                              <label className="block text-sm font-medium text-zinc-300 mb-1">Agent Name</label>
-                             <input type="text" defaultValue="YardPilot" className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                             <input type="text" defaultValue="YardWorx Copilot" className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-emerald-500" />
                            </div>
                            <div>
                              <label className="block text-sm font-medium text-zinc-300 mb-1">System Prompt / Persona</label>

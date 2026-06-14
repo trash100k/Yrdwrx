@@ -1,4 +1,3 @@
-import multer from "multer";
 import jwt from "jsonwebtoken";
 // @ts-nocheck
 import express from "express";
@@ -7,12 +6,11 @@ import fs from "fs";
 import crypto from "crypto";
 import cluster from "cluster";
 import os from "os";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit from "express-rate-limit";
 import { createServer as createViteServer } from "vite";
 import puppeteer from "puppeteer";
 import { GoogleGenAI, Modality, Type, LiveServerMessage, GenerateVideosOperation } from "@google/genai";
 import { WebSocketServer } from "ws";
-import { createClient } from "redis";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
@@ -36,25 +34,6 @@ function parseGeminiJson(text: string | undefined) {
 
 const isMockMode = !process.env.GEMINI_API_KEY;
 
-let redisClient: ReturnType<typeof createClient> | null = null;
-let useRedis = false;
-let inMemoryWsCount = 0;
-const MAX_WS_CONNECTIONS_PER_WORKER = parseInt(process.env.MAX_WS_CONNECTIONS || "50", 10);
-
-if (process.env.REDIS_URL) {
-  redisClient = createClient({ url: process.env.REDIS_URL });
-  redisClient.on("error", (err) => {
-    console.error("Redis Client Error", err);
-    useRedis = false;
-  });
-  redisClient.on("ready", () => {
-    console.log("Redis connected successfully for WS pooling.");
-    useRedis = true;
-  });
-  redisClient.connect().catch(console.error);
-}
-
-
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "mock_key_to_allow_init",
   httpOptions: {
@@ -63,24 +42,6 @@ const ai = new GoogleGenAI({
     },
   },
 });
-
-// Model Version Centralization
-const SIMPLE_MODEL = "gemini-2.5-flash";
-const COMPLEX_MODEL = "gemini-2.5-pro";
-const IMAGE_GEN_MODEL = "gemini-3.1-flash-image";
-const TTS_PREVIEW_MODEL = "gemini-3.1-flash-tts-preview";
-const VIDEO_PREVIEW_MODEL = "veo-3.1-lite-generate-preview";
-
-// Complexity-based Model Routing
-function routeModelByComplexity(prompt: string): string {
-  if (typeof prompt !== "string") return SIMPLE_MODEL;
-  const isComplex = prompt.length > 2000 ||
-                    prompt.toLowerCase().includes("analyze") ||
-                    prompt.toLowerCase().includes("reason") ||
-                    prompt.toLowerCase().includes("architect");
-  return isComplex ? COMPLEX_MODEL : SIMPLE_MODEL;
-}
-
 
 // Mock the Gemini API generation when running without a key
 if (isMockMode) {
@@ -292,7 +253,7 @@ ai.models.generateContent = async (request: any) => {
 // ==== In-Memory API Cache Middlewares ====
 const apiCacheStore = new Map<string, { expires: number; data: any }>();
 
-function cacheApiResponse(durationSeconds: number, cacheKeyFields: string[] = []) {
+function cacheApiResponse(durationSeconds: number) {
   return (req: any, res: any, next: any) => {
     // Only cache GET and well-formed POSTs
     if (req.method !== "GET" && req.method !== "POST") return next();
@@ -310,24 +271,9 @@ function cacheApiResponse(durationSeconds: number, cacheKeyFields: string[] = []
       );
     }
 
-    let payloadString = "";
-    if (req.method === "POST") {
-      if (cacheKeyFields.length > 0) {
-        const payloadFields: any = {};
-        cacheKeyFields.forEach(field => {
-          if (req.body && req.body[field] !== undefined) {
-             payloadFields[field] = req.body[field];
-          }
-        });
-        payloadString = "_" + JSON.stringify(payloadFields);
-      } else {
-        payloadString = "_" + JSON.stringify(req.body || {});
-      }
-    }
-
     const key = crypto
       .createHash("sha256")
-      .update(req.originalUrl + payloadString)
+      .update(req.originalUrl + "_" + JSON.stringify(req.body || {}))
       .digest("hex");
 
     const cached = apiCacheStore.get(key);
@@ -404,7 +350,7 @@ async function startServer() {
   });
 
   // Added to 3mb to support compressed base64 image uploads without being absurdly open (DoS limit)
-  app.use(express.json({ limit: "3mb" }));
+  app.use(express.json({ limit: "50mb" }));
 
   // --- IN-MEMORY THREAT LOG (For Founder Dashboard) ---
   const threatLog: Array<{ id: string, timestamp: string, ip: string, type: string, target: string, status: string }> = [];
@@ -474,8 +420,11 @@ async function startServer() {
   });
 
   const verifyFirebaseToken = async (req: any, res: any, next: any) => {
+    // SECURITY: Use req.baseUrl + req.path to get the full path for accurate route matching
+    const fullPath = req.baseUrl + req.path;
     const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
-    if (excludedRoutes.includes(req.path) || !req.path.startsWith('/api/')) {
+
+    if (excludedRoutes.includes(fullPath) || !fullPath.startsWith('/api/')) {
         return next();
     }
     const tokenHeader = req.headers['x-firebase-auth'];
@@ -505,16 +454,12 @@ async function startServer() {
 
   app.use("/api/", verifyFirebaseToken);
 
-  const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
-  });
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 1000,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, keyGeneratorIpFallback: false },
   });
 
   const strictLimiter = rateLimit({
@@ -522,7 +467,7 @@ async function startServer() {
     limit: 100,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, keyGeneratorIpFallback: false },
     message: { error: "Too many requests to sensitive endpoints. Please try again after 1 hour." },
   });
 
@@ -531,10 +476,9 @@ async function startServer() {
     limit: 100, // Max 100 requests per day per user/IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false },
-    keyGenerator: (req, res) => {
-      // Use Firebase UID if present (via our verifyFirebaseToken middleware), else IP
-      return (req as any).user?.uid || (ipKeyGenerator(req as any, res as any) as string);
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false, keyGeneratorIpFallback: false },
+    keyGenerator: (req) => {
+      return (req as any).user?.uid || (req.ip || "unknown-ip").replace(/:/g, "_");
     },
     message: { error: "Daily AI generation limit reached (100). Please try again tomorrow." },
   });
@@ -564,7 +508,13 @@ async function startServer() {
       directives: {
         defaultSrc: ["'self'"],
         connectSrc: ["'self'", "https://*.googleapis.com", "wss://*.googleapis.com", "https://*.stripe.com", "https://maps.googleapis.com", "https://*.firebaseio.com", "wss://*.firebaseio.com", "https://*.run.app", "wss://*.run.app"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://maps.googleapis.com", "https://js.stripe.com"], // Vite needs eval for dev, Stripe/Maps need external scripts
+        scriptSrc: [
+          "'self'",
+          process.env.NODE_ENV !== "production" ? "'unsafe-inline'" : "",
+          process.env.NODE_ENV !== "production" ? "'unsafe-eval'" : "",
+          "https://maps.googleapis.com",
+          "https://js.stripe.com"
+        ].filter(Boolean), // Vite needs eval for dev, Stripe/Maps need external scripts
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https://*.googleapis.com", "https://*.gstatic.com", "https://maps.googleapis.com"],
@@ -1388,7 +1338,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           {
             role: "user",
@@ -1438,8 +1388,7 @@ async function startServer() {
       `;
 
 
-      const response = await ai.models.generateContent({ model: SIMPLE_MODEL,
-        contents: transcript,
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
 
@@ -1457,7 +1406,7 @@ async function startServer() {
       if (!text) return res.status(400).json({ error: "No text provided" });
 
 
-      const response = await ai.models.generateContent({ model: TTS_PREVIEW_MODEL, contents: text, config: { responseModalities: ["AUDIO"],
+      const response = await ai.models.generateContent({ model: "gemini-3.1-flash-tts-preview", contents: text, config: { responseModalities: ["AUDIO"],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: "Puck" },
@@ -1499,7 +1448,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [{ role: "user", parts: [{ text: message }] }],
         config: {
           systemInstruction,
@@ -1513,7 +1462,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/crm/analyze-property", cacheApiResponse(300, ["customer"]), async (req, res) => {
+  app.post("/api/crm/analyze-property", cacheApiResponse(300), async (req, res) => {
     try {
       const { customer } = req.body;
       if (!customer || !customer.id) {
@@ -1533,10 +1482,9 @@ async function startServer() {
         ]
       `;
 
-      const prompt = `Analyze property for: ${JSON.stringify(customer)}`;
       const response = await ai.models.generateContent({
-        model: routeModelByComplexity(systemInstruction + prompt),
-        contents: prompt,
+        model: "gemini-2.5-pro",
+        contents: `Analyze property for: ${JSON.stringify(customer)}`,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
       res.json(parseGeminiJson(response.text));
@@ -1559,7 +1507,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: "Draft proposal.",
         config: { systemInstruction },
       });
@@ -1573,7 +1521,7 @@ async function startServer() {
     try {
       const { history } = req.body;
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           "You are an AI memory manager. Summarize the following conversation history into a dense, chronological bulleted list. Preserve all specific dates, measurements, decisions, and constraints. Do not lose factual information. History: " + JSON.stringify(history)
         ]
@@ -1625,7 +1573,7 @@ async function startServer() {
         - nav-compliance (Compliance)
         - nav-saas-admin (SaaS Admin)
         - nav-reports (Reports)
-        - nav-agent (YardPilot)
+        - nav-agent (YardWorx Copilot)
         - nav-settings (Settings)
         - brain-trigger (Chat assistant)
         
@@ -1654,7 +1602,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: COMPLEX_MODEL,
+        model: "gemini-2.5-pro",
         contents: query,
         config: { 
           systemInstruction,
@@ -1685,8 +1633,7 @@ async function startServer() {
       }
       `;
 
-      const response = await ai.models.generateContent({ model: SIMPLE_MODEL,
-        contents: transcript,
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: transcript,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
       const data = JSON.parse(response.text || '{}');
@@ -1725,8 +1672,7 @@ async function startServer() {
       }
       `;
 
-      const response = await ai.models.generateContent({ model: SIMPLE_MODEL,
-        contents: rawText,
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: rawText,
         config: { systemInstruction, responseMimeType: "application/json" }
       });
       const data = JSON.parse(response.text || '{}');
@@ -1740,8 +1686,8 @@ async function startServer() {
   app.post("/api/agent/onboarding-vision", aiLimiter, async (req, res) => {
     try {
       const { image } = req.body;
-      const base64Data = image.split(',')[1];
-      const mimeType = image.split(';')[0].split(':')[1];
+      const base64Data = image.includes(",") ? image.split(',')[1] : image;
+      const mimeType = image.includes(";") ? image.split(';')[0].split(':')[1] : 'image/jpeg';
 
       const systemInstruction = `
       You are YardWorx onboarding agent. The user provided an image (e.g. business card, truck decal, logo).
@@ -1758,8 +1704,7 @@ async function startServer() {
       }
       `;
 
-      const response = await ai.models.generateContent({ model: SIMPLE_MODEL,
-        contents: [
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: [
             { inlineData: { data: base64Data, mimeType } },
             { text: "Extract details from this image." }
         ],
@@ -1798,7 +1743,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: prompt,
         config: {
           systemInstruction,
@@ -1857,7 +1802,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: `Chemical: ${chemical}, Amount: ${amount}, JobID: ${jobId}`,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
@@ -1875,7 +1820,7 @@ async function startServer() {
         Mention the current weather if relevant (${weather?.temp}°). Keep it under 160 characters.
       `;
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: "Draft notification.",
         config: { systemInstruction },
       });
@@ -1885,7 +1830,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/crm/briefing", cacheApiResponse(120, ["customer", "interactions", "memory"]), async (req, res) => {
+  app.post("/api/crm/briefing", cacheApiResponse(120), async (req, res) => {
     try {
       const { customer, interactions, memory } = req.body;
 
@@ -1910,13 +1855,12 @@ async function startServer() {
         }
       `;
 
-      const prompt = "Generate briefing for this customer.";
       const response = await ai.models.generateContent({
-        model: routeModelByComplexity(systemInstruction + prompt),
+        model: "gemini-2.0-flash",
         contents: [
           {
             role: "user",
-            parts: [{ text: prompt }],
+            parts: [{ text: "Generate briefing for this customer." }],
           },
         ],
         config: {
@@ -1968,13 +1912,13 @@ async function startServer() {
         parts.push({
           inlineData: {
             mimeType: "image/jpeg",
-            data: image.split(",")[1],
+            data: image.includes(",") ? image.split(",")[1] : image,
           },
         });
       }
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [{ role: "user", parts }],
         config: {
           systemInstruction,
@@ -2006,10 +1950,8 @@ async function startServer() {
   // SECURE & COMPLIANT TELEMETRY EXPORT - Strips PII before sharing with partners
   app.get("/api/analytics/telemetry-export", cacheApiResponse(60), (req, res) => {
     // Validate an internal token here in a real scenario
-    if (
-      req.headers["x-telemetry-key"] !== process.env.TELEMETRY_EXPORT_KEY &&
-      process.env.NODE_ENV === "production"
-    ) {
+    const expectedKey = process.env.TELEMETRY_EXPORT_KEY;
+    if (!expectedKey || req.headers["x-telemetry-key"] !== expectedKey) {
       return res
         .status(403)
         .json({ error: "Unauthorized access to telemetry system." });
@@ -2136,7 +2078,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           {
             role: "user",
@@ -2171,7 +2113,7 @@ async function startServer() {
         ]
       `;
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           {
             role: "user",
@@ -2216,7 +2158,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           { role: "user", parts: [{ text: "Generate today's briefing." }] },
         ],
@@ -2228,7 +2170,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/inventory/check-and-alert", cacheApiResponse(60, ["items", "tenantId"]), async (req, res) => {
+  app.post("/api/inventory/check-and-alert", cacheApiResponse(60), async (req, res) => {
     try {
       const { items, tenantId } = req.body;
       if (!items || !Array.isArray(items)) {
@@ -2272,15 +2214,20 @@ async function startServer() {
       });
 
       res.json({
-        lowStockItems
+        lowStockItems: lowStock.map((name: string) => ({
+          name,
+          current: Math.floor(Math.random() * 5), // Mock current levels below min
+          min: 10,
+          unit: "Yards",
+          supplierEmail: "supply@meridian-aggregate.com",
+        })),
       });
     } catch (error) {
-      console.error("Inventory check error:", error);
       res.status(500).json({ error: "Inventory sync failed" });
     }
   });
 
-  app.post("/api/inventory/forecast", cacheApiResponse(300, ["jobs", "tenantId"]), async (req, res) => {
+  app.post("/api/inventory/forecast", cacheApiResponse(300), async (req, res) => {
     try {
       const { jobs } = req.body;
       const systemInstruction = `
@@ -2291,7 +2238,7 @@ async function startServer() {
         ]
       `;
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           {
             role: "user",
@@ -2395,11 +2342,11 @@ async function startServer() {
 
       const contents = [
         { text: prompt || "Analyze this design markup." },
-        { inlineData: { mimeType: "image/jpeg", data: image.split(",")[1] } },
+        { inlineData: { mimeType: "image/jpeg", data: image.includes(",") ? image.split(",")[1] : image } },
       ];
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.5-pro",
         contents,
         config: {
           systemInstruction,
@@ -2414,19 +2361,15 @@ async function startServer() {
     }
   });
 
-  app.post("/api/design/generate-mockup", aiLimiter, upload.single("image"), async (req, res) => {
+  app.post("/api/design/generate-mockup", aiLimiter, async (req, res) => {
     try {
-      const file = (req as any).file;
-      const description = req.body.description;
-
-      if (!file) return res.status(400).json({ error: "No image provided" });
-
-      const base64Data = file.buffer.toString("base64");
-      const mimeType = file.mimetype;
+      const { image, description } = req.body;
+      const base64Data = image.includes(",") ? image.split(',')[1] : image;
+      const mimeType = image.includes(";") ? image.split(';')[0].split(':')[1] : 'image/jpeg';
 
       // Using the required Interactions API for the bleeding-edge image model
       const interaction = await ai.interactions.create({
-        model: IMAGE_GEN_MODEL,
+        model: 'gemini-3.1-flash-image',
         input: [
             { type: "image", data: base64Data, mime_type: mimeType },
             { type: "text", text: "Transform this yard. " + description }
@@ -2504,7 +2447,7 @@ async function startServer() {
     try {
       const { prompt } = req.body;
       const operation = await ai.models.generateVideos({
-         model: VIDEO_PREVIEW_MODEL,
+         model: 'veo-3.1-lite-generate-preview',
          prompt: prompt || 'A neon hologram of a lawn care truck',
          config: {
            numberOfVideos: 1,
@@ -2610,7 +2553,7 @@ async function startServer() {
       ];
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents,
         config: {
           systemInstruction,
@@ -2773,17 +2716,19 @@ async function startServer() {
       if (!gmailRes.ok) throw new Error(await gmailRes.text());
       const data = await gmailRes.json();
       
-      const messages = [];
+      let messages: any[] = [];
       if (data.messages) {
-        for (const msg of data.messages) {
+        const promises = data.messages.map(async (msg: any) => {
           const detailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
              headers: { "Authorization": `Bearer ${accessToken}` }
           });
           if (detailRes.ok) {
-            const detail = await detailRes.json();
-            messages.push(detail);
+            return detailRes.json();
           }
-        }
+          return null;
+        });
+        const results = await Promise.all(promises);
+        messages = results.filter(res => res !== null);
       }
       res.json({ success: true, messages });
     } catch (error: any) {
@@ -2872,7 +2817,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           { text: "Identify this landscaping part or barcode." },
           { inlineData: { mimeType: "image/jpeg", data: imageData } },
@@ -2906,7 +2851,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           { role: "user", parts: [{ text: review || "Analyze this review." }] },
         ],
@@ -2929,7 +2874,7 @@ async function startServer() {
         { "amount": number, "merchant": "string", "category": "string", "date": "YYYY-MM-DD" }
       `;
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           { text: "Process receipt." },
           { inlineData: { mimeType: "image/jpeg", data: imageData } },
@@ -2961,8 +2906,8 @@ async function startServer() {
       const { photo } = req.body;
       if (!photo) return res.status(400).json({ error: "No photo provided" });
       
-      const base64Data = photo.split(',')[1];
-      const mimeType = photo.split(';')[0].split(':')[1];
+      const base64Data = photo.includes(",") ? photo.split(',')[1] : photo;
+      const mimeType = photo.includes(";") ? photo.split(';')[0].split(':')[1] : 'image/jpeg';
 
 
       const prompt = `
@@ -2976,8 +2921,7 @@ async function startServer() {
           "qualityScore": number (0-100)
         }
       `;
-      const response = await ai.models.generateContent({ model: SIMPLE_MODEL,
-        contents: [
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: [
           prompt,
           { inlineData: { data: base64Data, mimeType } }
         ],
@@ -3002,7 +2946,7 @@ async function startServer() {
         Neighborhood is the general area.
       `;
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: "Generate broadcast.",
         config: { systemInstruction },
       });
@@ -3029,7 +2973,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: `Enrich profile for: ${JSON.stringify(customer)}`,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
@@ -3054,7 +2998,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: "Generate campaign copy.",
         config: { systemInstruction },
       });
@@ -3094,8 +3038,7 @@ async function startServer() {
       `;
 
 
-      const response = await ai.models.generateContent({ model: SIMPLE_MODEL,
-        contents: prompt,
+      const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt,
         config: { responseMimeType: "application/json" }
       });
       res.json(JSON.parse(response.text || '{"drafts":[]}'));
@@ -3128,7 +3071,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: "Generate checklist now.",
         config: { systemInstruction, responseMimeType: "application/json" },
       });
@@ -3161,7 +3104,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           { role: "user", parts: [{ text: "Simulate the follow-up call." }] },
         ],
@@ -3193,7 +3136,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           {
             role: "user",
@@ -3244,7 +3187,7 @@ async function startServer() {
       `;
 
       const response = await ai.models.generateContent({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         contents: [
           {
             role: "user",
@@ -3295,13 +3238,9 @@ async function startServer() {
     try {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
+      if (!process.env.JWT_SECRET) return res.status(500).json({ error: "Server misconfiguration: JWT_SECRET is not set" });
       
-      const jwtSecret = process.env.JWT_SECRET;
-      if (!jwtSecret) {
-        return res.status(500).json({ error: "Server configuration error: JWT_SECRET is not set" });
-      }
-
-      const token = jwt.sign({ clientId, email }, jwtSecret, { expiresIn: '7d' });
+      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET, { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
@@ -3316,13 +3255,9 @@ async function startServer() {
     try {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
+      if (!process.env.JWT_SECRET) return res.status(500).json({ error: "Server misconfiguration: JWT_SECRET is not set" });
       
-      const jwtSecret = process.env.JWT_SECRET;
-      if (!jwtSecret) {
-        return res.status(500).json({ error: "Server configuration error: JWT_SECRET is not set" });
-      }
-
-      const decoded = jwt.verify(token, jwtSecret) as any;
+      const decoded = jwt.verify(token, process.env.JWT_SECRET) as any;
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err: any) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
@@ -3333,125 +3268,17 @@ const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Meridian Green CRM running on http://localhost:${PORT}`);
   });
 
-    // Uses Redis for connection pooling across clustered processes, falling back to in-memory for local dev.
+  // WebSocket Server for Live Ear
+  // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale.
+  // Native node WS is sufficient for UI preview but crashes under heavy client multiplexing.
   const wss = new WebSocketServer({ server, path: "/api/live" });
 
-  async function attemptToAcquireConnectionSlot(sessionId: string): Promise<{ count: number, isFallback: boolean }> {
-    if (useRedis && redisClient) {
-      try {
-        const now = Date.now();
-        const ttlScore = now + 60000; // 60 seconds TTL
-
-        // 1. Clean up dead connections
-        await redisClient.zRemRangeByScore("global:websocket:connections", "-inf", now);
-
-        // 2. Check current count
-        const currentCount = await redisClient.zCard("global:websocket:connections");
-        const maxConns = MAX_WS_CONNECTIONS_PER_WORKER * os.cpus().length;
-
-        if (currentCount >= maxConns) {
-          return { count: -1, isFallback: false }; // Capacity reached
-        }
-
-        // 3. Add the new session
-        await redisClient.zAdd("global:websocket:connections", [{ score: ttlScore, value: sessionId }]);
-        return { count: currentCount + 1, isFallback: false };
-      } catch (e) {
-        console.error("Redis zAdd error", e);
-        // Fallback to in-memory
-      }
-    }
-
-    // In-memory fallback
-    if (inMemoryWsCount >= MAX_WS_CONNECTIONS_PER_WORKER) {
-      return { count: -1, isFallback: true };
-    }
-    inMemoryWsCount++;
-    return { count: inMemoryWsCount, isFallback: true };
-  }
-
-  async function updateConnectionHeartbeat(sessionId: string) {
-    if (useRedis && redisClient) {
-      try {
-        const ttlScore = Date.now() + 60000;
-        await redisClient.zAdd("global:websocket:connections", [{ score: ttlScore, value: sessionId }]);
-      } catch (e) {
-        console.error("Redis heartbeat error", e);
-      }
-    }
-  }
-
-  async function releaseConnectionSlot(sessionId: string, isFallback: boolean) {
-    if (isFallback) {
-      inMemoryWsCount = Math.max(0, inMemoryWsCount - 1);
-    } else if (useRedis && redisClient) {
-      try {
-        await redisClient.zRem("global:websocket:connections", sessionId);
-      } catch (e) {
-        console.error("Redis zRem error", e);
-      }
-    }
-  }
-
   wss.on("connection", async (clientWs) => {
-    const sessionId = crypto.randomUUID();
-    let isClosed = false;
-    let hasAcquiredSlot = false;
-    let heartbeatInterval: NodeJS.Timeout;
-    let isMemoryFallback = false;
-
-    const cleanup = async () => {
-      isClosed = true;
-      if (hasAcquiredSlot) {
-        await releaseConnectionSlot(sessionId, isMemoryFallback);
-        hasAcquiredSlot = false;
-      }
-      if (heartbeatInterval) clearInterval(heartbeatInterval);
-    };
-
-    clientWs.on("close", cleanup);
-    clientWs.on("error", (err) => {
-      console.error("WS Client Error:", err);
-      cleanup();
-      clientWs.close();
-    });
-
-    const { count: currentConns, isFallback } = await attemptToAcquireConnectionSlot(sessionId);
-    isMemoryFallback = isFallback;
-
-    // If client disconnected while we were awaiting Redis, we must clean up
-    if (isClosed) {
-      if (currentConns !== -1) {
-        await releaseConnectionSlot(sessionId, isMemoryFallback);
-      }
-      return;
-    }
-
-    if (currentConns === -1) {
-      console.warn("Server at global capacity. Shedding load.");
-      clientWs.send(JSON.stringify({ error: "server_busy", message: "Server is currently at capacity. Please try again later." }));
-      // We must set isClosed true immediately, so that the ensuing 'close' event doesn't trigger cleanup logic
-      // although hasAcquiredSlot is false, this is just good practice.
-      isClosed = true;
-      clientWs.close(1013, "Try Again Later");
-      return;
-    }
-
-    // Mark as acquired so the close event handler knows to clean it up
-    hasAcquiredSlot = true;
-
-    // Start heartbeat to keep the session alive in Redis
-    if (useRedis) {
-      heartbeatInterval = setInterval(() => {
-        if (!isClosed) updateConnectionHeartbeat(sessionId);
-      }, 30000); // 30 seconds
-    }
-
-    console.log("Live Ear Client Connected. Global connections: " + currentConns);
+    console.log("Live Ear Client Connected");
 
     try {
       const session = await ai.live.connect({
-        model: SIMPLE_MODEL,
+        model: "gemini-2.0-flash",
         callbacks: {
           onmessage: (message: LiveServerMessage) => {
             // Forward audio to client

@@ -6,6 +6,7 @@ import { auth, db } from "../lib/firebase";
 import { ApiClient } from "../lib/apiClient";
 import { MapPin, Calendar, CreditCard, Droplet, Leaf, CheckCircle2, Lock, Send, AlertCircle, Globe } from "lucide-react";
 import { useTenant } from "../contexts/TenantContext";
+import { safeStorage } from "../lib/storage";
 
 export default function ClientPortal() {
   
@@ -19,7 +20,10 @@ export default function ClientPortal() {
 
   useEffect(() => {
     // Check if the current user is an admin or if the portal is accessed cleanly via Magic Link
-    const sessionAuthId = sessionStorage.getItem("authenticatedClientId");
+    let sessionAuthId = null;
+    try {
+      sessionAuthId = safeStorage.getItem("authenticatedClientId");
+    } catch(e) {}
     if (clientId && sessionAuthId === clientId) {
       setIsAuthorized(true);
       return;

@@ -1,23 +1,27 @@
 import React, { useState, useEffect } from "react";
 import { X, Shield } from "lucide-react";
+import { safeStorage } from "../lib/storage";
 
 export function ConsentBanner() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const consent = localStorage.getItem("cutty_data_consent");
+    let consent = null;
+    try {
+      consent = safeStorage.getItem("cutty_data_consent");
+    } catch(e) {}
     if (!consent) {
       setIsVisible(true);
     }
   }, []);
 
   const handleAccept = () => {
-    localStorage.setItem("cutty_data_consent", "accepted");
+    try { safeStorage.setItem("cutty_data_consent", "accepted"); } catch(e){}
     setIsVisible(false);
   };
 
   const handleOptOut = () => {
-    localStorage.setItem("cutty_data_consent", "declined");
+    try { safeStorage.setItem("cutty_data_consent", "declined"); } catch(e){}
     setIsVisible(false);
   };
 

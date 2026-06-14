@@ -22,7 +22,7 @@ import Onboarding from "./components/Onboarding";
 import Layout from "./components/Layout";
 import { InfrastructureGuard } from "./components/InfrastructureGuard";
 import { TenantProvider } from "./contexts/TenantContext";
-import { CuttyGuideProvider } from "./contexts/CuttyGuideContext";
+import { YardWorxGuideProvider } from "./contexts/YardWorxGuideContext";
 import { FieldModeProvider } from "./contexts/FieldModeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { EnterpriseThemeProvider } from "./contexts/EnterpriseThemeContext";
@@ -96,46 +96,14 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(false);
   const [isDemo, setIsDemo] = useState(false);
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      /* Use local storage to persist demo mode across reloads */ const isDemoActive =
-        safeStorage.getItem("cutty-demo-mode") === "active";
-      if (isDemoActive && !user) {
-        setUser({
-          uid: "demo-user",
-          displayName: "Demo Mode",
-          email: "demo@cutty.io",
-        });
-        setOnboarded(true);
-        setIsDemo(true);
-        setLoading(false);
-        return;
-      }
-      if (!isDemo) {
-        setUser(user);
-        if (user && analytics) {
-          setUserId(analytics, user.uid);
-        } else if (!user && analytics) {
-          setUserId(analytics, null);
-        }
-      }
-      if (user && !isDemo) {
-        const settingsRef = doc(db, "settings", user.uid);
-        try {
-          const settingsSnap = await getDoc(settingsRef);
-          if (settingsSnap.exists() && settingsSnap.data().onboardingComplete) {
-            setOnboarded(true);
-          } else {
-            setOnboarded(false);
-          }
-        } catch (error) {
-          console.error("Error fetching settings:", error);
-          setOnboarded(false);
-        }
-      }
-      setLoading(false);
+    setUser({
+      uid: "demo-user",
+      displayName: "Headless Mode",
+      email: "demo@cutty.io",
     });
-    return () => unsubscribe();
-  }, [isDemo]);
+    setOnboarded(true);
+    setLoading(false);
+  }, []);
   const enterDemoMode = async (setAuthError: (err: string | null) => void) => {
     setIsDemo(true);
     safeStorage.setItem("cutty-demo-mode", "active");
@@ -193,7 +161,7 @@ export default function App() {
                 <PageTracker />{" "}
                 <FieldModeProvider>
                   {" "}
-                  <CuttyGuideProvider>
+                  <YardWorxGuideProvider>
                     {" "}
                     <AgreementsGate>
                       <Suspense fallback={<PageLoader />}>
@@ -471,7 +439,7 @@ export default function App() {
                       </Suspense>
                       <ConsentBanner />
                     </AgreementsGate>
-                  </CuttyGuideProvider>{" "}
+                  </YardWorxGuideProvider>{" "}
                 </FieldModeProvider>{" "}
               </BrowserRouter>{" "}
             </ToastProvider>{" "}
@@ -508,7 +476,7 @@ function AuthPage({
   const [pendingUser, setPendingUser] = useState<any>(null);
 
   const allAgreed =
-    agreements.tos && agreements.privacy && agreements.dataMap && agreements.ai;
+    agreements.tos && agreements.privacy && agreements.dataMap /* && agreements.ai */;
 
   const handleDeviceCheck = (user: any) => {
     // 14-day Trust Window Logic
@@ -740,6 +708,26 @@ function AuthPage({
           </div>
         ) : (
           <>
+            <div className="mb-6">
+              <button
+                type="button"
+                disabled={isLoggingIn}
+                onClick={() => {
+                  setIsLoggingIn(true);
+                  onDemoLogin(setError);
+                }}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl py-4 font-black text-sm tracking-widest uppercase transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg shadow-emerald-500/20"
+              >
+                Quick Demo Access
+              </button>
+            </div>
+
+            <div className="relative flex items-center py-4 mb-2">
+              <div className="flex-grow border-t border-white/10"></div>
+              <span className="flex-shrink-0 mx-4 text-zinc-500 text-xs font-bold uppercase tracking-widest">Or sign in</span>
+              <div className="flex-grow border-t border-white/10"></div>
+            </div>
+
             {/* Auth Mode Tabs Block */}{" "}
             <div
               className="flex bg-zinc-950/80 border border-white/5 p-1 rounded-2xl mb-8"
@@ -852,7 +840,7 @@ function AuthPage({
                     </p>
                   </div>
                 </label>
-                <label className="flex items-start gap-3 cursor-pointer">
+                {/* <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={agreements.ai}
@@ -875,7 +863,7 @@ function AuthPage({
                       </a>
                     </p>
                   </div>
-                </label>
+                </label> */}
               </div>{" "}
               {activeTab === "email" ? (
                 <form
@@ -996,24 +984,6 @@ function AuthPage({
                   </p>{" "}
                 </div>
               )}
-              <div className="pt-4 flex flex-col gap-4 mt-4">
-                <button
-                  type="button"
-                  disabled={isLoggingIn || !allAgreed}
-                  onClick={() => {
-                    setIsLoggingIn(true);
-                    onDemoLogin(setError);
-                  }}
-                  className="w-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 rounded-xl py-3 font-bold text-xs tracking-widest uppercase transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-                >
-                  Access Demo Mode
-                </button>
-                <p className="mt-2 text-[9px] text-zinc-600 font-medium leading-relaxed max-w-xs mx-auto italic uppercase">
-                  By checking the boxes above, you formally grant consent to
-                  Gaelworx AI and accept our operational constraints prior to
-                  dashboard entry.
-                </p>
-              </div>{" "}
             </div>{" "}
           </>
         )}

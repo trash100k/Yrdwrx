@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import { useState } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
@@ -45,7 +43,6 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   ];
 
   const handleDictation = (field: "companyName" | "ownerPhone" | "serviceArea") => {
-    // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setError("Speech recognition is not supported in this browser.");

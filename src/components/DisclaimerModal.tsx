@@ -5,12 +5,13 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
 import { Leaf, Handshake, CheckCircle2 } from "lucide-react";
+import { safeStorage } from "../lib/storage";
 
 export default function DisclaimerModal() {
   const { tenant } = useTenant();
   const [accepted, setAccepted] = useState(() => {
     try {
-      return localStorage.getItem("cutty_ai_disclaimer_accepted") === "true";
+      return safeStorage.getItem("cutty_ai_disclaimer_accepted") === "true";
     } catch {
       return false;
     }
@@ -26,7 +27,7 @@ export default function DisclaimerModal() {
   const handleAccept = async () => {
     setLoading(true);
     try {
-      localStorage.setItem("cutty_ai_disclaimer_accepted", "true");
+      safeStorage.setItem("cutty_ai_disclaimer_accepted", "true");
       if (tenant && !tenant.id.startsWith("demo-")) {
           const ref = doc(db, "tenants", tenant.id);
           await updateDoc(ref, {

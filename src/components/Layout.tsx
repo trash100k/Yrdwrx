@@ -45,8 +45,7 @@ import {
   useScroll,
   useMotionValueEvent,
 } from "motion/react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { cn } from "../lib/utils";
 import YardChat from "./YardChat";
 import LiveEar from "./LiveEar";
 import WalkthroughOverlay from "./WalkthroughOverlay";
@@ -54,15 +53,11 @@ import FieldModeInterface from "./FieldModeInterface";
 import { BiometricGuard } from "./auth/BiometricGuard";
 import AgenticOutreachDrawer from "./AgenticOutreachDrawer";
 import { useEnterpriseTheme } from "../contexts/EnterpriseThemeContext";
-import { useCuttyGuide } from "../contexts/CuttyGuideContext";
+import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
 import { useFieldMode } from "../contexts/FieldModeContext";
 import { useOfflineStatus } from "../hooks/useOfflineStatus";
 import { useTenant } from "../contexts/TenantContext";
 import { useRole } from "../hooks/useRole";
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 import { syncService } from "../services/syncService";
 import { auth } from "../lib/firebase";
@@ -80,7 +75,7 @@ export default function Layout() {
   const [isBrainOpen, setIsBrainOpen] = useState(false);
   const [isOutreachOpen, setIsOutreachOpen] = useState(false);
   const { getSpacingClasses } = useEnterpriseTheme();
-  const { activeFocus, jobStatus } = useCuttyGuide();
+  const { activeFocus, jobStatus } = useYardWorxGuide();
 
   const {
     isFieldMode,
@@ -176,7 +171,7 @@ export default function Layout() {
     {
       id: "agent",
       icon: Bot,
-      label: "YardPilot",
+      label: "YardWorx Copilot",
       path: `${rolePrefix}/agent`,
       group: "BUSINESS",
       allowedRoles: ["owner", "admin"],

@@ -1,8 +1,7 @@
-/// <reference types="@types/google.maps" />
-import { fetchApi } from "../lib/api";
 // @ts-nocheck
-
+import { fetchApi } from "../lib/api";
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { cn } from "../lib/utils";
 import {
   APIProvider,
   Map,
@@ -392,9 +391,6 @@ function Markers({ jobs, onMarkerClick }: MarkersProps) {
       )}{" "}
     </>
   );
-}
-function cn(...inputs: (string | undefined | null | false)[]) {
-  return inputs.filter(Boolean).join(" ");
 }
 function DrawingControl({
   onPolygonComplete,

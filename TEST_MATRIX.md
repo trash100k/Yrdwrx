@@ -1,6 +1,6 @@
 # Comprehensive Edge-Case & Device Testing Matrix
 
-This testing matrix outlines the required manual and automated testing scenarios to ensure the Cutty application is resilient against boundary conditions, malicious inputs, edge cases, and unexpected user behavior. React and Firestore handle basic XSS and NoSQL injection natively, but logic boundaries and UI overflow must be tested.
+This testing matrix outlines the required manual and automated testing scenarios to ensure the YardWorx application is resilient against boundary conditions, malicious inputs, edge cases, and unexpected user behavior. React and Firestore handle basic XSS and NoSQL injection natively, but logic boundaries and UI overflow must be tested.
 
 ## 1. Input Fuzzing & Boundary Edge Cases (The "Unhappy Path")
 
@@ -9,7 +9,7 @@ Apply the following test payloads to **every text input, textarea, and chat box*
 ### A. Special Character & Encoding Payloads
 - **Apostrophes & Quotes (Name fields):** `O'Connor`, `D'Amico`, `"The Boss"`
 - **Emojis & Unicode:** `🌴🏡✨🔥💀`, `Z͂a̐l͊g͗o̓ t͋e̓x̣t̓`, `👨‍👩‍👧‍👦` (complex compound emojis)
-- **RTL & Mixed Languages:** `مرحبا بك في Cutty`, `こんにちは`, `Hello 세계`
+- **RTL & Mixed Languages:** `مرحبا بك في YardWorx`, `こんにちは`, `Hello 세계`
 - **Whitespace Injection:** `   Lead Spaces`, `Trailing Spaces   `, `   `, `\n\n\n\n\t\t\r`
 
 ### B. Overload & Length Payloads

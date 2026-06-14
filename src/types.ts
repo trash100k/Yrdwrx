@@ -1,4 +1,21 @@
-// @ts-nocheck
+declare global {
+  interface SpeechRecognitionType {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onstart: (() => void) | null;
+    onresult: ((event: any) => void) | null;
+    onerror: ((event: any) => void) | null;
+    onend: (() => void) | null;
+    start: () => void;
+    stop: () => void;
+  }
+
+  interface Window {
+    SpeechRecognition: { new (): SpeechRecognitionType } | undefined;
+    webkitSpeechRecognition: { new (): SpeechRecognitionType } | undefined;
+  }
+}
 
 export interface Crew {
   id: string;
@@ -75,8 +92,6 @@ export interface Customer {
   semanticBriefing?: any;
   semanticEnrichment?: any;
   semanticInsights?: any;
-  hoaRules?: string[];
-  propertyDetails?: { size?: number; terrain?: string; hazards?: string[]; access?: string; grassType?: string; features?: string[]; assets?: { id: string; type: string; conditions: string; location: string }[]; };
 }
 
 export interface Invoice {

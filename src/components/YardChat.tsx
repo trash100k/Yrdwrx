@@ -18,7 +18,7 @@ import {
   Shield,
   ShieldCheck
 } from "lucide-react";
-import { useCuttyGuide } from "../contexts/CuttyGuideContext";
+import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
 import { auth } from "../lib/firebase";
 import { useTenant } from "../contexts/TenantContext";
 import { doc, updateDoc } from "firebase/firestore";
@@ -63,7 +63,7 @@ export default function BrainChat({
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
-  const { startTour, setFocus } = useCuttyGuide();
+  const { startTour, setFocus } = useYardWorxGuide();
   const { tenant } = useTenant();
 
   const loadingMessages = [
@@ -114,13 +114,15 @@ export default function BrainChat({
         setIsListening(false);
       };
 
-      recognitionRef.current.onerror = () => {
+      recognition.onerror = () => {
         setIsListening(false);
       };
 
-      recognitionRef.current.onend = () => {
+      recognition.onend = () => {
         setIsListening(false);
       };
+
+      recognitionRef.current = recognition;
     }
   }, []);
 
@@ -665,7 +667,7 @@ export default function BrainChat({
             </div>
             <div>
               <h3 className="text-lg sm:text-xl font-black italic text-white leading-none uppercase">
-                YardPilot
+                YardWorx Copilot
               </h3>
               <div className="flex items-center gap-2 mt-1">
                 <p className="text-[9px] sm:text-xs md:text-[10px] uppercase tracking-widest font-black text-emerald-400">

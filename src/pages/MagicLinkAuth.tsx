@@ -1,3 +1,4 @@
+import { safeStorage } from "../lib/storage";
 import { fetchApi } from "../lib/api";
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -21,8 +22,8 @@ export default function MagicLinkAuth() {
         
         if (data.valid) {
           // Store token/clientId in session so the portal knows who they are
-          sessionStorage.setItem("customerAuthToken", token as string);
-          sessionStorage.setItem("authenticatedClientId", data.clientId);
+          safeStorage.setItem("customerAuthToken", token as string);
+          safeStorage.setItem("authenticatedClientId", data.clientId);
           
           setStatus("success");
           setTimeout(() => {
