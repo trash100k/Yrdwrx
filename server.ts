@@ -1940,10 +1940,7 @@ async function startServer() {
   // SECURE & COMPLIANT TELEMETRY EXPORT - Strips PII before sharing with partners
   app.get("/api/analytics/telemetry-export", cacheApiResponse(60), (req, res) => {
     // Validate an internal token here in a real scenario
-    if (
-      req.headers["x-telemetry-key"] !== process.env.TELEMETRY_EXPORT_KEY &&
-      process.env.NODE_ENV === "production"
-    ) {
+    if (req.headers["x-telemetry-key"] !== process.env.TELEMETRY_EXPORT_KEY) {
       return res
         .status(403)
         .json({ error: "Unauthorized access to telemetry system." });
