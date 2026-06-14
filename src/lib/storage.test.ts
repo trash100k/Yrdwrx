@@ -17,6 +17,60 @@ describe('SafeStorage', () => {
     vi.restoreAllMocks();
   });
 
+  describe('isSupported property', () => {
+    let originalLocalStorage2: Storage;
+
+    beforeEach(() => {
+      originalLocalStorage2 = window.localStorage;
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      Object.defineProperty(window, 'localStorage', {
+        value: originalLocalStorage2,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it('returns false when window is undefined', () => {
+      vi.stubGlobal('window', undefined);
+      expect((safeStorage as any).isSupported).toBe(false);
+    });
+
+    it('returns false when localStorage.setItem throws an error', () => {
+      const mockLocalStorage = {
+        setItem: vi.fn(() => {
+          throw new Error('QuotaExceededError');
+        }),
+        removeItem: vi.fn(),
+      } as unknown as Storage;
+
+      Object.defineProperty(window, 'localStorage', {
+        value: mockLocalStorage,
+        writable: true,
+        configurable: true,
+      });
+
+      expect((safeStorage as any).isSupported).toBe(false);
+    });
+
+    it('returns true when localStorage is supported and works', () => {
+      const mockLocalStorage = {
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      } as unknown as Storage;
+
+      Object.defineProperty(window, 'localStorage', {
+        value: mockLocalStorage,
+        writable: true,
+        configurable: true,
+      });
+
+      expect((safeStorage as any).isSupported).toBe(true);
+    });
+  });
+
   describe('when localStorage is fully supported', () => {
     beforeEach(() => {
       const store: Record<string, string> = {};
