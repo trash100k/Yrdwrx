@@ -102,7 +102,7 @@ export default function DesignStudio() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
       const rec = new SpeechRecognition();
       rec.continuous = true;
       rec.interimResults = true;

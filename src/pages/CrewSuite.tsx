@@ -527,7 +527,7 @@ export default function CrewSuite() {
           </div>
           <button 
             onClick={() => {
-                const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) return alert('Speech recognition not supported in this browser. Try opening the app in a new tab.');
                 const recognition = new SpeechRecognition();
                 recognition.onstart = () => alert("Listening... Speak your log.");
