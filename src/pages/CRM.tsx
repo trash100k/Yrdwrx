@@ -230,9 +230,14 @@ export default function CRM() {
     
     setIsSaving(true);
     try {
-      // In a real app we might batch this
-      for (const id of selectedClients) {
-        await deleteDoc(doc(db, "tenants", tenant.id, "customers", id));
+      const chunkSize = 500;
+      for (let i = 0; i < selectedClients.length; i += chunkSize) {
+        const batch = writeBatch(db);
+        const chunk = selectedClients.slice(i, i + chunkSize);
+        for (const id of chunk) {
+          batch.delete(doc(db, "tenants", tenant.id, "customers", id));
+        }
+        await batch.commit();
       }
       showToast(`${selectedClients.length} clients deleted successfully`, "success");
       setSelectedClients([]);
