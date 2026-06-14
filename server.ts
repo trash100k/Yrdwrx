@@ -3190,8 +3190,9 @@ async function startServer() {
     try {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
+      if (!process.env.JWT_SECRET) return res.status(500).json({ error: "Server misconfiguration: JWT_SECRET is not set" });
       
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
+      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET, { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
@@ -3206,8 +3207,9 @@ async function startServer() {
     try {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
+      if (!process.env.JWT_SECRET) return res.status(500).json({ error: "Server misconfiguration: JWT_SECRET is not set" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development") as any;
+      const decoded = jwt.verify(token, process.env.JWT_SECRET) as any;
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err: any) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
