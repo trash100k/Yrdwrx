@@ -2,6 +2,7 @@
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 import React, { useState, useEffect } from "react";
+import { cn } from "../lib/utils";
 import {
   collection,
   onSnapshot,
@@ -962,8 +963,4 @@ export default function CrewSuite() {
     <HandsFreeDictator />
     </SubscriptionGuard>
   );
-}
-
-function cn(...inputs: (string | undefined | null | false)[]) {
-  return inputs.filter(Boolean).join(" ");
 }

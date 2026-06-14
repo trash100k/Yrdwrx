@@ -45,8 +45,7 @@ import {
   useScroll,
   useMotionValueEvent,
 } from "motion/react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { cn } from "../lib/utils";
 import YardChat from "./YardChat";
 import LiveEar from "./LiveEar";
 import WalkthroughOverlay from "./WalkthroughOverlay";
@@ -59,10 +58,6 @@ import { useFieldMode } from "../contexts/FieldModeContext";
 import { useOfflineStatus } from "../hooks/useOfflineStatus";
 import { useTenant } from "../contexts/TenantContext";
 import { useRole } from "../hooks/useRole";
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 import { syncService } from "../services/syncService";
 import { auth } from "../lib/firebase";
