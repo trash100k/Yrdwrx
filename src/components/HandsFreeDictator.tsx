@@ -4,20 +4,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { fetchApi } from "../lib/api";
 import { playVoice } from "../lib/playVoice";
 
-interface SpeechRecognitionType {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: any) => void) | null;
-  onerror: ((event: any) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-interface SpeechRecognitionConstructor {
-  new (): SpeechRecognitionType;
-}
 
 export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (actionData: any) => void }) {
   const [isActive, setIsActive] = useState(false);

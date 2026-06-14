@@ -1,0 +1,4 @@
+## 2025-05-14 - Critical Authentication Bypass in Express Middleware
+**Vulnerability:** A total authentication bypass was discovered in the `verifyFirebaseToken` middleware. The middleware was mounted using `app.use("/api/", verifyFirebaseToken)`, and it attempted to validate routes using `req.path`.
+**Learning:** In Express, when middleware is mounted on a subpath, `req.path` only contains the portion of the URL *after* the mount point. For example, a request to `/api/test` results in `req.path` being `/test`. The middleware had a check `if (!req.path.startsWith('/api/')) { return next(); }`, which always evaluated to true for API routes, effectively bypassing all authentication.
+**Prevention:** Always use `req.baseUrl + req.path` or `req.originalUrl` when performing route-based logic in mounted middleware to ensure the full path is used for matching.
