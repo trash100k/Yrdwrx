@@ -53,6 +53,19 @@ describe("ApiClient", () => {
       );
     });
 
+    it("should throw ApiError with statusText for 400 responses with invalid JSON", async () => {
+      vi.mocked(fetchApi).mockResolvedValueOnce(
+        new Response("plain text error", {
+          status: 400,
+          statusText: "Bad Request",
+        })
+      );
+
+      await expect(ApiClient.get("/test", { retries: 0 })).rejects.toThrowError(
+        new ApiError("Bad Request", 400, { message: "Bad Request" })
+      );
+    });
+
     it("should throw ApiError with fallback message if JSON is missing 'message'", async () => {
       vi.mocked(fetchApi).mockResolvedValueOnce(
         new Response(JSON.stringify({ otherData: "value" }), {
@@ -151,6 +164,15 @@ describe("ApiClient", () => {
 
       await ApiClient.get("/test", { headers: { custom: "header" } });
       expect(fetchApi).toHaveBeenCalledWith("/test", expect.objectContaining({ method: "GET" }));
+    });
+
+    it("should use full endpoint if it starts with http:// or https://", async () => {
+      vi.mocked(fetchApi).mockResolvedValueOnce(
+        new Response(JSON.stringify({}), { status: 200 })
+      );
+
+      await ApiClient.get("https://example.com/api");
+      expect(fetchApi).toHaveBeenCalledWith("https://example.com/api", expect.objectContaining({ method: "GET" }));
     });
 
     it("should correctly forward POST requests", async () => {
