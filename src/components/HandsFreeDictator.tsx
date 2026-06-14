@@ -31,17 +31,16 @@ export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (acti
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    const SpeechRecognition =
-      (window as unknown as { SpeechRecognition: SpeechRecognitionConstructor; webkitSpeechRecognition: SpeechRecognitionConstructor }).SpeechRecognition ||
-      (window as unknown as { SpeechRecognition: SpeechRecognitionConstructor; webkitSpeechRecognition: SpeechRecognitionConstructor }).webkitSpeechRecognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = "en-US";
+      const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
 
-      recognitionRef.current.onresult = (event: any) => {
+      recognition.onresult = (event: any) => {
         let currentInterim = "";
         let finalTrans = "";
 
@@ -63,18 +62,18 @@ export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (acti
         setInterimTranscript(currentInterim);
       };
 
-      recognitionRef.current.onerror = (e) => {
+      recognition.onerror = (e: any) => {
         console.error("Speech recognition error:", e);
         if (isActive) {
            // try to restart if it's a minor error like no-speech
-           try { recognitionRef.current?.start(); } catch (err) {}
+           try { recognition.start(); } catch (err) {}
         }
       };
 
-      recognitionRef.current.onend = () => {
-        if (isActive && recognitionRef.current) {
+      recognition.onend = () => {
+        if (isActive && recognition) {
           try {
-             recognitionRef.current.start();
+             recognition.start();
           } catch (e) {
              console.error("Could not restart", e);
           }
