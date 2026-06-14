@@ -77,6 +77,22 @@ describe('fetchApi', () => {
     });
   });
 
+  it('should handle URL objects properly', async () => {
+    auth.currentUser = {
+      getIdToken: vi.fn().mockResolvedValue('mock-token'),
+    } as any;
+
+    const url = new URL('http://localhost:3000/api/data');
+
+    await fetchApi(url);
+
+    expect(global.fetch).toHaveBeenCalledWith(url, {
+      headers: {
+        'x-firebase-auth': 'Bearer mock-token',
+      },
+    });
+  });
+
   it('should add auth header for absolute api URLs matching the host if user is authenticated', async () => {
     Object.defineProperty(auth, 'currentUser', {
       value: {
@@ -128,6 +144,21 @@ describe('fetchApi', () => {
 
     expect(consoleSpy).toHaveBeenCalledWith('Failed to get auth token for fetch', expect.any(Error));
     expect(global.fetch).toHaveBeenCalledWith('/api/data', {}); // Fetches without the header
+
+    consoleSpy.mockRestore();
+  });
+
+  it('should execute error path completely when auth.currentUser.getIdToken rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    auth.currentUser = {
+      getIdToken: vi.fn().mockRejectedValue(new Error('Simulated rejection for error path')),
+    } as any;
+
+    await fetchApi('/api/data', { headers: { 'X-Custom-Header': 'value' } });
+
+    expect(consoleSpy).toHaveBeenCalledWith('Failed to get auth token for fetch', expect.any(Error));
+    expect(global.fetch).toHaveBeenCalledWith('/api/data', { headers: { 'X-Custom-Header': 'value' } });
 
     consoleSpy.mockRestore();
   });
