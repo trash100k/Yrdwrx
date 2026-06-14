@@ -2,6 +2,7 @@
   "name": "react-example",
   "private": true,
   "version": "0.0.0",
+  "license": "SEE LICENSE IN EULA",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -75,6 +76,6 @@
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.7"
   }
 }

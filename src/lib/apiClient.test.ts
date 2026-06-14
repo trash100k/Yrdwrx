@@ -187,9 +187,9 @@ describe("ApiClient", () => {
         new Response(JSON.stringify({}), { status: 200 })
       );
 
-      auth.currentUser = {
+      Object.defineProperty(auth, "currentUser", { value: {
         getIdToken: vi.fn().mockResolvedValue("mock-token"),
-      } as any;
+      } as any, configurable: true });
 
       await ApiClient.get("/test");
 
@@ -211,9 +211,9 @@ describe("ApiClient", () => {
         new Response(JSON.stringify({}), { status: 200 })
       );
 
-      auth.currentUser = {
+      Object.defineProperty(auth, "currentUser", { value: {
         getIdToken: vi.fn().mockRejectedValue(new Error("Token failed")),
-      } as any;
+      } as any, configurable: true });
 
       await ApiClient.get("/test");
 

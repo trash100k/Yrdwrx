@@ -8,11 +8,11 @@ export default function PrivacyPolicy() {
   const summaryCards = [
     {
       title: "1. What We Handle & Protect",
-      desc: "We collect your business details, crew GPS locations strictly during active shifts (so they can be safely routed and get paid), client communications, and standard telemetry like IP addresses and device usage data. Your records are walled off safely and treated with high confidentiality.",
+      desc: "We collect your business details, crew GPS locations strictly during active shifts (so they can be safely routed and get paid), client communications, and standard telemetry like IP addresses and device usage data. Your records are walled off safely and treated with high confidentiality. We explicitly do not collect data from users under 18.",
     },
     {
       title: "2. How We Use and Anonymize",
-      desc: "We use details to organize daily schedules, send clients automated 'on the way' messages, and track machinery. We never sell your personal identity, customer names, or emails. We do, however, reserve the right to commercialize or sell completely anonymized backend stats and usage data to improve industry analytics.",
+      desc: "We use details to organize daily schedules, send clients automated 'on the way' messages, and track machinery. We never sell your personal identity, customer names, or emails. We do, however, reserve the right to commercialize or sell completely anonymized backend stats and usage data to improve industry analytics. You also agree not to use our AI outputs to train your own competing models.",
     },
     {
       title: "3. Your California (CCPA) Rights",
@@ -31,11 +31,11 @@ export default function PrivacyPolicy() {
   const verbatimSections = [
     {
       title: "1. Information We Collect",
-      text: "We collect personal information that you provide to us when you register for YardWorx, operated by Gaelworx AI. For owners, this includes business details, billing information, and operational metrics. For contractors, this includes location data during shifts and performance logs. For clients, this includes property metrics and communication histories. We also automatically collect telemetry such as IP addresses and device usage data.",
+      text: "We collect personal information that you provide to us when you register for YardWorx, brought to market by Gaelworx AI, but all intellectual property and data controls are owned exclusively by Gaelworx AI. For owners, this includes business details, billing information, and operational metrics. For contractors, this includes location data during shifts and performance logs. For clients, this includes property metrics and communication histories. We also automatically collect telemetry such as IP addresses and device usage data. In accordance with Google API policies, this application is strictly prohibited for individuals under the age of 18, and we do not knowingly collect any data from minors.",
     },
     {
       title: "2. How We Use Information",
-      text: "Gaelworx AI uses the information we collect to operate, maintain, and provide the features of YardWorx. Your data may be used to deliver targeted notifications to clients, improve algorithmic scheduling for contractors, and train localized heuristics for the owner's tenant environment. While we do not sell any personally identifiable data, we may aggregate and anonymize backend operational capabilities and usage metadata. This completely anonymized data may be commercialized or sold by Gaelworx AI in compliance with standard legal processes to improve broader industry analytics and heuristics.",
+      text: "Gaelworx AI uses the information we collect to operate, maintain, and provide the features of YardWorx. Your data may be used to deliver targeted notifications to clients, improve algorithmic scheduling for contractors, and train localized heuristics for the owner's tenant environment. You, the user, are strictly prohibited from using any AI-generated output from YardWorx to develop or train competing large language models. While we do not sell any personally identifiable data, we may aggregate and anonymize backend operational capabilities and usage metadata. This completely anonymized data may be commercialized or sold by Gaelworx AI in compliance with standard legal processes to improve broader industry analytics and heuristics.",
     },
     {
       title: "3. CCPA Data Rights (California)",
