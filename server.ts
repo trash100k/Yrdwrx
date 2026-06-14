@@ -2671,17 +2671,19 @@ async function startServer() {
       if (!gmailRes.ok) throw new Error(await gmailRes.text());
       const data = await gmailRes.json();
       
-      const messages = [];
+      let messages: any[] = [];
       if (data.messages) {
-        for (const msg of data.messages) {
+        const promises = data.messages.map(async (msg: any) => {
           const detailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
              headers: { "Authorization": `Bearer ${accessToken}` }
           });
           if (detailRes.ok) {
-            const detail = await detailRes.json();
-            messages.push(detail);
+            return detailRes.json();
           }
-        }
+          return null;
+        });
+        const results = await Promise.all(promises);
+        messages = results.filter(res => res !== null);
       }
       res.json({ success: true, messages });
     } catch (error: any) {
