@@ -37,10 +37,6 @@ interface SpeechRecognitionType {
   stop: () => void;
 }
 
-interface SpeechRecognitionConstructor {
-  new (): SpeechRecognitionType;
-}
-
 export default function BrainChat({
   isOpen = true,
   setIsOpen = () => {},
@@ -87,26 +83,14 @@ export default function BrainChat({
 
   // Initialize Speech Recognition
   useEffect(() => {
-    const SpeechRecognition =
-      (
-        window as unknown as {
-          SpeechRecognition: SpeechRecognitionConstructor;
-          webkitSpeechRecognition: SpeechRecognitionConstructor;
-        }
-      ).SpeechRecognition ||
-      (
-        window as unknown as {
-          SpeechRecognition: SpeechRecognitionConstructor;
-          webkitSpeechRecognition: SpeechRecognitionConstructor;
-        }
-      ).webkitSpeechRecognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = "en-US";
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
 
-      recognitionRef.current.onresult = (event: {
+      recognition.onresult = (event: {
         results: { transcript: string }[][];
       }) => {
         const transcript = event.results[0][0].transcript;
@@ -114,13 +98,15 @@ export default function BrainChat({
         setIsListening(false);
       };
 
-      recognitionRef.current.onerror = () => {
+      recognition.onerror = () => {
         setIsListening(false);
       };
 
-      recognitionRef.current.onend = () => {
+      recognition.onend = () => {
         setIsListening(false);
       };
+
+      recognitionRef.current = recognition;
     }
   }, []);
 
