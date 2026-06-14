@@ -53,6 +53,19 @@ describe("ApiClient", () => {
       );
     });
 
+    it("should throw ApiError with statusText for 400 with plain text", async () => {
+      vi.mocked(fetchApi).mockResolvedValueOnce(
+        new Response("plain text error", {
+          status: 400,
+          statusText: "Bad Request",
+        })
+      );
+
+      await expect(ApiClient.get("/test", { retries: 0 })).rejects.toThrowError(
+        new ApiError("Bad Request", 400, { message: "Bad Request" })
+      );
+    });
+
     it("should throw ApiError with fallback message if JSON is missing 'message'", async () => {
       vi.mocked(fetchApi).mockResolvedValueOnce(
         new Response(JSON.stringify({ otherData: "value" }), {
