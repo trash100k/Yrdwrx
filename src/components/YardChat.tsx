@@ -26,6 +26,20 @@ import { db } from "../lib/firebase";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 
+interface SpeechRecognitionType {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { results: { transcript: string }[][] }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognitionType;
+}
 
 export default function BrainChat({
   isOpen = true,
@@ -73,14 +87,26 @@ export default function BrainChat({
 
   // Initialize Speech Recognition
   useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition =
+      (
+        window as unknown as {
+          SpeechRecognition: SpeechRecognitionConstructor;
+          webkitSpeechRecognition: SpeechRecognitionConstructor;
+        }
+      ).SpeechRecognition ||
+      (
+        window as unknown as {
+          SpeechRecognition: SpeechRecognitionConstructor;
+          webkitSpeechRecognition: SpeechRecognitionConstructor;
+        }
+      ).webkitSpeechRecognition;
     if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = "en-US";
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = "en-US";
 
-      recognition.onresult = (event: {
+      recognitionRef.current.onresult = (event: {
         results: { transcript: string }[][];
       }) => {
         const transcript = event.results[0][0].transcript;

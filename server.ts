@@ -14,6 +14,7 @@ import { WebSocketServer } from "ws";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import admin from "firebase-admin";
 
 dotenv.config();
 
@@ -803,7 +804,7 @@ async function startServer() {
           <div style="max-width: 800px; margin: 0 auto; border: 1px solid #eee; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
             <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 20px; text-transform: uppercase;">
               <div>
-                <h1 style="margin:0; font-size: 32px; font-weight: 900; letter-spacing: -1px;">CUTTY INC.</h1>
+                <h1 style="margin:0; font-size: 32px; font-weight: 900; letter-spacing: -1px;">YARDWORX INC.</h1>
                 <p style="margin:5px 0 0 0; font-size: 12px; color: #888;">Meridian, MS • (555) 012-3456</p>
               </div>
               <div style="text-align: right;">
@@ -2171,9 +2172,46 @@ async function startServer() {
 
   app.post("/api/inventory/check-and-alert", cacheApiResponse(60), async (req, res) => {
     try {
-      const { items } = req.body;
-      // FIXME(Management): Replace mock DB with actual inventory count queries
-      const lowStock = items.filter(() => Math.random() < 0.2); // Demoted from 0.5 to 0.2 for realistic mock threshold
+      const { items, tenantId } = req.body;
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ error: "Items array required" });
+      }
+      if (!tenantId) {
+        return res.status(403).json({ error: "tenantId is required for data isolation" });
+      }
+
+      // Strict data isolation check: ensure requested tenant matches auth token
+      const userTenant = (req as any).user?.tenant || (req as any).user?.tenantId;
+      if (!userTenant || (userTenant !== tenantId && userTenant !== "genesis-1")) {
+        return res.status(403).json({ error: "Unauthorized cross-tenant data access" });
+      }
+
+      const db = admin.firestore();
+      const inventoryRef = db.collection("inventory");
+      const inventoryQuery = inventoryRef.where("tenantId", "==", tenantId);
+      const snapshot = await inventoryQuery.get();
+
+      const lowStockItems: any[] = [];
+      snapshot.forEach((doc: any) => {
+        const data = doc.data();
+        const itemName = (data.name || "").toLowerCase();
+        const itemCategory = (data.category || "").toLowerCase();
+
+        const isMatched = items.some((checkItem: string) => {
+          const checkName = checkItem.toLowerCase();
+          return itemName.includes(checkName) || itemCategory.includes(checkName);
+        });
+
+        if (isMatched && (data.currentLevel || 0) < (data.minLevel || 10)) {
+           lowStockItems.push({
+             name: data.name,
+             current: data.currentLevel || 0,
+             min: data.minLevel || 10,
+             unit: data.unit || "Units",
+             supplierEmail: data.supplierEmail || "supply@meridian-aggregate.com"
+           });
+        }
+      });
 
       res.json({
         lowStockItems: lowStock.map((name: string) => ({

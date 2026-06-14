@@ -382,7 +382,7 @@ export default function ClientPortal() {
               <div className="bg-zinc-900 border-4 border-emerald-500/10 rounded-2xl p-5 sm:p-8 shadow-2xl relative overflow-hidden">
                 {/* Branding Watermark */}
                 <div className="absolute -top-10 -right-10 text-[120px] font-black italic text-white/[0.02] uppercase select-none pointer-events-none">
-                  CUTTY
+                  YARDWORX
                 </div>
 
                 <div className="flex flex-col xl:flex-row gap-4 sm:gap-8 relative z-10">

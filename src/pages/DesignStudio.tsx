@@ -691,6 +691,30 @@ export default function DesignStudio() {
                                 <span className="font-bold">Admin Override Required:</span> Owners must override to bypass.
                               </div>
                             )}
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="micro-label text-emerald-400 uppercase tracking-widest font-black flex items-center gap-2">
+                            <Trees size={14} /> Materials Needed
+                          </p>
+                          
+                          {tenant?.settings?.subFeatures?.semanticStyleLearning && (
+                            <span className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg text-[9px] font-black uppercase tracking-widest">
+                              <BrainCircuit size={12} /> Semantic Style Match Active
+                            </span>
+                          )}
+                        </div>
+                        
+                        {tenant?.settings?.subFeatures?.semanticStyleLearning && (
+                          <div className="mb-4 p-4 bg-black/20 border border-white/5 rounded-2xl text-xs text-white/50 leading-relaxed font-bold">
+                            <span className="text-white">YardWorx Logic: </span>
+                            Gemini pulled directly from your custom contractor installation heuristics:<br/>
+                            <span className="italic opacity-80 mt-1 block border-l-2 border-emerald-500/50 pl-2">
+                              "{tenant?.settings?.customInstallRules || 'No custom rules applied.'}"
+                            </span>
                           </div>
                         )}
 

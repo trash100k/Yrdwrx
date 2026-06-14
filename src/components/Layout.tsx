@@ -437,7 +437,7 @@ export default function Layout() {
                 <Leaf size={24} className="sm:w-7 sm:h-7" />
               </div>
               <span className="font-bold tracking-tight text-xl sm:text-3xl text-white">
-                CUTTY
+                YARDWORX
               </span>
             </Link>
 
