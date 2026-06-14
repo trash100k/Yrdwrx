@@ -8,6 +8,8 @@ import {
   getDocs,
   addDoc,
   serverTimestamp,
+  writeBatch,
+  doc,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
@@ -24,13 +26,23 @@ export async function ingestKnowledge(
     const nodes = await response.json();
 
     // Store in Firestore
-    for (const node of nodes) {
-      await addDoc(collection(db, "knowledge"), {
-        ...node,
-        lastUpdated: new Date().toISOString(),
-        relevanceCount: 0,
-      });
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < nodes.length; i += CHUNK_SIZE) {
+      const chunk = nodes.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+
+      for (const node of chunk) {
+        const newDocRef = doc(collection(db, "knowledge"));
+        batch.set(newDocRef, {
+          ...node,
+          lastUpdated: new Date().toISOString(),
+          relevanceCount: 0,
+        });
+      }
+
+      await batch.commit();
     }
+
     return nodes;
   } catch (error) {
     console.error("Brain Ingestion Failed:", error);
