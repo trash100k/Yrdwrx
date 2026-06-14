@@ -1240,39 +1240,46 @@ async function startServer() {
         });
       }
       
-      let finalAmount = amount;
-      let finalDescription = description || "SaaS Service";
-      
       // SECURITY FIX: Server-side price validation
       // Prevent client-side manipulation of payment amounts by fetching the source of truth from Firestore
-      if (invoiceId) {
-        try {
-          const admin = require("firebase-admin");
-          if (!admin.apps.length) {
-             const fs = require("fs");
-             let config = {};
-             if (fs.existsSync('./firebase-applet-config.json')) {
-                const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-                config = { projectId: appletConfig.projectId };
-             }
-             admin.initializeApp(config);
-          }
-          const db = admin.firestore();
-          const invSnap = await db.collection("invoices").doc(invoiceId).get();
-          if (invSnap.exists) {
-            const data = invSnap.data();
-            if (data && data.amount) {
-              finalAmount = data.amount;
-              finalDescription = `Invoice ${invoiceId}`;
-            }
-          }
-        } catch (e: any) {
-          console.error("Firestore lookup failed for invoice price validation:", e.message);
-          // If security check fails, fail secure
-          return res.status(500).json({ error: "Failed to securely validate invoice price." });
+      if (!invoiceId) {
+        console.error("SECURITY ERROR: Stripe checkout attempted without an invoiceId.");
+        return res.status(400).json({ error: "Missing invoiceId for secure payment validation." });
+      }
+
+      let finalAmount;
+      let finalDescription;
+
+      try {
+        const admin = require("firebase-admin");
+        if (!admin.apps.length) {
+           const fs = require("fs");
+           let config = {};
+           if (fs.existsSync('./firebase-applet-config.json')) {
+              const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+              config = { projectId: appletConfig.projectId };
+           }
+           admin.initializeApp(config);
         }
-      } else {
-        console.warn("SECURITY WARNING: Stripe checkout processed a client-side amount without an invoiceId. This is vulnerable to price modification.");
+        const db = admin.firestore();
+        const invSnap = await db.collection("invoices").doc(invoiceId).get();
+        if (invSnap.exists) {
+          const data = invSnap.data();
+          if (data && typeof data.amount === 'number') {
+            finalAmount = data.amount;
+            finalDescription = data.description || `Invoice ${invoiceId}`;
+          } else {
+            console.error("SECURITY ERROR: Invoice data invalid or missing amount:", invoiceId);
+            return res.status(400).json({ error: "Invalid invoice data." });
+          }
+        } else {
+          console.error("SECURITY ERROR: Invoice not found:", invoiceId);
+          return res.status(404).json({ error: "Invoice not found." });
+        }
+      } catch (e: any) {
+        console.error("Firestore lookup failed for invoice price validation:", e.message);
+        // If security check fails, fail secure
+        return res.status(500).json({ error: "Failed to securely validate invoice price." });
       }
 
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
