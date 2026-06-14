@@ -419,8 +419,11 @@ async function startServer() {
   });
 
   const verifyFirebaseToken = async (req: any, res: any, next: any) => {
+    // SECURITY: Use req.baseUrl + req.path to get the full path for accurate route matching
+    const fullPath = req.baseUrl + req.path;
     const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
-    if (excludedRoutes.includes(req.path) || !req.path.startsWith('/api/')) {
+
+    if (excludedRoutes.includes(fullPath) || !fullPath.startsWith('/api/')) {
         return next();
     }
     const tokenHeader = req.headers['x-firebase-auth'];
