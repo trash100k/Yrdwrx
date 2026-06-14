@@ -717,8 +717,15 @@ export default function CRM() {
             aiScoreLabel: "Evaluating",
           }));
 
-          for (const item of imports) {
-            await addDoc(collection(db, "customers"), item);
+          const BATCH_LIMIT = 500;
+          for (let i = 0; i < imports.length; i += BATCH_LIMIT) {
+            const batch = writeBatch(db);
+            const chunk = imports.slice(i, i + BATCH_LIMIT);
+            for (const item of chunk) {
+              const docRef = doc(collection(db, "customers"));
+              batch.set(docRef, item);
+            }
+            await batch.commit();
           }
 
           showToast(`Successfully imported ${imports.length} past customers`, "success");
@@ -786,8 +793,15 @@ export default function CRM() {
         }
       }
       
-      for (const item of imports) {
-        await addDoc(collection(db, "customers"), item);
+      const BATCH_LIMIT = 500;
+      for (let i = 0; i < imports.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        const chunk = imports.slice(i, i + BATCH_LIMIT);
+        for (const item of chunk) {
+          const docRef = doc(collection(db, "customers"));
+          batch.set(docRef, item);
+        }
+        await batch.commit();
       }
       
       showToast(`Imported ${imports.length} contacts from Google Workspace`, "success");
