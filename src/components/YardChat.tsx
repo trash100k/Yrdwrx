@@ -114,15 +114,14 @@ export default function BrainChat({
         setIsListening(false);
       };
 
-      recognition.onerror = () => {
+      recognitionRef.current.onerror = () => {
         setIsListening(false);
       };
 
-      recognition.onend = () => {
+      recognitionRef.current.onend = () => {
         setIsListening(false);
       };
 
-      recognitionRef.current = recognition;
     }
   }, []);
 
