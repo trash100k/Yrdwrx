@@ -2214,7 +2214,7 @@ async function startServer() {
       });
 
       res.json({
-        lowStockItems: lowStock.map((name: string) => ({
+        lowStockItems: lowStockItems.map((name: string) => ({
           name,
           current: Math.floor(Math.random() * 5), // Mock current levels below min
           min: 10,

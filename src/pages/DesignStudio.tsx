@@ -691,7 +691,7 @@ export default function DesignStudio() {
                                 <span className="font-bold">Admin Override Required:</span> Owners must override to bypass.
                               </div>
                             )}
-                          </button>
+                          </div>
                         )}
                       </div>
 
