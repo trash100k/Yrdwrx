@@ -3235,13 +3235,18 @@ async function startServer() {
       if (!process.env.JWT_SECRET) return res.status(500).json({ error: "Server misconfiguration: JWT_SECRET is not set" });
       
       const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET, { expiresIn: '7d' });
-      // In a real app, send an email here using SendGrid or Mailgun
-      // We will just return the link so the frontend can show it or simulate sending
+
+      // SECURITY: In production, this magic link must be sent via a secure email channel.
+      // We do NOT return the token or link in the response to prevent unauthorized access.
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
       
-      res.json({ success: true, token, magicLink });
+      // Simulate sending email. In production, this would be an actual email delivery service.
+      // We log only a confirmation of generation, NOT the link itself, to avoid info leakage in logs.
+      console.log(`[SECURITY] Magic link generated for ${email}`);
+
+      res.json({ success: true, message: "If the account exists, a magic link has been sent to the registered email." });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "An error occurred during magic link generation." });
     }
   });
 
