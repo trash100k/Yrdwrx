@@ -72,7 +72,7 @@ describe('compressImage', () => {
         expect(mockContext.drawImage).toHaveBeenCalledWith(mockImage, 0, 0, 1200, 600);
     });
 
-    it('successfully compresses an image and scales height down', async () => {
+    it('rejects portrait photos', async () => {
         mockImage.width = 1000;
         mockImage.height = 2000;
         const file = new File([''], 'test.png', { type: 'image/png' });
@@ -82,11 +82,7 @@ describe('compressImage', () => {
         mockFileReader.onload({ target: { result: mockFileReader.result } });
         mockImage.onload();
 
-        const result = await promise;
-
-        expect(result).toBe('data:image/jpeg;base64,compressed-data');
-        expect(mockCanvas.width).toBe(600); // 1000 scaled proportionally
-        expect(mockCanvas.height).toBe(1200); // 2000 scaled to 1200
+        await expect(promise).rejects.toThrow('Only landscape photos are allowed');
     });
 
     it('does not scale if image is smaller than max dimensions', async () => {
