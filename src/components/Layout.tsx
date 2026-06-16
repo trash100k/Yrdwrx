@@ -27,6 +27,7 @@ import {
   CloudAlert,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
   PieChart,
   Zap,
   Truck,
@@ -316,6 +317,8 @@ export default function Layout() {
                   {isSidebarOpen ? (
                     <button
                       onClick={() => toggleGroup(group)}
+                      aria-expanded={expandedGroups[group]}
+                      aria-controls={`nav-group-${group.toLowerCase()}`}
                       className="w-full flex items-center justify-between px-4 py-4 text-[15px] font-bold text-zinc-300 uppercase tracking-wider hover:text-white transition-colors"
                     >
                       <span>{group}</span>
@@ -333,6 +336,7 @@ export default function Layout() {
                   <AnimatePresence initial={false}>
                     {(expandedGroups[group] || !isSidebarOpen) && (
                       <motion.div
+                        id={`nav-group-${group.toLowerCase()}`}
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
@@ -357,6 +361,7 @@ export default function Layout() {
                               key={item.path}
                               to={item.path}
                               id={navId}
+                              aria-label={item.label}
                               className={({ isActive }) =>
                                 cn(
                                   "flex items-center gap-5 px-4 py-4 rounded-3xl transition-all duration-200",
@@ -402,10 +407,11 @@ export default function Layout() {
               )}
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                aria-label="Toggle sidebar"
+                aria-label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+                aria-expanded={isSidebarOpen}
                 className="w-full flex items-center justify-center p-6 rounded-3xl bg-white/5 text-zinc-400 hover:text-white transition-all border border-white/5"
               >
-                <Menu size={24} />
+                {isSidebarOpen ? <ChevronLeft size={24} /> : <Menu size={24} />}
               </button>
             </div>
           </div>
