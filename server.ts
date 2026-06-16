@@ -869,6 +869,7 @@ async function startServer() {
       // Use Puppeteer to generate PDF buffer
       const browser = await puppeteer.launch({
         headless: true,
+        args: ["--no-sandbox"],
       });
       const page = await browser.newPage();
       await page.setContent(invoiceHtml, { waitUntil: "load" });
@@ -2613,7 +2614,7 @@ async function startServer() {
       `;
 
       // Generate PDF with Puppeteer
-      const browser = await puppeteer.launch();
+      const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
       const page = await browser.newPage();
       await page.setContent(invoiceHtml, { waitUntil: 'load' });
       const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });

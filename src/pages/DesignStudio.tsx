@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useTenant } from "../contexts/TenantContext";
 import { useRole } from "../hooks/useRole";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { DesignDatabasePanel } from "../components/DesignDatabasePanel";
 import { useAuditLog } from "../hooks/useAuditLog";
 import { motion, AnimatePresence } from "motion/react";
@@ -88,7 +89,6 @@ export default function DesignStudio() {
   const [result, setResult] = useState<DesignResult | null>(null);
   const [mockupImage, setMockupImage] = useState<string | null>(null);
   const [isGeneratingMockup, setIsGeneratingMockup] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [overriddenViolations, setOverriddenViolations] = useState(false);
@@ -98,64 +98,54 @@ export default function DesignStudio() {
   const [activeView, setActiveView] = useState<"studio" | "database">("studio");
   const [activeTab, setActiveTab] = useState<"scribble" | "compare">("scribble");
 
-  const recognitionRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-      if (!SpeechRecognition) return;
-      const rec = new SpeechRecognition();
-      rec.continuous = true;
-      rec.interimResults = true;
-
-      rec.onresult = (event: any) => {
-        let currentTranscript = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        setTranscript(currentTranscript);
-      };
-
-      rec.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsRecording(false);
-      };
-
-      rec.onend = () => {
-        if (isRecording) {
-          try {
-            rec.start();
-          } catch (e) {}
-        }
-      };
-
-      recognitionRef.current = rec;
+  const onResult = React.useCallback((event: any) => {
+    let currentTranscript = "";
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      currentTranscript += event.results[i][0].transcript;
     }
+    setTranscript(currentTranscript);
+  }, []);
 
+  const [isActive, setIsActive] = useState(false);
+
+  const onError = React.useCallback((event: any) => {
+    console.error("Speech recognition error", event.error);
+  }, []);
+
+  const onEnd = React.useCallback(() => {
+    if (isActive) {
+      setTimeout(() => {
+         if (isActive) start();
+      }, 500);
+    }
+  }, [isActive]);
+
+  const { isListening: isRecording, supported, start, stop, recognition } = useSpeechRecognition({
+    continuous: true,
+    interimResults: true,
+    onResult,
+    onError,
+    onEnd
+  });
+
+  // Cleanup
+  useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {}
-      }
+      stop();
     };
-  }, [isRecording]);
+  }, [stop]);
 
   const toggleRecording = () => {
-    if (!recognitionRef.current) {
+    if (!supported) {
       alert("Speech recognition is not supported in this browser environment. Please use Google Chrome or Safari.");
       return;
     }
-    if (isRecording) {
-      setIsRecording(false);
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
+    if (isActive) {
+      setIsActive(false);
+      stop();
     } else {
-      setIsRecording(true);
-      try {
-        recognitionRef.current.start();
-      } catch (e) {}
+      setIsActive(true);
+      start();
     }
   };
 
