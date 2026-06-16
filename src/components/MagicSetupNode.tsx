@@ -1,52 +1,50 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { Mic, Loader2, Sparkles, Globe, ScanFace, FileImage } from "lucide-react";
 import { motion } from "motion/react";
 import { fetchApi } from "../lib/api";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }) {
-  const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [url, setUrl] = useState("");
   const [isUrlMode, setIsUrlMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const onResult = useCallback(async (event: any) => {
+    setIsProcessing(true);
+    const transcript = event.results[0][0].transcript;
+    try {
+      const res = await fetchApi("/api/agent/onboarding-magic", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcript })
+      });
+      const data = await res.json();
+      onExtract(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [onExtract]);
+
+  const onError = useCallback(() => {
+    setIsProcessing(false);
+  }, []);
+
+  const { isListening: isRecording, start, supported } = useSpeechRecognition({
+    continuous: false,
+    interimResults: false,
+    onResult,
+    onError
+  });
+
   const handleMagicSetup = async () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
+    if (!supported) {
       alert("Speech recognition is not supported in this browser.");
       return;
     }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    
-    recognition.onstart = () => setIsRecording(true);
-    
-    recognition.onresult = async (event: any) => {
-      setIsRecording(false);
-      setIsProcessing(true);
-      const transcript = event.results[0][0].transcript;
-      try {
-        const res = await fetchApi("/api/agent/onboarding-magic", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ transcript })
-        });
-        const data = await res.json();
-        onExtract(data);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsProcessing(false);
-      }
-    };
-
-    recognition.onerror = () => {
-       setIsRecording(false);
-       setIsProcessing(false);
-    };
-    recognition.onend = () => setIsRecording(false);
-    recognition.start();
+    start();
   };
 
   const handleUrlSetup = async () => {

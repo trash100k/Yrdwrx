@@ -25,21 +25,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
-
-interface SpeechRecognitionType {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: { results: { transcript: string }[][] }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-interface SpeechRecognitionConstructor {
-  new (): SpeechRecognitionType;
-}
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 export default function BrainChat({
   isOpen = true,
@@ -58,11 +44,9 @@ export default function BrainChat({
   >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
-  const [isListening, setIsListening] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const { startTour, setFocus } = useYardWorxGuide();
   const { tenant } = useTenant();
 
@@ -85,53 +69,24 @@ export default function BrainChat({
     return () => clearInterval(interval);
   }, [isLoading]);
 
-  // Initialize Speech Recognition
-  useEffect(() => {
-    const SpeechRecognition =
-      (
-        window as unknown as {
-          SpeechRecognition: SpeechRecognitionConstructor;
-          webkitSpeechRecognition: SpeechRecognitionConstructor;
-        }
-      ).SpeechRecognition ||
-      (
-        window as unknown as {
-          SpeechRecognition: SpeechRecognitionConstructor;
-          webkitSpeechRecognition: SpeechRecognitionConstructor;
-        }
-      ).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = "en-US";
-
-      recognitionRef.current.onresult = (event: {
-        results: { transcript: string }[][];
-      }) => {
-        const transcript = event.results[0][0].transcript;
-        setQuery((prev) => prev + (prev ? " " : "") + transcript);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onerror = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-      };
-
-    }
+  const onResult = React.useCallback((event: any) => {
+    const transcript = event.results[0][0].transcript;
+    setQuery((prev) => prev + (prev ? " " : "") + transcript);
   }, []);
+
+  const { isListening, supported, start, stop } = useSpeechRecognition({
+    continuous: false,
+    interimResults: false,
+    lang: "en-US",
+    onResult,
+  });
 
   const toggleListening = () => {
     if (isListening) {
-      recognitionRef.current?.stop();
+      stop();
     } else {
       setQuery("");
-      recognitionRef.current?.start();
-      setIsListening(true);
+      start();
     }
   };
 

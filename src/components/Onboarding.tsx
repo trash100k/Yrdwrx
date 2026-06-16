@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
 import { MagicSetupNode } from "./MagicSetupNode";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import {
   ChevronRight,
   MapPin,
@@ -30,7 +31,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     },
   });
   const [error, setError] = useState<string | null>(null);
-  const [isListening, setIsListening] = useState<string | null>(null);
+  const [isListeningField, setIsListeningField] = useState<string | null>(null);
 
   const availableServices = [
     "Lawn Mowing",
@@ -42,36 +43,37 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     "Fertilization",
   ];
 
-  const handleDictation = (field: "companyName" | "ownerPhone" | "serviceArea") => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
+  const onResult = useCallback((event: any) => {
+    if (!isListeningField) return;
+    const transcript = event.results[0][0].transcript;
+    setFormData(prev => ({ ...prev, [isListeningField]: transcript }));
+    setIsListeningField(null);
+  }, [isListeningField]);
+
+  const onError = useCallback(() => {
+    setIsListeningField(null);
+    setError("Error recognizing speech. Please try again.");
+  }, []);
+
+  const onEnd = useCallback(() => {
+    setIsListeningField(null);
+  }, []);
+
+  const { start, supported } = useSpeechRecognition({
+    continuous: false,
+    interimResults: false,
+    onResult,
+    onError,
+    onEnd
+  });
+
+  const handleDictation = (field: "companyName" | "ownerName" | "ownerPhone" | "serviceArea") => {
+    if (!supported) {
       setError("Speech recognition is not supported in this browser.");
       return;
     }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    
-    recognition.onstart = () => {
-       setIsListening(field);
-    };
-    
-    recognition.onresult = (event: any) => {
-       const transcript = event.results[0][0].transcript;
-       setFormData(prev => ({ ...prev, [field]: transcript }));
-       setIsListening(null);
-    };
-
-    recognition.onerror = () => {
-       setIsListening(null);
-       setError("Error recognizing speech. Please try again.");
-    };
-
-    recognition.onend = () => {
-       setIsListening(null);
-    };
-
-    recognition.start();
+    setIsListeningField(field);
+    start();
   };
 
   const handleAutoDetectLocation = () => {
@@ -258,9 +260,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <div 
                     onClick={() => handleDictation("companyName")}
                     className={`absolute right-6 top-1/2 -translate-y-1/2 cursor-pointer transition-colors ${
-                      isListening === "companyName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
+                      isListeningField === "companyName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
                     }`} 
-                    title={isListening === "companyName" ? "Listening..." : "Use Voice Dictation"}
+                    title={isListeningField === "companyName" ? "Listening..." : "Use Voice Dictation"}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                   </div>
@@ -280,11 +282,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                     }
                   />
                   <div 
-                    onClick={() => handleDictation("ownerName" as any)}
+                    onClick={() => handleDictation("ownerName")}
                     className={`absolute right-6 top-1/2 -translate-y-1/2 cursor-pointer transition-colors ${
-                      isListening === "ownerName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
+                      isListeningField === "ownerName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
                     }`} 
-                    title={isListening === "ownerName" ? "Listening..." : "Use Voice Dictation"}
+                    title={isListeningField === "ownerName" ? "Listening..." : "Use Voice Dictation"}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                   </div>
@@ -308,9 +310,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <div 
                     onClick={() => handleDictation("ownerPhone")}
                     className={`absolute right-6 top-1/2 -translate-y-1/2 cursor-pointer transition-colors ${
-                      isListening === "ownerPhone" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
+                      isListeningField === "ownerPhone" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
                     }`} 
-                    title={isListening === "ownerPhone" ? "Listening..." : "Use Voice Dictation"}
+                    title={isListeningField === "ownerPhone" ? "Listening..." : "Use Voice Dictation"}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                   </div>{" "}
@@ -373,9 +375,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                     <div 
                       onClick={() => handleDictation("serviceArea")}
                       className={`cursor-pointer transition-colors ${
-                        isListening === "serviceArea" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
+                      isListeningField === "serviceArea" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-emerald-400"
                       }`} 
-                      title={isListening === "serviceArea" ? "Listening..." : "Use Voice Dictation"}
+                    title={isListeningField === "serviceArea" ? "Listening..." : "Use Voice Dictation"}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                     </div>

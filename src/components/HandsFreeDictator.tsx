@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Mic, MicOff, Loader2, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { fetchApi } from "../lib/api";
 import { playVoice } from "../lib/playVoice";
-
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (actionData: any) => void }) {
   const [isActive, setIsActive] = useState(false);
@@ -12,88 +12,80 @@ export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (acti
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
   
-  const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   // Used to debounce processing of continuous speech
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const onResult = useCallback((event: any) => {
+    let currentInterim = "";
+    let finalTrans = "";
 
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognitionRef.current = recognition;
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-US";
-
-      recognition.onresult = (event: any) => {
-        let currentInterim = "";
-        let finalTrans = "";
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTrans += event.results[i][0].transcript;
-          } else {
-            currentInterim += event.results[i][0].transcript;
-          }
-        }
-        
-        if (finalTrans) {
-            setTranscript((prev) => {
-                const newTrans = prev + " " + finalTrans;
-                triggerInactivityProcessing(newTrans);
-                return newTrans;
-            });
-        }
-        setInterimTranscript(currentInterim);
-      };
-
-      recognition.onerror = (e: any) => {
-        console.error("Speech recognition error:", e);
-        if (isActive) {
-           // try to restart if it's a minor error like no-speech
-           try { recognition.start(); } catch (err) {}
-        }
-      };
-
-      recognition.onend = () => {
-        if (isActive && recognition) {
-          try {
-             recognition.start();
-          } catch (e) {
-             console.error("Could not restart", e);
-          }
-        }
-      };
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      if (event.results[i].isFinal) {
+        finalTrans += event.results[i][0].transcript;
+      } else {
+        currentInterim += event.results[i][0].transcript;
+      }
     }
 
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-    };
+    if (finalTrans) {
+        setTranscript((prev) => {
+            const newTrans = prev + " " + finalTrans;
+            triggerInactivityProcessing(newTrans);
+            return newTrans;
+        });
+    }
+    setInterimTranscript(currentInterim);
+  }, []);
+
+  const onError = useCallback((e: any) => {
+    console.error("Speech recognition error:", e);
+    if (isActive) {
+       // try to restart if it's a minor error like no-speech
+       setTimeout(() => {
+           if (isActive) start();
+       }, 500);
+    }
   }, [isActive]);
 
+  const onEnd = useCallback(() => {
+    if (isActive) {
+      setTimeout(() => {
+          if (isActive) start();
+      }, 500);
+    }
+  }, [isActive]);
+
+  const { supported, start, stop, recognition } = useSpeechRecognition({
+    continuous: true,
+    interimResults: true,
+    lang: "en-US",
+    onResult,
+    onError,
+    onEnd
+  });
+
+  useEffect(() => {
+    return () => {
+      stop();
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    };
+  }, [stop]);
+
   const toggleHandsFree = () => {
-    if (!recognitionRef.current) {
+    if (!supported) {
         alert("Speech recognition not supported in this browser.");
         return;
     }
     if (isActive) {
         setIsActive(false);
-        recognitionRef.current.stop();
+        stop();
         if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     } else {
         setTranscript("");
         setInterimTranscript("");
         setIsActive(true);
         setLastAction(null);
-        try {
-            recognitionRef.current.start();
-        } catch (e) {
-            console.error(e);
-        }
+        start();
     }
   };
 
