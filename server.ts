@@ -2202,11 +2202,11 @@ async function startServer() {
           return itemName.includes(checkName) || itemCategory.includes(checkName);
         });
 
-        if (isMatched && (data.currentLevel || 0) < (data.minLevel || 10)) {
+        if (isMatched && (data.quantity || 0) < (data.minThreshold || 10)) {
            lowStockItems.push({
              name: data.name,
-             current: data.currentLevel || 0,
-             min: data.minLevel || 10,
+             current: data.quantity || 0,
+             min: data.minThreshold || 10,
              unit: data.unit || "Units",
              supplierEmail: data.supplierEmail || "supply@meridian-aggregate.com"
            });
@@ -2214,13 +2214,7 @@ async function startServer() {
       });
 
       res.json({
-        lowStockItems: lowStockItems.map((name: string) => ({
-          name,
-          current: Math.floor(Math.random() * 5), // Mock current levels below min
-          min: 10,
-          unit: "Yards",
-          supplierEmail: "supply@meridian-aggregate.com",
-        })),
+        lowStockItems: lowStockItems,
       });
     } catch (error) {
       res.status(500).json({ error: "Inventory sync failed" });
