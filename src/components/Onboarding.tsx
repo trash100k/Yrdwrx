@@ -2,7 +2,7 @@ import { useState } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
-import { MagicSetupNode } from "./MagicSetupNode";
+import { MagicSetupNode, ExtractedMagicData } from "./MagicSetupNode";
 import {
   ChevronRight,
   MapPin,
@@ -101,7 +101,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     );
   };
 
-  const handleExtractedData = (data: any) => {
+  const handleExtractedData = (data: ExtractedMagicData) => {
     setFormData(prev => ({
         ...prev,
         ...data,

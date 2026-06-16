@@ -3,7 +3,15 @@ import { Mic, Loader2, Sparkles, Globe, ScanFace, FileImage } from "lucide-react
 import { motion } from "motion/react";
 import { fetchApi } from "../lib/api";
 
-export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }) {
+export interface ExtractedMagicData {
+  companyName?: string;
+  ownerName?: string;
+  ownerPhone?: string;
+  serviceArea?: string;
+  services?: string[];
+}
+
+export function MagicSetupNode({ onExtract }: { onExtract: (data: ExtractedMagicData) => void }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [url, setUrl] = useState("");
