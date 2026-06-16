@@ -1,10 +1,11 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Mic, Loader2, Play, Square, FileText, CheckSquare, X, Wand2 } from "lucide-react";
 import { Job } from "../types";
 import { updateDoc, doc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 interface Props {
   job: Job;
@@ -12,61 +13,61 @@ interface Props {
 }
 
 export function VoiceMemoJobModal({ job, onClose }: Props) {
-  const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   
   const [notes, setNotes] = useState(job.notes || "");
   const [checklist, setChecklist] = useState(job.checklist || []);
-  
-  const recognitionRef = useRef<any>(null);
 
+  const onResult = useCallback((event: any) => {
+    let currentTranscript = "";
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      currentTranscript += event.results[i][0].transcript;
+    }
+    setTranscript((prev) => prev ? prev + " " + currentTranscript : currentTranscript);
+  }, []);
+
+  const [isActive, setIsActive] = useState(false);
+
+  const onError = useCallback((event: any) => {
+    console.error("Speech recognition error", event.error);
+  }, []);
+
+  const onEnd = useCallback(() => {
+    if (isActive) {
+      setTimeout(() => {
+         if (isActive) start();
+      }, 500);
+    }
+  }, [isActive]);
+
+  const { isListening: isRecording, supported, start, stop } = useSpeechRecognition({
+    continuous: true,
+    interimResults: true,
+    onResult,
+    onError,
+    onEnd
+  });
+
+  // Keep isActive and isRecording separate so we know when to auto-restart
   useEffect(() => {
-    if (typeof window !== "undefined" && "webkitSpeechRecognition" in window && window.webkitSpeechRecognition) {
-      const SpeechRecognition = window.webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-
-      recognitionRef.current.onresult = (event: any) => {
-        let currentTranscript = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        setTranscript((prev) => prev ? prev + " " + currentTranscript : currentTranscript);
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsRecording(false);
-      };
-      
-      recognitionRef.current.onend = () => {
-         if (isRecording) {
-            recognitionRef.current.start();
-         }
-      }
-    }
-    
-    return () => {
-        if (recognitionRef.current) {
-            recognitionRef.current.stop();
-        }
-    }
-  }, [isRecording]);
+     return () => {
+         stop();
+     }
+  }, [stop]);
 
   const toggleRecording = () => {
-    if (!recognitionRef.current) {
+    if (!supported) {
         alert("Speech recognition is not supported in this browser. Please use Chrome.");
         return;
     }
-    if (isRecording) {
-      setIsRecording(false);
-      recognitionRef.current.stop();
+    if (isActive) {
+      setIsActive(false);
+      stop();
     } else {
+      setIsActive(true);
       setTranscript("");
-      setIsRecording(true);
-      recognitionRef.current.start();
+      start();
     }
   };
 

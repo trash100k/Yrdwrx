@@ -1,8 +1,9 @@
 // @ts-nocheck
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { cn } from "../lib/utils";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import {
   collection,
   onSnapshot,
@@ -526,21 +527,7 @@ export default function CrewSuite() {
               </p>
             </div>
           </div>
-          <button 
-            onClick={() => {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) return alert('Speech recognition not supported in this browser. Try opening the app in a new tab.');
-                const recognition = new SpeechRecognition();
-                recognition.onstart = () => alert("Listening... Speak your log.");
-                recognition.onresult = (e: any) => {
-                    const txt = e.results[0][0].transcript;
-                    alert("Voice Log Submitted to feed: " + txt);
-                };
-                recognition.start();
-            }}
-            className="px-6 py-3 bg-white text-black rounded-xl font-black text-[9px] uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center gap-2">
-            <Mic size={14} /> Voice Transcription Log
-          </button>
+          <VoiceTranscriptionLogButton />
           {tenant?.settings?.subFeatures?.exifVerification && (
             <button 
              onClick={() => {
@@ -962,5 +949,29 @@ export default function CrewSuite() {
     </div>
     <HandsFreeDictator />
     </SubscriptionGuard>
+  );
+}
+
+function VoiceTranscriptionLogButton() {
+  const onStart = useCallback(() => alert("Listening... Speak your log."), []);
+  const onResult = useCallback((e: any) => {
+    const txt = e.results[0][0].transcript;
+    alert("Voice Log Submitted to feed: " + txt);
+  }, []);
+
+  const { supported, start } = useSpeechRecognition({
+    onStart,
+    onResult
+  });
+
+  return (
+    <button
+      onClick={() => {
+        if (!supported) return alert('Speech recognition not supported in this browser. Try opening the app in a new tab.');
+        start();
+      }}
+      className="px-6 py-3 bg-white text-black rounded-xl font-black text-[9px] uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center gap-2">
+      <Mic size={14} /> Voice Transcription Log
+    </button>
   );
 }
