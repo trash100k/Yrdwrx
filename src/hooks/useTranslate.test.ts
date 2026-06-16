@@ -106,16 +106,37 @@ describe('useTranslate', () => {
 
   it('falls back to original text on API failure', async () => {
     vi.useFakeTimers();
+    // First call succeeds
     vi.mocked(fetchApi).mockResolvedValueOnce({
-      ok: false,
+      ok: true,
+      json: async () => ({ translatedText: 'Succès' }),
     } as any);
 
-    const { result } = renderHook(() => useTranslate('Fail test', 'fr'));
+    const { result, rerender } = renderHook(
+      ({ text }) => useTranslate(text, 'fr'),
+      { initialProps: { text: 'Success test' } }
+    );
 
     act(() => {
       vi.advanceTimersByTime(300);
     });
+    vi.useRealTimers();
 
+    await waitFor(() => {
+      expect(result.current.translatedText).toBe('Succès');
+    });
+
+    // Now fail the next API call
+    vi.useFakeTimers();
+    vi.mocked(fetchApi).mockResolvedValueOnce({
+      ok: false,
+    } as any);
+
+    rerender({ text: 'Fail test' });
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     vi.useRealTimers();
 
     await waitFor(() => {
@@ -123,10 +144,32 @@ describe('useTranslate', () => {
     });
 
     expect(result.current.translatedText).toBe('Fail test');
-    expect(fetchApi).toHaveBeenCalledTimes(1);
+    expect(fetchApi).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to original text on thrown error', async () => {
+    vi.useFakeTimers();
+    // First call succeeds
+    vi.mocked(fetchApi).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ translatedText: 'Erfolg' }),
+    } as any);
+
+    const { result, rerender } = renderHook(
+      ({ text }) => useTranslate(text, 'de'),
+      { initialProps: { text: 'Success test' } }
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => {
+      expect(result.current.translatedText).toBe('Erfolg');
+    });
+
+    // Now throw an error on the next API call
     vi.useFakeTimers();
     // We intentionally mock a rejection that we expect to be caught internally.
     // Suppress console.error in this specific test to avoid noise.
@@ -134,12 +177,11 @@ describe('useTranslate', () => {
 
     vi.mocked(fetchApi).mockRejectedValueOnce(new Error('Network error'));
 
-    const { result } = renderHook(() => useTranslate('Throw test', 'de'));
+    rerender({ text: 'Throw test' });
 
     act(() => {
       vi.advanceTimersByTime(300);
     });
-
     vi.useRealTimers();
 
     await waitFor(() => {
@@ -147,7 +189,7 @@ describe('useTranslate', () => {
     });
 
     expect(result.current.translatedText).toBe('Throw test');
-    expect(fetchApi).toHaveBeenCalledTimes(1);
+    expect(fetchApi).toHaveBeenCalledTimes(2);
 
     consoleErrorSpy.mockRestore();
   });
