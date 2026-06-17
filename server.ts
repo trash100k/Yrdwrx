@@ -15,6 +15,7 @@ import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import admin from "firebase-admin";
+import Redis from "ioredis";
 
 dotenv.config();
 
@@ -3268,38 +3269,88 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   });
 
   // WebSocket Server for Live Ear
-  // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale.
-  // Native node WS is sufficient for UI preview but crashes under heavy client multiplexing.
+  // Redis Process Pooling Setup
+  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+  const redisPub = new Redis(redisUrl);
+  const redisSub = new Redis(redisUrl);
+  const REDIS_CHANNEL = "meridian_ws_channel";
+
+  const localClients = new Map<string, any>();
+
+  redisSub.subscribe(REDIS_CHANNEL, (err) => {
+    if (err) console.error("Redis Subscribe Error:", err);
+  });
+
+  redisSub.on("message", (channel, message) => {
+    if (channel === REDIS_CHANNEL) {
+      try {
+        const parsed = JSON.parse(message);
+        const { type, sessionId, payload, broadcast } = parsed;
+
+        if (broadcast) {
+          // Broadcast message to all clients connected to this worker
+          for (const [id, ws] of localClients.entries()) {
+            if (ws.readyState === 1 /* WebSocket.OPEN */) {
+              ws.send(JSON.stringify(payload));
+            }
+          }
+        } else if (type === "server_response" && sessionId && localClients.has(sessionId)) {
+          // Route specific response back to the connected client
+          const ws = localClients.get(sessionId);
+          if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify(payload));
+          }
+        }
+      } catch (err) {
+        console.error("Redis Message Parse Error:", err);
+      }
+    }
+  });
+
   const wss = new WebSocketServer({ server, path: "/api/live" });
 
   wss.on("connection", async (clientWs) => {
-    console.log("Live Ear Client Connected");
+    const sessionId = crypto.randomUUID();
+    localClients.set(sessionId, clientWs);
+    console.log(`Live Ear Client Connected (Session ID: ${sessionId})`);
 
     try {
       const session = await ai.live.connect({
         model: "gemini-2.0-flash",
         callbacks: {
           onmessage: (message: LiveServerMessage) => {
-            // Forward audio to client
+            // Forward audio to client via Redis Pub/Sub
             const audio =
               message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audio) {
-              clientWs.send(JSON.stringify({ audio }));
+              redisPub.publish(REDIS_CHANNEL, JSON.stringify({
+                type: "server_response",
+                sessionId,
+                payload: { audio }
+              }));
             }
 
-            // Forward transcription
+            // Forward transcription via Redis Pub/Sub
             const transcription =
               message.serverContent?.modelTurn?.parts?.[0]?.text;
             if (transcription) {
-              clientWs.send(JSON.stringify({ transcription }));
+              redisPub.publish(REDIS_CHANNEL, JSON.stringify({
+                type: "server_response",
+                sessionId,
+                payload: { transcription }
+              }));
             }
 
             // Handle tool calls (Function Calling)
             const toolCall = message.toolCall;
             if (toolCall) {
               console.log("Gemini Tool Call:", toolCall);
-              // Notify client of the detected action
-              clientWs.send(JSON.stringify({ action: toolCall }));
+              // Notify client of the detected action via Redis Pub/Sub
+              redisPub.publish(REDIS_CHANNEL, JSON.stringify({
+                type: "server_response",
+                sessionId,
+                payload: { action: toolCall }
+              }));
 
               // Here we would normally return a functionResponse to Gemini,
               // but for this UI-driven app, we mainly want to trigger client-side actions.
@@ -3317,7 +3368,11 @@ const server = app.listen(PORT, "0.0.0.0", () => {
             }
 
             if (message.serverContent?.interrupted) {
-              clientWs.send(JSON.stringify({ interrupted: true }));
+              redisPub.publish(REDIS_CHANNEL, JSON.stringify({
+                type: "server_response",
+                sessionId,
+                payload: { interrupted: true }
+              }));
             }
           },
         },
@@ -3510,6 +3565,15 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       clientWs.on("message", (data) => {
         try {
           const msg = JSON.parse(data.toString());
+
+          // Publish cross-client broadcast messages if explicitly requested
+          if (msg.type === 'broadcast') {
+            redisPub.publish(REDIS_CHANNEL, JSON.stringify({
+              broadcast: true,
+              payload: msg.payload
+            }));
+          }
+
           if (msg.audio) {
             session.sendRealtimeInput({
               audio: { data: msg.audio, mimeType: "audio/pcm;rate=16000" },
@@ -3526,11 +3590,13 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       });
 
       clientWs.on("close", () => {
-        console.log("Live Ear Client Disconnected");
+        console.log(`Live Ear Client Disconnected (Session ID: ${sessionId})`);
+        localClients.delete(sessionId);
         session.close();
       });
     } catch (error) {
       console.error("Gemini Live Connection Error:", error);
+      localClients.delete(sessionId);
       clientWs.close();
     }
   });
