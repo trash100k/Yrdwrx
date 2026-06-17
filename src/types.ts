@@ -4,8 +4,8 @@ declare global {
     interimResults: boolean;
     lang: string;
     onstart: (() => void) | null;
-    onresult: ((event: any) => void) | null;
-    onerror: ((event: any) => void) | null;
+    onresult: ((event: SpeechRecognitionEvent) => void) | null;
+    onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
     onend: (() => void) | null;
     start: () => void;
     stop: () => void;

@@ -4,8 +4,8 @@ interface UseSpeechRecognitionOptions {
   continuous?: boolean;
   interimResults?: boolean;
   lang?: string;
-  onResult?: (event: any) => void;
-  onError?: (event: any) => void;
+  onResult?: (event: SpeechRecognitionEvent) => void;
+  onError?: (event: SpeechRecognitionErrorEvent) => void;
   onEnd?: () => void;
   onStart?: () => void;
 }
@@ -59,13 +59,13 @@ export function useSpeechRecognition({
         }
       };
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
         if (callbacksRef.current.onResult) {
           callbacksRef.current.onResult(event);
         }
       };
 
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         setIsListening(false);
         if (callbacksRef.current.onError) {
           callbacksRef.current.onError(event);
