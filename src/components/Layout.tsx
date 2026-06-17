@@ -68,6 +68,7 @@ export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showFABActions, setShowFABActions] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [pendingSyncs, setPendingSyncs] = useState(0);
   const location = useLocation();
   const isOffline = useOfflineStatus();
@@ -257,6 +258,21 @@ export default function Layout() {
     if (window.innerWidth < 1024) {
       setIsSidebarOpen(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === "/" &&
+        !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName) &&
+        !(e.target as HTMLElement).isContentEditable
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   return (
@@ -457,11 +473,17 @@ export default function Layout() {
                   Search
                 </label>
                 <input
+                  ref={searchInputRef}
                   id="system-search"
-                  type="text"
+                  type="search"
                   placeholder="Search for customers, equipment, or jobs..."
-                  className="w-full min-w-0 pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold focus:bg-white/10 focus:border-emerald-500/30 focus:outline-none placeholder:text-zinc-500 transition-all text-white"
+                  className="w-full min-w-0 pl-16 pr-20 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold focus:bg-white/10 focus:border-emerald-500/30 focus:outline-none placeholder:text-zinc-500 transition-all text-white"
                 />
+                <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none hidden xl:flex items-center gap-1 opacity-40 group-focus-within:opacity-0 transition-opacity">
+                  <kbd className="px-2 py-1 rounded-lg border border-white/20 bg-white/5 text-[10px] font-black font-sans">
+                    /
+                  </kbd>
+                </div>
               </div>
             </div>
 
@@ -488,6 +510,7 @@ export default function Layout() {
                   onClick={() => setIsBrainOpen(true)}
                   className="w-10 h-10 lg:w-14 lg:h-14 bg-white/5 border border-white/10 rounded-xl lg:rounded-2xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
                   aria-label="Get Help"
+                  title="Get Help & Copilot"
                 >
                   <Brain size={24} />
                   <span className="absolute top-2 right-2 w-3 h-3 bg-emerald-500 rounded-full border-2 border-black" />
