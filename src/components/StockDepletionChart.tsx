@@ -13,7 +13,7 @@ export function StockDepletionChart() {
   ];
 
   return (
-    <div className="bg-zinc-950 border border-white/5 rounded-2xl p-6 sm:p-8 mt-12 mb-8 shadow-xl">
+    <div className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-6 sm:p-8 mt-12 mb-8 shadow-xl">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
            <h2 className="text-xl sm:text-2xl font-black uppercase tracking-normal md:tracking-tighter text-white flex items-center gap-3">

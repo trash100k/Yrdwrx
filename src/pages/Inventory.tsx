@@ -296,6 +296,8 @@ export default function Inventory() {
           tenantId,
           timestamp: serverTimestamp(),
         });
+        
+        logAction("Inventory", type === "in" ? "Stock Added" : "Stock Consumed", `${type === "in" ? "Added" : "Consumed"} ${qty} units of ${item.name}`);
       } else {
         await syncService.queueAction(
           "UPDATE",
@@ -484,11 +486,11 @@ export default function Inventory() {
           <button onClick={() => {
               setScanResult(null);
               setIsScanning(true);
-            }} className="flex flex-col items-center justify-center gap-2 p-6 bg-pink-500/10 border border-pink-500/20 rounded-[20px] text-pink-400 hover:bg-pink-500/20 transition-all shadow-sm">
+            }} className="flex flex-col items-center justify-center gap-2 p-6 bg-ember-500/10 border border-ember-500/20 rounded-[20px] text-ember-400 hover:bg-ember-500/20 transition-all shadow-sm">
             <Plus size={24} className="hover:scale-110 transition-transform" />
             <span className="font-bold text-sm">Quick Restock</span>
           </button>
-          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
+          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 molten-edge rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-400/50 to-transparent"></div>
              <Zap size={24} className="text-yellow-400 animate-pulse" />
              <span className="font-bold text-sm text-yellow-400/80">Easy Mode Active</span>
@@ -498,7 +500,7 @@ export default function Inventory() {
       {/* Strategic Command & Control row */}
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 lg:gap-10 pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
-          <div className="inline-flex items-center gap-3 px-4 py-2 bg-purple-500/10 rounded-full border border-purple-500 text-xs font-black uppercase tracking-widest text-purple-500">
+          <div className="inline-flex items-center gap-3 px-4 py-2 bg-ember-500/10 rounded-full border border-ember-500 text-xs font-black uppercase tracking-widest text-ember-500">
             <Package size={16} />
             Material Supply Chain
           </div>
@@ -552,14 +554,14 @@ export default function Inventory() {
         {/* Real-time ROI Metrics */}
         <div
           id="efficiency-metrics-card"
-          className="bg-zinc-900 border border-white/5 p-6 lg:p-12 rounded-2xl shadow-2xl flex flex-col justify-between group hover:border-blue-500/50 transition-all min-h-[300px]"
+          className="bg-zinc-900 border border-white/5 molten-edge p-6 lg:p-12 rounded-2xl shadow-2xl flex flex-col justify-between group hover:border-celtic-500/50 transition-all min-h-[300px]"
         >
           <div>
             <div className="flex items-center justify-between mb-10">
               <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-black shadow-inner">
                 <TrendingUp size={24} />
               </div>
-              <span className="micro-label font-black text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full uppercase tracking-widest border border-emerald-500/20 shadow-glow">
+              <span className="micro-label font-black text-forest-400 bg-forest-500/10 px-3 py-1.5 rounded-full uppercase tracking-widest border border-forest-500/20 shadow-glow">
                 Efficiency Alpha
               </span>
             </div>
@@ -569,19 +571,19 @@ export default function Inventory() {
             <h3 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black text-white italic tracking-normal md:tracking-tighter leading-none mb-2">
               ${quantities.recoveryVal.toLocaleString()}
             </h3>
-            <p className="micro-label text-emerald-400 font-black lowercase tracking-widest opacity-80 italic">
+            <p className="micro-label text-forest-400 font-black lowercase tracking-widest opacity-80 italic">
               Verified site materials
             </p>
           </div>
           <div className="pt-8 border-t border-white/10">
             <div className="flex items-center justify-between micro-label font-black uppercase text-white/60 tracking-widest">
               <span>Audit Integrity</span>
-              <span className="text-emerald-500">100% SECURE</span>
+              <span className="text-forest-500">100% SECURE</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-zinc-900 border border-white/5 p-6 lg:p-12 rounded-2xl shadow-2xl flex flex-col justify-between group hover:border-blue-500/50 transition-all min-h-[300px]">
+        <div className="bg-zinc-900 border border-white/5 molten-edge p-6 lg:p-12 rounded-2xl shadow-2xl flex flex-col justify-between group hover:border-celtic-500/50 transition-all min-h-[300px]">
           <div>
             <div className="flex items-center justify-between mb-10">
               <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-black shadow-inner">
@@ -631,7 +633,7 @@ export default function Inventory() {
                 <div className="flex items-center justify-between mb-4">
                   <h3
                     id="calc-title"
-                    className="micro-label font-black uppercase tracking-[0.3em] text-emerald-400"
+                    className="micro-label font-black uppercase tracking-[0.3em] text-forest-400"
                   >
                     Volume Calculator
                   </h3>
@@ -701,7 +703,7 @@ export default function Inventory() {
             )}
           </AnimatePresence>
 
-          <div className="bg-zinc-900 border border-white/5 p-8 rounded-2xl space-y-6 lg:space-y-10 shadow-2xl">
+          <div className="bg-zinc-900 border border-white/5 molten-edge p-8 rounded-2xl space-y-6 lg:space-y-10 shadow-2xl">
             <div>
               <label className="micro-label font-black uppercase tracking-[0.3em] text-zinc-400 mb-6 block italic">
                 Asset Class Navigation
@@ -729,7 +731,7 @@ export default function Inventory() {
                         size={20}
                         className={
                           activeTab === cat.name
-                            ? "text-emerald-600"
+                            ? "text-forest-600"
                             : "text-zinc-500 group-hover:text-white/60"
                         }
                         aria-hidden="true"
@@ -781,7 +783,7 @@ export default function Inventory() {
               </div>
             </div>
           </div>
-          <div className="bg-zinc-900 border border-white/5 p-8 rounded-2xl space-y-6 lg:space-y-10 shadow-2xl">
+          <div className="bg-zinc-900 border border-white/5 molten-edge p-8 rounded-2xl space-y-6 lg:space-y-10 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <History size={20} className="text-white/20" />
@@ -797,7 +799,7 @@ export default function Inventory() {
               {logs.map((log) => (
                 <div key={log.id} className="flex items-center gap-6 group/log">
                   <div
-                    className={`w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center transition-all group-hover/log:scale-110 ${log.type === "in" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-white/5 text-white/20 border border-white/5"}`}
+                    className={`w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center transition-all group-hover/log:scale-110 ${log.type === "in" ? "bg-forest-500/10 text-forest-400 border border-forest-500/20" : "bg-white/5 text-white/20 border border-white/5"}`}
                   >
                     {log.type === "in" ? (
                       <ArrowDownToLine size={20} />
@@ -806,14 +808,14 @@ export default function Inventory() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-base font-black text-white truncate tracking-tight group-hover/log:text-emerald-400 transition-colors uppercase italic mb-1">
+                    <p className="text-base font-black text-white truncate tracking-tight group-hover/log:text-forest-400 transition-colors uppercase italic mb-1">
                       {log.itemName}
                     </p>
                     <p className="micro-label text-white/20 font-black tracking-widest uppercase">
                       {log.type === "in" ? "Restocked" : "Allocated"}:{" "}
                       {log.quantity} {log.unit || "units"}
                       {log.clientName && (
-                        <span className="text-emerald-400 block mt-1">
+                        <span className="text-forest-400 block mt-1">
                           to {log.clientName}
                         </span>
                       )}
@@ -840,7 +842,7 @@ export default function Inventory() {
               <motion.div
                 layout
                 key={item.id}
-                className="bg-zinc-900 border border-white/5 rounded-2xl overflow-hidden group flex flex-col shadow-2xl hover:border-blue-500/50 transition-all duration-700 min-h-[450px]"
+                className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl overflow-hidden group flex flex-col shadow-2xl hover:border-celtic-500/50 transition-all duration-700 min-h-[450px]"
               >
                 <div className="p-8 flex-grow">
                   <div className="flex items-start justify-between mb-8">
@@ -870,7 +872,7 @@ export default function Inventory() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => logUsage(item, 1, "in")}
-                        className="p-3 bg-white/5 text-white/20 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all border border-white/5"
+                        className="p-3 bg-white/5 text-white/20 hover:text-forest-400 hover:bg-forest-500/10 rounded-xl transition-all border border-white/5"
                         aria-label={`Restock 1 ${item.name}`}
                       >
                         <Plus size={18} aria-hidden="true" />
@@ -908,11 +910,11 @@ export default function Inventory() {
                   </div>
 
                   <div className="space-y-2 mb-10">
-                    <h3 className="text-xl sm:text-2xl font-black text-white tracking-normal md:tracking-tighter leading-none truncate italic group-hover:text-emerald-400 transition-colors uppercase">
+                    <h3 className="text-xl sm:text-2xl font-black text-white tracking-normal md:tracking-tighter leading-none truncate italic group-hover:text-forest-400 transition-colors uppercase">
                       {item.name}
                     </h3>
                     <div className="flex items-center gap-3">
-                      <span className="micro-label font-black uppercase tracking-[0.2em] text-white/20 bg-white/5 px-3 py-1 rounded-full border border-white/5 group-hover:border-emerald-500/30 transition-colors">
+                      <span className="micro-label font-black uppercase tracking-[0.2em] text-white/20 bg-white/5 px-3 py-1 rounded-full border border-white/5 group-hover:border-forest-500/30 transition-colors">
                         {item.category}
                       </span>
                       <span className="micro-label font-black text-white/10 tracking-widest italic group-hover:text-white/30 transition-colors">
@@ -927,7 +929,7 @@ export default function Inventory() {
                           Usage Intensity
                         </span>
                         <span
-                          className={`text-[7px] font-black ${item.category === "Bulk" ? "text-amber-400" : "text-emerald-400"}`}
+                          className={`text-[7px] font-black ${item.category === "Bulk" ? "text-amber-400" : "text-forest-400"}`}
                         >
                           {item.category === "Fuel"
                             ? "High"
@@ -940,10 +942,10 @@ export default function Inventory() {
                         <div
                           className={`h-full transition-all duration-1000 shadow-glow ${
                             item.category === "Fuel"
-                              ? "bg-blue-500 w-[72%]"
+                              ? "bg-celtic-500 w-[72%]"
                               : item.category === "Bulk"
                                 ? "bg-amber-500 w-[92%]"
-                                : "bg-emerald-500 w-[45%]"
+                                : "bg-forest-500 w-[45%]"
                           }`}
                         />
                       </div>
@@ -1011,7 +1013,7 @@ export default function Inventory() {
                             className={
                               (item.quantity || 0) < (item.minThreshold || 5)
                                 ? "text-red-400 animate-pulse shadow-glow"
-                                : "text-emerald-500"
+                                : "text-forest-500"
                             }
                             aria-hidden="true"
                           />
@@ -1115,7 +1117,7 @@ export default function Inventory() {
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
               className="relative w-full max-w-xl bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/5"
             >
-              <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-emerald-500 via-blue-500 to-purple-500 blur-sm" />
+              <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-forest-500 via-celtic-500 to-ember-500 blur-sm" />
               <div className="p-14">
                 <div className="flex items-center justify-between mb-12">
                   <div className="flex items-center gap-6">
@@ -1139,7 +1141,7 @@ export default function Inventory() {
                           role="tab"
                           aria-selected={scanningMode === "vision"}
                           onClick={() => setScanningMode("vision")}
-                          className={`micro-label font-black uppercase tracking-widest transition-colors ${scanningMode === "vision" ? "text-emerald-400 shadow-glow" : "text-white/20 hover:text-white/60"}`}
+                          className={`micro-label font-black uppercase tracking-widest transition-colors ${scanningMode === "vision" ? "text-forest-400 shadow-glow" : "text-white/20 hover:text-white/60"}`}
                         >
                           Vision
                         </button>
@@ -1147,7 +1149,7 @@ export default function Inventory() {
                           role="tab"
                           aria-selected={scanningMode === "live"}
                           onClick={() => setScanningMode("live")}
-                          className={`micro-label font-black uppercase tracking-widest transition-colors ${scanningMode === "live" ? "text-emerald-400 shadow-glow" : "text-white/20 hover:text-white/60"}`}
+                          className={`micro-label font-black uppercase tracking-widest transition-colors ${scanningMode === "live" ? "text-forest-400 shadow-glow" : "text-white/20 hover:text-white/60"}`}
                         >
                           Live Barcode
                         </button>
@@ -1155,7 +1157,7 @@ export default function Inventory() {
                           role="tab"
                           aria-selected={scanningMode === "manual"}
                           onClick={() => setScanningMode("manual")}
-                          className={`micro-label font-black uppercase tracking-widest transition-colors ${scanningMode === "manual" ? "text-emerald-400 shadow-glow" : "text-white/20 hover:text-white/60"}`}
+                          className={`micro-label font-black uppercase tracking-widest transition-colors ${scanningMode === "manual" ? "text-forest-400 shadow-glow" : "text-white/20 hover:text-white/60"}`}
                         >
                           Manual
                         </button>
@@ -1168,7 +1170,7 @@ export default function Inventory() {
                 {!scanResult ? (
                   <div className="space-y-6 lg:space-y-10">
                     {scanningMode === "vision" ? (
-                      <div className="aspect-[3/2] bg-zinc-900 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:bg-zinc-900 hover:border-emerald-500/50 transition-all cursor-pointer">
+                      <div className="aspect-[3/2] bg-zinc-900 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:bg-zinc-900 hover:border-forest-500/50 transition-all cursor-pointer">
                         {isProcessing ? (
                           <div className="flex flex-col items-center gap-6">
                             <Loader2
@@ -1181,7 +1183,7 @@ export default function Inventory() {
                           </div>
                         ) : (
                           <>
-                            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="absolute inset-0 bg-gradient-to-br from-forest-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                             <Camera
                               size={48}
                               className="text-white/10 mb-6 group-hover:scale-110 group-hover:text-white transition-all duration-700 relative z-10"
@@ -1228,7 +1230,7 @@ export default function Inventory() {
                           <input
                             type="text"
                             placeholder="Enter UPC / SKU / Name"
-                            className="bg-zinc-800 text-white font-mono uppercase w-full min-w-0 rounded-2xl px-6 py-4 outline-none border-2 border-white/5 focus:border-emerald-500/50 transition-colors"
+                            className="bg-zinc-800 text-white font-mono uppercase w-full min-w-0 rounded-2xl px-6 py-4 outline-none border-2 border-white/5 focus:border-forest-500/50 transition-colors"
                             value={manualBarcode}
                             onChange={(e) => setManualBarcode(e.target.value)}
                             onKeyDown={(e) => {
@@ -1242,7 +1244,7 @@ export default function Inventory() {
                               if (manualBarcode.trim())
                                 onBarcodeScan(manualBarcode);
                             }}
-                            className="bg-emerald-500 text-black w-full px-4 sm:px-8 py-3 sm:py-4 rounded-[20px] font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                            className="bg-forest-500 text-black w-full px-4 sm:px-8 py-3 sm:py-4 rounded-[20px] font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform"
                           >
                             Lookup Asset
                           </button>
@@ -1255,19 +1257,19 @@ export default function Inventory() {
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-6">
-                      <div className="p-8 bg-blue-500/5 rounded-2xl border border-blue-500/10 flex gap-4">
-                        <div className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shrink-0">
+                      <div className="p-8 bg-celtic-500/5 rounded-2xl border border-celtic-500/10 flex gap-4">
+                        <div className="w-10 h-10 bg-celtic-600 text-white rounded-xl flex items-center justify-center shrink-0">
                           <Barcode size={20} />
                         </div>
-                        <p className="text-xs text-blue-400 font-bold leading-relaxed italic">
+                        <p className="text-xs text-celtic-400 font-bold leading-relaxed italic">
                           Reads UPC-A, EAN-13, and Code 128 barcodes instantly.
                         </p>
                       </div>
-                      <div className="p-8 bg-emerald-500/5 rounded-2xl border border-emerald-500/10 flex gap-4">
-                        <div className="w-10 h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center shrink-0">
+                      <div className="p-8 bg-forest-500/5 rounded-2xl border border-forest-500/10 flex gap-4">
+                        <div className="w-10 h-10 bg-forest-600 text-white rounded-xl flex items-center justify-center shrink-0">
                           <Mountain size={20} />
                         </div>
-                        <p className="text-xs text-emerald-400 font-bold leading-relaxed italic">
+                        <p className="text-xs text-forest-400 font-bold leading-relaxed italic">
                           Identifies bulk materials like mulch or gravel from
                           visuals.
                         </p>
@@ -1284,7 +1286,7 @@ export default function Inventory() {
                   <div className="space-y-6 lg:space-y-10 animate-in fade-in slide-in-from-bottom-4">
                     <div className="p-6 lg:p-12 bg-zinc-900 rounded-2xl border border-white/5 relative group overflow-hidden shadow-inner flex gap-4 sm:gap-8 items-center">
                       {scanResult.imageUrl && (
-                        <div className="w-32 h-32 rounded-3xl overflow-hidden shrink-0 border-4 border-emerald-500/30">
+                        <div className="w-32 h-32 rounded-3xl overflow-hidden shrink-0 border-4 border-forest-500/30">
                           <img
                             src={scanResult.imageUrl}
                             alt={scanResult.name}
@@ -1298,12 +1300,12 @@ export default function Inventory() {
                           <Package size={200} />
                         </div>
                         <div className="flex items-center gap-3 mb-4">
-                          <p className="micro-label font-black text-emerald-400 uppercase tracking-[0.3em] italic">
+                          <p className="micro-label font-black text-forest-400 uppercase tracking-[0.3em] italic">
                             {scanResult.id
                               ? "Existing Item Found"
                               : "Neural Asset Identified"}
                           </p>
-                          <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 ring-emerald-500/50 flex items-center gap-1 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                          <span className="bg-forest-500/20 text-forest-400 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 ring-forest-500/50 flex items-center gap-1 shadow-[0_0_15px_rgba(5, 168, 69,0.3)]">
                             <TrendingUp size={10} /> AI Extracted
                           </span>
                         </div>

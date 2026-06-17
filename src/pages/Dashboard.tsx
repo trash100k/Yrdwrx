@@ -1026,11 +1026,11 @@ export default function Dashboard() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-zinc-950 border border-white/5 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-8 sm:p-6 lg:p-12 space-y-6 lg:space-y-10"
+              className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-8 sm:p-6 lg:p-12 space-y-6 lg:space-y-10"
             >
-              <div className="flex items-center justify-between border-b border-white/10 pb-6">
+              <div className="flex items-center justify-between border-b border-white/10 molten-edge pb-6">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-emerald-900/30 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400">
+                  <div className="w-10 h-10 bg-forest-900/30 border border-forest-500/30 rounded-xl flex items-center justify-center text-forest-400">
                     <Sparkles size={20} />
                   </div>
                   <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight uppercase">
@@ -1038,7 +1038,7 @@ export default function Dashboard() {
                   </h3>
                 </div>
                 {!safeStorage.getItem("user_dashboard_onboarded") ? (
-                  <span className="text-xs font-bold text-zinc-500 bg-zinc-900 border border-white/5 px-3 py-1.5 rounded-full">
+                  <span className="text-xs font-bold text-zinc-500 bg-zinc-900 border border-white/5 molten-edge px-3 py-1.5 rounded-full">
                     New Workspace Setup
                   </span>
                 ) : (
@@ -1076,11 +1076,11 @@ export default function Dashboard() {
                             propertyType: type,
                           }))
                         }
-                        className={`p-6 rounded-2xl text-left border text-base font-bold transition-all flex items-center justify-between ${onboardingAnswers.propertyType === type ? "bg-emerald-500/10 border-emerald-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
+                        className={`p-6 rounded-2xl text-left border text-base font-bold transition-all flex items-center justify-between ${onboardingAnswers.propertyType === type ? "bg-forest-500/10 border-forest-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
                       >
                         {type}
                         {onboardingAnswers.propertyType === type && (
-                          <Check size={18} className="text-emerald-400" />
+                          <Check size={18} className="text-forest-400" />
                         )}
                       </button>
                     ))}
@@ -1123,13 +1123,13 @@ export default function Dashboard() {
                             bottleneck: btn.name,
                           }))
                         }
-                        className={`p-6 rounded-2xl text-left border transition-all flex flex-col justify-between h-40 ${onboardingAnswers.bottleneck === btn.name ? "bg-emerald-500/10 border-emerald-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
+                        className={`p-6 rounded-2xl text-left border transition-all flex flex-col justify-between h-40 ${onboardingAnswers.bottleneck === btn.name ? "bg-forest-500/10 border-forest-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
                       >
                         <btn.icon
                           size={28}
                           className={
                             onboardingAnswers.bottleneck === btn.name
-                              ? "text-emerald-400 shadow-glow"
+                              ? "text-forest-400 shadow-glow"
                               : "text-zinc-500"
                           }
                         />
@@ -1175,11 +1175,11 @@ export default function Dashboard() {
                           }));
                         }
                       }}
-                      className={`p-8 rounded-[24px] text-left border transition-all space-y-4 ${onboardingAnswers.viewStyle === "easy" ? "bg-emerald-500/10 border-emerald-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
+                      className={`p-8 rounded-[24px] text-left border transition-all space-y-4 ${onboardingAnswers.viewStyle === "easy" ? "bg-forest-500/10 border-forest-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
                     >
                       <div className="flex justify-between items-center">
-                        <Smartphone size={32} className="text-emerald-400" />
-                        <span className="text-xs bg-emerald-500/20 text-emerald-300 font-bold px-3 py-1 rounded-full uppercase">
+                        <Smartphone size={32} className="text-forest-400" />
+                        <span className="text-xs bg-forest-500/20 text-forest-300 font-bold px-3 py-1 rounded-full uppercase">
                           Action Focus
                         </span>
                       </div>
@@ -1212,7 +1212,7 @@ export default function Dashboard() {
                           }));
                         }
                       }}
-                      className={`p-8 rounded-[24px] text-left border transition-all space-y-4 ${onboardingAnswers.viewStyle === "info-freak" ? "bg-emerald-500/10 border-emerald-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
+                      className={`p-8 rounded-[24px] text-left border transition-all space-y-4 ${onboardingAnswers.viewStyle === "info-freak" ? "bg-forest-500/10 border-forest-500 text-white shadow-glow" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10"}`}
                     >
                       <div className="flex justify-between items-center">
                         <Sliders size={32} className="text-amber-400" />
@@ -1244,12 +1244,12 @@ export default function Dashboard() {
                         value={aiCustomPrompt}
                         onChange={(e) => setAiCustomPrompt(e.target.value)}
                         placeholder="Enter description..."
-                        className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-6 pr-32 text-sm text-white focus:outline-none focus:border-emerald-500 focus:bg-white/10 transition-all font-bold"
+                        className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-6 pr-32 text-sm text-white focus:outline-none focus:border-forest-500 focus:bg-white/10 transition-all font-bold"
                       />
                       <button
                         onClick={handleAICalibrate}
                         disabled={isCalibratingAI}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl px-4 py-2 text-xs font-bold transition-all disabled:opacity-55 cursor-pointer flex items-center gap-2"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-forest-600 hover:bg-forest-500 text-white rounded-xl px-4 py-2 text-xs font-bold transition-all disabled:opacity-55 cursor-pointer flex items-center gap-2"
                       >
                         {isCalibratingAI ? (
                           <Loader2 className="animate-spin" size={14} />
@@ -1286,7 +1286,7 @@ export default function Dashboard() {
                   ) : (
                     <button
                       onClick={() => handleCompleteOnboarding()}
-                      className="px-6 sm:px-10 py-3 bg-emerald-600 hover:bg-emerald-500 hover:scale-105 active:scale-95 transition-all text-white text-sm font-bold rounded-xl shadow-lg"
+                      className="px-6 sm:px-10 py-3 bg-forest-600 hover:bg-forest-500 hover:scale-105 active:scale-95 transition-all text-white text-sm font-bold rounded-xl shadow-lg"
                     >
                       Generate Workspace
                     </button>
@@ -1306,7 +1306,7 @@ export default function Dashboard() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-zinc-950 border border-white/5 rounded-2xl p-8 w-full max-w-lg shadow-2xl relative"
+              className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-8 w-full max-w-lg shadow-2xl relative"
             >
               <button
                 onClick={() => setShowAddClient(false)}
@@ -1340,7 +1340,7 @@ export default function Dashboard() {
                     required
                     value={newClientName}
                     onChange={(e) => setNewClientName(e.target.value)}
-                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
+                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-forest-500 text-sm font-semibold"
                   />
                 </div>
 
@@ -1357,7 +1357,7 @@ export default function Dashboard() {
                     placeholder="Enter phone number"
                     value={newClientPhone}
                     onChange={(e) => setNewClientPhone(e.target.value)}
-                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
+                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-forest-500 text-sm font-semibold"
                   />
                 </div>
 
@@ -1374,14 +1374,14 @@ export default function Dashboard() {
                     placeholder="Enter full address"
                     value={newClientAddress}
                     onChange={(e) => setNewClientAddress(e.target.value)}
-                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 text-sm font-semibold"
+                    className="w-full bg-white/5 border border-white/5 rounded-xl p-4 text-white focus:outline-none focus:border-forest-500 text-sm font-semibold"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={isAddingClient}
-                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-md mt-6 flex items-center justify-center gap-2"
+                  className="w-full py-4 bg-forest-600 hover:bg-forest-500 text-white font-bold rounded-xl transition-all shadow-md mt-6 flex items-center justify-center gap-2"
                 >
                   {isAddingClient ? (
                     <Loader2 size={18} className="animate-spin" />
@@ -1416,7 +1416,7 @@ export default function Dashboard() {
             ) : (
               <button
                 onClick={() => setIsLeadModalOpen(true)}
-                className="flex items-center gap-2 text-sm font-medium text-emerald-500/80 hover:text-emerald-400 transition-colors cursor-pointer"
+                className="flex items-center gap-2 text-sm font-medium text-forest-500/80 hover:text-forest-400 transition-colors cursor-pointer"
               >
                 <Target size={16} /> Submit Lead
               </button>
@@ -1434,7 +1434,7 @@ export default function Dashboard() {
 
         {/* Minimal Tab Selection */}
         <div
-          className="flex bg-zinc-900 border border-white/10 p-1.5 rounded-2xl shrink-0 overflow-x-auto"
+          className="flex bg-zinc-900 border border-white/10 molten-edge p-1.5 rounded-2xl shrink-0 overflow-x-auto"
           role="tablist"
         >
           <button
@@ -1455,8 +1455,8 @@ export default function Dashboard() {
       </header>
 
       {/* Live status alert strip */}
-      <div className="flex flex-wrap items-center gap-4 text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 w-fit px-5 py-3 rounded-2xl">
-        <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
+      <div className="flex flex-wrap items-center gap-4 text-forest-400 bg-forest-500/5 border border-forest-500/10 w-fit px-5 py-3 rounded-2xl">
+        <div className="w-2.5 h-2.5 bg-forest-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
         <span className="text-sm font-bold">
           All systems normal: 3 working crews on-location in {tenant?.settings?.neighborhoodMask?.[0] || "your service area"}.
         </span>
@@ -1472,9 +1472,9 @@ export default function Dashboard() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="bg-zinc-950 border border-emerald-500/20 rounded-2xl p-8 sm:p-6 md:p-10 shadow-2xl space-y-6 sm:space-y-8 overflow-hidden"
+                className="bg-zinc-950 border border-forest-500/20 molten-edge rounded-2xl p-8 sm:p-6 md:p-10 shadow-2xl space-y-6 sm:space-y-8 overflow-hidden"
               >
-                <div className="flex items-center justify-between border-b border-white/10 pb-6">
+                <div className="flex items-center justify-between border-b border-white/10 molten-edge pb-6">
                   <div className="space-y-1">
                     <h4 className="text-xl sm:text-2xl font-black text-white uppercase italic tracking-tight">
                       Crews & Jobs Control Panel
@@ -1494,14 +1494,14 @@ export default function Dashboard() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                   <div className="space-y-4">
-                    <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-widest pl-1">
+                    <h5 className="text-xs font-bold text-forest-400 uppercase tracking-widest pl-1">
                       Live Crew Status
                     </h5>
                     <div className="space-y-3">
                       {crews.map((crew) => (
                         <div
                           key={crew.id}
-                          className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                          className="bg-zinc-900 border border-white/5 molten-edge p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                         >
                           <div className="space-y-1">
                             <div className="flex items-center gap-3">
@@ -1509,7 +1509,7 @@ export default function Dashboard() {
                                 {crew.name}
                               </span>
                               <span
-                                className={`text-xs md:text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold ${crew.status === "ON_SITE" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-blue-500/15 text-blue-400 border border-blue-500/20"}`}
+                                className={`text-xs md:text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold ${crew.status === "ON_SITE" ? "bg-forest-500/15 text-forest-400 border border-forest-500/20 molten-edge" : "bg-celtic-500/15 text-celtic-400 border border-celtic-500/20"}`}
                               >
                                 {crew.status}
                               </span>
@@ -1531,7 +1531,7 @@ export default function Dashboard() {
                             </span>
                             <button
                               onClick={() => handleDraftCrewSMS(crew)}
-                              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
+                              className="px-4 py-2.5 bg-forest-600 hover:bg-forest-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
                             >
                               <MessageSquare size={13} /> Notify App
                             </button>
@@ -1541,11 +1541,11 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 flex flex-col justify-between">
+                  <div className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-6 flex flex-col justify-between">
                     {selectedCrewForSMS ? (
                       <div className="space-y-5">
-                        <div className="flex justify-between items-center border-b border-white/10 pb-3">
-                          <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                        <div className="flex justify-between items-center border-b border-white/10 molten-edge pb-3">
+                          <p className="text-xs font-bold uppercase tracking-wider text-forest-400">
                             {selectedCrewForSMS.name} Portal Notification
                           </p>
                           <button
@@ -1564,7 +1564,7 @@ export default function Dashboard() {
                             id="sms-draft-text"
                             value={smsDraft}
                             onChange={(e) => setSmsDraft(e.target.value)}
-                            className="w-full bg-black/40 border border-white/5 rounded-xl p-4 text-sm text-zinc-300 h-28 focus:outline-none focus:border-emerald-500 font-medium"
+                            className="w-full bg-black/40 border border-white/5 rounded-xl p-4 text-sm text-zinc-300 h-28 focus:outline-none focus:border-forest-500 font-medium"
                           />
                         </div>
 
@@ -1612,9 +1612,9 @@ export default function Dashboard() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="bg-zinc-950 border border-purple-500/20 rounded-2xl p-8 sm:p-6 md:p-10 shadow-2xl space-y-6 sm:space-y-8 overflow-hidden"
+                className="bg-zinc-950 border border-ember-500/20 molten-edge rounded-2xl p-8 sm:p-6 md:p-10 shadow-2xl space-y-6 sm:space-y-8 overflow-hidden"
               >
-                <div className="flex items-center justify-between border-b border-white/10 pb-6">
+                <div className="flex items-center justify-between border-b border-white/10 molten-edge pb-6">
                   <div className="space-y-3">
                     <div>
                       <h4 className="text-xl sm:text-2xl font-black text-white uppercase italic tracking-tight">
@@ -1629,13 +1629,13 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setCrmTab("clients")}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${crmTab === "clients" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-transparent text-zinc-500 hover:text-zinc-300"}`}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${crmTab === "clients" ? "bg-ember-500/20 text-ember-400 border border-ember-500/30" : "bg-transparent text-zinc-500 hover:text-zinc-300"}`}
                       >
                         Client Potentials
                       </button>
                       <button
                         onClick={() => setCrmTab("vendors")}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${crmTab === "vendors" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-transparent text-zinc-500 hover:text-zinc-300"}`}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${crmTab === "vendors" ? "bg-forest-500/20 text-forest-400 border border-forest-500/30" : "bg-transparent text-zinc-500 hover:text-zinc-300"}`}
                       >
                         Vendor Partners
                       </button>
@@ -1652,35 +1652,35 @@ export default function Dashboard() {
                 {crmTab === "clients" ? (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                     <div className="space-y-4">
-                      <h5 className="text-xs font-bold text-purple-400 uppercase tracking-widest pl-1">
+                      <h5 className="text-xs font-bold text-ember-400 uppercase tracking-widest pl-1">
                         Identified Potential Leads
                       </h5>
                       <div className="space-y-3">
                         {hotLeads.map((lead) => (
                           <div
                             key={lead.id}
-                            className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                            className="bg-zinc-900 border border-white/5 molten-edge p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                           >
                             <div className="space-y-1">
                               <div className="flex items-center gap-3">
                                 <span className="font-bold text-white text-base">
                                   {lead.name}
                                 </span>
-                                <span className="text-xs md:text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2.5 py-0.5 rounded-full font-bold">
+                                <span className="text-xs md:text-[10px] bg-ember-500/10 text-ember-400 border border-ember-500/20 molten-edge px-2.5 py-0.5 rounded-full font-bold">
                                   {lead.score}% Match
                                 </span>
                               </div>
                               <p className="text-xs text-zinc-400 font-semibold">
                                 {lead.address} • {lead.propSize}
                               </p>
-                              <p className="text-xs text-purple-300 italic font-medium">
+                              <p className="text-xs text-ember-300 italic font-medium">
                                 "{lead.matchReason}"
                               </p>
                             </div>
 
                             <button
                               onClick={() => handleTriggerSimulateCall(lead)}
-                              className="shrink-0 px-4 py-2.5 bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                              className="shrink-0 px-4 py-2.5 bg-ember-700 hover:bg-ember-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
                             >
                               <PhoneCall size={13} /> Pitch Simulator
                             </button>
@@ -1689,11 +1689,11 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 flex flex-col justify-between">
+                    <div className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-6 flex flex-col justify-between">
                       {selectedLead ? (
                         <div className="space-y-6">
-                          <div className="flex justify-between items-center border-b border-white/10 pb-3">
-                            <p className="text-xs font-bold uppercase tracking-wider text-purple-300">
+                          <div className="flex justify-between items-center border-b border-white/10 molten-edge pb-3">
+                            <p className="text-xs font-bold uppercase tracking-wider text-ember-300">
                               Outgoing Pitch Simulator: {selectedLead.name}
                             </p>
                             <button
@@ -1708,9 +1708,9 @@ export default function Dashboard() {
                             <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
                               <Loader2
                                 size={36}
-                                className="animate-spin text-purple-400"
+                                className="animate-spin text-ember-400"
                               />
-                              <p className="text-xs uppercase tracking-widest text-purple-400 animate-pulse font-black">
+                              <p className="text-xs uppercase tracking-widest text-ember-400 animate-pulse font-black">
                                 Connecting Voice Simulator...
                               </p>
                             </div>
@@ -1720,7 +1720,7 @@ export default function Dashboard() {
                                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
                                   Predicted Outcome Sentiment:
                                 </span>
-                                <span className="text-xs font-black uppercase text-emerald-400 px-3 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/15">
+                                <span className="text-xs font-black uppercase text-forest-400 px-3 py-1 bg-forest-500/10 rounded-full border border-forest-500/15">
                                   {callOutcome.sentiment}
                                 </span>
                               </div>
@@ -1739,7 +1739,7 @@ export default function Dashboard() {
                               </div>
 
                               <div className="space-y-1 pl-1">
-                                <p className="text-xs text-purple-400 font-bold uppercase tracking-wider">
+                                <p className="text-xs text-ember-400 font-bold uppercase tracking-wider">
                                   Next Operational Steps:
                                 </p>
                                 <p className="text-xs text-zinc-400 font-semibold">
@@ -1784,10 +1784,10 @@ export default function Dashboard() {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                     <div className="space-y-4">
                       <div className="flex justify-between items-center pl-1">
-                        <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
+                        <h5 className="text-xs font-bold text-forest-400 uppercase tracking-widest">
                           Active Supply Partners
                         </h5>
-                        <button className="text-xs md:text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer">
+                        <button className="text-xs md:text-[10px] uppercase font-bold text-forest-400 hover:text-forest-300 flex items-center gap-1 cursor-pointer">
                           <Plus size={12} /> Add Vendor
                         </button>
                       </div>
@@ -1796,7 +1796,7 @@ export default function Dashboard() {
                         {vendors.map((vendor) => (
                           <div
                             key={vendor.id}
-                            className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                            className="bg-zinc-900 border border-white/5 molten-edge p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                           >
                             <div className="space-y-1.5">
                               <div className="flex items-center gap-3">
@@ -1804,7 +1804,7 @@ export default function Dashboard() {
                                   {vendor.name}
                                 </span>
                                 {vendor.status === "ACTIVE" ? (
-                                  <span className="text-xs md:text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-bold">
+                                  <span className="text-xs md:text-[10px] bg-forest-500/10 text-forest-400 border border-forest-500/20 molten-edge px-2.5 py-0.5 rounded-full font-bold">
                                     {vendor.status}
                                   </span>
                                 ) : (
@@ -1816,7 +1816,7 @@ export default function Dashboard() {
                               <p className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">
                                 {vendor.category} • Rep: {vendor.contact}
                               </p>
-                              <div className="flex items-center gap-2 text-xs font-medium text-emerald-300 bg-emerald-500/5 w-fit px-2 py-1 rounded">
+                              <div className="flex items-center gap-2 text-xs font-medium text-forest-300 bg-forest-500/5 w-fit px-2 py-1 rounded">
                                 <Calendar size={12} />
                                 Next Order: {vendor.nextDelivery}
                               </div>
@@ -1828,7 +1828,7 @@ export default function Dashboard() {
                                   `Initiating automated order dispatch with ${vendor.name}`,
                                 )
                               }
-                              className="shrink-0 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                              className="shrink-0 px-4 py-2.5 bg-forest-700 hover:bg-forest-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
                             >
                               <RefreshCw size={13} /> Re-Order
                             </button>
@@ -1837,10 +1837,10 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 flex flex-col justify-between">
+                    <div className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-6 flex flex-col justify-between">
                       <div className="space-y-4">
-                        <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-                          <FileText className="text-emerald-400" size={20} />
+                        <div className="flex items-center gap-3 pb-3 border-b border-white/10 molten-edge">
+                          <FileText className="text-forest-400" size={20} />
                           <h5 className="text-sm font-bold text-white uppercase tracking-wider">
                             Vendor Contracts & Invoices
                           </h5>
@@ -1890,7 +1890,7 @@ export default function Dashboard() {
                                   {doc.amount}
                                 </p>
                                 <p
-                                  className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${doc.status === "PAID" ? "text-emerald-500" : doc.status === "PENDING" ? "text-amber-500" : "text-purple-400"}`}
+                                  className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${doc.status === "PAID" ? "text-forest-500" : doc.status === "PENDING" ? "text-amber-500" : "text-ember-400"}`}
                                 >
                                   {doc.status}
                                 </p>
@@ -1918,10 +1918,10 @@ export default function Dashboard() {
           {/* DYNAMIC FLEX WORKSPACE GRID IN EASY MODE */}
           <div className="space-y-6 sm:space-y-8">
             {/* RE-INSERTABLE FLOW CARDS GRID */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
               {activeWidgets.cockpit_buttons && (
-                <div className="col-span-1 lg:col-span-3" style={{ order: widgetOrder.indexOf("cockpit_buttons") }}>
-                  <div className="mb-4 text-emerald-400 font-black uppercase text-sm flex items-center gap-2 tracking-widest pl-2">
+                <div className="col-span-1 md:col-span-2 lg:col-span-3" style={{ order: widgetOrder.indexOf("cockpit_buttons") }}>
+                  <div className="mb-4 text-forest-400 font-black uppercase text-sm flex items-center gap-2 tracking-widest pl-2">
                      <Zap size={18} className="animate-pulse" /> Easy Mode
                   </div>
                   <motion.div
@@ -1935,17 +1935,17 @@ export default function Dashboard() {
                     }}
                   >
                     {[
-                      { to: "agent", icon: Bot, label: "Copilot", color: "text-emerald-400", hover: "hover:border-emerald-500/30 hover:bg-emerald-500/5", badge: "AI Assistant" },
-                      { to: "crm", icon: Users, label: "CRM", color: "text-purple-400", hover: "hover:border-purple-500/30 hover:bg-purple-500/5", badge: "" },
-                      { to: "scheduler", icon: Calendar, label: "Schedule", color: "text-indigo-400", hover: "hover:border-indigo-500/30 hover:bg-indigo-500/5", badge: "" },
-                      { to: "crew-suite", icon: Truck, label: "Crews & Field", color: "text-teal-400", hover: "hover:border-teal-500/30 hover:bg-teal-500/5", badge: "" },
-                      { to: "invoices", icon: ReceiptText, label: "Invoices", color: "text-amber-400", hover: "hover:border-amber-500/30 hover:bg-amber-500/5", badge: "" },
-                      { to: "settings", icon: Activity, label: "Settings", color: "text-zinc-400", hover: "hover:border-zinc-500/30 hover:bg-zinc-500/5", badge: "" }
+                      { to: "agent", icon: Bot, label: "Copilot", color: "text-fog", hover: "hover:border-ember-500/30 hover:bg-ember-500/5", badge: "AI Assistant" },
+                      { to: "crm", icon: Users, label: "CRM", color: "text-ember-500", hover: "hover:border-ember-500/30 hover:bg-ember-500/5", badge: "" },
+                      { to: "scheduler", icon: Calendar, label: "Schedule", color: "text-fog", hover: "hover:border-ember-500/30 hover:bg-ember-500/5", badge: "" },
+                      { to: "crew-suite", icon: Truck, label: "Crews & Field", color: "text-ember-500", hover: "hover:border-ember-500/30 hover:bg-ember-500/5", badge: "" },
+                      { to: "invoices", icon: ReceiptText, label: "Invoices", color: "text-fog", hover: "hover:border-ember-500/30 hover:bg-ember-500/5", badge: "" },
+                      { to: "settings", icon: Activity, label: "Settings", color: "text-ember-500", hover: "hover:border-ember-500/30 hover:bg-ember-500/5", badge: "" }
                     ].map((btn, i) => (
                       <Link
                         key={i}
                         to={btn.to}
-                        className={`w-full h-full bg-zinc-900 border border-white/5 ${btn.hover} p-4 sm:p-6 rounded-[20px] text-center transition-all cursor-pointer group shadow-sm relative overflow-hidden flex flex-col items-center justify-center gap-3 focus:outline-none`}
+                        className={`w-full h-full bg-zinc-900 border border-white/5 molten-edge ${btn.hover} p-4 sm:p-6 rounded-[20px] text-center transition-all cursor-pointer group shadow-sm relative overflow-hidden flex flex-col items-center justify-center gap-3 focus:outline-none`}
                       >
                         <div className={`w-10 h-10 sm:w-12 sm:h-12 bg-white/5 rounded-xl flex items-center justify-center ${btn.color} shrink-0 group-hover:scale-110 transition-transform`}>
                           <btn.icon size={24} />
@@ -1967,14 +1967,14 @@ export default function Dashboard() {
               )}
 
               {activeWidgets.top_services && (
-                <div className="col-span-1 lg:col-span-2" style={{ order: widgetOrder.indexOf("top_services") }}>
-                   <div className="bg-zinc-900 border border-emerald-500/30 rounded-2xl p-6 shadow-2xl relative overflow-hidden h-full flex flex-col justify-between">
-                     <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[50px] rounded-full pointer-events-none" />
+                <div className="col-span-1 md:col-span-2 lg:col-span-2" style={{ order: widgetOrder.indexOf("top_services") }}>
+                   <div className="bg-zinc-900 border border-forest-500/30 rounded-2xl p-6 shadow-2xl relative overflow-hidden h-full flex flex-col justify-between">
+                     <div className="absolute top-0 right-0 w-32 h-32 bg-forest-500/10 blur-[50px] rounded-full pointer-events-none" />
                      <div className="space-y-4 relative z-10">
-                        <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-                           <TrendingUp className="text-emerald-400" size={20} />
+                        <div className="flex items-center gap-3 pb-3 border-b border-white/10 molten-edge">
+                           <TrendingUp className="text-forest-400" size={20} />
                            <h5 className="text-sm font-bold text-white uppercase tracking-wider">Top Services</h5>
-                           <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">AI GENERATED</span>
+                           <span className="ml-auto text-[10px] bg-forest-500/20 text-forest-400 px-2 py-0.5 rounded-full font-bold">AI GENERATED</span>
                         </div>
                         <div className="space-y-3">
                            {[
@@ -1986,7 +1986,7 @@ export default function Dashboard() {
                                 <span className="text-sm font-medium text-white">{item.label}</span>
                                 <div className="text-right flex items-center gap-3">
                                    <span className="text-sm font-bold text-white">{item.value}</span>
-                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('+') ? 'text-emerald-400' : 'text-red-400'}`}>{item.trend}</span>
+                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('+') ? 'text-forest-400' : 'text-red-400'}`}>{item.trend}</span>
                                 </div>
                              </div>
                            ))}
@@ -1999,7 +1999,7 @@ export default function Dashboard() {
               {activeWidgets.briefing && (
                 <div
                   style={{ order: widgetOrder.indexOf("briefing") }}
-                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 lg:col-span-1"
+                  className="relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 md:col-span-1 lg:col-span-1"
                 >
                   <button
                     onClick={() =>
@@ -2011,7 +2011,7 @@ export default function Dashboard() {
                     <Trash2 size={16} />
                   </button>
                   <div className="space-y-1">
-                    <h5 className="text-xs md:text-[11px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-1">
+                    <h5 className="text-xs md:text-[11px] font-bold text-forest-400 uppercase tracking-widest leading-none mb-1">
                       Custom Workspace Blueprint
                     </h5>
                     <h4 className="text-xl font-bold text-white tracking-tight">
@@ -2019,7 +2019,7 @@ export default function Dashboard() {
                     </h4>
                   </div>
                   <div className="border-t border-white/10 pt-4">
-                    <Suspense fallback={<div className="h-48 flex items-center justify-center animate-pulse"><Loader2 className="w-6 h-6 text-emerald-500 animate-spin" /></div>}>
+                    <Suspense fallback={<div className="h-48 flex items-center justify-center animate-pulse"><Loader2 className="w-6 h-6 text-forest-500 animate-spin" /></div>}>
                       <DailyBriefing />
                     </Suspense>
                   </div>
@@ -2030,7 +2030,7 @@ export default function Dashboard() {
               {activeWidgets.weather && (
                 <div
                   style={{ order: widgetOrder.indexOf("weather") }}
-                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-6 group min-h-[260px] flex flex-col justify-between col-span-1 lg:col-span-1"
+                  className="relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-xl space-y-6 group min-h-[260px] flex flex-col justify-between col-span-1 md:col-span-1 lg:col-span-1"
                 >
                   <button
                     onClick={() =>
@@ -2071,12 +2071,12 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  <div className="bg-zinc-900 border border-white/5 p-4 rounded-xl text-xs text-zinc-400 leading-relaxed font-semibold">
+                  <div className="bg-zinc-900 border border-white/5 molten-edge p-4 rounded-xl text-xs text-zinc-400 leading-relaxed font-semibold">
                     {weather?.forecast ||
                       "Clear microclimate active. Perfect window for targeted herbicide applications and grass aeration."}
                   </div>
 
-                  <div className="flex items-center text-xs text-emerald-400 gap-1.5 font-bold uppercase tracking-wider">
+                  <div className="flex items-center text-xs text-forest-400 gap-1.5 font-bold uppercase tracking-wider">
                     <Activity size={14} className="animate-pulse" /> Reschedule
                     guidelines optimized
                   </div>
@@ -2087,7 +2087,7 @@ export default function Dashboard() {
               {activeWidgets.crews && tenant?.settings?.features?.crewTracking !== false && (
                 <div
                   style={{ order: widgetOrder.indexOf("crews") }}
-                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 lg:col-span-2"
+                  className="relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 md:col-span-2 lg:col-span-2"
                 >
                   <button
                     onClick={() =>
@@ -2100,7 +2100,7 @@ export default function Dashboard() {
                   </button>
                   <div className="flex justify-between items-center">
                     <div className="space-y-1">
-                      <span className="text-xs md:text-[10px] font-bold tracking-widest text-emerald-400 uppercase">
+                      <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">
                         Live Operations
                       </span>
                       <h4 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">
@@ -2119,13 +2119,13 @@ export default function Dashboard() {
                     {crews.slice(0, 2).map((crew) => (
                       <div
                         key={crew.id}
-                        className="border-l-2 border-emerald-500 bg-zinc-900 p-4 rounded-r-xl space-y-1.5 shadow-sm"
+                        className="border-l-2 border-forest-500 bg-zinc-900 p-4 rounded-r-xl space-y-1.5 shadow-sm"
                       >
                         <div className="flex justify-between items-center">
                           <span className="font-bold text-white text-sm">
                             {crew.name}
                           </span>
-                          <span className="text-xs text-emerald-400 font-bold">
+                          <span className="text-xs text-forest-400 font-bold">
                             {crew.progress}%
                           </span>
                         </div>
@@ -2142,7 +2142,7 @@ export default function Dashboard() {
               {activeWidgets.inventory && tenant?.settings?.features?.inventoryManagement !== false && (
                 <div
                   style={{ order: widgetOrder.indexOf("inventory") }}
-                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 lg:col-span-3"
+                  className="relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-xl space-y-4 group col-span-1 md:col-span-2 lg:col-span-3"
                 >
                   <button
                     onClick={() =>
@@ -2161,7 +2161,7 @@ export default function Dashboard() {
                       Bulk Supply Checkouts
                     </h4>
                   </div>
-                  <Suspense fallback={<div className="h-64 flex items-center justify-center animate-pulse"><Loader2 className="w-8 h-8 text-emerald-500 animate-spin" /></div>}>
+                  <Suspense fallback={<div className="h-64 flex items-center justify-center animate-pulse"><Loader2 className="w-8 h-8 text-forest-500 animate-spin" /></div>}>
                     <LiveInventoryFeed />
                   </Suspense>
                 </div>
@@ -2171,7 +2171,7 @@ export default function Dashboard() {
               {activeWidgets.workspace && (
                 <div
                   style={{ order: widgetOrder.indexOf("workspace") }}
-                  className="relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-xl space-y-6 group col-span-1 lg:col-span-3"
+                  className="relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-xl space-y-6 group col-span-1 md:col-span-2 lg:col-span-3"
                 >
                   <button
                     onClick={() =>
@@ -2192,8 +2192,8 @@ export default function Dashboard() {
                       </h4>
                     </div>
                     {isWorkspaceConnected ? (
-                      <span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs md:text-[10px] uppercase font-bold tracking-wider text-emerald-400">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />{" "}
+                      <span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-forest-500/10 border border-forest-500/30 text-xs md:text-[10px] uppercase font-bold tracking-wider text-forest-400">
+                        <span className="w-2 h-2 rounded-full bg-forest-400 animate-pulse" />{" "}
                         Connected
                       </span>
                     ) : (
@@ -2292,7 +2292,7 @@ export default function Dashboard() {
                                 className="group-hover/btn:scale-110 transition-transform"
                               />
                               {integration.status === "success" && (
-                                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-2 py-1 rounded shadow shadow-emerald-500/20">
+                                <span className="text-[9px] font-black text-forest-400 uppercase tracking-widest bg-forest-500/10 px-2 py-1 rounded shadow shadow-forest-500/20">
                                   Done
                                 </span>
                               )}
@@ -2326,21 +2326,21 @@ export default function Dashboard() {
               )}
 
               {activeWidgets.earnings && (
-                <div style={{ order: widgetOrder.indexOf("earnings") }} className="col-span-1 lg:col-span-1 h-full min-h-[300px]">
+                <div style={{ order: widgetOrder.indexOf("earnings") }} className="col-span-1 md:col-span-2 lg:col-span-1 h-full min-h-[300px]">
                   <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
                     <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
                   </Suspense>
                 </div>
               )}
               {activeWidgets.alerts && (
-                <div style={{ order: widgetOrder.indexOf("alerts") }} className="col-span-1 lg:col-span-1 h-full min-h-[300px]">
+                <div style={{ order: widgetOrder.indexOf("alerts") }} className="col-span-1 md:col-span-1 lg:col-span-1 h-full min-h-[300px]">
                   <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
                     <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} />
                   </Suspense>
                 </div>
               )}
               {activeWidgets.design && (
-                <div style={{ order: widgetOrder.indexOf("design") }} className="col-span-1 lg:col-span-1 h-full min-h-[300px]">
+                <div style={{ order: widgetOrder.indexOf("design") }} className="col-span-1 md:col-span-1 lg:col-span-1 h-full min-h-[300px]">
                   <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
                     <DesignStudioWidget isReel={false} flexOrder={widgetOrder.indexOf("design")} />
                   </Suspense>
@@ -2386,21 +2386,21 @@ export default function Dashboard() {
                 label: "Weekly Earnings",
                 value: "$24.8k",
                 change: "+12% MTD projection",
-                trendColor: "text-emerald-400",
+                trendColor: "text-forest-400",
                 icon: Zap,
               },
               {
                 label: "Crew Status",
                 value: "3 / 4 ON_SITE",
                 change: "Beta ready in transport",
-                trendColor: "text-blue-400",
+                trendColor: "text-celtic-400",
                 icon: Briefcase,
               },
               {
                 label: "System Efficiency",
                 value: "92.4%",
                 change: "Optimal output speed",
-                trendColor: "text-emerald-400",
+                trendColor: "text-forest-400",
                 icon: ShieldCheck,
               },
               {
@@ -2413,7 +2413,7 @@ export default function Dashboard() {
             ].map((stat, i) => (
               <div
                 key={i}
-                className="bg-zinc-950 border border-white/5 p-8 rounded-2xl shadow-lg flex justify-between items-center"
+                className="bg-zinc-950 border border-white/5 molten-edge p-8 rounded-2xl shadow-lg flex justify-between items-center"
               >
                 <div className="space-y-4">
                   <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest leading-none">
@@ -2433,7 +2433,7 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8 ">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8 ">
                 {activeWidgets.earnings && (
                   <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
                     <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
@@ -2459,9 +2459,9 @@ export default function Dashboard() {
             </Suspense>
 
             {/* Strategy recommendations cards inside data tracking lists */}
-            <div className="bg-zinc-950 border border-white/5 rounded-2xl p-8 shadow-2xl flex flex-col justify-between">
+            <div className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-8 shadow-2xl flex flex-col justify-between">
               <div className="space-y-1.5">
-                <span className="text-xs md:text-[10px] font-bold text-emerald-400 tracking-widest uppercase">
+                <span className="text-xs md:text-[10px] font-bold text-forest-400 tracking-widest uppercase">
                   AI Strategy Blueprint
                 </span>
                 <h4 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">
@@ -2478,7 +2478,7 @@ export default function Dashboard() {
                   <span className="text-zinc-400 font-bold uppercase">
                     Optimized Route Efficiency:
                   </span>
-                  <span className="text-emerald-400 font-bold uppercase">
+                  <span className="text-forest-400 font-bold uppercase">
                     +18 min saved
                   </span>
                 </div>
@@ -2494,7 +2494,7 @@ export default function Dashboard() {
 
               <button
                 onClick={() => showToast("Recalibrating routing sequences...")}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-md mt-6"
+                className="w-full py-4 bg-forest-600 hover:bg-forest-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-md mt-6"
               >
                 Perform Dispatch Audit Optimization
               </button>
@@ -2527,22 +2527,22 @@ export default function Dashboard() {
                   </h3>
                 </div>
 
-                <div className="aspect-video bg-white/5 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:border-emerald-500 transition-all">
+                <div className="aspect-video bg-white/5 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group hover:border-forest-500 transition-all">
                   {isProcessing ? (
                     <div className="text-center space-y-4">
                       <Loader2
                         size={48}
-                        className="animate-spin text-emerald-500 mx-auto"
+                        className="animate-spin text-forest-500 mx-auto"
                       />
                       <p className="text-sm font-bold text-white uppercase tracking-widest animate-pulse">
                         Running Vision Extraction...
                       </p>
                     </div>
                   ) : parsedScanResult ? (
-                    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 w-[85%] text-left space-y-4">
-                      <div className="flex justify-between items-start border-b border-white/10 pb-3">
+                    <div className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-6 w-[85%] text-left space-y-4">
+                      <div className="flex justify-between items-start border-b border-white/10 molten-edge pb-3">
                         <div className="space-y-1">
-                          <span className="text-xs md:text-[10px] bg-emerald-500/20 text-emerald-400 font-bold uppercase px-2.5 py-0.5 rounded-full">
+                          <span className="text-xs md:text-[10px] bg-forest-500/20 text-forest-400 font-bold uppercase px-2.5 py-0.5 rounded-full">
                             BARCODE EXTRACTED
                           </span>
                           <h4 className="text-base font-bold text-white leading-normal mt-1">
@@ -2594,7 +2594,7 @@ export default function Dashboard() {
                     <label className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 bg-transparent hover:bg-zinc-900 transition-colors cursor-pointer">
                       <Camera
                         size={64}
-                        className="text-white/10 mb-4 group-hover:scale-110 group-hover:text-emerald-500 transition-all duration-300"
+                        className="text-white/10 mb-4 group-hover:scale-110 group-hover:text-forest-500 transition-all duration-300"
                         aria-hidden="true"
                       />
                       <p className="text-sm font-bold text-white uppercase tracking-widest">
@@ -2624,7 +2624,7 @@ export default function Dashboard() {
                         );
                         setIsScanning(false);
                       }}
-                      className="w-full sm:w-auto px-6 py-5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm uppercase tracking-widest rounded-2xl transition-all"
+                      className="w-full sm:w-auto px-6 py-5 bg-forest-600 hover:bg-forest-500 text-white font-bold text-sm uppercase tracking-widest rounded-2xl transition-all"
                     >
                       Commit to Material Stock
                     </button>

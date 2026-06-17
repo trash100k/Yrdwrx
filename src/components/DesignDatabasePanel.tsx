@@ -73,7 +73,7 @@ export function DesignDatabasePanel() {
 
   return (
     <div className="bg-zinc-900 border border-white/10 rounded-3xl p-6 sm:p-10 shadow-2xl relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-500/5 blur-[100px] rounded-full -mr-40 -mt-40 pointer-events-none" />
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-forest-500/5 blur-[100px] rounded-full -mr-40 -mt-40 pointer-events-none" />
       
       <div className="flex flex-col gap-2 mb-10 relative z-10">
         <h2 className="text-3xl font-black uppercase italic tracking-tighter text-white">Design Database</h2>
@@ -98,7 +98,7 @@ export function DesignDatabasePanel() {
         <div className="lg:col-span-1 space-y-4">
           <div className="bg-black/40 border border-white/5 p-6 rounded-2xl">
             <h3 className="text-sm font-black uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Plus size={16} className="text-emerald-400" /> Add {getCategoryLabel(activeCategory)}
+              <Plus size={16} className="text-forest-400" /> Add {getCategoryLabel(activeCategory)}
             </h3>
             <div className="space-y-4">
               <div>
@@ -108,7 +108,7 @@ export function DesignDatabasePanel() {
                   value={newItemName}
                   onChange={(e) => setNewItemName(e.target.value)}
                   placeholder="e.g. Double-Shredded Hardwood Mulch"
-                  className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors"
                 />
               </div>
               <div>
@@ -118,23 +118,23 @@ export function DesignDatabasePanel() {
                   onChange={(e) => setNewItemDesc(e.target.value)}
                   placeholder="e.g. Plant > 5ft from masonry"
                   rows={3}
-                  className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors resize-none"
+                  className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors resize-none"
                 />
               </div>
               <button
                 onClick={handleAddItem}
                 disabled={!newItemName.trim()}
-                className="w-full py-3 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/30 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-3 bg-forest-500/20 text-forest-400 hover:bg-forest-500 hover:text-black border border-forest-500/30 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <Save size={14} /> Save to Database
               </button>
             </div>
 
-            <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-              <p className="text-[10px] uppercase font-black tracking-widest text-blue-400 mb-2 flex items-center gap-2">
+            <div className="mt-6 p-4 bg-celtic-500/10 border border-celtic-500/20 rounded-xl">
+              <p className="text-[10px] uppercase font-black tracking-widest text-celtic-400 mb-2 flex items-center gap-2">
                 <Zap size={12} /> AI Integration
               </p>
-              <p className="text-xs text-blue-400/80 leading-relaxed font-medium">
+              <p className="text-xs text-celtic-400/80 leading-relaxed font-medium">
                 The Design Studio AI and Scheduler will automatically reference these entries to generate realistic bids, prevent botanical violations, and route crews only to active service areas.
               </p>
             </div>
@@ -151,7 +151,7 @@ export function DesignDatabasePanel() {
               </div>
             ) : (
               filteredItems.map(item => (
-                <div key={item.id} className="group bg-black/40 border border-white/5 hover:border-emerald-500/30 p-4 rounded-xl flex items-center gap-4 transition-all">
+                <div key={item.id} className="group bg-black/40 border border-white/5 hover:border-forest-500/30 p-4 rounded-xl flex items-center gap-4 transition-all">
                   <div className="text-white/20 cursor-grab active:cursor-grabbing">
                     <GripVertical size={16} />
                   </div>

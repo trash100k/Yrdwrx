@@ -233,11 +233,11 @@ export default function AgenticOutreachDrawer({
             className="relative w-full sm:w-full sm:w-[540px] h-[100dvh] bg-zinc-950 border-l border-white/10 flex flex-col justify-between overflow-hidden shadow-2xl z-10"
           >
             {/* Header section wrapper */}
-            <div className="p-8 border-b border-white/5 flex items-center justify-between">
+            <div className="p-8 border-b border-white/5 molten-edge flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
-                  <span className="text-xs md:text-[10px] font-black uppercase tracking-[0.25em] text-emerald-400">
+                  <span className="w-2.5 h-2.5 bg-forest-500 rounded-full animate-ping" />
+                  <span className="text-xs md:text-[10px] font-black uppercase tracking-[0.25em] text-forest-400">
                     Agentic Outreach
                   </span>
                 </div>
@@ -258,7 +258,7 @@ export default function AgenticOutreachDrawer({
             <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
               {/* Trust Building Explainer strip */}
               <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl space-y-2.5">
-                <span className="text-[9px] font-black uppercase text-emerald-400 tracking-widest flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase text-forest-400 tracking-widest flex items-center gap-2">
                   <BadgeCheck size={14} /> Trust-First Outreach Conversion Rules
                 </span>
                 <p className="text-xs md:text-[11px] font-medium text-zinc-400 leading-relaxed">
@@ -279,7 +279,7 @@ export default function AgenticOutreachDrawer({
                     id="outreach-lead-select"
                     value={selectedLeadId}
                     onChange={(e) => setSelectedLeadId(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white focus:outline-none focus:border-emerald-500/50 transition-all appearance-none uppercase tracking-wide"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white focus:outline-none focus:border-forest-500/50 transition-all appearance-none uppercase tracking-wide"
                   >
                     {carriers.map((lead) => (
                       <option
@@ -310,7 +310,7 @@ export default function AgenticOutreachDrawer({
                       onChange={(e) => setIncludeSocialProof(e.target.checked)}
                       aria-label="Include Social Proof"
                     />
-                    <div className="w-11 h-6 bg-zinc-800 rounded-full peer peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full" />
+                    <div className="w-11 h-6 bg-zinc-800 rounded-full peer peer-checked:bg-forest-500 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full" />
                   </label>
                 </div>
 
@@ -325,7 +325,7 @@ export default function AgenticOutreachDrawer({
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs md:text-[11px] font-bold text-zinc-400 uppercase">
                           <span>Proximity Reach</span>
-                          <span className="text-emerald-400">
+                          <span className="text-forest-400">
                             {localStats.proximityRadius} miles
                           </span>
                         </div>
@@ -341,7 +341,7 @@ export default function AgenticOutreachDrawer({
                               proximityRadius: e.target.value,
                             })
                           }
-                          className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                          className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-forest-500"
                           aria-label="Proximity Reach in miles"
                         />
                       </div>
@@ -349,7 +349,7 @@ export default function AgenticOutreachDrawer({
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs md:text-[11px] font-bold text-zinc-400 uppercase">
                           <span>Clients Maintained Nearby</span>
-                          <span className="text-emerald-400">
+                          <span className="text-forest-400">
                             {localStats.propertiesMaintained} Associations
                           </span>
                         </div>
@@ -365,7 +365,7 @@ export default function AgenticOutreachDrawer({
                               propertiesMaintained: parseInt(e.target.value),
                             })
                           }
-                          className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                          className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-forest-500"
                           aria-label="Clients Maintained Nearby"
                         />
                       </div>
@@ -384,11 +384,11 @@ export default function AgenticOutreachDrawer({
                             onClick={() => setSelectedReviewIdx(index)}
                             className={`p-3 rounded-xl border text-left text-xs md:text-[11px] font-semibold transition-all ${
                               selectedReviewIdx === index
-                                ? "bg-emerald-500/10 border-emerald-500/30 text-white"
+                                ? "bg-forest-500/10 border-forest-500/30 text-white"
                                 : "bg-white/5 border-white/5 text-zinc-500 hover:text-white"
                             }`}
                           >
-                            <span className="flex items-center gap-1 mb-1 text-emerald-400 block">
+                            <span className="flex items-center gap-1 mb-1 text-forest-400 block">
                               <Star size={10} className="fill-current" />
                               <span className="text-[9px] font-bold">5.0</span>
                             </span>
@@ -453,7 +453,7 @@ export default function AgenticOutreachDrawer({
                       onClick={() => handleTogglePhotoAccess(false)}
                       className={`py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                         !isPhotoDenied
-                          ? "bg-emerald-500 text-black shadow-[0_10px_20px_rgba(16,185,129,0.15)]"
+                          ? "bg-forest-500 text-black shadow-[0_10px_20px_rgba(5, 168, 69,0.15)]"
                           : "bg-zinc-950 border border-white/10 text-zinc-400 hover:text-white"
                       }`}
                     >
@@ -465,7 +465,7 @@ export default function AgenticOutreachDrawer({
                     <ShieldCheck
                       size={12}
                       className={
-                        isPhotoDenied ? "text-rose-500" : "text-emerald-500"
+                        isPhotoDenied ? "text-rose-500" : "text-forest-500"
                       }
                     />
                     {isPhotoDenied
@@ -482,7 +482,7 @@ export default function AgenticOutreachDrawer({
                 </span>
 
                 <div className="bg-zinc-950 rounded-[24px] border border-white/10 p-6 space-y-4 relative font-sans text-xs">
-                  <div className="space-y-1.5 pb-4 border-b border-white/5">
+                  <div className="space-y-1.5 pb-4 border-b border-white/5 molten-edge">
                     <div className="flex items-center gap-1">
                       <span className="text-zinc-500 w-16 font-bold uppercase text-[9px]">
                         Subject:
@@ -495,8 +495,8 @@ export default function AgenticOutreachDrawer({
                       <span className="text-zinc-500 w-16 font-bold uppercase text-[9px]">
                         Sender:
                       </span>
-                      <span className="text-emerald-400 font-bold font-mono">
-                        outreach@cutty.io
+                      <span className="text-forest-400 font-bold font-mono">
+                        outreach@yardworx.io
                       </span>
                     </div>
                   </div>
@@ -520,7 +520,7 @@ export default function AgenticOutreachDrawer({
                         <span className="text-[8px] uppercase tracking-widest font-black text-zinc-500">
                           Exhibit A • Real Adjacent Standard
                         </span>
-                        <span className="text-[8px] font-bold text-emerald-400">
+                        <span className="text-[8px] font-bold text-forest-400">
                           Verified Client Site
                         </span>
                       </div>

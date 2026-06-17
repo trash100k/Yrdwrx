@@ -8,6 +8,8 @@ import { MapPin, Calendar, CreditCard, Droplet, Leaf, CheckCircle2, Lock, Send, 
 import { useTenant } from "../contexts/TenantContext";
 import { safeStorage } from "../lib/storage";
 
+import ClientDashboard from "../components/ClientDashboard";
+
 export default function ClientPortal() {
   
   
@@ -15,7 +17,7 @@ export default function ClientPortal() {
   const { tenant } = useTenant();
   const [client, setClient] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
@@ -98,7 +100,7 @@ export default function ClientPortal() {
     try {
       const res = await ApiClient.post<any>("/api/stripe/checkout", { 
         amount: 145, 
-        description: "YardWorx Landscapes Invoice: INV-2026-104",
+        description: "YardWorx Landscapes Invoice: INV-2026-104", 
         successUrl: window.location.href, 
         cancelUrl: window.location.href,
         tenantStripeAccountId: tenant?.stripeAccountId
@@ -157,7 +159,7 @@ export default function ClientPortal() {
   if (!isAuthorized && !loading) {
      return (
        <div className="min-h-[100dvh] bg-zinc-950 font-sans text-white p-4 sm:p-8 flex items-center justify-center">
-          <div className="max-w-md w-full bg-zinc-900 border border-white/5 rounded-2xl p-8 text-center shadow-2xl relative overflow-hidden">
+          <div className="max-w-md w-full bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-8 text-center shadow-2xl relative overflow-hidden">
              <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 text-red-500">
                 <Lock size={32} />
              </div>
@@ -199,12 +201,12 @@ export default function ClientPortal() {
                 Your Property
               </h1>
               {tenant?.settings?.features?.aiOmnilingual && (
-                  <div className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded text-[9px] uppercase tracking-widest font-black flex items-center gap-1.5 self-start mt-1">
+                  <div className="px-2 py-0.5 bg-celtic-500/10 border border-celtic-500/20 text-celtic-400 rounded text-[9px] uppercase tracking-widest font-black flex items-center gap-1.5 self-start mt-1">
                      <Globe size={10} /> Auto-Translated (AI)
                   </div>
               )}
             </div>
-            <p className="text-emerald-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2">
+            <p className="text-forest-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2">
               <MapPin size={16} /> {client.address || "Service Location"}
             </p>
           </div>
@@ -216,7 +218,7 @@ export default function ClientPortal() {
 
         {/* Tab Navigation */}
         <div className="flex bg-black p-2 border border-white/5 rounded-3xl mb-8 overflow-x-auto">
-          {["overview", "jobs", "invoices", "design", "messages"].map((tab) => (
+          {["dashboard", "jobs", "invoices", "design", "messages"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -233,68 +235,28 @@ export default function ClientPortal() {
 
         {/* Content Area */}
         <main>
-          {activeTab === "overview" && (
-            <div className="grid sm:grid-cols-2 gap-4 sm:gap-8">
-              <div className="bg-zinc-900 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-10">
-                  <Leaf size={120} />
-                </div>
-                <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-6">Property Profile</h2>
-                <div className="space-y-6 relative z-10">
-                  <div>
-                    <p className="text-xs md:text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Owner</p>
-                    <p className="font-medium text-lg">{client.name}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs md:text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Contact Details</p>
-                    <p className="font-medium">{client.email || "No email on file"}</p>
-                    <p className="font-medium">{client.phone || "No phone on file"}</p>
-                  </div>
-                  {client.notes && (
-                    <div>
-                      <p className="text-xs md:text-[10px] text-emerald-400 font-black uppercase tracking-widest mb-2">Gate Code / Instructions</p>
-                      <div className="bg-black/50 p-4 rounded-2xl border-2 border-emerald-500/20 text-sm">
-                        {client.notes}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-8">
-                <div className="bg-zinc-900 border-4 border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl">
-                  <h2 className="text-xs font-black text-blue-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <Droplet size={16} /> Upcoming Service
-                  </h2>
-                  <div className="bg-black/40 rounded-2xl p-6 border-2 border-white/5">
-                    <div className="flex justify-between items-center mb-2">
-                      <p className="font-black italic tracking-tight text-xl">Lawn & Edge</p>
-                      <span className="bg-blue-500/20 text-blue-400 text-xs md:text-[10px] uppercase font-black px-3 py-1 rounded-full">Next Week</span>
-                    </div>
-                    <p className="text-white/60 text-sm mb-4">Standard bi-weekly maintenance and debris removal.</p>
-                  </div>
-                </div>
-
-                <div className="bg-emerald-900/20 border-4 border-emerald-500/20 rounded-2xl p-5 sm:p-8">
-                  <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-2">Quick Action</h2>
-                  <p className="text-white/60 text-sm mb-6">Need an extra service or have a special request for the crew?</p>
-                  <button className="w-full bg-emerald-500 text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl hover:bg-emerald-400 transition-colors">
-                    Request Additional Service
-                  </button>
-                </div>
-              </div>
-            </div>
+          {activeTab === "dashboard" && (
+            <ClientDashboard 
+              client={client}
+              upcomingServices={[
+                { title: "Lawn & Edge", date: "Next Week", description: "Standard bi-weekly maintenance and debris removal.", time: "08:00 AM" }
+              ]}
+              recentProjects={[
+                { title: "Standard Maintenance", date: "Oct 15, 2026", statusUpdate: "Crew completed mow, trim, edge, and blew off all hardscapes. Everything looks great!" },
+                { title: "Fall Cleanup", date: "Oct 1, 2026", statusUpdate: "Removed all leaves and prepped garden beds for winter. Checked irrigation lines." }
+              ]}
+            />
           )}
 
           {activeTab === "jobs" && (
             <div className="bg-zinc-900 border-4 border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl">
-              <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-8">Service History</h2>
+              <h2 className="text-xs font-black text-forest-400 uppercase tracking-widest mb-8">Service History</h2>
               
               <div className="space-y-4">
                 {[1, 2, 3].map((_, i) => (
                   <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between bg-black/40 p-6 rounded-2xl border-2 border-white/5 gap-4">
                     <div className="flex items-start gap-4">
-                      <div className="bg-emerald-500/20 p-3 rounded-full text-emerald-400 shrink-0">
+                      <div className="bg-forest-500/20 p-3 rounded-full text-forest-400 shrink-0">
                         <CheckCircle2 size={24} />
                       </div>
                       <div>
@@ -304,7 +266,7 @@ export default function ClientPortal() {
                     </div>
                     <div className="sm:text-right shrink-0">
                       <p className="text-xs md:text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Completed On</p>
-                      <p className="font-medium text-sm text-emerald-400 flex items-center justify-end gap-2"><Calendar size={14} /> Oct {15 - i * 7}, 2026</p>
+                      <p className="font-medium text-sm text-forest-400 flex items-center justify-end gap-2"><Calendar size={14} /> Oct {15 - i * 7}, 2026</p>
                     </div>
                   </div>
                 ))}
@@ -314,7 +276,7 @@ export default function ClientPortal() {
 
           {activeTab === "invoices" && (
             <div className="bg-zinc-900 border-4 border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl">
-              <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-8">Billing & Invoices</h2>
+              <h2 className="text-xs font-black text-forest-400 uppercase tracking-widest mb-8">Billing & Invoices</h2>
               
               <div className="bg-rose-500/10 border-2 border-rose-500/20 rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
                 <div>
@@ -356,7 +318,7 @@ export default function ClientPortal() {
                   </div>
                   <div className="text-right">
                     <p className="font-black">$145.00</p>
-                    <p className="text-emerald-400 text-xs md:text-[10px] font-black uppercase tracking-widest">Paid</p>
+                    <p className="text-forest-400 text-xs md:text-[10px] font-black uppercase tracking-widest">Paid</p>
                   </div>
                 </div>
               </div>
@@ -369,17 +331,17 @@ export default function ClientPortal() {
               <div className="bg-zinc-900 border-4 border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-1">Visualizer</h2>
+                    <h2 className="text-xs font-black text-forest-400 uppercase tracking-widest mb-1">Visualizer</h2>
                     <h3 className="text-xl sm:text-2xl font-black italic tracking-tight text-white">Capture Your Vision</h3>
                   </div>
-                  <button className="bg-emerald-500 text-black py-3 px-6 rounded-xl font-black uppercase tracking-widest text-xs md:text-[10px] hover:scale-[1.02] transition-transform shadow-xl flex items-center gap-2">
+                  <button className="bg-forest-500 text-black py-3 px-6 rounded-xl font-black uppercase tracking-widest text-xs md:text-[10px] hover:scale-[1.02] transition-transform shadow-xl flex items-center gap-2">
                     <Leaf size={14} /> Start New Design
                   </button>
                 </div>
               </div>
 
               {/* Generated Proposal Example with Blueprint Guard */}
-              <div className="bg-zinc-900 border-4 border-emerald-500/10 rounded-2xl p-5 sm:p-8 shadow-2xl relative overflow-hidden">
+              <div className="bg-zinc-900 border-4 border-forest-500/10 rounded-2xl p-5 sm:p-8 shadow-2xl relative overflow-hidden">
                 {/* Branding Watermark */}
                 <div className="absolute -top-10 -right-10 text-[120px] font-black italic text-white/[0.02] uppercase select-none pointer-events-none">
                   YARDWORX
@@ -389,7 +351,7 @@ export default function ClientPortal() {
                   {/* Left: The Visual / Vibe */}
                   <div className="flex-1 space-y-6">
                     <div>
-                      <div className="inline-block px-3 py-1 bg-emerald-500/10 text-emerald-400 font-bold uppercase tracking-widest text-xs md:text-[10px] rounded-lg mb-4">
+                      <div className="inline-block px-3 py-1 bg-forest-500/10 text-forest-400 font-bold uppercase tracking-widest text-xs md:text-[10px] rounded-lg mb-4">
                         AI Generated Proposal
                       </div>
                       <h3 className="text-xl sm:text-2xl font-black text-white mb-2">Modern Xeriscape Front Yard</h3>
@@ -401,7 +363,7 @@ export default function ClientPortal() {
                     {/* Mock Image Placeholder */}
                     <div className="w-full h-64 bg-black/40 rounded-3xl border-4 border-white/5 flex items-center justify-center relative overflow-hidden group">
                       {/* Generative Mockup Visualization */}
-                      <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/10 to-blue-500/10 mix-blend-overlay" />
+                      <div className="absolute inset-0 bg-gradient-to-tr from-forest-500/10 to-celtic-500/10 mix-blend-overlay" />
                       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/50 to-transparent" />
                       <p className="text-white/20 font-black uppercase tracking-[0.2em] text-sm relative z-10 select-none">Watermarked AI Rendering</p>
                     </div>
@@ -415,7 +377,7 @@ export default function ClientPortal() {
                         <p className="text-white/40 text-xs font-bold uppercase tracking-widest mt-1">Accuracy: ±5%</p>
                       </div>
                       <div className="text-right">
-                        <span className="text-xl sm:text-2xl font-black text-emerald-400">$4,250</span>
+                        <span className="text-xl sm:text-2xl font-black text-forest-400">$4,250</span>
                         <p className="text-white/40 text-xs md:text-[10px] font-bold uppercase tracking-widest">Turnkey Price</p>
                       </div>
                     </div>
@@ -487,24 +449,24 @@ export default function ClientPortal() {
 
           {activeTab === "messages" && (
             <div className="bg-zinc-900 border-4 border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl flex flex-col h-[500px]">
-              <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-6 border-b border-white/10 pb-4">Team Communications & Notifications</h2>
+              <h2 className="text-xs font-black text-forest-400 uppercase tracking-widest mb-6 border-b border-white/10 pb-4">Team Communications & Notifications</h2>
               
               <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2 custom-scrollbar">
                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4 self-start max-w-[85%]">
-                    <p className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2">Automated Notification</p>
+                    <p className="text-xs md:text-[10px] text-forest-400 font-bold uppercase tracking-widest mb-2">Automated Notification</p>
                     <p className="text-sm">YardWorx crew has finished their weekly maintenance. Check your overview tab for details!</p>
                  </div>
-                 <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 self-start max-w-[85%]">
-                    <p className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2">YardWorx Dispatch</p>
+                 <div className="bg-forest-500/10 border border-forest-500/20 rounded-2xl p-4 self-start max-w-[85%]">
+                    <p className="text-xs md:text-[10px] text-forest-400 font-bold uppercase tracking-widest mb-2">YardWorx Dispatch</p>
                     <p className="text-sm">Hi there! We are pushing your mow back by one day due to the forecasted rain tomorrow.</p>
                  </div>
                  
                  {messages.map((m) => (
                     <div 
                       key={m.id} 
-                      className={`rounded-2xl p-4 max-w-[85%] ${m.sender === 'client' ? 'bg-blue-500/10 border border-blue-500/20 self-end ml-auto' : 'bg-emerald-500/10 border border-emerald-500/20 self-start'}`}
+                      className={`rounded-2xl p-4 max-w-[85%] ${m.sender === 'client' ? 'bg-celtic-500/10 border border-celtic-500/20 self-end ml-auto' : 'bg-forest-500/10 border border-forest-500/20 self-start'}`}
                     >
-                      <p className={`text-xs md:text-[10px] font-bold uppercase tracking-widest mb-2 ${m.sender === 'client' ? 'text-blue-400' : 'text-emerald-400'}`}>
+                      <p className={`text-xs md:text-[10px] font-bold uppercase tracking-widest mb-2 ${m.sender === 'client' ? 'text-celtic-400' : 'text-forest-400'}`}>
                         {m.sender === 'client' ? 'You' : 'YardWorx Dispatch'}
                       </p>
                       <p className="text-sm">{m.text}</p>
@@ -520,15 +482,15 @@ export default function ClientPortal() {
                   type="text" 
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
-                  placeholder="Reply to YardWorx team..."
+                  placeholder="Reply to YardWorx team..." 
                   aria-label="Reply to YardWorx team"
-                  className="w-full bg-black/50 border-2 border-white/10 rounded-xl py-3 px-4 text-sm text-white focus:border-emerald-500/50 focus:outline-none transition-colors" 
+                  className="w-full bg-black/50 border-2 border-white/10 rounded-xl py-3 px-4 text-sm text-white focus:border-forest-500/50 focus:outline-none transition-colors" 
                 />
                 <button 
                   type="submit" 
                   disabled={!messageText.trim()} 
                   aria-label="Send Message"
-                  className="px-6 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black rounded-xl font-black uppercase tracking-widest transition-colors flex items-center justify-center"
+                  className="px-6 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black rounded-xl font-black uppercase tracking-widest transition-colors flex items-center justify-center"
                 >
                   <Send size={18} />
                 </button>

@@ -13,14 +13,16 @@ export function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, qua
                 let width = img.width;
                 let height = img.height;
 
-                if (height > width) {
-                    reject(new Error("Only landscape photos are allowed"));
-                    return;
-                }
-
-                if (width > maxWidth) {
-                    height *= maxWidth / width;
-                    width = maxWidth;
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height *= maxWidth / width;
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width *= maxHeight / height;
+                        height = maxHeight;
+                    }
                 }
 
                 canvas.width = Math.round(width);

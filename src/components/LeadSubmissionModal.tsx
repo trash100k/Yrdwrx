@@ -45,19 +45,15 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
       <div className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl relative">
-        <button
-          onClick={onClose}
-          aria-label="Close modal"
-          className="absolute top-6 right-6 p-2 rounded-full bg-white/5 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none transition-colors z-10 text-white"
-        >
+        <button onClick={onClose} className="absolute top-6 right-6 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10 text-white">
           <X size={20} />
         </button>
 
-        <div className="p-8 pb-6 border-b border-white/5 bg-emerald-500/5 relative overflow-hidden">
-          <div className="absolute -right-10 -top-10 text-emerald-500/10 pointer-events-none">
+        <div className="p-8 pb-6 border-b border-white/5 molten-edge bg-forest-500/5 relative overflow-hidden">
+          <div className="absolute -right-10 -top-10 text-forest-500/10 pointer-events-none">
             <Target size={150} />
           </div>
-          <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-400 mb-6 border border-emerald-500/20">
+          <div className="w-12 h-12 bg-forest-500/10 rounded-2xl flex items-center justify-center text-forest-400 mb-6 border border-forest-500/20">
             <Target size={24} />
           </div>
           <h2 className="text-2xl font-black text-white italic tracking-tight">Submit New Lead</h2>
@@ -69,25 +65,23 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label htmlFor="first-name" className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">First Name</label>
+              <label className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">First Name</label>
               <input 
-                id="first-name"
                 required
                 type="text" 
                 value={formData.firstName}
                 onChange={e => setFormData({...formData, firstName: e.target.value})}
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500 transition-colors outline-none"
+                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors"
                 placeholder="John" 
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="last-name" className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">Last Name</label>
+              <label className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">Last Name</label>
               <input 
-                id="last-name"
                 type="text" 
                 value={formData.lastName}
                 onChange={e => setFormData({...formData, lastName: e.target.value})}
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500 transition-colors outline-none"
+                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors"
                 placeholder="Doe" 
               />
             </div>
@@ -95,10 +89,8 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">Contact Details</label>
-            <div className="flex bg-black/50 border border-white/10 rounded-xl overflow-hidden focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500 transition-colors">
+            <div className="flex bg-black/50 border border-white/10 rounded-xl overflow-hidden focus-within:border-forest-500 transition-colors">
               <input 
-                id="phone"
-                aria-label="Phone Number"
                 type="tel" 
                 value={formData.phone}
                 onChange={e => setFormData({...formData, phone: e.target.value})}
@@ -106,8 +98,6 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
                 placeholder="Phone" 
               />
               <input 
-                id="email"
-                aria-label="Email Address"
                 type="email" 
                 value={formData.email}
                 onChange={e => setFormData({...formData, email: e.target.value})}
@@ -118,26 +108,24 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="address" className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">Property Address</label>
+            <label className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">Property Address</label>
             <input 
-              id="address"
               required
               type="text" 
               value={formData.address}
               onChange={e => setFormData({...formData, address: e.target.value})}
-              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500 transition-colors outline-none"
+              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors"
               placeholder="123 Main St, City, ST" 
             />
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="notes" className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">Service Notes</label>
+            <label className="text-[10px] font-black text-white/40 tracking-[0.2em] uppercase">Service Notes</label>
             <textarea 
-              id="notes"
               rows={3} 
               value={formData.notes}
               onChange={e => setFormData({...formData, notes: e.target.value})}
-              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500 transition-colors outline-none resize-none"
+              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors resize-none"
               placeholder="Client is looking for a front yard redesign and weekly mowing..."
             />
           </div>
@@ -146,15 +134,14 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
             <button 
               type="button"
               onClick={onClose}
-              className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white focus-visible:ring-2 focus-visible:ring-white/20 transition-colors outline-none"
+              className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors"
             >
               Cancel
             </button>
             <button 
               type="submit"
-              aria-busy={isSubmitting}
               disabled={isSubmitting || !formData.firstName || !formData.address}
-              className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none"
+              className="flex items-center gap-2 bg-forest-500 hover:bg-forest-400 text-black px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(5, 168, 69,0.3)] transition-all disabled:opacity-50"
             >
               {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               Submit Lead

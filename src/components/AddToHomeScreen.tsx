@@ -66,10 +66,10 @@ export function AddToHomeScreen() {
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
-          className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-80 bg-zinc-900 border border-emerald-500/30 shadow-2xl rounded-2xl p-4 z-[9999] flex items-start gap-4"
+          className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-80 bg-zinc-900 border border-forest-500/30 shadow-2xl rounded-2xl p-4 z-[9999] flex items-start gap-4"
         >
-          <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
-            <Download className="text-emerald-400" size={24} />
+          <div className="w-12 h-12 bg-forest-500/20 rounded-xl flex items-center justify-center shrink-0">
+            <Download className="text-forest-400" size={24} />
           </div>
           <div className="flex-1 pt-1">
             <h4 className="text-white font-bold text-sm mb-1 uppercase tracking-wide">Install App</h4>
@@ -79,7 +79,7 @@ export function AddToHomeScreen() {
             <div className="flex gap-2">
               <button 
                 onClick={handleInstallClick} 
-                className="flex-1 bg-emerald-500 text-black font-bold text-xs uppercase tracking-wide py-2 rounded-lg hover:bg-emerald-400 transition-colors active:scale-95"
+                className="flex-1 bg-forest-500 text-black font-bold text-xs uppercase tracking-wide py-2 rounded-lg hover:bg-forest-400 transition-colors active:scale-95"
               >
                 Install Now
               </button>

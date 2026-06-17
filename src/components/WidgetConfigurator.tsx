@@ -75,7 +75,7 @@ export default function WidgetConfigurator({
   const easyModeWidget = WIDGET_LIBRARY.find(w => w.id === "cockpit_buttons");
 
   return (
-    <div className="bg-zinc-950 border border-white/5 rounded-[28px] p-6 shadow-2xl">
+    <div className="bg-zinc-950 border border-white/5 molten-edge rounded-[28px] p-6 shadow-2xl">
       <div className="mb-6 flex justify-between items-center">
         <div>
           <h3 className="text-xl font-black text-white italic uppercase tracking-tight">
@@ -88,16 +88,16 @@ export default function WidgetConfigurator({
       </div>
 
       {easyModeWidget && (
-        <div className="mb-4 bg-emerald-500/10 border-2 border-emerald-500/30 rounded-xl p-4 flex items-center justify-between transition-colors shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+        <div className="mb-4 bg-forest-500/10 border-2 border-forest-500/30 rounded-xl p-4 flex items-center justify-between transition-colors shadow-[0_0_15px_rgba(5, 168, 69,0.1)]">
            <div className="flex items-center gap-4">
-             <div className="p-2 rounded-lg bg-emerald-500 text-white shadow-lg">
+             <div className="p-2 rounded-lg bg-forest-500 text-white shadow-lg">
                 <easyModeWidget.icon size={18} />
              </div>
              <div>
-                <h4 className="text-sm font-black tracking-tight uppercase text-emerald-400">
+                <h4 className="text-sm font-black tracking-tight uppercase text-forest-400">
                   {easyModeWidget.name}
                 </h4>
-                <p className="text-xs md:text-[10px] uppercase tracking-widest text-emerald-500/70 font-bold">
+                <p className="text-xs md:text-[10px] uppercase tracking-widest text-forest-500/70 font-bold">
                   {easyModeWidget.desc} (Fixed at Top)
                 </p>
              </div>
@@ -110,8 +110,8 @@ export default function WidgetConfigurator({
              }}
              className={`p-3 rounded-xl transition-all border-2 ${
                localActive[easyModeWidget.id] 
-                 ? "bg-emerald-500 text-white hover:bg-emerald-400 border-emerald-500" 
-                 : "bg-transparent text-emerald-500 border-emerald-500/30 hover:text-white"
+                 ? "bg-forest-500 text-white hover:bg-forest-400 border-forest-500" 
+                 : "bg-transparent text-forest-500 border-forest-500/30 hover:text-white"
              }`}
            >
              {localActive[easyModeWidget.id] ? <Eye size={18} /> : <EyeOff size={18} />}

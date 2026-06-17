@@ -10,8 +10,8 @@ export default function AlertsWidget({ isReel, flexOrder }: { isReel: boolean, f
       style={flexOrder !== undefined ? { order: flexOrder } : undefined}
       className={
         isReel
-          ? "relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6 flex flex-col justify-between w-[85vw] md:w-full md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
-          : "bg-zinc-950 border border-white/5 rounded-2xl sm:rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6 flex flex-col justify-between"
+          ? "relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6 flex flex-col justify-between w-[85vw] md:w-full md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
+          : "bg-zinc-950 border border-white/5 molten-edge rounded-2xl sm:rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6 flex flex-col justify-between"
       }
     >
       <div className="space-y-1">
@@ -46,7 +46,7 @@ export default function AlertsWidget({ isReel, flexOrder }: { isReel: boolean, f
         ].map((alert, idx) => (
           <div
             key={idx}
-            className="bg-zinc-900 border border-white/5 p-4 rounded-xl flex items-start gap-3 text-xs"
+            className="bg-zinc-900 border border-white/5 molten-edge p-4 rounded-xl flex items-start gap-3 text-xs"
           >
             <div
               className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${alert.level === "high" ? "bg-red-500 animate-pulse" : "bg-amber-500"}`}

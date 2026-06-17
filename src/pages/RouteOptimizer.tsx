@@ -55,13 +55,13 @@ export default function RouteOptimizer() {
     <div className="p-5 sm:p-8 max-w-7xl mx-auto min-h-[100dvh]">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <MapIcon size={32} className="text-emerald-400" />
+          <MapIcon size={32} className="text-forest-400" />
           <h1 className="text-2xl sm:text-3xl sm:text-4xl font-black text-white italic uppercase tracking-tight">Route Optimization</h1>
         </div>
         <button 
           onClick={startOptimization}
           disabled={optimizing || complete}
-          className="bg-emerald-500 text-black px-6 py-3 rounded-full font-black uppercase text-sm tracking-widest hover:scale-105 active:scale-95 transition-transform flex items-center gap-2 disabled:opacity-50"
+          className="bg-forest-500 text-black px-6 py-3 rounded-full font-black uppercase text-sm tracking-widest hover:scale-105 active:scale-95 transition-transform flex items-center gap-2 disabled:opacity-50"
         >
           {optimizing ? (
             <><span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> Optimizing...</>
@@ -74,7 +74,7 @@ export default function RouteOptimizer() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-zinc-900 border border-white/5 rounded-3xl overflow-hidden h-[600px] relative">
+        <div className="lg:col-span-2 bg-zinc-900 border border-white/5 molten-edge rounded-3xl overflow-hidden h-[600px] relative">
           {mapsApiKey ? (
             <APIProvider apiKey={mapsApiKey}>
               <Map
@@ -87,11 +87,11 @@ export default function RouteOptimizer() {
                 {waypoints.map((wp, i) => (
                   <AdvancedMarker key={wp.id} position={{ lat: wp.lat, lng: wp.lng }}>
                     {i === 0 || i === waypoints.length - 1 ? (
-                      <div className="w-6 h-6 bg-emerald-500 rounded-full border border-zinc-900 flex items-center justify-center text-[8px] font-bold">
+                      <div className="w-6 h-6 bg-forest-500 rounded-full border border-zinc-900 flex items-center justify-center text-[8px] font-bold">
                         HQ
                       </div>
                     ) : (
-                      <div className="w-5 h-5 bg-blue-500 rounded-full border-2 border-black flex items-center justify-center text-xs md:text-[10px] text-white font-bold">
+                      <div className="w-5 h-5 bg-celtic-500 rounded-full border-2 border-black flex items-center justify-center text-xs md:text-[10px] text-white font-bold">
                         {routeData?.data?.routes && routeData.data.routes[0]?.optimizedIntermediateWaypointIndex ? 
                           routeData.data.routes[0].optimizedIntermediateWaypointIndex.indexOf(i - 1) + 1 : i}
                       </div>
@@ -102,14 +102,14 @@ export default function RouteOptimizer() {
             </APIProvider>
           ) : (
              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black">
-               <span className="w-8 h-8 border border-white/5 border-t-emerald-500 rounded-full animate-spin"></span>
+               <span className="w-8 h-8 border border-white/5 border-t-forest-500 rounded-full animate-spin"></span>
              </div>
           )}
           {optimizing && (
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center flex-col z-10">
-              <span className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-              <div className="mt-4 text-emerald-400 font-black tracking-widest uppercase">Computing optimal path...</div>
-              <div className="mt-2 font-mono text-xs text-emerald-400/50">Processing 24 stops via Routes API</div>
+              <span className="w-12 h-12 border-4 border-forest-500/30 border-t-forest-500 rounded-full animate-spin" />
+              <div className="mt-4 text-forest-400 font-black tracking-widest uppercase">Computing optimal path...</div>
+              <div className="mt-2 font-mono text-xs text-forest-400/50">Processing 24 stops via Routes API</div>
             </div>
           )}
         </div>
@@ -122,10 +122,10 @@ export default function RouteOptimizer() {
             <p className="text-sm text-zinc-400 font-medium mb-6">Select crew to optimize daily route.</p>
 
             <div className="space-y-3">
-              <div className="p-4 rounded-xl bg-white/5 border border-emerald-500/30 cursor-pointer">
+              <div className="p-4 rounded-xl bg-white/5 border border-forest-500/30 cursor-pointer">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="font-bold text-emerald-400">Alpha Crew</span>
-                  <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded font-black tracking-widest uppercase">Selected</span>
+                  <span className="font-bold text-forest-400">Alpha Crew</span>
+                  <span className="text-xs bg-forest-500/10 text-forest-400 px-2 py-1 rounded font-black tracking-widest uppercase">Selected</span>
                 </div>
                 <div className="flex items-center gap-4 text-xs font-mono text-zinc-500">
                   <span className="flex items-center gap-1"><Navigation2 size={12} /> 12 Stops</span>
@@ -152,13 +152,13 @@ export default function RouteOptimizer() {
               <div>
                 <div className="flex justify-between text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">
                   <span>Drive Time</span>
-                  {complete ? <span className="text-emerald-400">-22%</span> : <span>--</span>}
+                  {complete ? <span className="text-forest-400">-22%</span> : <span>--</span>}
                 </div>
                 <div className="h-2 w-full bg-black rounded-full overflow-hidden">
                   <motion.div 
                     initial={{ width: "80%" }}
                     animate={{ width: complete ? "58%" : "80%" }}
-                    className="h-full bg-emerald-500"
+                    className="h-full bg-forest-500"
                   />
                 </div>
               </div>
@@ -166,13 +166,13 @@ export default function RouteOptimizer() {
               <div>
                 <div className="flex justify-between text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">
                   <span>Fuel Consumption</span>
-                  {complete ? <span className="text-emerald-400">-15%</span> : <span>--</span>}
+                  {complete ? <span className="text-forest-400">-15%</span> : <span>--</span>}
                 </div>
                 <div className="h-2 w-full bg-black rounded-full overflow-hidden">
                   <motion.div 
                     initial={{ width: "70%" }}
                     animate={{ width: complete ? "55%" : "70%" }}
-                    className="h-full bg-emerald-500"
+                    className="h-full bg-forest-500"
                   />
                 </div>
               </div>

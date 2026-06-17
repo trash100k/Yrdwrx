@@ -207,12 +207,12 @@ src/components/FieldModeInterface.tsx:                      <h3 className="font-
 src/components/FieldModeInterface.tsx:                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-2 border-dashed border-emerald-500">
 src/components/FieldModeInterface.tsx:                        <label className={`w-full aspect-video rounded-2xl border-4 border-dashed flex flex-col items-center justify-center cursor-pointer hover:border-solid transition-all ${isHighContrast ? "border-black bg-black/5 hover:bg-black/10" : "border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/40"}`}>
 src/components/FieldModeInterface.tsx:                          <span className="font-black uppercase tracking-widest text-xs opacity-50 text-center px-4">
-src/components/FieldModeInterface.tsx:                            className="hidden"
+src/components/FieldModeInterface.tsx:                            className="hidden" 
 src/components/FieldModeInterface.tsx:                      <h3 className="font-black text-lg uppercase tracking-widest">
 src/components/FieldModeInterface.tsx:                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-2 border-dashed border-emerald-500">
 src/components/FieldModeInterface.tsx:                        <label className={`w-full aspect-video rounded-2xl border-4 border-dashed flex flex-col items-center justify-center cursor-pointer hover:border-solid transition-all ${isHighContrast ? "border-black bg-black/5 hover:bg-black/10" : "border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/40"} ${!arrivalPhoto ? "opacity-50 pointer-events-none" : ""}`}>
 src/components/FieldModeInterface.tsx:                          <span className="font-black uppercase tracking-widest text-xs opacity-50 text-center px-4">
-src/components/FieldModeInterface.tsx:                            className="hidden"
+src/components/FieldModeInterface.tsx:                            className="hidden" 
 src/components/FieldModeInterface.tsx:                  <ul className="list-disc pl-5 space-y-2 font-bold uppercase tracking-widest text-xs">
 src/components/FieldModeInterface.tsx:                      className={`text-xs md:text-[10px] font-bold uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-white/40"}`}
 src/components/FieldModeInterface.tsx:      {/* Incident Modal */}
@@ -305,7 +305,7 @@ src/components/InventoryForecast.tsx:                      <h3 className="text-x
 src/components/InventoryForecast.tsx:                      <p className="text-xs font-bold text-white/50 uppercase tracking-widest mt-1">
 src/components/InventoryForecast.tsx:                    <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-white/70">
 src/components/InventoryForecast.tsx:                    <div className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/10">
-src/components/InventoryForecast.tsx:                        style={{ width: `${Math.min(100, (forecast.used / (item.stock === 0 ? 1 : item.stock)) * 100)}%` }}
+src/components/InventoryForecast.tsx:                        style={{ width: `${Math.min(100, (forecast.used / (item.stock === 0 ? 1 : item.stock)) * 100)}%` }} 
 src/components/InventoryForecast.tsx:                    <div className="text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest">
 src/components/ServicePricingCatalog.tsx:import { Plus, X, Save } from "lucide-react";
 src/components/ServicePricingCatalog.tsx:    if (tenant?.id.startsWith("demo-")) {
@@ -368,12 +368,12 @@ src/components/TaskReminders.tsx:import { ShieldAlert, Check, AlertCircle, Clock
 src/components/TaskReminders.tsx:  id: number;
 src/components/TaskReminders.tsx:  id: number;
 src/components/TaskReminders.tsx:    { id: 1, title: "Approve Martinez Contract", time: "2 hrs overdue", priority: "high", completed: false, aiNote: "Client viewed proposal 3x today" },
-src/components/TaskReminders.tsx:      id: 5,
+src/components/TaskReminders.tsx:      id: 5, 
 src/components/TaskReminders.tsx:        { id: 51, title: "Compare before/after grades", completed: false },
 src/components/TaskReminders.tsx:        { id: 52, title: "Generate one-page maintenance plan", completed: false },
 src/components/TaskReminders.tsx:        { id: 53, title: "Schedule next season check-back", completed: false }
-src/components/TaskReminders.tsx:      id: 2,
-src/components/TaskReminders.tsx:      title: "Property Cleanup at Oakridge",
+src/components/TaskReminders.tsx:      id: 2, 
+src/components/TaskReminders.tsx:      title: "Property Cleanup at Oakridge", 
 src/components/TaskReminders.tsx:        { id: 21, title: "Clear downed branches", completed: false },
 src/components/TaskReminders.tsx:        { id: 22, title: "Rake leaves from garden beds", completed: false },
 src/components/TaskReminders.tsx:        { id: 23, title: "Haul debris to disposal", completed: false }
@@ -472,11 +472,11 @@ src/components/WidgetConfigurator.tsx:  { id: "tasks", name: "Task Reminders", d
 src/components/WidgetConfigurator.tsx:  { id: "macros", name: "Quick Action Macros", desc: "One-click actions", icon: FileText },
 src/components/WidgetConfigurator.tsx:  { id: "cockpit_buttons", name: "Easy Mode", desc: "Primary sub-feature launchers", icon: Zap },
 src/components/WidgetConfigurator.tsx:  { id: "design", name: "Design Studio", desc: "Spatial imagery", icon: Palette }
-src/components/WidgetConfigurator.tsx:export default function WidgetConfigurator({
-src/components/WidgetConfigurator.tsx:  activeWidgets,
-src/components/WidgetConfigurator.tsx:  widgetOrder,
-src/components/WidgetConfigurator.tsx:  activeWidgets: Record<string, boolean>;
-src/components/WidgetConfigurator.tsx:  widgetOrder: string[];
+src/components/WidgetConfigurator.tsx:export default function WidgetConfigurator({ 
+src/components/WidgetConfigurator.tsx:  activeWidgets, 
+src/components/WidgetConfigurator.tsx:  widgetOrder, 
+src/components/WidgetConfigurator.tsx:  activeWidgets: Record<string, boolean>; 
+src/components/WidgetConfigurator.tsx:  widgetOrder: string[]; 
 src/components/WidgetConfigurator.tsx:  onChange: (order: string[], active: Record<string, boolean>) => void;
 src/components/WidgetConfigurator.tsx:  const [items, setItems] = useState<WidgetDef[]>([]);
 src/components/WidgetConfigurator.tsx:  const [localActive, setLocalActive] = useState<Record<string, boolean>>(activeWidgets);
@@ -508,14 +508,14 @@ src/components/WidgetConfigurator.tsx:                  {easyModeWidget.name}
 src/components/WidgetConfigurator.tsx:                <p className="text-xs md:text-[10px] uppercase tracking-widest text-emerald-500/70 font-bold">
 src/components/WidgetConfigurator.tsx:                  {easyModeWidget.desc} (Fixed at Top)
 src/components/WidgetConfigurator.tsx:               toggleWidget(easyModeWidget.id);
-src/components/WidgetConfigurator.tsx:               localActive[easyModeWidget.id]
+src/components/WidgetConfigurator.tsx:               localActive[easyModeWidget.id] 
 src/components/WidgetConfigurator.tsx:             {localActive[easyModeWidget.id] ? <Eye size={18} /> : <EyeOff size={18} />}
-src/components/WidgetConfigurator.tsx:              key={item.id}
+src/components/WidgetConfigurator.tsx:              key={item.id} 
 src/components/WidgetConfigurator.tsx:                <div className={`p-2 rounded-lg ${localActive[item.id] ? "bg-white/10 text-white" : "bg-white/5 text-zinc-600"}`}>
 src/components/WidgetConfigurator.tsx:                  <h4 className={`text-sm font-bold tracking-tight uppercase ${localActive[item.id] ? "text-white" : "text-zinc-500"}`}>
 src/components/WidgetConfigurator.tsx:                  <p className="text-xs md:text-[10px] uppercase tracking-widest text-zinc-600 font-bold">
 src/components/WidgetConfigurator.tsx:                  toggleWidget(item.id);
-src/components/WidgetConfigurator.tsx:                  localActive[item.id]
+src/components/WidgetConfigurator.tsx:                  localActive[item.id] 
 src/components/WidgetConfigurator.tsx:                {localActive[item.id] ? <Eye size={18} /> : <EyeOff size={18} />}
 src/components/InfrastructureGuard.tsx:import { AlertTriangle, RefreshCcw } from "lucide-react";
 src/components/InfrastructureGuard.tsx:  resetErrorBoundary: () => void;
@@ -841,7 +841,7 @@ src/pages/DataMap.tsx:          <h2 className="text-xl font-bold text-purple-400
 src/pages/DataMap.tsx:          <h2 className="text-xl font-bold text-purple-400 uppercase tracking-widest">2. Active Governance & Threat Exclusion</h2>
 src/pages/DataMap.tsx:            CuttyOS utilizes enterprise-grade middleware to protect tenant environments from advanced persistent threats, including automated pentesting, DAX (Data Analysis Expressions) injection, and malicious raw binaries. Specifically, the system explicitly rejects and blackholes risky file types such as <code className="text-purple-400 bg-purple-500/10 px-1 rounded">.pbix</code>, <code className="text-purple-400 bg-purple-500/10 px-1 rounded">.exe</code>, and shell scripts prior to them ever reaching the database layer. Every incoming payload is strictly validated against expected JSON structures to maintain unbreakable lineage.
 src/pages/DataMap.tsx:          <h2 className="text-xl font-bold text-purple-400 uppercase tracking-widest">3. Data Portability</h2>
-src/pages/DataMap.tsx:            We believe you should stay with CuttyOS because of its features, ease of use, and revenue-adding capabilities—not because of a data moat. You maintain full ownership of your data with transparent data portability. Complete import and export functionalities (e.g., CSV client exports) are provided natively so your data is never held hostage.
+src/pages/DataMap.tsx:            We believe you should stay with CuttyOS because of its features, ease of use, and revenue-adding capabilities—not because of a data moat. You maintain full ownership of your data with transparent data portability. Complete import and export functionalities (e.g., CSV client exports) are provided natively so your data is never held hostage. 
 src/pages/DataMap.tsx:          <h2 className="text-xl font-bold text-purple-400 uppercase tracking-widest">4. Owner Data & Aggregation</h2>
 src/pages/DataMap.tsx:            As the owner, your billing data, business registration, client lists, and operational configurations are stored securely within your tenant environment. While you retain ultimate ownership of this core data, Gaelworx AI may aggregate and anonymize non-identifiable usage statistics and backend operational metadata. This completely anonymized data may be commercialized or sold by Gaelworx AI to improve broader industry heuristics, provided it complies with full legal process securely and transparently.
 src/pages/DataMap.tsx:          <h2 className="text-xl font-bold text-purple-400 uppercase tracking-widest">5. Contractor Data</h2>
@@ -1053,7 +1053,7 @@ src/pages/CRM.tsx:                            <button className="bg-emerald-500/
 src/pages/CRM.tsx:                            <ResponsiveContainer width="100%" height="100%">
 src/pages/CRM.tsx:                                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
 src/pages/CRM.tsx:                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-src/pages/CRM.tsx:                                    border: '2px solid #3f3f46',
+src/pages/CRM.tsx:                                    border: '2px solid #3f3f46', 
 src/pages/CRM.tsx:                                  strokeWidth={3}
 src/pages/CRM.tsx:                            className="bg-zinc-900 border border-white/5 shadow-2xl p-10 border-emerald-500/20 relative overflow-hidden"
 src/pages/CRM.tsx:                                id="proposal-draft-label"
@@ -1128,7 +1128,7 @@ src/pages/Scheduler.tsx:                            className={`px-3 py-1.5 text
 src/pages/Scheduler.tsx:                            <div className="grid grid-cols-2 gap-4">
 src/pages/Scheduler.tsx:                  <label className="block text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
 src/pages/Scheduler.tsx:                  <label className="block text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
-src/pages/Scheduler.tsx:                    id="autoInvoice"
+src/pages/Scheduler.tsx:                    id="autoInvoice" 
 src/pages/Scheduler.tsx:                <label className="block text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
 src/pages/Scheduler.tsx:                className="px-8 py-3 text-sm font-black text-white/40 hover:text-white uppercase tracking-widest transition-colors"
 src/pages/Scheduler.tsx:                className="px-8 py-3 bg-white text-black rounded-xl text-sm font-black uppercase tracking-widest hover:scale-105 transition-transform"
@@ -1378,7 +1378,7 @@ src/pages/Invoices.tsx:                                 <label className="text-[
 src/pages/Invoices.tsx:                                   onChange={(e) => handleItemChange(idx, "rate", parseFloat(e.target.value) || 0)}
 src/pages/Invoices.tsx:                                    newItems.splice(idx, 1);
 src/pages/Invoices.tsx:                        <span className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
-src/pages/Invoices.tsx:                              id="autoSchedule"
+src/pages/Invoices.tsx:                              id="autoSchedule" 
 src/pages/Invoices.tsx:                           <label htmlFor="autoSchedule" className="text-sm font-bold text-white uppercase tracking-widest">Auto-Schedule Service Visit</label>
 src/pages/Invoices.tsx:                              <label className="block text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
 src/pages/Invoices.tsx:                      const tenantId = tenant?.id || "genesis-1";
@@ -1462,7 +1462,7 @@ src/pages/Dashboard.tsx:    slides: "idle",
 src/pages/Dashboard.tsx:    tasks: "idle",
 src/pages/Dashboard.tsx:    contacts: "idle",
 src/pages/Dashboard.tsx:  const [showWidgetSettings, setShowWidgetSettings] = useState(false);
-src/pages/Dashboard.tsx:      const freshWidgets = { tasks: true, macros: true, cockpit_buttons: true, workspace: true,
+src/pages/Dashboard.tsx:      const freshWidgets = { tasks: true, macros: true, cockpit_buttons: true, workspace: true, 
 src/pages/Dashboard.tsx:        briefing: propertyType !== "Private Residential",
 src/pages/Dashboard.tsx:      setActiveWidgets(freshWidgets);
 src/pages/Dashboard.tsx:      safeStorage.setItem("user_dashboard_active_widgets", JSON.stringify(freshWidgets));
@@ -1775,7 +1775,7 @@ src/pages/ClientPortal.tsx:                        <p className="text-center tex
 src/pages/ClientPortal.tsx:              <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-6 border-b border-white/10 pb-4">Team Communications & Notifications</h2>
 src/pages/ClientPortal.tsx:                    <p className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2">Automated Notification</p>
 src/pages/ClientPortal.tsx:                    <p className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2">Cutty Dispatch</p>
-src/pages/ClientPortal.tsx:                      key={m.id}
+src/pages/ClientPortal.tsx:                      key={m.id} 
 src/pages/ClientPortal.tsx:                      <p className={`text-xs md:text-[10px] font-bold uppercase tracking-widest mb-2 ${m.sender === 'client' ? 'text-blue-400' : 'text-emerald-400'}`}>
 src/pages/ClientPortal.tsx:                  id="portal-message-input"
 src/pages/ClientPortal.tsx:                  className="px-6 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black rounded-xl font-black uppercase tracking-widest transition-colors flex items-center justify-center"

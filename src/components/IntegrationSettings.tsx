@@ -72,7 +72,7 @@ export function IntegrationSettings() {
   };
 
   return (
-    <section className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8 space-y-6 mt-12">
+    <section className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 sm:p-8 space-y-6 mt-12">
       <div>
         <h2 className="text-xl font-black text-white uppercase tracking-normal md:tracking-tighter flex items-center gap-3">
           <Link className="text-amber-400" size={24} /> Verified Integrations Hub
@@ -85,7 +85,7 @@ export function IntegrationSettings() {
       {/* Approved Connectors Ecosystem */}
       <div className="bg-black/30 border border-white/5 rounded-2xl p-5 mb-6">
         <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-          <CheckCircle2 size={16} className="text-emerald-400" /> Approved Trade Connectors
+          <CheckCircle2 size={16} className="text-forest-400" /> Approved Trade Connectors
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {approvedConnectors.map((connector, idx) => (
@@ -116,7 +116,7 @@ export function IntegrationSettings() {
                 ? 'border-red-500/50 focus:border-red-500'
                 : generalWebhookEmptyWarning
                 ? 'border-amber-500/50 focus:border-amber-500'
-                : 'border-white/10 focus:border-blue-500'
+                : 'border-white/10 focus:border-celtic-500'
             }`}
           />
           {generalWebhookInvalid && (
@@ -146,7 +146,7 @@ export function IntegrationSettings() {
                 ? 'border-red-500/50 focus:border-red-500'
                 : newJobWebhookEmptyWarning
                 ? 'border-amber-500/50 focus:border-amber-500'
-                : 'border-emerald-500/30 focus:border-emerald-400'
+                : 'border-forest-500/30 focus:border-forest-400'
             }`}
           />
           {newJobWebhookInvalid && (

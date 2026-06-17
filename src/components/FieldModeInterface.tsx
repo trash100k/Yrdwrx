@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { compressImage } from "../lib/imageUtils";
 
 import React, { useEffect, useState } from "react";
 import {
@@ -33,17 +34,19 @@ import { useToast } from "../contexts/ToastContext";
 import JobMap from "./JobMap";
 
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { useAuditLog } from "../hooks/useAuditLog";
 
 export default function FieldModeInterface() {
   const { tenant } = useTenant();
   const { showToast } = useToast();
   const { toggleFieldMode, missionPackage } = useFieldMode();
+  const { logAction } = useAuditLog();
 
   const [activeJob, setActiveJob] = useState<Record<string, unknown> | null>(
     null,
   );
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"comms" | "map" | "documentation">(
+  const [activeTab, setActiveTab] = useState<"comms" | "map" | "documentation" | "checklist">(
     "documentation",
   );
   const [showIncidentModal, setShowIncidentModal] = useState(false);
@@ -57,6 +60,18 @@ export default function FieldModeInterface() {
   const [isAnalyzingSnapshot, setIsAnalyzingSnapshot] = useState(false);
   const [snapshotResult, setSnapshotResult] = useState<any>(null);
 
+  const [inspectionForms, setInspectionForms] = useState<any[]>([]);
+  const [formResponses, setFormResponses] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    if (!tenant) return;
+    const q = query(collection(db, `tenants/${tenant.id}/inspection_forms`));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setInspectionForms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [tenant]);
+
   const [isHighContrast, setIsHighContrast] = useLocalStorage(
     "fieldmode_isHighContrast",
     true,
@@ -69,6 +84,19 @@ export default function FieldModeInterface() {
       setActiveTab("documentation");
       return;
     }
+    
+    // Check if mandatory forms are filled
+    const activeForms = inspectionForms.filter((f: any) => !f.jobType || activeJob?.title?.toLowerCase().includes(f.jobType.toLowerCase()));
+    for (const form of activeForms) {
+      for (const field of form.fields || []) {
+        if (field.required && !formResponses[`${form.id}_${field.id}`]) {
+           showToast(`Please complete mandatory task: ${field.label}`, "error");
+           setActiveTab("checklist");
+           return;
+        }
+      }
+    }
+
     setShowSnapshotPrompt(true);
   };
 
@@ -105,7 +133,9 @@ export default function FieldModeInterface() {
         departurePhotoUrl: departurePhoto,
         snapshotNotes: snapshotResult?.notes || "",
         varianceFound: snapshotResult?.varianceFound || false,
+        inspectionResponses: formResponses,
       });
+      logAction("Field Mode", "Job Completed", `Completed Job ID: ${activeJob.id} (${activeJob.title || "Unknown Job"})`);
       showToast("Job marked as completed.");
       setShowSnapshotPrompt(false);
       toggleFieldMode();
@@ -158,7 +188,7 @@ export default function FieldModeInterface() {
   if (isLoading) {
     return (
       <div className="fixed inset-0 bg-white flex flex-col items-center justify-center space-y-4 z-[200]">
-        <div className="w-12 h-12 border-4 border-gray-200 border-t-emerald-600 rounded-full animate-spin" />
+        <div className="w-12 h-12 border-4 border-gray-200 border-t-forest-600 rounded-full animate-spin" />
         <p className="text-sm font-medium text-gray-600">Loading schedule...</p>
       </div>
     );
@@ -177,7 +207,7 @@ export default function FieldModeInterface() {
             Field Ops
           </span>
           <span
-            className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-emerald-400"}`}
+            className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-forest-400"}`}
           >
             Standard Protocol Active
           </span>
@@ -218,7 +248,7 @@ export default function FieldModeInterface() {
               <>
                 <div className="space-y-4">
                   <div
-                    className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border-2 text-xs md:text-[10px] font-black uppercase tracking-widest ${isHighContrast ? "border-black text-black bg-white" : "border-emerald-500/30 text-emerald-400 bg-emerald-500/10"}`}
+                    className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border-2 text-xs md:text-[10px] font-black uppercase tracking-widest ${isHighContrast ? "border-black text-black bg-white" : "border-forest-500/30 text-forest-400 bg-forest-500/10"}`}
                   >
                     <CheckCircle2 size={12} /> Target Acquired
                   </div>
@@ -231,7 +261,7 @@ export default function FieldModeInterface() {
                     <MapPin
                       size={24}
                       className={
-                        isHighContrast ? "text-black" : "text-emerald-400"
+                        isHighContrast ? "text-black" : "text-forest-400"
                       }
                     />
                     <p className="text-xl font-bold uppercase tracking-tight">
@@ -343,11 +373,11 @@ export default function FieldModeInterface() {
             <button
               onClick={handleInitiateCompletion}
               disabled={isFinishing || !activeJob}
-              className={`flex flex-col items-center justify-center p-5 sm:p-8 min-h-[120px] gap-2 rounded-3xl border-4 transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:grayscale ${isHighContrast ? "bg-black border-black text-white shadow-[6px_6px_0_0_#000]" : "bg-emerald-600 border-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)]"}`}
+              className={`flex flex-col items-center justify-center p-5 sm:p-8 min-h-[120px] gap-2 rounded-3xl border-4 transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:grayscale ${isHighContrast ? "bg-black border-black text-white shadow-[6px_6px_0_0_#000]" : "bg-forest-600 border-forest-500 text-white shadow-[0_0_20px_rgba(5, 168, 69,0.4)]"}`}
             >
               {isFinishing ? (
                 <div
-                  className={`w-8 h-8 border-4 rounded-full animate-spin ${isHighContrast ? "border-white/20 border-t-white" : "border-emerald-300 border-t-white"}`}
+                  className={`w-8 h-8 border-4 rounded-full animate-spin ${isHighContrast ? "border-white/20 border-t-white" : "border-forest-300 border-t-white"}`}
                 />
               ) : (
                 <CheckCircle2 size={32} />
@@ -368,24 +398,31 @@ export default function FieldModeInterface() {
           >
             <button
               onClick={() => setActiveTab("comms")}
-              className={`flex items-center justify-center gap-3 flex-1 h-full font-black text-sm uppercase tracking-widest transition-colors border-b-4 ${activeTab === "comms" ? (isHighContrast ? "border-black text-black" : "border-emerald-500 text-white") : "border-transparent text-gray-500"}`}
+              className={`flex items-center justify-center gap-3 flex-1 h-full font-black text-sm uppercase tracking-widest transition-colors border-b-4 ${activeTab === "comms" ? (isHighContrast ? "border-black text-black" : "border-forest-500 text-white") : "border-transparent text-gray-500"}`}
             >
               <ClipboardList size={20} />
               <span className="hidden sm:inline">Comms</span>
             </button>
             <button
               onClick={() => setActiveTab("map")}
-              className={`flex items-center justify-center gap-3 flex-1 h-full font-black text-sm uppercase tracking-widest transition-colors border-b-4 ${activeTab === "map" ? (isHighContrast ? "border-black text-black" : "border-emerald-500 text-white") : "border-transparent text-gray-500"}`}
+              className={`flex items-center justify-center gap-3 flex-1 h-full font-black text-sm uppercase tracking-widest transition-colors border-b-4 ${activeTab === "map" ? (isHighContrast ? "border-black text-black" : "border-forest-500 text-white") : "border-transparent text-gray-500"}`}
             >
               <MapIcon size={20} />
               <span className="hidden sm:inline">Map</span>
             </button>
             <button
               onClick={() => setActiveTab("documentation")}
-              className={`flex items-center justify-center gap-3 flex-1 h-full font-black text-sm uppercase tracking-widest transition-colors border-b-4 ${activeTab === "documentation" ? (isHighContrast ? "border-black text-black" : "border-emerald-500 text-white") : "border-transparent text-gray-500"}`}
+              className={`flex items-center justify-center gap-3 flex-1 h-full font-black text-sm uppercase tracking-widest transition-colors border-b-4 ${activeTab === "documentation" ? (isHighContrast ? "border-black text-black" : "border-forest-500 text-white") : "border-transparent text-gray-500"}`}
             >
               <Camera size={20} />
               <span className="hidden sm:inline">Verification</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("checklist")}
+              className={`flex items-center justify-center gap-3 flex-1 h-full font-black text-sm uppercase tracking-widest transition-colors border-b-4 ${activeTab === "checklist" ? (isHighContrast ? "border-black text-black" : "border-forest-500 text-white") : "border-transparent text-gray-500"}`}
+            >
+              <ClipboardList size={20} />
+              <span className="hidden sm:inline">Tasks</span>
             </button>
           </div>
 
@@ -437,7 +474,7 @@ export default function FieldModeInterface() {
                     </div>
                     <div className="flex-1 flex flex-col items-center justify-center">
                       {arrivalPhoto ? (
-                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-2 border-dashed border-emerald-500">
+                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-2 border-dashed border-forest-500">
                           <img src={arrivalPhoto} alt="Arrival Verification" className="w-full h-full object-cover" />
                           <button 
                             onClick={() => setArrivalPhoto(null)} 
@@ -456,36 +493,16 @@ export default function FieldModeInterface() {
                             type="file" 
                             accept="image/*" 
                             className="hidden" 
-                            onChange={(e) => {
+                            onChange={async (e) => {
                               const file = e.target.files?.[0];
-                              if (!file) return;
-                              const url = URL.createObjectURL(file);
-                              const img = new Image();
-                              img.onload = () => {
-                                const canvas = document.createElement("canvas");
-                                const ctx = canvas.getContext("2d");
-                                const MAX_WIDTH = 1080;
-                                const MAX_HEIGHT = 1080;
-                                let width = img.width;
-                                let height = img.height;
-                                if (width > height) {
-                                  if (width > MAX_WIDTH) {
-                                    height *= MAX_WIDTH / width;
-                                    width = MAX_WIDTH;
-                                  }
-                                } else {
-                                  if (height > MAX_HEIGHT) {
-                                    width *= MAX_HEIGHT / height;
-                                    height = MAX_HEIGHT;
-                                  }
+                              if (file) {
+                                try {
+                                  const base64 = await compressImage(file, 1200, 1200, 0.8);
+                                  setArrivalPhoto(base64);
+                                } catch(err) {
+                                  console.error("Compression error:", err);
                                 }
-                                canvas.width = width;
-                                canvas.height = height;
-                                ctx?.drawImage(img, 0, 0, width, height);
-                                setArrivalPhoto(canvas.toDataURL("image/jpeg", 0.75));
-                                URL.revokeObjectURL(url);
-                              };
-                              img.src = url;
+                              }
                             }} 
                           />
                         </label>
@@ -505,7 +522,7 @@ export default function FieldModeInterface() {
                       </h3>
                       <CheckCircle2
                         className={
-                          isHighContrast ? "text-black" : "text-emerald-400"
+                          isHighContrast ? "text-black" : "text-forest-400"
                         }
                         size={20}
                       />
@@ -513,7 +530,7 @@ export default function FieldModeInterface() {
                     
                     <div className="flex-1 flex flex-col items-center justify-center">
                       {departurePhoto ? (
-                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-2 border-dashed border-emerald-500">
+                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-2 border-dashed border-forest-500">
                           <img src={departurePhoto} alt="Departure Verification" className="w-full h-full object-cover" />
                           <button 
                             onClick={() => setDeparturePhoto(null)} 
@@ -533,36 +550,16 @@ export default function FieldModeInterface() {
                             accept="image/*" 
                             className="hidden" 
                             disabled={!arrivalPhoto}
-                            onChange={(e) => {
+                            onChange={async (e) => {
                               const file = e.target.files?.[0];
-                              if (!file) return;
-                              const url = URL.createObjectURL(file);
-                              const img = new Image();
-                              img.onload = () => {
-                                const canvas = document.createElement("canvas");
-                                const ctx = canvas.getContext("2d");
-                                const MAX_WIDTH = 1080;
-                                const MAX_HEIGHT = 1080;
-                                let width = img.width;
-                                let height = img.height;
-                                if (width > height) {
-                                  if (width > MAX_WIDTH) {
-                                    height *= MAX_WIDTH / width;
-                                    width = MAX_WIDTH;
-                                  }
-                                } else {
-                                  if (height > MAX_HEIGHT) {
-                                    width *= MAX_HEIGHT / height;
-                                    height = MAX_HEIGHT;
-                                  }
+                              if (file) {
+                                try {
+                                  const base64 = await compressImage(file, 1200, 1200, 0.8);
+                                  setDeparturePhoto(base64);
+                                } catch(err) {
+                                  console.error("Compression error:", err);
                                 }
-                                canvas.width = width;
-                                canvas.height = height;
-                                ctx?.drawImage(img, 0, 0, width, height);
-                                setDeparturePhoto(canvas.toDataURL("image/jpeg", 0.75));
-                                URL.revokeObjectURL(url);
-                              };
-                              img.src = url;
+                              }
                             }} 
                           />
                         </label>
@@ -583,6 +580,69 @@ export default function FieldModeInterface() {
                     <li>Completion photo must clearly show cleared surfaces.</li>
                     <li>Ensure adequate lighting for documentation purposes.</li>
                   </ul>
+                </div>
+              </div>
+            ) : activeTab === "checklist" ? (
+              <div className="p-5 sm:p-8 max-w-4xl mx-auto space-y-8 h-full overflow-y-auto custom-scrollbar">
+                <header className="flex items-end justify-between border-b-4 border-black/10 pb-4">
+                  <div>
+                    <h2 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black italic uppercase tracking-normal md:tracking-tighter leading-none mb-2">
+                      Inspection Tasks
+                    </h2>
+                    <p
+                      className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-white/40"}`}
+                    >
+                      Mandatory Forms for {activeJob?.title || "Active Job"}
+                    </p>
+                  </div>
+                </header>
+
+                <div className="space-y-6">
+                   {inspectionForms.filter((f: any) => !f.jobType || activeJob?.title?.toLowerCase().includes(f.jobType.toLowerCase())).map((form: any) => (
+                     <div key={form.id} className={`p-6 rounded-2xl border-4 ${isHighContrast ? "bg-white border-black shadow-[8px_8px_0_0_#000]" : "bg-black border-white/20"}`}>
+                       <h3 className="font-black text-xl uppercase mb-4 text-forest-500 border-b-2 border-forest-500/20 pb-2">{form.jobType} Form</h3>
+                       <div className="space-y-4">
+                         {form.fields?.map((field: any) => (
+                           <div key={field.id} className="flex flex-col space-y-2">
+                             <label className={`text-sm font-bold uppercase tracking-wider ${isHighContrast ? "text-black" : "text-white"}`}>
+                               {field.label} {field.required && <span className="text-rose-500">*</span>}
+                             </label>
+                             {field.type === "checkbox" ? (
+                               <label className="flex items-center gap-3 cursor-pointer">
+                                 <input
+                                   type="checkbox"
+                                   checked={!!formResponses[`${form.id}_${field.id}`]}
+                                   onChange={(e) => setFormResponses({ ...formResponses, [`${form.id}_${field.id}`]: e.target.checked })}
+                                   className={`w-8 h-8 rounded-lg border-4 ${isHighContrast ? "border-black accent-black" : "border-white/20 accent-forest-500"}`}
+                                 />
+                                 <span className="font-bold text-sm uppercase">Complete</span>
+                               </label>
+                             ) : field.type === "image" ? (
+                               <label className={`w-full max-w-sm aspect-video rounded-xl border-4 border-dashed flex flex-col items-center justify-center cursor-pointer ${isHighContrast ? "border-black bg-black/5" : "border-white/20 bg-white/5"}`}>
+                                 <Camera size={24} className="mb-2 opacity-50" />
+                                 <span className="font-bold uppercase text-[10px] opacity-70 px-2 text-center">Capture specific photo</span>
+                                 {/* Mock logic, actual would store local state like photo uploading */}
+                               </label>
+                             ) : (
+                               <input
+                                 type={field.type === "number" ? "number" : "text"}
+                                 value={formResponses[`${form.id}_${field.id}`] || ""}
+                                 onChange={(e) => setFormResponses({ ...formResponses, [`${form.id}_${field.id}`]: e.target.value })}
+                                 className={`w-full p-4 rounded-xl border-4 outline-none font-bold text-lg uppercase ${isHighContrast ? "bg-black/5 border-black placeholder:text-black/20 focus:bg-yellow-400/20" : "bg-black border-white/20 placeholder:text-white/20 focus:border-forest-500/50 focus:bg-forest-500/5"}`}
+                                 placeholder="ENTER VALUE..."
+                               />
+                             )}
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   ))}
+                   {inspectionForms.filter((f: any) => !f.jobType || activeJob?.title?.toLowerCase().includes(f.jobType.toLowerCase())).length === 0 && (
+                     <div className={`p-8 text-center rounded-2xl border-4 border-dashed ${isHighContrast ? "border-black bg-black/5" : "border-white/20 bg-white/5"}`}>
+                       <h3 className="font-black uppercase tracking-widest text-lg opacity-50">No Active Forms</h3>
+                       <p className="font-bold uppercase text-xs opacity-40 mt-2">No mandatory checklist assigned for this job type.</p>
+                     </div>
+                   )}
                 </div>
               </div>
             ) : (
@@ -613,7 +673,7 @@ export default function FieldModeInterface() {
                     </p>
                   </div>
                   <button
-                    className={`flex items-center justify-center w-16 h-16 rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 ${isHighContrast ? "bg-emerald-400 border-black text-black" : "bg-emerald-600 border-emerald-400 text-white"}`}
+                    className={`flex items-center justify-center w-16 h-16 rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 ${isHighContrast ? "bg-forest-400 border-black text-black" : "bg-forest-600 border-forest-400 text-white"}`}
                   >
                     <MessageSquare size={28} />
                   </button>
@@ -682,12 +742,12 @@ export default function FieldModeInterface() {
           <div className={`w-full max-w-2xl rounded-[40px] border-4 overflow-hidden flex flex-col shadow-2xl ${isHighContrast ? "bg-white border-black" : "bg-zinc-900 border-white/20"}`}>
             <div className={`shrink-0 p-6 sm:p-8 border-b-4 flex items-center justify-between ${isHighContrast ? "border-black bg-yellow-400" : "border-white/10 bg-zinc-950"}`}>
               <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${isHighContrast ? "bg-black text-white" : "bg-emerald-500/20 text-emerald-400"}`}>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${isHighContrast ? "bg-black text-white" : "bg-forest-500/20 text-forest-400"}`}>
                   <Camera size={24} />
                 </div>
                 <div>
                   <h3 className="text-xl sm:text-2xl font-black italic uppercase tracking-tight">Project Snapshot</h3>
-                  <p className={`text-[10px] font-black uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-emerald-400"}`}>AI Quality & Variance Check</p>
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-forest-400"}`}>AI Quality & Variance Check</p>
                 </div>
               </div>
             </div>
@@ -706,56 +766,36 @@ export default function FieldModeInterface() {
                                 accept="image/*" 
                                 capture="environment" 
                                 className="hidden" 
-                                onChange={(e) => {
+                                onChange={async (e) => {
                                     const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    const url = URL.createObjectURL(file);
-                                    const img = new Image();
-                                    img.onload = () => {
-                                      const canvas = document.createElement("canvas");
-                                      const ctx = canvas.getContext("2d");
-                                      const MAX_WIDTH = 1080;
-                                      const MAX_HEIGHT = 1080;
-                                      let width = img.width;
-                                      let height = img.height;
-                                      if (width > height) {
-                                        if (width > MAX_WIDTH) {
-                                          height *= MAX_WIDTH / width;
-                                          width = MAX_WIDTH;
-                                        }
-                                      } else {
-                                        if (height > MAX_HEIGHT) {
-                                          width *= MAX_HEIGHT / height;
-                                          height = MAX_HEIGHT;
-                                        }
+                                    if (file) {
+                                      try {
+                                        const base64 = await compressImage(file, 1200, 1200, 0.8);
+                                        handleProcessSnapshot(base64);
+                                      } catch(err) {
+                                        console.error("Compression error:", err);
                                       }
-                                      canvas.width = width;
-                                      canvas.height = height;
-                                      ctx?.drawImage(img, 0, 0, width, height);
-                                      handleProcessSnapshot(canvas.toDataURL("image/jpeg", 0.75));
-                                      URL.revokeObjectURL(url);
-                                    };
-                                    img.src = url;
+                                    }
                                 }}
                             />
                         </label>
                     </div>
                 ) : isAnalyzingSnapshot ? (
                     <div className="flex flex-col items-center justify-center space-y-6 py-12">
-                        <div className={`w-24 h-24 border-8 rounded-full animate-spin ${isHighContrast ? "border-black/10 border-t-black" : "border-emerald-500/20 border-t-emerald-500"}`} />
+                        <div className={`w-24 h-24 border-8 rounded-full animate-spin ${isHighContrast ? "border-black/10 border-t-black" : "border-forest-500/20 border-t-forest-500"}`} />
                         <div className="text-center">
                             <h4 className={`text-xl font-black uppercase tracking-tight mb-2 ${isHighContrast ? "text-black" : "text-white"}`}>Analyzing Snapshot</h4>
-                            <p className={`text-xs font-bold uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-emerald-400"}`}>Cross-referencing with standard quality plans...</p>
+                            <p className={`text-xs font-bold uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-forest-400"}`}>Cross-referencing with standard quality plans...</p>
                         </div>
                     </div>
                 ) : (
                     <div className="space-y-6">
                         <img src={departurePhoto!} alt="Snapshot" className="w-full aspect-video object-cover rounded-2xl border-4 border-black/10" />
                         
-                        <div className={`p-6 rounded-2xl border-4 ${snapshotResult.varianceFound ? (isHighContrast ? "border-black bg-amber-400" : "border-amber-500/50 bg-amber-500/10") : (isHighContrast ? "border-black bg-emerald-400" : "border-emerald-500/50 bg-emerald-500/10")}`}>
+                        <div className={`p-6 rounded-2xl border-4 ${snapshotResult.varianceFound ? (isHighContrast ? "border-black bg-amber-400" : "border-amber-500/50 bg-amber-500/10") : (isHighContrast ? "border-black bg-forest-400" : "border-forest-500/50 bg-forest-500/10")}`}>
                             <div className="flex items-center gap-3 mb-4">
-                                {snapshotResult.varianceFound ? <AlertTriangle size={24} className={isHighContrast ? "text-black" : "text-amber-500"} /> : <CheckCircle2 size={24} className={isHighContrast ? "text-black" : "text-emerald-500"} />}
-                                <h4 className={`text-lg font-black uppercase tracking-tight ${isHighContrast ? "text-black" : (snapshotResult.varianceFound ? "text-amber-500" : "text-emerald-500")}`}>
+                                {snapshotResult.varianceFound ? <AlertTriangle size={24} className={isHighContrast ? "text-black" : "text-amber-500"} /> : <CheckCircle2 size={24} className={isHighContrast ? "text-black" : "text-forest-500"} />}
+                                <h4 className={`text-lg font-black uppercase tracking-tight ${isHighContrast ? "text-black" : (snapshotResult.varianceFound ? "text-amber-500" : "text-forest-500")}`}>
                                     {snapshotResult.varianceFound ? "Variance Detected" : "Quality Standard Met"}
                                 </h4>
                             </div>
@@ -778,7 +818,7 @@ export default function FieldModeInterface() {
                   <button
                     onClick={handleFinishJob}
                     disabled={isFinishing}
-                    className={`px-8 py-4 text-xs md:text-[10px] font-black uppercase tracking-widest rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 flex items-center gap-2 ${isHighContrast ? "bg-black border-black text-white" : "bg-emerald-600 border-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)]"}`}
+                    className={`px-8 py-4 text-xs md:text-[10px] font-black uppercase tracking-widest rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 flex items-center gap-2 ${isHighContrast ? "bg-black border-black text-white" : "bg-forest-600 border-forest-500 text-white shadow-[0_0_20px_rgba(5, 168, 69,0.4)]"}`}
                   >
                     {isFinishing && <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
                     Confirm Completion

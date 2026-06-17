@@ -50,11 +50,11 @@ const generateDataForWorkflow = (id: string) => {
 
 const getTriggerIcon = (id: string) => {
   switch (id) {
-    case "job_completed": return <CheckCircle size={14} className="text-blue-400" />;
-    case "client_created": return <UserPlus size={14} className="text-blue-400" />;
-    case "invoice_paid": return <DollarSign size={14} className="text-blue-400" />;
-    case "quote_approved": return <FileText size={14} className="text-blue-400" />;
-    default: return <Activity size={14} className="text-blue-400" />;
+    case "job_completed": return <CheckCircle size={14} className="text-celtic-400" />;
+    case "client_created": return <UserPlus size={14} className="text-celtic-400" />;
+    case "invoice_paid": return <DollarSign size={14} className="text-celtic-400" />;
+    case "quote_approved": return <FileText size={14} className="text-celtic-400" />;
+    default: return <Activity size={14} className="text-celtic-400" />;
   }
 };
 
@@ -119,11 +119,11 @@ export function WorkflowBuilderSection() {
   };
 
   return (
-    <section className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8 space-y-6 mt-12">
+    <section className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 sm:p-8 space-y-6 mt-12">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-black text-white uppercase tracking-normal md:tracking-tighter flex items-center gap-3">
-            <Activity className="text-blue-400" size={24} /> Workflow Builder
+            <Activity className="text-celtic-400" size={24} /> Workflow Builder
           </h2>
           <p className="text-xs text-white/50 leading-relaxed mt-1 max-w-2xl">
             Design your own deterministic "If This, Then That" (IFTTT) automations to seamlessly link platform events with verified actions. 
@@ -131,7 +131,7 @@ export function WorkflowBuilderSection() {
         </div>
         <button
           onClick={handleAddWorkflow}
-          className="shrink-0 flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 rounded-xl text-xs font-bold uppercase tracking-widest transition-all"
+          className="shrink-0 flex items-center gap-2 px-4 py-2 bg-celtic-500/10 text-celtic-400 hover:bg-celtic-500/20 border border-celtic-500/20 rounded-xl text-xs font-bold uppercase tracking-widest transition-all"
         >
           <Plus size={14} /> Add Rule
         </button>
@@ -162,7 +162,7 @@ export function WorkflowBuilderSection() {
                   <div className="flex items-center gap-4 flex-1 min-w-0">
                     <div className="shrink-0">
                       {workflow.active ? (
-                         <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                         <div className="w-8 h-8 rounded-full bg-forest-500/10 border border-forest-500/20 flex items-center justify-center text-forest-400">
                            <Zap size={14} />
                          </div>
                       ) : (
@@ -177,7 +177,7 @@ export function WorkflowBuilderSection() {
                       </h4>
                       {!isExpanded && (
                         <div className="flex items-center gap-2 mt-1 text-[10px] uppercase font-bold tracking-widest text-white/40 whitespace-nowrap overflow-hidden text-overflow-ellipsis">
-                          <span className="flex items-center gap-1.5 shrink-0 px-2 py-0.5 rounded bg-blue-500/10 text-blue-300">
+                          <span className="flex items-center gap-1.5 shrink-0 px-2 py-0.5 rounded bg-celtic-500/10 text-celtic-300">
                             {getTriggerIcon(workflow.trigger)}
                             <span className="truncate max-w-[120px] sm:max-w-none">{triggerLabel}</span>
                           </span>
@@ -203,10 +203,10 @@ export function WorkflowBuilderSection() {
                         handleUpdateWorkflow(workflow.id, "active", !workflow.active);
                       }}
                       className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-all ${
-                        workflow.active ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/40 hover:bg-white/10"
+                        workflow.active ? "bg-forest-500/20 text-forest-400" : "bg-white/5 text-white/40 hover:bg-white/10"
                       }`}
                     >
-                      <Play size={10} className={workflow.active ? "text-emerald-400" : "text-white/40"} />
+                      <Play size={10} className={workflow.active ? "text-forest-400" : "text-white/40"} />
                       {workflow.active ? "Active" : "Paused"}
                     </button>
                     <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/40 ml-2">
@@ -242,12 +242,12 @@ export function WorkflowBuilderSection() {
                     <div className="grid md:grid-cols-[1fr_auto_1fr] items-center gap-4 bg-white/5 p-4 rounded-xl border border-white/5">
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div> Trigger (IF)
+                          <div className="w-1.5 h-1.5 rounded-full bg-celtic-500"></div> Trigger (IF)
                         </label>
                         <select
                           value={workflow.trigger}
                           onChange={(e) => handleUpdateWorkflow(workflow.id, "trigger", e.target.value)}
-                          className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500 transition-colors appearance-none"
+                          className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-celtic-500 transition-colors appearance-none"
                         >
                           {AVAILABLE_TRIGGERS.map((t) => (
                             <option key={t.id} value={t.id}>{t.label}</option>
@@ -312,7 +312,7 @@ export function WorkflowBuilderSection() {
                             30-Day Activity
                           </label>
                           <div className="flex items-center gap-3 text-[10px] uppercase font-bold tracking-widest">
-                            <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Success</span>
+                            <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-forest-500"></div> Success</span>
                             <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-red-500"></div> Failed</span>
                           </div>
                         </div>

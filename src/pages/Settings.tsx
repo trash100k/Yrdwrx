@@ -257,7 +257,7 @@ export default function Settings() {
       </header>
 
       <section className="space-y-6 flex-1 mt-10">
-        <h2 className="text-sm font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+        <h2 className="text-sm font-black text-forest-400 uppercase tracking-widest flex items-center gap-2">
           <Activity size={18} /> Active Modules
         </h2>
 
@@ -270,12 +270,12 @@ export default function Settings() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={`bg-zinc-900 border-2 rounded-2xl overflow-hidden transition-all ${
-                  isEnabled ? "border-emerald-500/20" : "border-white/5 opacity-50 grayscale"
+                  isEnabled ? "border-forest-500/20" : "border-white/5 opacity-50 grayscale"
                 }`}
               >
                 <div className="p-6 sm:p-8 flex items-center justify-between bg-black/20">
                   <div className="flex items-center gap-6">
-                    <div className={`p-4 rounded-2xl shrink-0 ${isEnabled ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-white/40"}`}>
+                    <div className={`p-4 rounded-2xl shrink-0 ${isEnabled ? "bg-forest-500/10 text-forest-400" : "bg-white/5 text-white/40"}`}>
                       <f.icon size={24} />
                     </div>
                     <div>
@@ -288,7 +288,7 @@ export default function Settings() {
                     onClick={() => handleToggle(f.id, isEnabled)}
                     disabled={updating}
                     className={`text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words focus:outline-none transition-colors ${
-                      isEnabled ? "text-emerald-500" : "text-white/20"
+                      isEnabled ? "text-forest-500" : "text-white/20"
                     }`}
                   >
                     {isEnabled ? <ToggleRight /> : <ToggleLeft />}
@@ -312,7 +312,7 @@ export default function Settings() {
                               onClick={() => handleToggle(sub.id, isSubEnabled, true)}
                               disabled={updating}
                               className={`text-3xl sm:text-4xl focus:outline-none transition-colors ${
-                                isSubEnabled ? "text-emerald-500" : "text-white/20"
+                                isSubEnabled ? "text-forest-500" : "text-white/20"
                               }`}
                             >
                               {isSubEnabled ? <ToggleRight /> : <ToggleLeft />}
@@ -322,7 +322,7 @@ export default function Settings() {
                           {/* Dedicated input for Custom Rules if Semantic Style Learning is on */}
                           {sub.id === "semanticStyleLearning" && isSubEnabled && (
                             <div className="pt-4 border-t border-white/5 mt-2">
-                              <label className="text-xs md:text-[10px] uppercase font-black tracking-widest text-emerald-500 mb-2 block">
+                              <label className="text-xs md:text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">
                                 Custom Installation Heuristics (Contractor AI Guidelines)
                               </label>
                               <textarea 
@@ -336,7 +336,7 @@ export default function Settings() {
                                   const tenantRef = doc(db, "tenants", tenant.id);
                                   updateDoc(tenantRef, { "settings.customInstallRules": e.target.value });
                                 }}
-                                className="w-full bg-zinc-900 border-2 border-white/10 rounded-xl p-4 text-sm text-white/80 focus:border-emerald-500/50 outline-none resize-y min-h-[100px]"
+                                className="w-full bg-zinc-900 border-2 border-white/10 rounded-xl p-4 text-sm text-white/80 focus:border-forest-500/50 outline-none resize-y min-h-[100px]"
                                 placeholder="Describe heuristic..."
                               />
                               <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-2 text-right">
@@ -366,10 +366,10 @@ export default function Settings() {
       <TeamManagement />
 
       {/* Platform & Cooperation Agreements */}
-      <section className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8 space-y-6 mt-12">
+      <section className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 sm:p-8 space-y-6 mt-12">
         <div>
           <h2 className="text-xl font-black text-white uppercase tracking-normal md:tracking-tighter flex items-center gap-3">
-            <Shield className="text-emerald-400" size={24} /> Individual Platform Agreements
+            <Shield className="text-forest-400" size={24} /> Individual Platform Agreements
           </h2>
           <p className="text-xs text-white/50 leading-relaxed mt-1">
             Gaelworx AI operations are built on modular integrity. Rather than bundled fine-print, read our cooperative terms, privacy commitments, data structures, and ethical AI gates separately. Each document features a friendly Copilot Notes translation adjacent to the binding technical text.
@@ -379,56 +379,56 @@ export default function Settings() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Link
             to="/terms"
-            className="p-5 bg-black/40 hover:bg-black border border-white/5 hover:border-blue-500/30 rounded-2xl transition-all group flex flex-col justify-between"
+            className="p-5 bg-black/40 hover:bg-black border border-white/5 hover:border-celtic-500/30 rounded-2xl transition-all group flex flex-col justify-between"
           >
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-sm text-white group-hover:text-blue-400 transition-colors uppercase tracking-wider flex items-center gap-2">
-                  <FileText size={16} className="text-blue-500" /> Terms of Service
+                <span className="font-bold text-sm text-white group-hover:text-celtic-400 transition-colors uppercase tracking-wider flex items-center gap-2">
+                  <FileText size={16} className="text-celtic-500" /> Terms of Service
                 </span>
-                <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded font-mono font-bold uppercase">Dual Reader</span>
+                <span className="text-[10px] bg-celtic-500/10 text-celtic-400 px-2 py-0.5 rounded font-mono font-bold uppercase">Dual Reader</span>
               </div>
               <p className="text-xs text-white/50 leading-relaxed font-semibold">
                 Governing general appropriate use, acceptable operations, liability boundaries, and server access definitions.
               </p>
             </div>
-            <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mt-4">Read Terms &rarr;</div>
+            <div className="text-[10px] text-forest-400 font-bold uppercase tracking-widest mt-4">Read Terms &rarr;</div>
           </Link>
 
           <Link
             to="/privacy"
-            className="p-5 bg-black/40 hover:bg-black border border-white/5 hover:border-emerald-500/30 rounded-2xl transition-all group flex flex-col justify-between"
+            className="p-5 bg-black/40 hover:bg-black border border-white/5 hover:border-forest-500/30 rounded-2xl transition-all group flex flex-col justify-between"
           >
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors uppercase tracking-wider flex items-center gap-2">
-                  <Shield size={16} className="text-emerald-500" /> Privacy Policy
+                <span className="font-bold text-sm text-white group-hover:text-forest-400 transition-colors uppercase tracking-wider flex items-center gap-2">
+                  <Shield size={16} className="text-forest-500" /> Privacy Policy
                 </span>
-                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-mono font-bold uppercase">Dual Reader</span>
+                <span className="text-[10px] bg-forest-500/10 text-forest-400 px-2 py-0.5 rounded font-mono font-bold uppercase">Dual Reader</span>
               </div>
               <p className="text-xs text-white/50 leading-relaxed font-semibold">
                 Deep dive detailing exactly what client details, crew coordinate sessions, and general analytics are maintained securely.
               </p>
             </div>
-            <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mt-4">Read Privacy Policy &rarr;</div>
+            <div className="text-[10px] text-forest-400 font-bold uppercase tracking-widest mt-4">Read Privacy Policy &rarr;</div>
           </Link>
 
           <Link
             to="/data-map"
-            className="p-5 bg-black/40 hover:bg-black border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all group flex flex-col justify-between"
+            className="p-5 bg-black/40 hover:bg-black border border-white/5 hover:border-ember-500/30 rounded-2xl transition-all group flex flex-col justify-between"
           >
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-sm text-white group-hover:text-purple-400 transition-colors uppercase tracking-wider flex items-center gap-2">
-                  <Database size={16} className="text-purple-500" /> Data Processing Map
+                <span className="font-bold text-sm text-white group-hover:text-ember-400 transition-colors uppercase tracking-wider flex items-center gap-2">
+                  <Database size={16} className="text-ember-500" /> Data Processing Map
                 </span>
-                <span className="text-[10px] bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded font-mono font-bold uppercase">Dual Reader</span>
+                <span className="text-[10px] bg-ember-500/10 text-ember-400 px-2 py-0.5 rounded font-mono font-bold uppercase">Dual Reader</span>
               </div>
               <p className="text-xs text-white/50 leading-relaxed font-semibold">
                 Technical governance topology showing independent tenant storage isolation, external provider limits, and threat exclusion policies.
               </p>
             </div>
-            <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mt-4">Read Data Map &rarr;</div>
+            <div className="text-[10px] text-forest-400 font-bold uppercase tracking-widest mt-4">Read Data Map &rarr;</div>
           </Link>
 
           <Link
@@ -446,7 +446,7 @@ export default function Settings() {
                 Mandatory framework regarding human verification rules of generative estimates and isolated secure cognitive learning bounds.
               </p>
             </div>
-            <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mt-4">Read AI Usage & Ethics &rarr;</div>
+            <div className="text-[10px] text-forest-400 font-bold uppercase tracking-widest mt-4">Read AI Usage & Ethics &rarr;</div>
           </Link>
         </div>
       </section>

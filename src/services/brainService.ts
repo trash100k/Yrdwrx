@@ -6,8 +6,7 @@ import {
   query,
   where,
   getDocs,
-  doc,
-  writeBatch,
+  addDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -24,27 +23,14 @@ export async function ingestKnowledge(
     });
     const nodes = await response.json();
 
-    // Store in Firestore using batch writes to improve performance
-    // Firestore allows up to 500 operations per batch
-    const BATCH_LIMIT = 500;
-    const collectionRef = collection(db, "knowledge");
-
-    for (let i = 0; i < nodes.length; i += BATCH_LIMIT) {
-      const batch = writeBatch(db);
-      const chunk = nodes.slice(i, i + BATCH_LIMIT);
-
-      for (const node of chunk) {
-        const newDocRef = doc(collectionRef);
-        batch.set(newDocRef, {
-          ...node,
-          lastUpdated: new Date().toISOString(),
-          relevanceCount: 0,
-        });
-      }
-
-      await batch.commit();
+    // Store in Firestore
+    for (const node of nodes) {
+      await addDoc(collection(db, "knowledge"), {
+        ...node,
+        lastUpdated: new Date().toISOString(),
+        relevanceCount: 0,
+      });
     }
-
     return nodes;
   } catch (error) {
     console.error("Brain Ingestion Failed:", error);

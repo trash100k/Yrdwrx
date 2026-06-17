@@ -90,7 +90,7 @@ export default function BeforeAfterSlider({ beforeImage, afterImage, imageAspect
 
         {/* Slide vertical bar line controller */}
         <div
-          className="absolute top-0 bottom-0 w-1 bg-white hover:bg-emerald-400 transition-colors pointer-events-none"
+          className="absolute top-0 bottom-0 w-1 bg-white hover:bg-forest-400 transition-colors pointer-events-none"
           style={{ left: `${sliderPosition}%`, transform: 'translateX(-50%)' }}
         >
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black border-2 border-white text-white flex items-center justify-center shadow-2xl font-black">
@@ -115,13 +115,13 @@ export default function BeforeAfterSlider({ beforeImage, afterImage, imageAspect
           <Camera size={12} className="text-zinc-400" />
           Before (Original)
         </div>
-        <div className="absolute bottom-4 right-4 px-3 py-1.5 bg-emerald-500 text-black rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-none flex items-center gap-1.5 z-10">
+        <div className="absolute bottom-4 right-4 px-3 py-1.5 bg-forest-500 text-black rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-none flex items-center gap-1.5 z-10">
           <Sparkles size={12} className="text-black" />
           After (Gemini Vision)
         </div>
 
         {/* Interactive slider hint overlay */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-black/60 rounded-full text-[9px] text-emerald-400 font-black uppercase tracking-[0.2em] pointer-events-none group-hover:opacity-0 transition-opacity z-10">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-black/60 rounded-full text-[9px] text-forest-400 font-black uppercase tracking-[0.2em] pointer-events-none group-hover:opacity-0 transition-opacity z-10">
           Drag to Swipe Comparison
         </div>
       </div>

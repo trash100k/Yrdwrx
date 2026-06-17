@@ -40,11 +40,14 @@ import {
   Brain,
   Eye,
   Zap,
+  Printer,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 import { syncService } from "../services/syncService";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useReactToPrint } from "react-to-print";
+import { PrinterFriendlyInvoice } from "../components/PrinterFriendlyInvoice";
 
 import { useLocation } from "react-router-dom";
 import { Invoice } from "../types";
@@ -69,6 +72,22 @@ export default function Invoices() {
   );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [printingInvoice, setPrintingInvoice] = useState<any>(null);
+  const printComponentRef = useRef<HTMLDivElement>(null);
+
+  const handlePrint = useReactToPrint({
+    contentRef: printComponentRef,
+    documentTitle: printingInvoice ? `Invoice-${printingInvoice.id.slice(0, 6)}` : "Invoice",
+    onAfterPrint: () => setPrintingInvoice(null),
+  });
+
+  const triggerPrint = (inv: any) => {
+    setPrintingInvoice(inv);
+    setTimeout(() => {
+      handlePrint();
+    }, 100);
+  };
   
   const scannerModalRef = useFocusTrap<HTMLDivElement>(isScanning);
   const aiModalRef = useFocusTrap<HTMLDivElement>(showAIModal);
@@ -349,16 +368,16 @@ export default function Invoices() {
             <Plus size={24} className="hover:scale-110 transition-transform" />
             <span className="font-bold text-sm">Quick Add</span>
           </button>
-          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
+          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 molten-edge rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-400/50 to-transparent"></div>
              <Zap size={24} className="text-yellow-400 animate-pulse" />
              <span className="font-bold text-sm text-yellow-400/80">Easy Mode Active</span>
           </div>
         </div>
       )}
-      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-8 pb-8 border-b border-white/5 relative z-10">
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-8 pb-8 border-b border-white/5 molten-edge relative z-10">
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/10 rounded-md border border-emerald-500/20 text-xs font-medium tracking-wide text-emerald-400">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-forest-500/10 rounded-md border border-forest-500/20 text-xs font-medium tracking-wide text-forest-400">
             <FileText size={14} />
             Finance Ledger
           </div>
@@ -399,7 +418,7 @@ export default function Invoices() {
               <button
                 onClick={simulateAIAnalysis}
                 disabled={isAnalyzing}
-                className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-sm font-medium hover:bg-emerald-500/20 transition-all disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2.5 bg-forest-500/10 text-forest-400 border border-forest-500/20 rounded-lg text-sm font-medium hover:bg-forest-500/20 transition-all disabled:opacity-50"
               >
                 {isAnalyzing ? (
                   <Loader2 size={16} className="animate-spin" />
@@ -449,7 +468,7 @@ export default function Invoices() {
                   <div
                     className={`w-12 h-12 rounded-lg flex items-center justify-center transition-all ${
                       inv.status === "PAID" || inv.status === "paid"
-                        ? "bg-emerald-500/10 text-emerald-400"
+                        ? "bg-forest-500/10 text-forest-400"
                         : "bg-white/5 text-white/40"
                     }`}
                   >
@@ -460,7 +479,7 @@ export default function Invoices() {
                     )}
                   </div>
                   <div>
-                    <h4 className="font-semibold text-white text-lg group-hover:text-emerald-400 transition-colors">
+                    <h4 className="font-semibold text-white text-lg group-hover:text-forest-400 transition-colors">
                       {inv.client}
                     </h4>
                     <p className="text-zinc-500 text-sm">
@@ -476,7 +495,7 @@ export default function Invoices() {
                     <span
                       className={`text-xs mt-1 font-medium px-2.5 py-0.5 rounded-full inline-block ${
                         inv.status === "PAID" || inv.status === "paid"
-                          ? "bg-emerald-500/10 text-emerald-400"
+                          ? "bg-forest-500/10 text-forest-400"
                           : "bg-amber-500/10 text-amber-400"
                       }`}
                     >
@@ -484,6 +503,14 @@ export default function Invoices() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <button
+                      onClick={() => triggerPrint(inv)}
+                      className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-md transition-all"
+                      aria-label={`Print PDF for ${inv.client}`}
+                      title="Print Invoice PDF"
+                    >
+                      <Printer size={18} aria-hidden="true" />
+                    </button>
                     <button
                       onClick={() => handleGeneratePdf(inv)}
                       disabled={generatingPdfId === inv.id}
@@ -529,7 +556,7 @@ export default function Invoices() {
                           );
                         }
                       }}
-                      className="p-2.5 text-emerald-400 hover:bg-emerald-500/10 rounded-md transition-all"
+                      className="p-2.5 text-forest-400 hover:bg-forest-500/10 rounded-md transition-all"
                       aria-label={`Send invoice to ${inv.client}`}
                     >
                       <Send size={18} aria-hidden="true" />
@@ -624,7 +651,7 @@ export default function Invoices() {
                       <Trash2 size={16} aria-hidden="true" />
                     </button>
                   </div>
-                  <h3 className="text-xl font-semibold text-white mb-1 group-hover:text-emerald-400 transition-colors">
+                  <h3 className="text-xl font-semibold text-white mb-1 group-hover:text-forest-400 transition-colors">
                     {exp.merchant}
                   </h3>
                   <p className="text-zinc-500 text-sm mb-6">
@@ -639,7 +666,7 @@ export default function Invoices() {
                         ${exp.amount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                     </div>
-                    <span className="px-2.5 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full text-xs font-medium">
+                    <span className="px-2.5 py-0.5 bg-forest-500/10 text-forest-400 rounded-full text-xs font-medium">
                       Cleared
                     </span>
                   </div>
@@ -701,7 +728,7 @@ export default function Invoices() {
                     </div>
                   ) : (
                     <>
-                      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="absolute inset-0 bg-gradient-to-br from-forest-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       <Camera
                         size={48}
                         className="text-white/10 mb-6 group-hover:scale-110 group-hover:text-white transition-all duration-700 relative z-10"
@@ -747,11 +774,11 @@ export default function Invoices() {
               animate={{ scale: 1, opacity: 1 }}
               className="bg-zinc-950 border border-white/10 shadow-2xl rounded-2xl w-full max-w-2xl relative overflow-hidden"
             >
-              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 to-blue-500" />
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-forest-500 to-celtic-500" />
               <div className="p-8">
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400">
+                    <div className="w-12 h-12 bg-forest-500/10 rounded-xl flex items-center justify-center text-forest-400">
                       <Brain size={24} aria-hidden="true" />
                     </div>
                     <div>
@@ -793,7 +820,7 @@ export default function Invoices() {
                   ) : (
                     <>
                       {aiAnalysis?.transcript && (
-                        <div className="pb-6 border-b border-white/5">
+                        <div className="pb-6 border-b border-white/5 molten-edge">
                           <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-3">
                             Source Transcript
                           </span>
@@ -803,7 +830,7 @@ export default function Invoices() {
                         </div>
                       )}
                       
-                      <div className="flex justify-between items-center pb-4 border-b border-white/5">
+                      <div className="flex justify-between items-center pb-4 border-b border-white/5 molten-edge">
                         <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                           Client Info
                         </span>
@@ -811,19 +838,19 @@ export default function Invoices() {
                           type="text"
                           value={aiAnalysis?.clientName || ""}
                           onChange={(e) => setAiAnalysis({...aiAnalysis, clientName: e.target.value})}
-                          className="text-base font-semibold text-white bg-transparent text-right outline-none focus:border-emerald-500 border-b border-transparent"
+                          className="text-base font-semibold text-white bg-transparent text-right outline-none focus:border-forest-500 border-b border-transparent"
                         />
                       </div>
                       
                       {aiAnalysis?.summary && (
-                        <div className="pb-4 border-b border-white/5">
+                        <div className="pb-4 border-b border-white/5 molten-edge">
                           <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-2">
                             Summary
                           </span>
                           <textarea
                             value={aiAnalysis.summary}
                             onChange={(e) => setAiAnalysis({...aiAnalysis, summary: e.target.value})}
-                            className="w-full text-sm text-zinc-300 bg-black/50 p-3 rounded-lg outline-none border border-white/5 focus:border-emerald-500"
+                            className="w-full text-sm text-zinc-300 bg-black/50 p-3 rounded-lg outline-none border border-white/5 focus:border-forest-500"
                             rows={2}
                           />
                         </div>
@@ -835,7 +862,7 @@ export default function Invoices() {
                            <button onClick={() => {
                               const newItems = [...(aiAnalysis?.items || []), { description: "New Item", quantity: 1, rate: 0 }];
                               setAiAnalysis({...aiAnalysis, items: newItems});
-                           }} className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1"><Plus size={14}/> Add Item</button>
+                           }} className="text-forest-400 hover:text-forest-300 flex items-center gap-1"><Plus size={14}/> Add Item</button>
                         </div>
                         {aiAnalysis?.items?.map(
                           (
@@ -923,7 +950,7 @@ export default function Invoices() {
                               id="autoSchedule" 
                               checked={autoSchedule} 
                               onChange={(e) => setAutoSchedule(e.target.checked)}
-                              className="w-5 h-5 accent-emerald-500"
+                              className="w-5 h-5 accent-forest-500"
                            />
                            <label htmlFor="autoSchedule" className="text-sm font-bold text-white uppercase tracking-widest">Auto-Schedule Service Visit</label>
                         </div>
@@ -1011,7 +1038,7 @@ export default function Invoices() {
                         handleFirestoreError(err, OperationType.CREATE, path);
                       }
                     }}
-                    className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium shadow-sm transition-all"
+                    className="px-6 py-2.5 bg-forest-500 hover:bg-forest-600 text-white rounded-lg text-sm font-medium shadow-sm transition-all"
                   >
                     Send Invoice
                   </button>
@@ -1021,6 +1048,12 @@ export default function Invoices() {
           </div>
         )}
       </AnimatePresence>
+
+      <div className="hidden">
+        {printingInvoice && (
+          <PrinterFriendlyInvoice ref={printComponentRef} invoice={printingInvoice} />
+        )}
+      </div>
     </div>
   );
 }

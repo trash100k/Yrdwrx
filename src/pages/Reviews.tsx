@@ -190,8 +190,8 @@ export default function Reviews() {
     <div className="max-w-7xl mx-auto space-y-10 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-10 pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
-          <div className="inline-flex items-center gap-3 px-4 py-2 bg-blue-500/10 rounded-full border border-blue-500 text-xs font-black uppercase tracking-widest text-blue-500">
-            <Star size={16} className="fill-blue-500" />
+          <div className="inline-flex items-center gap-3 px-4 py-2 bg-celtic-500/10 rounded-full border border-celtic-500 text-xs font-black uppercase tracking-widest text-celtic-500">
+            <Star size={16} className="fill-celtic-500" />
             Brand Sentiment
           </div>
           <h1 className="text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words font-sans font-black tracking-normal md:tracking-tighter leading-none text-white italic uppercase">
@@ -228,9 +228,9 @@ export default function Reviews() {
             <motion.div
               layout
               key={review.id}
-              className="bg-zinc-900 border border-white/5 shadow-2xl p-6 sm:p-10 hover:border-blue-500/50 transition-all duration-700 overflow-hidden group relative"
+              className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-6 sm:p-10 hover:border-celtic-500/50 transition-all duration-700 overflow-hidden group relative"
             >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-900 rounded-full blur-2xl -mr-16 -mt-16 group-hover:bg-emerald-500/5 transition-colors" />
+              <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-900 rounded-full blur-2xl -mr-16 -mt-16 group-hover:bg-forest-500/5 transition-colors" />
 
               <div className="flex justify-between items-start mb-10 relative z-10">
                 <div className="flex gap-6">
@@ -268,7 +268,7 @@ export default function Reviews() {
                 <div
                   className={`px-4 py-2 rounded-full micro-label font-black uppercase tracking-[0.2em] border shadow-glow ${
                     review.sentiment === "Positive"
-                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                      ? "bg-forest-500/10 border-forest-500/20 text-forest-400"
                       : review.sentiment === "Negative"
                         ? "bg-red-500/10 border-red-500/20 text-red-400"
                         : "bg-white/5 border-white/10 text-zinc-400"
@@ -285,7 +285,7 @@ export default function Reviews() {
               {!review.isReplied && (
                 <div className="space-y-6 relative z-10">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 text-emerald-400">
+                    <div className="flex items-center gap-3 text-forest-400">
                       <Sparkles size={20} className="shadow-glow" />
                       <span className="micro-label font-black uppercase tracking-[0.3em]">
                         AI Synthesis Prompt
@@ -317,7 +317,7 @@ export default function Reviews() {
                       </label>
                       <textarea
                         id={`reply-draft-${review.id}`}
-                        className="w-full min-w-0 bg-zinc-900 border border-emerald-500/20 rounded-2xl p-5 sm:p-8 text-base sm:text-sm text-emerald-100 leading-relaxed focus:outline-none focus:bg-white/5 transition-all shadow-inner placeholder:text-zinc-500 italic"
+                        className="w-full min-w-0 bg-zinc-900 border border-forest-500/20 rounded-2xl p-5 sm:p-8 text-base sm:text-sm text-forest-100 leading-relaxed focus:outline-none focus:bg-white/5 transition-all shadow-inner placeholder:text-zinc-500 italic"
                         defaultValue={review.autoReplyDraft}
                         rows={3}
                       />
@@ -345,7 +345,7 @@ export default function Reviews() {
               )}
 
               {review.isReplied && (
-                <div className="flex items-center gap-4 text-emerald-400 bg-emerald-500/5 px-8 py-5 rounded-[24px] border border-emerald-500/20 shadow-glow relative z-10">
+                <div className="flex items-center gap-4 text-forest-400 bg-forest-500/5 px-8 py-5 rounded-[24px] border border-forest-500/20 shadow-glow relative z-10">
                   <CheckCircle2 size={24} />
                   <span className="micro-label font-black uppercase tracking-[0.3em] leading-none">
                     Review Sent • Sentiment Stabilized
@@ -355,7 +355,7 @@ export default function Reviews() {
             </motion.div>
           ))}
           {filteredReviews.length === 0 && (
-            <div className="bg-zinc-900 border border-white/5 shadow-2xl p-32 text-center space-y-8 rounded-2xl">
+            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-32 text-center space-y-8 rounded-2xl">
               <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto border border-white/5">
                 <Star size={48} className="text-white/10" />
               </div>
@@ -368,12 +368,12 @@ export default function Reviews() {
 
         <aside className="space-y-10">
           <div className="border border-white/5 shadow-2xl bg-black rounded-2xl p-6 sm:p-10 text-white relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-[80px] -mr-32 -mt-32" />
+            <div className="absolute top-0 right-0 w-64 h-64 bg-forest-500/5 rounded-full blur-[80px] -mr-32 -mt-32" />
             <div className="flex items-center justify-between mb-10 relative z-10">
               <h3 className="micro-label font-black uppercase tracking-[0.3em] text-white/50 leading-none italic">
                 Sentiment Delta
               </h3>
-              <TrendingUp size={24} className="text-emerald-400 shadow-glow" />
+              <TrendingUp size={24} className="text-forest-400 shadow-glow" />
             </div>
             <div className="space-y-8 relative z-10">
               <div>
@@ -389,7 +389,7 @@ export default function Reviews() {
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: "92%" }}
-                    className="h-full bg-emerald-500 rounded-full shadow-glow"
+                    className="h-full bg-forest-500 rounded-full shadow-glow"
                   />
                 </div>
               </div>
@@ -406,7 +406,7 @@ export default function Reviews() {
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: "5%" }}
-                    className="h-full bg-blue-400 rounded-full opacity-40 shadow-glow"
+                    className="h-full bg-celtic-400 rounded-full opacity-40 shadow-glow"
                   />
                 </div>
               </div>
@@ -434,7 +434,7 @@ export default function Reviews() {
             </p>
           </div>
 
-          <div className="bg-zinc-900 border border-white/5 shadow-2xl rounded-2xl p-6 sm:p-10">
+          <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-6 sm:p-10">
             <h3 className="micro-label font-black uppercase tracking-[0.3em] text-white/20 mb-8 italic">
               Cognitive Tags
             </h3>
@@ -457,11 +457,11 @@ export default function Reviews() {
             </div>
           </div>
 
-          <div className="bg-blue-900/10 border-4 border-blue-500/20 shadow-2xl rounded-2xl p-6 sm:p-10 relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none" />
+          <div className="bg-celtic-900/10 border-4 border-celtic-500/20 shadow-2xl rounded-2xl p-6 sm:p-10 relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-32 h-32 bg-celtic-500/10 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none" />
              <div className="flex justify-between items-center mb-6 relative z-10">
                  <h3 className="text-xl font-black italic uppercase text-white tracking-tight">Review Outreach Hub</h3>
-                 <MessageCircle className="text-blue-400 shadow-glow" />
+                 <MessageCircle className="text-celtic-400 shadow-glow" />
              </div>
              <p className="text-sm font-medium text-zinc-400 mb-8 relative z-10">
                  Automatically dispatch personalized review solicitation emails to clients upon job completion via your connected Google Workspace (Gmail).
@@ -472,7 +472,7 @@ export default function Reviews() {
                       const ans = window.confirm("Deploy optimized review requests to 4 recently completed clients via Gmail?");
                       if(ans) alert("Review Solicitation Dispatched to Workspace Outbox.");
                   }}
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest text-[9px] py-4 rounded-xl transition-all flex items-center justify-center gap-2">
+                  className="w-full bg-celtic-600 hover:bg-celtic-500 text-white font-black uppercase tracking-widest text-[9px] py-4 rounded-xl transition-all flex items-center justify-center gap-2">
                      <Send size={14} /> Solicit Recent Jobs (4)
                  </button>
              </div>

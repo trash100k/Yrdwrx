@@ -12,7 +12,12 @@ import {
   X,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { cn } from "../lib/utils";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface MarkupCanvasProps {
   backgroundImage: string | null;
@@ -241,24 +246,24 @@ export default function MarkupCanvas({
             onClick={() => setTool("pencil")}
             icon={<Pencil size={16} />}
             label="Draw"
-            colorClass="text-emerald-500/60 hover:text-emerald-400"
-            activeColorClass="text-emerald-400 font-bold"
+            colorClass="text-forest-500/60 hover:text-forest-400"
+            activeColorClass="text-forest-400 font-bold"
           />
           <ToolButton
             active={activeTool === "rect"}
             onClick={() => setTool("rect")}
             icon={<Square size={16} />}
             label="Box"
-            colorClass="text-blue-500/60 hover:text-blue-400"
-            activeColorClass="text-blue-400 font-bold"
+            colorClass="text-celtic-500/60 hover:text-celtic-400"
+            activeColorClass="text-celtic-400 font-bold"
           />
           <ToolButton
             active={activeTool === "circle"}
             onClick={() => setTool("circle")}
             icon={<Circle size={16} />}
             label="Circle"
-            colorClass="text-blue-500/60 hover:text-blue-400"
-            activeColorClass="text-blue-400 font-bold"
+            colorClass="text-celtic-500/60 hover:text-celtic-400"
+            activeColorClass="text-celtic-400 font-bold"
           />
           <ToolButton
             active={activeTool === "x"}
@@ -282,7 +287,7 @@ export default function MarkupCanvas({
           </button>
           <button
             onClick={exportCanvas}
-            className="px-5 py-2 bg-emerald-500 text-black rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:scale-105 active:scale-95 transition-all"
+            className="px-5 py-2 bg-forest-500 text-black rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(5, 168, 69,0.3)] hover:scale-105 active:scale-95 transition-all"
           >
             Finalize Vision
           </button>

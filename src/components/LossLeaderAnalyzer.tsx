@@ -394,11 +394,11 @@ export default function LossLeaderAnalyzer() {
       {/* HIGHLIGHTED STATS CARD GRID */}
       <div id="costs-ratio-grid" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         
-        <div id="stat-card-est" className="bg-zinc-900 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none" />
+        <div id="stat-card-est" className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 relative overflow-hidden group">
+          <div className="absolute inset-0 bg-gradient-to-br from-forest-500/5 to-transparent pointer-events-none" />
           <div className="flex items-center justify-between mb-4">
             <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Total Estimated Billing</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+            <div className="w-8 h-8 rounded-lg bg-forest-500/10 flex items-center justify-center text-forest-400">
               <DollarSign size={16} />
             </div>
           </div>
@@ -406,7 +406,7 @@ export default function LossLeaderAnalyzer() {
           <p className="text-zinc-500 text-xs mt-2 uppercase tracking-wide">Expected revenue target</p>
         </div>
 
-        <div id="stat-card-act" className="bg-zinc-900 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+        <div id="stat-card-act" className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 relative overflow-hidden group">
           <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent pointer-events-none" />
           <div className="flex items-center justify-between mb-4">
             <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-widest">Total Actual Burden</span>
@@ -420,23 +420,23 @@ export default function LossLeaderAnalyzer() {
           </p>
         </div>
 
-        <div id="stat-card-margin" className="bg-zinc-900 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
-          <div className={`absolute inset-0 bg-gradient-to-br ${netEarningsSum >= 0 ? "from-emerald-500/5" : "from-red-500/5"} to-transparent pointer-events-none`} />
+        <div id="stat-card-margin" className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 relative overflow-hidden group">
+          <div className={`absolute inset-0 bg-gradient-to-br ${netEarningsSum >= 0 ? "from-forest-500/5" : "from-red-500/5"} to-transparent pointer-events-none`} />
           <div className="flex items-center justify-between mb-4">
             <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Net Realized Margin</span>
-            <div className={`w-8 h-8 rounded-lg ${netEarningsSum >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-500"} flex items-center justify-center`}>
+            <div className={`w-8 h-8 rounded-lg ${netEarningsSum >= 0 ? "bg-forest-500/10 text-forest-400" : "bg-red-500/10 text-red-500"} flex items-center justify-center`}>
               {netEarningsSum >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
             </div>
           </div>
-          <h4 className={`text-3xl font-black italic tracking-tighter ${netEarningsSum >= 0 ? "text-emerald-400" : "text-red-500"}`}>
+          <h4 className={`text-3xl font-black italic tracking-tighter ${netEarningsSum >= 0 ? "text-forest-400" : "text-red-500"}`}>
             ${netEarningsSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h4>
           <p className="text-zinc-500 text-xs mt-2 uppercase tracking-wide">
-            Average profit ratio: <span className={netEarningsSum >= 0 ? "text-emerald-400" : "text-red-400"}>{avgMargin.toFixed(1)}%</span>
+            Average profit ratio: <span className={netEarningsSum >= 0 ? "text-forest-400" : "text-red-400"}>{avgMargin.toFixed(1)}%</span>
           </p>
         </div>
 
-        <div id="stat-card-alerts" className="bg-zinc-900 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+        <div id="stat-card-alerts" className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 relative overflow-hidden group">
           <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent pointer-events-none" />
           <div className="flex items-center justify-between mb-4">
             <span className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Loss Leaders Highlighted</span>
@@ -452,8 +452,8 @@ export default function LossLeaderAnalyzer() {
 
       {/* RECHARTS VALUE COMPARATOR CHART */}
       {chartData.length > 0 && (
-        <div id="loss-leader-chart-card" className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent pointer-events-none" />
+        <div id="loss-leader-chart-card" className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 sm:p-8 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-celtic-500/5 to-transparent pointer-events-none" />
           <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h3 className="text-xl font-black italic uppercase tracking-tight text-white flex items-center gap-3">
@@ -465,7 +465,7 @@ export default function LossLeaderAnalyzer() {
             
             <div className="flex gap-4 items-center">
               <span className="inline-flex items-center gap-2 text-xs text-zinc-400">
-                <span className="w-3 h-3 bg-indigo-500 rounded-full" />
+                <span className="w-3 h-3 bg-celtic-500 rounded-full" />
                 Estimated Price
               </span>
               <span className="inline-flex items-center gap-2 text-xs text-zinc-400">
@@ -495,8 +495,8 @@ export default function LossLeaderAnalyzer() {
       )}
 
       {/* MAIN DATA TABLE & TOOL WINDOW */}
-      <div id="analysis-workspace" className="bg-zinc-900 border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
-        <header className="p-6 sm:p-8 border-b border-white/5 bg-zinc-950/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div id="analysis-workspace" className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl overflow-hidden shadow-2xl">
+        <header className="p-6 sm:p-8 border-b border-white/5 molten-edge bg-zinc-950/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h3 className="text-lg font-black italic uppercase tracking-tight text-white">Loss-Leader Accounts & Field Logs Ledger</h3>
             <p className="text-xs text-zinc-500 mt-1">Surgical breakdown of estimated contract revenue, physical materials stock depletion, and calculated crew hours.</p>
@@ -532,7 +532,7 @@ export default function LossLeaderAnalyzer() {
                 id="search-input"
                 type="text"
                 placeholder="Query jobs / properties..."
-                className="w-full bg-black border border-white/5 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-none focus:border-indigo-500 text-white placeholder:text-zinc-650"
+                className="w-full bg-black border border-white/5 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-none focus:border-celtic-500 text-white placeholder:text-zinc-650"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -552,7 +552,7 @@ export default function LossLeaderAnalyzer() {
           <div className="overflow-x-auto overflow-y-hidden w-full custom-scrollbar relative max-w-[100vw]" id="table-wrapper">
             <table className="w-full text-left border-collapse whitespace-nowrap min-w-[900px]" id="analyst-table">
               <thead className="sticky top-0 z-20">
-                <tr className="border-b border-white/5 bg-zinc-950 text-zinc-400 uppercase font-black text-[10px] tracking-widest italic">
+                <tr className="border-b border-white/5 molten-edge bg-zinc-950 text-zinc-400 uppercase font-black text-[10px] tracking-widest italic">
                   <th className="sticky left-0 bg-zinc-950 z-30 shadow-[4px_0_12px_rgba(0,0,0,0.5)] py-4 px-6">Property / Client</th>
                   <th className="py-4 px-6 text-right">Estimated Price</th>
                   <th className="py-4 px-6 text-right font-medium">Crew labor</th>
@@ -581,7 +581,7 @@ export default function LossLeaderAnalyzer() {
                         }`}>
                           <div className="flex items-center gap-3">
                             <div className={`w-2.5 h-2.5 rounded-full ${
-                              job.isLossLeader ? "bg-red-500 animate-pulse" : "bg-emerald-500"
+                              job.isLossLeader ? "bg-red-500 animate-pulse" : "bg-forest-500"
                             }`} />
                             <div>
                               <p className="font-sans font-black uppercase text-sm text-white italic tracking-tight">{job.title}</p>
@@ -600,7 +600,7 @@ export default function LossLeaderAnalyzer() {
                               <input
                                 id={`edit-rev-${job.id}`}
                                 type="number"
-                                className="w-20 bg-black border border-indigo-500/50 rounded p-1 text-right text-xs text-indigo-300 focus:outline-none"
+                                className="w-20 bg-black border border-celtic-500/50 rounded p-1 text-right text-xs text-celtic-300 focus:outline-none"
                                 value={editRevenue}
                                 onChange={(e) => setEditRevenue(e.target.value)}
                               />
@@ -618,7 +618,7 @@ export default function LossLeaderAnalyzer() {
                                 id={`edit-hours-${job.id}`}
                                 type="number"
                                 step="0.5"
-                                className="w-14 bg-black border border-indigo-500/50 rounded p-1 text-right text-xs text-indigo-300 focus:outline-none"
+                                className="w-14 bg-black border border-celtic-500/50 rounded p-1 text-right text-xs text-celtic-300 focus:outline-none"
                                 value={editHours}
                                 onChange={(e) => setEditHours(e.target.value)}
                                 title="Hours worked"
@@ -627,7 +627,7 @@ export default function LossLeaderAnalyzer() {
                               <input
                                 id={`edit-rate-${job.id}`}
                                 type="number"
-                                className="w-12 bg-black border border-indigo-500/50 rounded p-1 text-right text-xs text-indigo-300 focus:outline-none"
+                                className="w-12 bg-black border border-celtic-500/50 rounded p-1 text-right text-xs text-celtic-300 focus:outline-none"
                                 value={editLaborRate}
                                 onChange={(e) => setEditLaborRate(e.target.value)}
                                 title="Hourly wage rate"
@@ -663,7 +663,7 @@ export default function LossLeaderAnalyzer() {
                           <span className={`inline-flex px-3 py-1.5 rounded-full font-mono text-xs font-black uppercase tracking-wider ${
                             job.isLossLeader 
                               ? "bg-red-500/10 text-red-400 border border-red-500/20" 
-                              : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : "bg-forest-500/10 text-forest-400 border border-forest-500/20"
                           }`}>
                             {job.marginPercent >= 0 ? "+" : ""}{job.marginPercent.toFixed(1)}%
                             <span className="ml-1 opacity-80">(${job.netProfit.toFixed(0)})</span>
@@ -679,7 +679,7 @@ export default function LossLeaderAnalyzer() {
                                   id={`btn-save-${job.id}`}
                                   type="button"
                                   onClick={() => handleSaveParameters(job.id)}
-                                  className="px-3 py-1.5 rounded-lg bg-emerald-500 text-black text-[10px] font-black uppercase tracking-wider hover:bg-emerald-400 transition-all"
+                                  className="px-3 py-1.5 rounded-lg bg-forest-500 text-black text-[10px] font-black uppercase tracking-wider hover:bg-forest-400 transition-all"
                                 >
                                   Save
                                 </button>
@@ -698,7 +698,7 @@ export default function LossLeaderAnalyzer() {
                                   id={`btn-edit-${job.id}`}
                                   type="button"
                                   onClick={() => handleStartEditing(job)}
-                                  className="px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20 text-[10px] font-black uppercase tracking-wider transition-all"
+                                  className="px-3 py-1.5 rounded-lg bg-celtic-500/10 border border-celtic-500/20 text-celtic-400 hover:bg-celtic-500/20 text-[10px] font-black uppercase tracking-wider transition-all"
                                 >
                                   Edit Baseline
                                 </button>
@@ -738,7 +738,7 @@ export default function LossLeaderAnalyzer() {
                               
                               {/* Materials catalog and logger */}
                               <div className="space-y-4">
-                                <h4 className="text-xs font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
+                                <h4 className="text-xs font-black uppercase tracking-widest text-celtic-400 flex items-center gap-2">
                                   <Package size={14} />
                                   Physical Materials Ledger usage log
                                 </h4>
@@ -751,11 +751,11 @@ export default function LossLeaderAnalyzer() {
                                       <span 
                                         key={mIdx} 
                                         id={`mat-tag-${job.id}-${mIdx}`}
-                                        className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-zinc-900 border border-white/5 text-xs text-zinc-300"
+                                        className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-zinc-900 border border-white/5 molten-edge text-xs text-zinc-300"
                                       >
                                         <span className="font-bold text-white uppercase">{mat.name}</span>
                                         <span className="text-zinc-500 font-mono">x{mat.quantity}</span>
-                                        <span className="text-indigo-400 font-mono font-bold">${(mat.quantity * mat.unitCost).toFixed(0)}</span>
+                                        <span className="text-celtic-400 font-mono font-bold">${(mat.quantity * mat.unitCost).toFixed(0)}</span>
                                         <button
                                           id={`btn-rm-mat-${job.id}-${mIdx}`}
                                           type="button"
@@ -775,7 +775,7 @@ export default function LossLeaderAnalyzer() {
                                   <div className="relative">
                                     <select
                                       id={`select-inv-${job.id}`}
-                                      className="bg-black border border-white/5 rounded-xl px-3 py-2 text-xs text-white max-w-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                                      className="bg-black border border-white/5 rounded-xl px-3 py-2 text-xs text-white max-w-xs focus:ring-1 focus:ring-celtic-500 focus:outline-none"
                                       value={selectedInventoryId}
                                       onChange={(e) => setSelectedInventoryId(e.target.value)}
                                     >
@@ -811,7 +811,7 @@ export default function LossLeaderAnalyzer() {
                                     id={`btn-add-mat-${job.id}`}
                                     type="button"
                                     onClick={() => handleAddMaterialToJob(job)}
-                                    className="px-4 py-2 bg-indigo-600 hover:bg-slate-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all"
+                                    className="px-4 py-2 bg-celtic-600 hover:bg-slate-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all"
                                   >
                                     <PlusCircle size={14} />
                                     Allocate cost
@@ -820,10 +820,10 @@ export default function LossLeaderAnalyzer() {
                               </div>
 
                               {/* Comparative insight panel */}
-                              <div className="p-5 rounded-2xl bg-zinc-900 border border-white/5 flex flex-col justify-between">
+                              <div className="p-5 rounded-2xl bg-zinc-900 border border-white/5 molten-edge flex flex-col justify-between">
                                 <section>
                                   <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2 mb-3">
-                                    <AlertCircle size={14} className={job.isLossLeader ? "text-red-400" : "text-emerald-400"} />
+                                    <AlertCircle size={14} className={job.isLossLeader ? "text-red-400" : "text-forest-400"} />
                                     Property Intel & Audit Score
                                   </h4>
                                   
@@ -840,7 +840,7 @@ export default function LossLeaderAnalyzer() {
                                     </div>
                                   ) : (
                                     <div className="space-y-2">
-                                      <p className="text-xs text-emerald-400 font-bold uppercase tracking-wide">
+                                      <p className="text-xs text-forest-400 font-bold uppercase tracking-wide">
                                         Healthy yield: positive {job.marginPercent.toFixed(1)}% margin verified.
                                       </p>
                                       <p className="text-xs text-zinc-400 leading-relaxed">
@@ -920,7 +920,7 @@ export default function LossLeaderAnalyzer() {
                 <textarea
                   id="proposal-notes-area"
                   rows={8}
-                  className="w-full bg-black border border-white/5 rounded-2xl p-4 text-xs font-mono text-zinc-300 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 leading-relaxed"
+                  className="w-full bg-black border border-white/5 rounded-2xl p-4 text-xs font-mono text-zinc-300 focus:outline-none focus:border-celtic-500 focus:ring-1 focus:ring-celtic-500 leading-relaxed"
                   value={proposalNotes}
                   onChange={(e) => setProposalNotes(e.target.value)}
                 />
@@ -943,7 +943,7 @@ export default function LossLeaderAnalyzer() {
                 id="btn-confirm-send-proposal"
                 type="button"
                 onClick={handleSendProposal}
-                className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-widest transition-all shadow-lg"
+                className="px-6 py-3 rounded-xl bg-celtic-600 hover:bg-celtic-500 text-white text-xs font-black uppercase tracking-widest transition-all shadow-lg"
               >
                 Send Contract Update Proposal
               </button>

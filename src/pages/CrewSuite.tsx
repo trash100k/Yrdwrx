@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
-import React, { useState, useEffect, useCallback } from "react";
-import { cn } from "../lib/utils";
-import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+import React, { useState, useEffect } from "react";
 import {
   collection,
   onSnapshot,
@@ -52,6 +50,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { HandsFreeDictator } from "../components/HandsFreeDictator";
+import { ResourceAssignmentModal } from "../components/ResourceAssignmentModal";
+import { ResourceTimeline } from "../components/ResourceTimeline";
 
 export default function CrewSuite() {
   const { tenant } = useTenant();
@@ -83,6 +83,7 @@ export default function CrewSuite() {
   const [activeFilter, setActiveFilter] = useState<
     "all" | "active" | "incidents" | "late"
   >("all");
+  const [viewMode, setViewMode] = useState<"cards" | "timeline">("cards");
 
   // Recruit modal states
   const [isRecruitOpen, setIsRecruitOpen] = useState(false);
@@ -99,6 +100,9 @@ export default function CrewSuite() {
   // Edit / Dropdown states
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingCrew, setEditingCrew] = useState<any>(null);
+  
+  // Resource Assignment Modal
+  const [isResourceAssignOpen, setIsResourceAssignOpen] = useState(false);
 
   useEffect(() => {
     const handleVoiceAction = (e: CustomEvent) => {
@@ -292,12 +296,12 @@ export default function CrewSuite() {
           <button 
             type="button"
             onClick={() => setIsRecruitOpen(true)}
-            className="flex flex-col items-center justify-center gap-2 p-6 bg-teal-500/10 border border-teal-500/20 rounded-[20px] text-teal-400 hover:bg-teal-500/20 transition-all shadow-sm"
+            className="flex flex-col items-center justify-center gap-2 p-6 bg-forest-500/10 border border-forest-500/20 rounded-[20px] text-forest-400 hover:bg-forest-500/20 transition-all shadow-sm"
           >
             <Plus size={24} className="hover:scale-110 transition-transform" />
             <span className="font-bold text-sm">Quick Recruit</span>
           </button>
-          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
+          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 molten-edge rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-400/50 to-transparent"></div>
              <Zap size={24} className="text-yellow-400 animate-pulse" />
              <span className="font-bold text-sm text-yellow-400/80">Easy Mode Active</span>
@@ -306,7 +310,7 @@ export default function CrewSuite() {
       )}
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 lg:gap-10 pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
-          <div className="inline-flex items-center gap-3 px-4 py-2 bg-emerald-500/10 rounded-full border border-emerald-500 text-xs font-black uppercase tracking-widest text-emerald-500">
+          <div className="inline-flex items-center gap-3 px-4 py-2 bg-forest-500/10 rounded-full border border-forest-500 text-xs font-black uppercase tracking-widest text-forest-500">
             <Users size={16} />
             Crew Control Active
           </div>
@@ -335,7 +339,7 @@ export default function CrewSuite() {
                   alert("Geolocation is not supported by this browser.");
                 }
               }}
-              className="px-6 py-4 bg-white/5 border border-white/10 hover:bg-emerald-500/10 hover:border-emerald-500/50 rounded-2xl text-emerald-400 font-black text-xs md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2"
+              className="px-6 py-4 bg-white/5 border border-white/10 hover:bg-forest-500/10 hover:border-forest-500/50 rounded-2xl text-forest-400 font-black text-xs md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2"
             >
               <MapPin size={16} />
               Check-In (Geofence)
@@ -344,8 +348,17 @@ export default function CrewSuite() {
 
           <button
             type="button"
+            onClick={() => setIsResourceAssignOpen(true)}
+            className="px-6 py-4 bg-blue-500 hover:bg-blue-400 text-black font-black text-xs md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 rounded-2xl font-bold"
+          >
+            <Truck size={16} />
+            Assign Resources
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsRecruitOpen(true)}
-            className="px-6 py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 rounded-2xl font-bold"
+            className="px-6 py-4 bg-forest-500 hover:bg-forest-400 text-black font-black text-xs md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 rounded-2xl font-bold"
           >
             <Plus size={16} />
             Recruit Crew
@@ -356,7 +369,7 @@ export default function CrewSuite() {
               Query crews
             </label>
             <Search
-              className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-emerald-400 transition-colors"
+              className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-forest-400 transition-colors"
               size={24}
               aria-hidden="true"
             />
@@ -364,7 +377,7 @@ export default function CrewSuite() {
               id="crew-search"
               type="text"
               placeholder="Query crews..."
-              className="w-full min-w-0 pl-16 pr-8 py-5 bg-black border border-white/5 rounded-3xl text-sm font-black tracking-widest uppercase focus:bg-zinc-900 focus:border-emerald-500/50 focus:outline-none placeholder:text-zinc-600 transition-all shadow-inner text-white"
+              className="w-full min-w-0 pl-16 pr-8 py-5 bg-black border border-white/5 rounded-3xl text-sm font-black tracking-widest uppercase focus:bg-zinc-900 focus:border-forest-500/50 focus:outline-none placeholder:text-zinc-600 transition-all shadow-inner text-white"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -373,28 +386,56 @@ export default function CrewSuite() {
       </header>
 
       {/* FILTER TABS */}
-      <div className="flex flex-wrap items-center gap-2 bg-zinc-950/80 p-2 rounded-2xl border border-white/5">
-        {(["all", "active", "incidents", "late"] as const).map((filter) => {
-          const isActive = activeFilter === filter;
-          return (
-            <button
-              key={filter}
-              type="button"
-              onClick={() => setActiveFilter(filter)}
-              className={`px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-200 ${
-                isActive
-                  ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/10"
-                  : "bg-black/40 text-zinc-400 border border-white/5 hover:border-white/10 hover:text-white"
-              }`}
-            >
-              {filter === "all" ? "All Crews" : filter === "active" ? "Active Today" : filter === "incidents" ? "Incidents" : "Late Crews"}
-            </button>
-          );
-        })}
+      <div className="flex flex-col sm:flex-row justify-between shrink-0 gap-4">
+        <div className="flex flex-wrap items-center gap-2 bg-zinc-950/80 p-2 rounded-2xl border border-white/5">
+          {(["all", "active", "incidents", "late"] as const).map((filter) => {
+            const isActive = activeFilter === filter;
+            return (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setActiveFilter(filter)}
+                className={`px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-200 ${
+                  isActive
+                    ? "bg-forest-500 text-black shadow-lg shadow-forest-500/10"
+                    : "bg-black/40 text-zinc-400 border border-white/5 hover:border-white/10 hover:text-white"
+                }`}
+              >
+                {filter === "all" ? "All Crews" : filter === "active" ? "Active Today" : filter === "incidents" ? "Incidents" : "Late Crews"}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 bg-zinc-950/80 p-2 rounded-2xl border border-white/5">
+          <button
+            type="button"
+            onClick={() => setViewMode("cards")}
+            className={`px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-200 ${
+              viewMode === "cards"
+                ? "bg-zinc-800 text-white shadow-lg"
+                : "bg-black/40 text-zinc-400 border border-white/5 hover:border-white/10 hover:text-white"
+            }`}
+          >
+            Crew Cards
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("timeline")}
+            className={`px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-200 ${
+              viewMode === "timeline"
+                ? "bg-forest-500 text-black shadow-lg shadow-forest-500/10"
+                : "bg-black/40 text-zinc-400 border border-white/5 hover:border-white/10 hover:text-white"
+            }`}
+          >
+            Timeline View
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
-        <AnimatePresence>
+      {viewMode === "cards" ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
+          <AnimatePresence>
           {filteredCrews.map((crew) => {
             const statusStr = crew.status || "";
             const isStatusActive = statusStr.toLowerCase() === "active" || statusStr === "ON_SITE" || statusStr === "TRANSPORT";
@@ -403,7 +444,7 @@ export default function CrewSuite() {
               <motion.div
                 layout
                 key={crew.id}
-                className="bg-zinc-900 border border-white/5 shadow-2xl p-5 sm:p-8 hover:border-white/20 transition-all relative overflow-hidden group/card bg-black/40 rounded-3xl"
+                className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-5 sm:p-8 hover:border-white/20 transition-all relative overflow-hidden group/card bg-black/40 rounded-3xl"
               >
                 <header className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">
@@ -411,7 +452,7 @@ export default function CrewSuite() {
                       className={cn(
                         "w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl relative",
                         isStatusActive
-                          ? "bg-emerald-500 text-black font-bold"
+                          ? "bg-forest-500 text-black font-bold"
                           : isStatusLate
                             ? "bg-amber-500 text-black animate-pulse"
                             : "bg-white/5 text-white/20",
@@ -427,7 +468,7 @@ export default function CrewSuite() {
                         className={cn(
                           "text-[9px] font-black uppercase tracking-widest animate-pulse",
                           isStatusActive
-                            ? "text-emerald-400"
+                            ? "text-forest-400"
                             : isStatusLate
                               ? "text-amber-500"
                               : "text-zinc-500",
@@ -451,7 +492,7 @@ export default function CrewSuite() {
                 </header>
 
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 rounded-2xl">
+                  <div className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-2xl">
                     <div className="flex items-center gap-3">
                       <MapPin size={16} className="text-white/20" />
                       <span className="text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest">
@@ -481,9 +522,22 @@ export default function CrewSuite() {
                         <span className="text-white font-bold">{crew.progress}%</span>
                       </div>
                       <div className="w-full h-1.5 bg-zinc-950 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${crew.progress}%` }}></div>
+                        <div className="h-full bg-forest-500 transition-all duration-300" style={{ width: `${crew.progress}%` }}></div>
                       </div>
                     </div>
+                  )}
+
+                  {crew.assignedResources && crew.assignedResources.length > 0 && (
+                     <div className="mt-4 p-4 bg-blue-500/5 border border-blue-500/10 rounded-2xl">
+                       <span className="text-[9px] text-blue-400 font-bold uppercase tracking-widest block mb-2">Checked-Out Assets</span>
+                       <div className="flex flex-wrap gap-2">
+                         {crew.assignedResources.map((res: any) => (
+                           <span key={res.id} className="text-xs bg-black border border-white/5 px-2 py-1 rounded text-white/80">
+                             {res.quantity}x {res.name}
+                           </span>
+                         ))}
+                       </div>
+                     </div>
                   )}
                 </div>
 
@@ -501,7 +555,7 @@ export default function CrewSuite() {
                       setEditingCrew(crew);
                       setIsEditOpen(true);
                     }}
-                    className="flex-1 py-3 bg-zinc-900 border border-white/5 shadow-2xl text-white font-black text-[9px] uppercase tracking-widest hover:bg-white/5 transition-all text-center"
+                    className="flex-1 py-3 bg-zinc-900 border border-white/5 molten-edge shadow-2xl text-white font-black text-[9px] uppercase tracking-widest hover:bg-white/5 transition-all text-center"
                   >
                     Configure
                   </button>
@@ -511,8 +565,11 @@ export default function CrewSuite() {
           })}
         </AnimatePresence>
       </div>
+      ) : (
+        <ResourceTimeline />
+      )}
 
-      <div className="bg-zinc-900 border border-white/5 shadow-2xl p-10 mt-10 rounded-2xl relative overflow-hidden">
+      <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-10 mt-10 rounded-2xl relative overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-12 gap-6 relative z-10">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-white/60 border border-white/10">
@@ -527,7 +584,21 @@ export default function CrewSuite() {
               </p>
             </div>
           </div>
-          <VoiceTranscriptionLogButton />
+          <button 
+            onClick={() => {
+                const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                if (!SpeechRecognition) return alert('Speech recognition not supported in this browser. Try opening the app in a new tab.');
+                const recognition = new SpeechRecognition();
+                recognition.onstart = () => alert("Listening... Speak your log.");
+                recognition.onresult = (e: any) => {
+                    const txt = e.results[0][0].transcript;
+                    alert("Voice Log Submitted to feed: " + txt);
+                };
+                recognition.start();
+            }}
+            className="px-6 py-3 bg-white text-black rounded-xl font-black text-[9px] uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center gap-2">
+            <Mic size={14} /> Voice Transcription Log
+          </button>
           {tenant?.settings?.subFeatures?.exifVerification && (
             <button 
              onClick={() => {
@@ -581,7 +652,7 @@ export default function CrewSuite() {
                 console.error(e);
              }
            }}
-           className="px-6 py-3 bg-white/5 text-emerald-400 border border-emerald-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-emerald-500/10 transition-all flex items-center gap-2">
+           className="px-6 py-3 bg-white/5 text-forest-400 border border-forest-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-forest-500/10 transition-all flex items-center gap-2">
             <Mail size={14} /> Dispatch to Owner
           </button>
 
@@ -606,15 +677,15 @@ export default function CrewSuite() {
                    console.error(err);
                  }
                }}
-               className="px-6 py-3 bg-blue-500/10 text-blue-500 border border-blue-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-500/20 transition-all shadow-[0_0_20px_rgba(59,130,246,0.1)] flex items-center gap-2"
+               className="px-6 py-3 bg-celtic-500/10 text-celtic-500 border border-celtic-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-celtic-500/20 transition-all shadow-[0_0_20px_rgba(193, 41, 46,0.1)] flex items-center gap-2"
             >
               <MessageSquare size={14} /> Dispatch to Chat
           </button>
         </div>
 
         <div className="space-y-4 relative z-10">
-          <div className="p-5 bg-zinc-950 border border-white/5 rounded-2xl flex items-start gap-4">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0">
+          <div className="p-5 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-forest-500/20 text-forest-500 flex items-center justify-center shrink-0">
                   <CheckCircle2 size={18} />
               </div>
               <div>
@@ -623,8 +694,8 @@ export default function CrewSuite() {
                   <span className="text-xs md:text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2 block">10 mins ago</span>
               </div>
           </div>
-          <div className="p-5 bg-zinc-950 border border-white/5 rounded-2xl flex items-start gap-4">
-              <div className="w-10 h-10 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center shrink-0">
+          <div className="p-5 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-celtic-500/20 text-celtic-500 flex items-center justify-center shrink-0">
                   <MessageSquare size={18} />
               </div>
               <div>
@@ -633,7 +704,7 @@ export default function CrewSuite() {
                   <span className="text-xs md:text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2 block">45 mins ago</span>
               </div>
           </div>
-          <div className="p-5 bg-zinc-950 border border-white/5 rounded-2xl flex items-start gap-4 opacity-70">
+          <div className="p-5 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex items-start gap-4 opacity-70">
               <div className="w-10 h-10 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
                   <AlertTriangle size={18} />
               </div>
@@ -665,7 +736,7 @@ export default function CrewSuite() {
               </button>
 
               <div className="mb-6">
-                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/20 font-black uppercase tracking-widest">
+                <span className="text-[10px] bg-forest-500/10 text-forest-400 px-3 py-1.5 rounded-full border border-forest-500/20 font-black uppercase tracking-widest">
                   Quick Recruit Engine
                 </span>
                 <h3 className="text-2xl font-black italic uppercase tracking-tight text-white mt-4">
@@ -685,7 +756,7 @@ export default function CrewSuite() {
                     type="text"
                     required
                     placeholder="e.g. Sierra Clean Team"
-                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-zinc-600"
+                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all placeholder:text-zinc-600"
                     value={newCrew.name}
                     onChange={(e) => setNewCrew({ ...newCrew, name: e.target.value })}
                   />
@@ -700,7 +771,7 @@ export default function CrewSuite() {
                       type="text"
                       required
                       placeholder="e.g. Marcus Aurelius"
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-zinc-600"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all placeholder:text-zinc-600"
                       value={newCrew.leader}
                       onChange={(e) => setNewCrew({ ...newCrew, leader: e.target.value })}
                     />
@@ -712,7 +783,7 @@ export default function CrewSuite() {
                     <input
                       type="text"
                       placeholder="e.g. 601-555-0199"
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-zinc-600"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all placeholder:text-zinc-600"
                       value={newCrew.phone}
                       onChange={(e) => setNewCrew({ ...newCrew, phone: e.target.value })}
                     />
@@ -726,7 +797,7 @@ export default function CrewSuite() {
                   <input
                     type="text"
                     placeholder="e.g. Scag Patriot 52, String Trimmers #3"
-                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-zinc-600"
+                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all placeholder:text-zinc-600"
                     value={newCrew.equip}
                     onChange={(e) => setNewCrew({ ...newCrew, equip: e.target.value })}
                   />
@@ -740,7 +811,7 @@ export default function CrewSuite() {
                     <input
                       type="text"
                       placeholder="e.g. 1928 Broad St Office"
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-zinc-600"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all placeholder:text-zinc-600"
                       value={newCrew.job}
                       onChange={(e) => setNewCrew({ ...newCrew, job: e.target.value })}
                     />
@@ -750,7 +821,7 @@ export default function CrewSuite() {
                       Dispatcher Status
                     </label>
                     <select
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all text-white"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all text-white"
                       value={newCrew.status}
                       onChange={(e) => setNewCrew({ ...newCrew, status: e.target.value })}
                     >
@@ -772,7 +843,7 @@ export default function CrewSuite() {
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-4 rounded-xl bg-emerald-500 text-black text-sm font-black uppercase tracking-wider hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/10"
+                    className="px-6 py-4 rounded-xl bg-forest-500 text-black text-sm font-black uppercase tracking-wider hover:bg-forest-400 transition-all shadow-lg shadow-forest-500/10"
                   >
                     Add to Active Duty
                   </button>
@@ -821,7 +892,7 @@ export default function CrewSuite() {
                   <input
                     type="text"
                     required
-                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-zinc-600"
+                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all placeholder:text-zinc-600"
                     value={editingCrew.name}
                     onChange={(e) => setEditingCrew({ ...editingCrew, name: e.target.value })}
                   />
@@ -835,7 +906,7 @@ export default function CrewSuite() {
                     <input
                       type="text"
                       required
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all"
                       value={editingCrew.leader || ""}
                       onChange={(e) => setEditingCrew({ ...editingCrew, leader: e.target.value })}
                     />
@@ -846,7 +917,7 @@ export default function CrewSuite() {
                     </label>
                     <input
                       type="text"
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all"
                       value={editingCrew.phone || ""}
                       onChange={(e) => setEditingCrew({ ...editingCrew, phone: e.target.value })}
                     />
@@ -859,7 +930,7 @@ export default function CrewSuite() {
                   </label>
                   <input
                     type="text"
-                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all"
+                    className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all"
                     value={editingCrew.equip || ""}
                     onChange={(e) => setEditingCrew({ ...editingCrew, equip: e.target.value })}
                   />
@@ -872,7 +943,7 @@ export default function CrewSuite() {
                     </label>
                     <input
                       type="text"
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all"
                       value={editingCrew.job || editingCrew.currentJob || ""}
                       onChange={(e) => setEditingCrew({ ...editingCrew, job: e.target.value, currentJob: e.target.value })}
                     />
@@ -882,7 +953,7 @@ export default function CrewSuite() {
                       Duty Status Update
                     </label>
                     <select
-                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-emerald-500 focus:outline-none transition-all text-white"
+                      className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all text-white"
                       value={editingCrew.status || "OFF_DUTY"}
                       onChange={(e) => setEditingCrew({ ...editingCrew, status: e.target.value })}
                     >
@@ -906,7 +977,7 @@ export default function CrewSuite() {
                     min="0"
                     max="100"
                     step="5"
-                    className="w-full accent-emerald-500 cursor-pointer h-1 bg-black rounded-lg appearance-none"
+                    className="w-full accent-forest-500 cursor-pointer h-1 bg-black rounded-lg appearance-none"
                     value={editingCrew.progress || 0}
                     onChange={(e) => setEditingCrew({ ...editingCrew, progress: Number(e.target.value) })}
                   />
@@ -935,7 +1006,7 @@ export default function CrewSuite() {
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-3.5 rounded-xl bg-emerald-500 text-black text-xs font-black uppercase tracking-widest hover:bg-emerald-400 transition-all shadow-lg"
+                      className="px-5 py-3.5 rounded-xl bg-forest-500 text-black text-xs font-black uppercase tracking-widest hover:bg-forest-400 transition-all shadow-lg"
                     >
                       Apply Save
                     </button>
@@ -948,30 +1019,17 @@ export default function CrewSuite() {
       </AnimatePresence>
     </div>
     <HandsFreeDictator />
+    <AnimatePresence>
+      <ResourceAssignmentModal
+        isOpen={isResourceAssignOpen}
+        onClose={() => setIsResourceAssignOpen(false)}
+        crews={crews}
+      />
+    </AnimatePresence>
     </SubscriptionGuard>
   );
 }
 
-function VoiceTranscriptionLogButton() {
-  const onStart = useCallback(() => alert("Listening... Speak your log."), []);
-  const onResult = useCallback((e: any) => {
-    const txt = e.results[0][0].transcript;
-    alert("Voice Log Submitted to feed: " + txt);
-  }, []);
-
-  const { supported, start } = useSpeechRecognition({
-    onStart,
-    onResult
-  });
-
-  return (
-    <button
-      onClick={() => {
-        if (!supported) return alert('Speech recognition not supported in this browser. Try opening the app in a new tab.');
-        start();
-      }}
-      className="px-6 py-3 bg-white text-black rounded-xl font-black text-[9px] uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center gap-2">
-      <Mic size={14} /> Voice Transcription Log
-    </button>
-  );
+function cn(...inputs: (string | undefined | null | false)[]) {
+  return inputs.filter(Boolean).join(" ");
 }

@@ -1,50 +1,53 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef } from "react";
 import { Mic, Loader2, Sparkles, Globe, ScanFace, FileImage } from "lucide-react";
 import { motion } from "motion/react";
 import { fetchApi } from "../lib/api";
-import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }) {
+  const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [url, setUrl] = useState("");
   const [isUrlMode, setIsUrlMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const onResult = useCallback(async (event: any) => {
-    setIsProcessing(true);
-    const transcript = event.results[0][0].transcript;
-    try {
-      const res = await fetchApi("/api/agent/onboarding-magic", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript })
-      });
-      const data = await res.json();
-      onExtract(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [onExtract]);
-
-  const onError = useCallback(() => {
-    setIsProcessing(false);
-  }, []);
-
-  const { isListening: isRecording, start, supported } = useSpeechRecognition({
-    continuous: false,
-    interimResults: false,
-    onResult,
-    onError
-  });
-
   const handleMagicSetup = async () => {
-    if (!supported) {
+    // @ts-ignore
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
       alert("Speech recognition is not supported in this browser.");
       return;
     }
-    start();
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    
+    recognition.onstart = () => setIsRecording(true);
+    
+    recognition.onresult = async (event: any) => {
+      setIsRecording(false);
+      setIsProcessing(true);
+      const transcript = event.results[0][0].transcript;
+      try {
+        const res = await fetchApi("/api/agent/onboarding-magic", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ transcript })
+        });
+        const data = await res.json();
+        onExtract(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+
+    recognition.onerror = () => {
+       setIsRecording(false);
+       setIsProcessing(false);
+    };
+    recognition.onend = () => setIsRecording(false);
+    recognition.start();
   };
 
   const handleUrlSetup = async () => {
@@ -91,12 +94,12 @@ export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }
   };
 
   return (
-    <div className="p-8 bg-emerald-500/10 border-2 border-emerald-500/20 rounded-3xl mb-10 flex flex-col items-center text-center relative overflow-hidden group">
-        <div className="absolute inset-0 bg-emerald-500/5 blur-3xl rounded-full scale-150 group-hover:bg-emerald-500/10 transition-colors pointer-events-none" />
-        <h3 className="text-xl font-black italic uppercase tracking-tighter text-emerald-400 mb-2 relative z-10 flex items-center justify-center gap-2">
+    <div className="p-8 bg-forest-500/10 border-2 border-forest-500/20 rounded-3xl mb-10 flex flex-col items-center text-center relative overflow-hidden group">
+        <div className="absolute inset-0 bg-forest-500/5 blur-3xl rounded-full scale-150 group-hover:bg-forest-500/10 transition-colors pointer-events-none" />
+        <h3 className="text-xl font-black italic uppercase tracking-tighter text-forest-400 mb-2 relative z-10 flex items-center justify-center gap-2">
             <Sparkles size={20} /> Zero-Touch Setup
         </h3>
-        <p className="text-sm text-emerald-400/80 mb-6 font-medium relative z-10 max-w-sm">
+        <p className="text-sm text-forest-400/80 mb-6 font-medium relative z-10 max-w-sm">
             Skip the forms. Dictate your info, scan a website, or upload a business card to let YardWorx architect your system automatically.
         </p>
 
@@ -107,7 +110,7 @@ export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }
                     disabled={isRecording || isProcessing}
                     className={`w-20 h-20 rounded-full flex items-center justify-center transition-all ${
                         isRecording ? "bg-red-500 text-white animate-pulse shadow-[0_0_30px_#ef4444]" : 
-                        isProcessing ? "bg-white text-black" : "bg-emerald-500 text-black hover:scale-105 hover:bg-white hover:text-emerald-500"
+                        isProcessing ? "bg-white text-black" : "bg-forest-500 text-black hover:scale-105 hover:bg-white hover:text-forest-500"
                     }`}
                 >
                     {isProcessing ? <Loader2 size={32} className="animate-spin" /> : <Mic size={32} />}
@@ -117,14 +120,14 @@ export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }
                 <div className="flex items-center gap-6 mt-8">
                     <button 
                         onClick={() => setIsUrlMode(true)}
-                        className="text-emerald-400/60 font-bold text-xs uppercase tracking-widest hover:text-emerald-400 transition-colors flex items-center gap-2"
+                        className="text-forest-400/60 font-bold text-xs uppercase tracking-widest hover:text-forest-400 transition-colors flex items-center gap-2"
                     >
                         <Globe size={14} /> Website Setup
                     </button>
-                    <div className="w-px h-4 bg-emerald-500/20"></div>
+                    <div className="w-px h-4 bg-forest-500/20"></div>
                     <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-emerald-400/60 font-bold text-xs uppercase tracking-widest hover:text-emerald-400 transition-colors flex items-center gap-2"
+                        className="text-forest-400/60 font-bold text-xs uppercase tracking-widest hover:text-forest-400 transition-colors flex items-center gap-2"
                     >
                         <FileImage size={14} /> Scan Photo / Card
                     </button>
@@ -144,12 +147,12 @@ export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }
                     placeholder="https://your-website.com"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    className="w-full bg-black/50 border border-emerald-500/30 rounded-2xl px-4 py-4 focus:outline-none focus:border-emerald-500 text-white text-center font-medium"
+                    className="w-full bg-black/50 border border-forest-500/30 rounded-2xl px-4 py-4 focus:outline-none focus:border-forest-500 text-white text-center font-medium"
                 />
                 <button
                     disabled={isProcessing || !url}
                     onClick={handleUrlSetup}
-                    className="w-full bg-emerald-500 text-black font-bold uppercase tracking-widest py-4 rounded-2xl hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+                    className="w-full bg-forest-500 text-black font-bold uppercase tracking-widest py-4 rounded-2xl hover:bg-forest-400 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
                 >
                     {isProcessing ? <Loader2 size={16} className="animate-spin" /> : "Extract Engine"}
                 </button>
@@ -162,7 +165,7 @@ export function MagicSetupNode({ onExtract }: { onExtract: (data: any) => void }
             </div>
         )}
 
-        {isProcessing && <p className="text-xs text-emerald-400 font-bold uppercase tracking-widest mt-4 animate-pulse relative z-10">Architecting Your System...</p>}
+        {isProcessing && <p className="text-xs text-forest-400 font-bold uppercase tracking-widest mt-4 animate-pulse relative z-10">Architecting Your System...</p>}
     </div>
   );
 }

@@ -115,11 +115,11 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
       
         <div className="relative z-10 block">
             <header className="mb-6">
-                <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center mb-4">
-                  <Shield className="text-emerald-500" size={24} />
+                <div className="w-12 h-12 bg-forest-500/10 rounded-xl flex items-center justify-center mb-4">
+                  <Shield className="text-forest-500" size={24} />
                 </div>
                 <h1 className="text-2xl font-black uppercase tracking-normal md:tracking-tighter text-white">Required Agreements</h1>
-                <p className="text-white/60 text-xs mt-2 leading-relaxed pb-4 border-b border-white/5">
+                <p className="text-white/60 text-xs mt-2 leading-relaxed pb-4 border-b border-white/5 molten-edge">
                   To continue using YardWorx (operated by Gaelworx AI), you must review and accept our updated operational terms and data policies.
                 </p>
             </header>
@@ -131,12 +131,12 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
                     type="checkbox"
                     checked={agreements.tos}
                     onChange={(e) => setAgreements(prev => ({ ...prev, tos: e.target.checked }))}
-                    className="w-5 h-5 accent-emerald-500 rounded bg-white/5 border-white/20 cursor-pointer"
+                    className="w-5 h-5 accent-forest-500 rounded bg-white/5 border-white/20 cursor-pointer"
                   />
                 </div>
                 <div>
                   <p className="text-sm font-black uppercase tracking-widest text-white mb-1 flex items-center gap-2">
-                    <FileText size={14} className="text-blue-400" /> Terms of Service
+                    <FileText size={14} className="text-celtic-400" /> Terms of Service
                   </p>
                   <p className="text-xs text-white/40 font-medium leading-relaxed italic">
                     I agree to the <a href="/terms" target="_blank" className="underline hover:text-white" onClick={(e) => e.stopPropagation()}>Terms of Service</a> governing liability, appropriate use, and system access constraints.
@@ -150,12 +150,12 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
                     type="checkbox"
                     checked={agreements.privacy}
                     onChange={(e) => setAgreements(prev => ({ ...prev, privacy: e.target.checked }))}
-                    className="w-5 h-5 accent-emerald-500 rounded bg-white/5 border-white/20 cursor-pointer"
+                    className="w-5 h-5 accent-forest-500 rounded bg-white/5 border-white/20 cursor-pointer"
                   />
                 </div>
                 <div>
                   <p className="text-sm font-black uppercase tracking-widest text-white mb-1 flex items-center gap-2">
-                    <Shield size={14} className="text-emerald-400" /> Privacy Policy
+                    <Shield size={14} className="text-forest-400" /> Privacy Policy
                   </p>
                   <p className="text-xs text-white/40 font-medium leading-relaxed italic">
                     I agree to the <a href="/privacy" target="_blank" className="underline hover:text-white" onClick={(e) => e.stopPropagation()}>Privacy Policy</a> addressing the collection and use of personal and telemetry data.
@@ -169,12 +169,12 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
                     type="checkbox"
                     checked={agreements.dataMap}
                     onChange={(e) => setAgreements(prev => ({ ...prev, dataMap: e.target.checked }))}
-                    className="w-5 h-5 accent-emerald-500 rounded bg-white/5 border-white/20 cursor-pointer"
+                    className="w-5 h-5 accent-forest-500 rounded bg-white/5 border-white/20 cursor-pointer"
                   />
                 </div>
                 <div>
                   <p className="text-sm font-black uppercase tracking-widest text-white mb-1 flex items-center gap-2">
-                    <Database size={14} className="text-purple-400" /> Data Processing Map
+                    <Database size={14} className="text-ember-400" /> Data Processing Map
                   </p>
                   <p className="text-xs text-white/40 font-medium leading-relaxed italic">
                     I acknowledge the <a href="/data-map" target="_blank" className="underline hover:text-white" onClick={(e) => e.stopPropagation()}>Data Processing Map</a> detailing the segregation of records within Gaelworx AI's architecture.
@@ -188,7 +188,7 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
                     type="checkbox"
                     checked={agreements.ai}
                     onChange={(e) => setAgreements(prev => ({ ...prev, ai: e.target.checked }))}
-                    className="w-5 h-5 accent-emerald-500 rounded bg-white/5 border-white/20 cursor-pointer"
+                    className="w-5 h-5 accent-forest-500 rounded bg-white/5 border-white/20 cursor-pointer"
                   />
                 </div>
                 <div>
@@ -206,7 +206,7 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
               <button
                 disabled={!agreements.tos || !agreements.privacy || !agreements.dataMap /* || !agreements.ai */}
                 onClick={handleAgree}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-4 rounded-xl font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full bg-forest-500 hover:bg-forest-400 text-black py-4 rounded-xl font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
                 Accept All & Continue

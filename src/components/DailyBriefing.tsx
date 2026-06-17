@@ -81,16 +81,16 @@ export function DailyBriefing() {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className=" bg-linear-to-br from-emerald-500/10 to-blue-500/10 p-8 rounded-[48px] border-white/10 relative overflow-hidden group shadow-2xl"
+      className=" bg-linear-to-br from-forest-500/10 to-celtic-500/10 p-8 rounded-[48px] border-white/10 relative overflow-hidden group shadow-2xl"
     >
       {" "}
-      <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 blur-3xl -mr-32 -mt-32 animate-pulse" />{" "}
+      <div className="absolute top-0 right-0 w-64 h-64 bg-forest-500/5 blur-3xl -mr-32 -mt-32 animate-pulse" />{" "}
       <div className="flex items-center justify-between mb-8 relative">
         {" "}
         <div className="flex items-center gap-4">
           {" "}
           <div
-            className={`w-12 h-12 rounded-2xl flex items-center justify-center ${type === "morning" ? "bg-amber-400/20 text-amber-400" : "bg-blue-400/20 text-blue-400"}`}
+            className={`w-12 h-12 rounded-2xl flex items-center justify-center ${type === "morning" ? "bg-amber-400/20 text-amber-400" : "bg-celtic-400/20 text-celtic-400"}`}
           >
             {" "}
             {type === "morning" ? <Sun size={24} /> : <Moon size={24} />}{" "}
@@ -125,7 +125,7 @@ export function DailyBriefing() {
         {" "}
         <div className="space-y-4">
           {" "}
-          <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-emerald-400/60">
+          <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400/60">
             Action Items
           </p>{" "}
           {briefing.alerts?.map(
@@ -137,7 +137,7 @@ export function DailyBriefing() {
             }) => (
               <div
                 key={alert.id}
-                className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group hover:border-emerald-500/30 transition-all"
+                className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group hover:border-forest-500/30 transition-all"
               >
                 {" "}
                 <AlertCircle
@@ -145,7 +145,7 @@ export function DailyBriefing() {
                   className={
                     alert.type === "inventory"
                       ? "text-rose-400"
-                      : "text-blue-400"
+                      : "text-celtic-400"
                   }
                 />{" "}
                 <span className="text-xs font-bold text-white/90 flex-1">
@@ -155,14 +155,14 @@ export function DailyBriefing() {
                   onClick={() => {
                     showToast(`Help: Explanation for "${alert.text}" task...`);
                   }}
-                  className="p-1.5 opacity-0 group-hover:opacity-100 hover:text-blue-400 transition-all"
+                  className="p-1.5 opacity-0 group-hover:opacity-100 hover:text-celtic-400 transition-all"
                   title="Explain Task"
                 >
                   {" "}
                   <Info size={14} />{" "}
                 </button>{" "}
                 {alert.action === "email_supplier" && (
-                  <button className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-black rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all">
+                  <button className="flex items-center gap-2 px-3 py-1.5 bg-forest-500 text-black rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all">
                     {" "}
                     <Mail size={12} /> Email{" "}
                   </button>
@@ -173,7 +173,7 @@ export function DailyBriefing() {
         </div>{" "}
         <div className="space-y-4">
           {" "}
-          <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-blue-400/60">
+          <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-celtic-400/60">
             Top Priority
           </p>{" "}
           {briefing.priorityJob && (
@@ -190,7 +190,7 @@ export function DailyBriefing() {
               </div>{" "}
               <div className="text-right">
                 {" "}
-                <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20 uppercase">
+                <span className="text-[9px] font-black text-forest-400 bg-forest-500/10 px-2 py-1 rounded-lg border border-forest-500/20 uppercase">
                   High Priority
                 </span>{" "}
               </div>{" "}
@@ -222,7 +222,7 @@ export function DailyBriefing() {
                   <span className="text-lg font-black text-white italic">
                     {stat.value}
                   </span>{" "}
-                  <span className="text-xs md:text-[10px] font-bold text-emerald-400">
+                  <span className="text-xs md:text-[10px] font-bold text-forest-400">
                     {stat.trend}
                   </span>{" "}
                 </div>{" "}

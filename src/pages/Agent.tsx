@@ -14,11 +14,10 @@ import {
   AlertTriangle,
   Lock,
   Bell,
-  Webhook,
-  Video
+  Webhook
 } from "lucide-react";
 
-import BrainChat from "../components/YardChat";
+import BrainChat from "../components/CuttyChat";
 
 import { DeepResearchTab, VideoMarketingTab } from "../components/AgentLabs";
 
@@ -31,7 +30,7 @@ export default function Agent() {
       {/* Header */}
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 relative z-10">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/10 rounded-md border border-emerald-500/20 text-xs font-medium tracking-wide text-emerald-400">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-forest-500/10 rounded-md border border-forest-500/20 text-xs font-medium tracking-wide text-forest-400">
             <Sparkles size={14} />
             YardWorx Agent Workspace
           </div>
@@ -49,7 +48,7 @@ export default function Agent() {
         
         {/* Sidebar Controls */}
         <div className="lg:col-span-1 space-y-4 flex flex-col">
-          <div className="p-4 bg-zinc-950 border border-white/5 rounded-2xl flex flex-col gap-2">
+          <div className="p-4 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex flex-col gap-2">
             <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest px-2 mb-2">Workspace Views</h3>
             
             <button 
@@ -115,7 +114,7 @@ export default function Agent() {
                   : "text-zinc-400 hover:text-white hover:bg-white/5"
               }`}
             >
-              <Video size={18} /> {/* Need to fix icons if want but workflow is fine */}
+              <Workflow size={18} /> {/* Need to fix icons if want but workflow is fine */}
               Video Marketing
             </button>
             <button 
@@ -132,8 +131,8 @@ export default function Agent() {
 
           </div>
 
-          <div className="mt-auto p-5 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
-            <h4 className="text-sm border-b border-emerald-500/10 pb-2 mb-3 text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-2">
+          <div className="mt-auto p-5 bg-forest-500/5 border border-forest-500/10 rounded-2xl">
+            <h4 className="text-sm border-b border-forest-500/10 pb-2 mb-3 text-forest-400 font-bold uppercase tracking-wider flex items-center gap-2">
               <Cpu size={16} /> Runtime Stats
             </h4>
             <div className="space-y-3">
@@ -143,7 +142,7 @@ export default function Agent() {
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-zinc-400">Memory Usage</span>
-                <span className="text-emerald-400 font-mono">Normal</span>
+                <span className="text-forest-400 font-mono">Normal</span>
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-zinc-400">Active Plugins</span>
@@ -155,16 +154,16 @@ export default function Agent() {
 
         {/* Main Content Area */}
         <div className="lg:col-span-3">
-           <div className="bg-zinc-950 border border-white/5 rounded-[24px] h-full shadow-2xl overflow-hidden relative min-h-[600px] flex flex-col">
+           <div className="bg-zinc-950 border border-white/5 molten-edge rounded-[24px] h-full shadow-2xl overflow-hidden relative min-h-[600px] flex flex-col">
               {/* Top Bar for Area */}
-              <div className="h-16 border-b border-white/5 flex items-center px-6 shrink-0 bg-white/5 backdrop-blur-xl">
+              <div className="h-16 border-b border-white/5 molten-edge flex items-center px-6 shrink-0 bg-white/5 backdrop-blur-xl">
                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-lg bg-forest-500/20 text-forest-400 border border-forest-500/30 flex items-center justify-center">
                        <Bot size={18} />
                     </div>
                     <div>
                       <h2 className="text-sm font-bold text-white leading-tight capitalize">
-                        {activeTab === "chat" ? "YardWorx Copilot" : activeTab.replace("-", " ")}
+                        {activeTab === "chat" ? "YardPilot" : activeTab.replace("-", " ")}
                       </h2>
                       <p className="text-[10px] text-zinc-400 font-medium font-mono uppercase tracking-widest leading-none mt-1">
                         System ready
@@ -185,7 +184,7 @@ export default function Agent() {
                      <div className="max-w-3xl mx-auto space-y-6 w-full">
                        <div className="flex items-center justify-between">
                          <h3 className="text-xl font-bold text-white">Active Workflows</h3>
-                         <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-colors">
+                         <button className="px-4 py-2 bg-forest-600 hover:bg-forest-500 rounded-lg text-white text-sm font-medium transition-colors">
                            Create New Workflow
                          </button>
                        </div>
@@ -201,7 +200,7 @@ export default function Agent() {
                              <p className="text-zinc-400 text-sm">{wf.desc}</p>
                            </div>
                            <div className="flex items-center gap-3">
-                             <span className={`text-xs font-bold px-2 py-1 rounded border uppercase ${wf.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
+                             <span className={`text-xs font-bold px-2 py-1 rounded border uppercase ${wf.status === 'Active' ? 'bg-forest-500/10 text-forest-400 border-forest-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
                                {wf.status}
                              </span>
                              <button className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg">
@@ -218,7 +217,7 @@ export default function Agent() {
                      <div className="max-w-3xl mx-auto space-y-6 w-full">
                        <div className="flex items-center justify-between">
                          <h3 className="text-xl font-bold text-white">Knowledge Base Sources</h3>
-                         <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-colors">
+                         <button className="px-4 py-2 bg-forest-600 hover:bg-forest-500 rounded-lg text-white text-sm font-medium transition-colors">
                            Add Source
                          </button>
                        </div>
@@ -234,7 +233,7 @@ export default function Agent() {
                                <div className="w-10 h-10 rounded bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400">
                                  <BrainCircuit size={20} />
                                </div>
-                               <button className="text-xs font-medium text-emerald-400 hover:text-emerald-300">Sync</button>
+                               <button className="text-xs font-medium text-forest-400 hover:text-forest-300">Sync</button>
                              </div>
                              <h4 className="text-white font-medium text-sm mb-1">{kb.name}</h4>
                              <div className="flex justify-between items-center mt-3">
@@ -256,11 +255,11 @@ export default function Agent() {
                          <div className="space-y-4">
                            <div>
                              <label className="block text-sm font-medium text-zinc-300 mb-1">Agent Name</label>
-                             <input type="text" defaultValue="YardWorx Copilot" className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                             <input type="text" defaultValue="YardPilot" className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-forest-500" />
                            </div>
                            <div>
                              <label className="block text-sm font-medium text-zinc-300 mb-1">System Prompt / Persona</label>
-                             <textarea rows={4} defaultValue="You are the ultimate operations assistant. You are concise, highly analytical, and focused on driving business outcomes..." className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500 leading-relaxed"></textarea>
+                             <textarea rows={4} defaultValue="You are the ultimate operations assistant. You are concise, highly analytical, and focused on driving business outcomes..." className="w-full min-w-0 bg-black border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-forest-500 leading-relaxed"></textarea>
                            </div>
                          </div>
                        </div>
@@ -290,7 +289,7 @@ export default function Agent() {
                            </div>
                            <div>
                              <label className="block text-sm font-medium text-zinc-300 mb-1">Temperature ({0.4})</label>
-                             <input type="range" min="0" max="1" step="0.1" defaultValue="0.4" className="w-full min-w-0 accent-emerald-500 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" />
+                             <input type="range" min="0" max="1" step="0.1" defaultValue="0.4" className="w-full min-w-0 accent-forest-500 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" />
                            </div>
                          </div>
                        </div>
@@ -315,19 +314,19 @@ export default function Agent() {
                        </div>
 
                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                         <div className="p-4 bg-zinc-900 border border-white/5 rounded-xl">
+                         <div className="p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <h4 className="text-white font-medium mb-1">Total Prevented</h4>
-                           <p className="text-3xl font-black text-emerald-500 italic">24</p>
+                           <p className="text-3xl font-black text-forest-500 italic">24</p>
                            <p className="text-xs text-zinc-500 mt-1">Last 30 days</p>
                          </div>
-                         <div className="p-4 bg-zinc-900 border border-white/5 rounded-xl">
+                         <div className="p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <h4 className="text-white font-medium mb-1">Active Lockouts</h4>
                            <p className="text-3xl font-black text-amber-500 italic">1</p>
                            <p className="text-xs text-zinc-500 mt-1">Flagged for review</p>
                          </div>
-                         <div className="p-4 bg-zinc-900 border border-white/5 rounded-xl">
+                         <div className="p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <h4 className="text-white font-medium mb-1">Security Status</h4>
-                           <p className="text-xl font-black text-emerald-500 mt-2 uppercase tracking-wide">Secured</p>
+                           <p className="text-xl font-black text-forest-500 mt-2 uppercase tracking-wide">Secured</p>
                            <p className="text-xs text-zinc-500 mt-1">SOC-2 Aligned</p>
                          </div>
                        </div>
@@ -335,7 +334,7 @@ export default function Agent() {
                        <div className="space-y-4">
                          <h3 className="text-lg font-bold text-white mb-4 border-b border-white/10 pb-2">Active Guardrails</h3>
                          
-                         <div className="flex items-start justify-between p-4 bg-zinc-900 border border-white/5 rounded-xl">
+                         <div className="flex items-start justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <div className="flex gap-4">
                              <div className="w-10 h-10 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center shrink-0 border border-red-500/20">
                                <AlertTriangle size={20} />
@@ -348,12 +347,12 @@ export default function Agent() {
                                </div>
                              </div>
                            </div>
-                           <div className="w-10 h-6 bg-emerald-500 rounded-full relative cursor-pointer shrink-0">
+                           <div className="w-10 h-6 bg-forest-500 rounded-full relative cursor-pointer shrink-0">
                              <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
                            </div>
                          </div>
 
-                         <div className="flex items-start justify-between p-4 bg-zinc-900 border border-white/5 rounded-xl">
+                         <div className="flex items-start justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <div className="flex gap-4">
                              <div className="w-10 h-10 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center shrink-0">
                                <AlertTriangle size={20} />
@@ -366,12 +365,12 @@ export default function Agent() {
                                </div>
                              </div>
                            </div>
-                           <div className="w-10 h-6 bg-emerald-500 rounded-full relative cursor-pointer opacity-50 shrink-0">
+                           <div className="w-10 h-6 bg-forest-500 rounded-full relative cursor-pointer opacity-50 shrink-0">
                              <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
                            </div>
                          </div>
 
-                         <div className="flex items-start justify-between p-4 bg-zinc-900 border border-white/5 rounded-xl">
+                         <div className="flex items-start justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <div className="flex gap-4">
                              <div className="w-10 h-10 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center shrink-0">
                                <Lock size={20} />
@@ -384,7 +383,7 @@ export default function Agent() {
                                </div>
                              </div>
                            </div>
-                           <div className="w-10 h-6 bg-emerald-500 rounded-full relative cursor-pointer opacity-50 shrink-0">
+                           <div className="w-10 h-6 bg-forest-500 rounded-full relative cursor-pointer opacity-50 shrink-0">
                              <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
                            </div>
                          </div>
@@ -394,7 +393,7 @@ export default function Agent() {
                        <div className="pt-6 mt-6 border-t border-white/10">
                          <h3 className="text-lg font-bold text-white mb-4">Backend Webhook & Alerts</h3>
                          
-                         <div className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 rounded-xl mb-4">
+                         <div className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl mb-4">
                            <div className="flex items-center gap-3">
                              <Bell size={18} className="text-zinc-400" />
                              <div>
@@ -402,12 +401,12 @@ export default function Agent() {
                                <p className="text-zinc-500 text-xs">Notify when an attack vector reaches threshold (Strike 3)</p>
                              </div>
                            </div>
-                           <div className="w-10 h-6 bg-emerald-500 rounded-full relative cursor-pointer opacity-50">
+                           <div className="w-10 h-6 bg-forest-500 rounded-full relative cursor-pointer opacity-50">
                              <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
                            </div>
                          </div>
 
-                         <div className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 rounded-xl">
+                         <div className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <div className="flex items-center gap-3">
                              <Webhook size={18} className="text-zinc-400" />
                              <div>

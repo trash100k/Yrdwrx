@@ -23,7 +23,7 @@ export function SubscriptionGuard({ children, requiredTier = "pro" }: Props) {
 
   if (currentTierLevel < requiredTierLevel) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center bg-zinc-950 border border-white/5 rounded-3xl mt-12 mx-auto max-w-2xl">
+      <div className="flex flex-col items-center justify-center p-12 text-center bg-zinc-950 border border-white/5 molten-edge rounded-3xl mt-12 mx-auto max-w-2xl">
         <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
           <Lock className="w-10 h-10 text-red-500" />
         </div>
@@ -35,7 +35,7 @@ export function SubscriptionGuard({ children, requiredTier = "pro" }: Props) {
         </p>
         <Link 
           to="../settings"
-          className="bg-emerald-500 text-black px-8 py-4 rounded-xl font-black uppercase tracking-widest text-sm hover:scale-105 transition-transform flex items-center gap-3"
+          className="bg-forest-500 text-black px-8 py-4 rounded-xl font-black uppercase tracking-widest text-sm hover:scale-105 transition-transform flex items-center gap-3"
         >
           <CreditCard size={18} />
           Upgrade License

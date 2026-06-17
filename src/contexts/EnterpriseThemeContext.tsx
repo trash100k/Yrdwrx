@@ -7,7 +7,8 @@ export type SpacingMode = "standard" | "compact" | "spacious";
 export type VisualContrast =
   | "classic-obsidian"
   | "high-contrast"
-  | "glowing-ambient";
+  | "glowing-ambient"
+  | "outdoor-light";
 export type DisplayFontFamily = "Outfit" | "Inter" | "Space Grotesk";
 export type TouchTargetMode = "touch-friendly" | "sleek-compact";
 export type LabelCasing = "uppercase" | "sentence" | "lowercase";
@@ -75,14 +76,14 @@ export function EnterpriseThemeProvider({
 
     // Dynamically apply body contrast class if needed
     const body = document.body;
+    body.classList.remove("enterprise-high-contrast", "enterprise-ambient", "theme-light");
+    
     if (themeSettings.visualContrast === "high-contrast") {
       body.classList.add("enterprise-high-contrast");
-      body.classList.remove("enterprise-ambient");
     } else if (themeSettings.visualContrast === "glowing-ambient") {
       body.classList.add("enterprise-ambient");
-      body.classList.remove("enterprise-high-contrast");
-    } else {
-      body.classList.remove("enterprise-high-contrast", "enterprise-ambient");
+    } else if (themeSettings.visualContrast === "outdoor-light") {
+      body.classList.add("theme-light");
     }
   }, [themeSettings]);
 
@@ -149,7 +150,7 @@ export function EnterpriseThemeProvider({
       case "high-contrast":
         return "bg-zinc-950/90 border-2 border-white/20 shadow-none";
       case "glowing-ambient":
-        return "bg-emerald-950/20 backdrop-blur-3xl border border-emerald-500/20 shadow-[0_20px_50px_rgba(16,185,129,0.08)]";
+        return "bg-forest-950/20 backdrop-blur-3xl border border-forest-500/20 shadow-[0_20px_50px_rgba(5, 168, 69,0.08)]";
       case "classic-obsidian":
       default:
         return "bg-zinc-950/40 backdrop-blur-xl border border-white/10 shadow-2xl";

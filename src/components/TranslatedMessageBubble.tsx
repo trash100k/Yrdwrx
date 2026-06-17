@@ -25,7 +25,7 @@ export function TranslatedMessageBubble({ text, sender, targetLanguage }: Transl
     <div
       className={`relative max-w-[70%] px-6 py-4 rounded-[28px] text-sm leading-relaxed shadow-xl ${
         sender === "user"
-          ? "bg-emerald-600 text-white"
+          ? "bg-forest-600 text-white"
           : "bg-white/5 border border-white/5 text-white/80"
       }`}
     >

@@ -1,11 +1,10 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Mic, Loader2, Play, Square, FileText, CheckSquare, X, Wand2 } from "lucide-react";
 import { Job } from "../types";
 import { updateDoc, doc } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 interface Props {
   job: Job;
@@ -13,61 +12,61 @@ interface Props {
 }
 
 export function VoiceMemoJobModal({ job, onClose }: Props) {
+  const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   
   const [notes, setNotes] = useState(job.notes || "");
   const [checklist, setChecklist] = useState(job.checklist || []);
+  
+  const recognitionRef = useRef<any>(null);
 
-  const onResult = useCallback((event: any) => {
-    let currentTranscript = "";
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      currentTranscript += event.results[i][0].transcript;
-    }
-    setTranscript((prev) => prev ? prev + " " + currentTranscript : currentTranscript);
-  }, []);
-
-  const [isActive, setIsActive] = useState(false);
-
-  const onError = useCallback((event: any) => {
-    console.error("Speech recognition error", event.error);
-  }, []);
-
-  const onEnd = useCallback(() => {
-    if (isActive) {
-      setTimeout(() => {
-         if (isActive) start();
-      }, 500);
-    }
-  }, [isActive]);
-
-  const { isListening: isRecording, supported, start, stop } = useSpeechRecognition({
-    continuous: true,
-    interimResults: true,
-    onResult,
-    onError,
-    onEnd
-  });
-
-  // Keep isActive and isRecording separate so we know when to auto-restart
   useEffect(() => {
-     return () => {
-         stop();
-     }
-  }, [stop]);
+    if (typeof window !== "undefined" && "webkitSpeechRecognition" in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+
+      recognitionRef.current.onresult = (event: any) => {
+        let currentTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        setTranscript((prev) => prev ? prev + " " + currentTranscript : currentTranscript);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsRecording(false);
+      };
+      
+      recognitionRef.current.onend = () => {
+         if (isRecording) {
+            recognitionRef.current.start();
+         }
+      }
+    }
+    
+    return () => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+    }
+  }, [isRecording]);
 
   const toggleRecording = () => {
-    if (!supported) {
+    if (!recognitionRef.current) {
         alert("Speech recognition is not supported in this browser. Please use Chrome.");
         return;
     }
-    if (isActive) {
-      setIsActive(false);
-      stop();
+    if (isRecording) {
+      setIsRecording(false);
+      recognitionRef.current.stop();
     } else {
-      setIsActive(true);
       setTranscript("");
-      start();
+      setIsRecording(true);
+      recognitionRef.current.start();
     }
   };
 
@@ -127,7 +126,7 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
-      <div className="bg-zinc-950 border border-white/5 p-10 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
+      <div className="bg-zinc-950 border border-white/5 molten-edge p-10 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
         <button onClick={onClose} className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors">
             <X size={32} />
         </button>
@@ -142,7 +141,7 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
           {/* Left Column: Voice Memo Input */}
           <div className="space-y-6">
-            <div className="flex items-center gap-3 text-emerald-400 mb-4">
+            <div className="flex items-center gap-3 text-forest-400 mb-4">
                <Mic size={24} />
                <h3 className="font-black uppercase tracking-widest">Voice Memo Field Log</h3>
             </div>
@@ -169,7 +168,7 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
                         <button 
                             onClick={processTranscript}
                             disabled={isProcessing}
-                            className="bg-emerald-500 text-black px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-2 hover:bg-emerald-400 transition-colors disabled:opacity-50"
+                            className="bg-forest-500 text-black px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-2 hover:bg-forest-400 transition-colors disabled:opacity-50"
                         >
                             {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
                             Process Memo
@@ -178,9 +177,9 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
                 </div>
             </div>
             
-            <div className="p-6 bg-blue-500/10 border-2 border-blue-500/20 rounded-3xl">
-                <p className="text-blue-400/80 text-xs font-bold uppercase tracking-widest leading-relaxed">
-                    <span className="text-blue-400 font-black">AI Trigger:</span> "We used 3 bags of mulch. Gate code is 1234. I need to replace a sprinkler head next time."
+            <div className="p-6 bg-celtic-500/10 border-2 border-celtic-500/20 rounded-3xl">
+                <p className="text-celtic-400/80 text-xs font-bold uppercase tracking-widest leading-relaxed">
+                    <span className="text-celtic-400 font-black">AI Trigger:</span> "We used 3 bags of mulch. Gate code is 1234. I need to replace a sprinkler head next time."
                 </p>
             </div>
           </div>
@@ -188,14 +187,14 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
           {/* Right Column: AI Processed Data */}
           <div className="space-y-8 bg-zinc-900/50 rounded-3xl p-8 border border-white/5">
             <div>
-              <div className="flex items-center gap-3 text-blue-400 mb-4">
+              <div className="flex items-center gap-3 text-celtic-400 mb-4">
                  <FileText size={20} />
                  <h3 className="font-black uppercase tracking-widest text-sm">Job Notes</h3>
               </div>
               <textarea
                  value={notes}
                  onChange={(e) => setNotes(e.target.value)}
-                 className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/20 focus:border-emerald-500 outline-none min-h-[120px]"
+                 className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/20 focus:border-forest-500 outline-none min-h-[120px]"
                  placeholder="Processed notes will appear here..."
               />
             </div>
@@ -209,11 +208,11 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
                   {checklist.length === 0 ? (
                       <p className="text-white/20 text-sm italic">No checklist items.</p>
                   ) : checklist.map((item) => (
-                      <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border ${item.completed ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-black/40 border-white/5'}`}>
+                      <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border ${item.completed ? 'bg-forest-500/10 border-forest-500/20' : 'bg-black/40 border-white/5'}`}>
                           <div className="flex items-center gap-4">
                               <button 
                                 onClick={() => toggleChecklistItem(item.id)}
-                                className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${item.completed ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-white/30 text-transparent'}`}
+                                className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${item.completed ? 'bg-forest-500 border-forest-500 text-black' : 'border-white/30 text-transparent'}`}
                               >
                                   ✓
                               </button>

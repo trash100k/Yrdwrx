@@ -117,9 +117,9 @@ export default function Scheduler() {
 
   const statusColors = {
     PENDING: "text-amber-400 bg-amber-400/10 border-amber-400/20",
-    SCHEDULED: "text-blue-400 bg-blue-400/10 border-blue-400/20",
-    IN_PROGRESS: "text-purple-400 bg-purple-400/10 border-purple-400/20",
-    COMPLETED: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
+    SCHEDULED: "text-celtic-400 bg-celtic-400/10 border-celtic-400/20",
+    IN_PROGRESS: "text-ember-400 bg-ember-400/10 border-ember-400/20",
+    COMPLETED: "text-forest-400 bg-forest-400/10 border-forest-400/20",
     CANCELED: "text-red-400 bg-red-400/10 border-red-400/20",
   };
 
@@ -127,11 +127,11 @@ export default function Scheduler() {
     <div className="max-w-7xl mx-auto space-y-12 pb-40 relative z-10">
       {tenant?.settings?.features?.cockpit_buttons && (
         <div className="mb-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button onClick={() => setShowAddModal(true)} className="flex flex-col items-center justify-center gap-2 p-6 bg-indigo-500/10 border border-indigo-500/20 rounded-[20px] text-indigo-400 hover:bg-indigo-500/20 transition-all shadow-sm">
+          <button onClick={() => setShowAddModal(true)} className="flex flex-col items-center justify-center gap-2 p-6 bg-celtic-500/10 border border-celtic-500/20 rounded-[20px] text-celtic-400 hover:bg-celtic-500/20 transition-all shadow-sm">
             <Plus size={24} className="hover:scale-110 transition-transform" />
             <span className="font-bold text-sm">Quick Deploy</span>
           </button>
-          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
+          <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 molten-edge rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-400/50 to-transparent"></div>
              <Zap size={24} className="text-yellow-400 animate-pulse" />
              <span className="font-bold text-sm text-yellow-400/80">Easy Mode Active</span>
@@ -140,7 +140,7 @@ export default function Scheduler() {
       )}
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 lg:gap-10 pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
-          <div className="inline-flex items-center gap-3 px-4 py-2 bg-blue-500/10 rounded-full border border-blue-500 text-xs font-black uppercase tracking-widest text-blue-500">
+          <div className="inline-flex items-center gap-3 px-4 py-2 bg-celtic-500/10 rounded-full border border-celtic-500 text-xs font-black uppercase tracking-widest text-celtic-500">
             <Settings2 size={16} />
             Operations Command
           </div>
@@ -185,12 +185,12 @@ export default function Scheduler() {
                       {typeof job.progress === 'number' && (
                         <>
                           <div 
-                             className="absolute top-0 left-0 h-full bg-emerald-500/5 transition-all duration-1000 ease-out z-0 pointer-events-none"
+                             className="absolute top-0 left-0 h-full bg-forest-500/5 transition-all duration-1000 ease-out z-0 pointer-events-none"
                              style={{ width: `${Math.min(100, Math.max(0, job.progress))}%` }}
                           />
                           <div className="absolute bottom-0 left-0 w-full h-1.5 bg-black/40 z-10">
                             <div 
-                               className="h-full bg-emerald-500 transition-all duration-1000 ease-out"
+                               className="h-full bg-forest-500 transition-all duration-1000 ease-out"
                                style={{ width: `${Math.min(100, Math.max(0, job.progress))}%` }}
                             />
                           </div>
@@ -219,7 +219,7 @@ export default function Scheduler() {
                               </span>
                             )}
                             {typeof job.progress === 'number' && (
-                               <span className="flex items-center gap-1 text-xs font-black text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                               <span className="flex items-center gap-1 text-xs font-black text-forest-400 bg-forest-500/10 px-3 py-1 rounded-full border border-forest-500/20">
                                  {Math.round(job.progress)}% COMPLETED
                                </span>
                             )}
@@ -228,13 +228,13 @@ export default function Scheduler() {
                               <div className="flex items-center gap-4 mt-4">
                                   {job.checklist && job.checklist.length > 0 && (
                                       <div className="flex items-center gap-2 text-xs font-bold text-white/40 bg-zinc-800/80 px-3 py-1.5 rounded-xl">
-                                          <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                                          <div className="w-2 h-2 rounded-full bg-forest-400" />
                                           <span>Tasks: {job.checklist.filter(c => c.completed).length} / {job.checklist.length}</span>
                                       </div>
                                   )}
                                   {job.notes && (
                                       <div className="flex items-center gap-2 text-xs font-bold text-white/40 bg-zinc-800/80 px-3 py-1.5 rounded-xl">
-                                          <div className="w-2 h-2 rounded-full bg-blue-400" />
+                                          <div className="w-2 h-2 rounded-full bg-celtic-400" />
                                           <span>Notes Logged</span>
                                       </div>
                                   )}
@@ -300,7 +300,7 @@ export default function Scheduler() {
                 <span className="text-xs md:text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-1 block">
                   Completion rate
                 </span>
-                <span className="text-2xl sm:text-3xl sm:text-4xl font-black text-emerald-400 italic">
+                <span className="text-2xl sm:text-3xl sm:text-4xl font-black text-forest-400 italic">
                   {activeJobs.length
                     ? Math.round(
                         (activeJobs.filter((j) => j.status === "COMPLETED")
@@ -320,7 +320,7 @@ export default function Scheduler() {
       {/* Add Job Modal */}
       {showAddModal && (
         <div ref={addModalRef} className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
-          <div className="bg-zinc-950 border border-white/5 p-10 rounded-2xl w-full max-w-xl">
+          <div className="bg-zinc-950 border border-white/5 molten-edge p-10 rounded-2xl w-full max-w-xl">
             <h2 className="text-xl sm:text-2xl sm:text-3xl font-black text-white italic uppercase mb-8">
               Deploy New Unit
             </h2>
@@ -335,7 +335,7 @@ export default function Scheduler() {
                   onChange={(e) =>
                     setNewJob({ ...newJob, title: e.target.value })
                   }
-                  className="w-full bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none mb-3"
+                  className="w-full bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white focus:border-celtic-500 outline-none mb-3"
                   placeholder="Describe service..."
                   list="service-list"
                 />
@@ -356,7 +356,7 @@ export default function Scheduler() {
                             onClick={() => setNewJob({ ...newJob, title: service.name })}
                             className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg border-2 transition-all flex items-center gap-1 ${
                               newJob.title === service.name
-                                ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
+                                ? "bg-forest-500/20 border-forest-500/50 text-forest-400"
                                 : "bg-white/5 border-white/5 text-white/40 hover:text-white hover:border-white/20"
                             }`}
                           >
@@ -379,7 +379,7 @@ export default function Scheduler() {
                     onChange={(e) =>
                       setNewJob({ ...newJob, client: e.target.value })
                     }
-                    className="w-full bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
+                    className="w-full bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white focus:border-celtic-500 outline-none"
                   />
                 </div>
                 <div>
@@ -393,12 +393,12 @@ export default function Scheduler() {
                       onChange={(e) =>
                         setNewJob({ ...newJob, date: e.target.value })
                       }
-                      className="flex-1 min-w-0 bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white/60 focus:border-blue-500 outline-none"
+                      className="flex-1 min-w-0 bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white/60 focus:border-celtic-500 outline-none"
                     />
                     <select
                       value={newJob.time || ""}
                       onChange={(e) => setNewJob({ ...newJob, time: e.target.value })}
-                      className="flex-1 min-w-0 bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white/60 focus:border-blue-500 outline-none"
+                      className="flex-1 min-w-0 bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white/60 focus:border-celtic-500 outline-none"
                       disabled={!newJob.date}
                     >
                       <option value="">Select Time</option>
@@ -415,7 +415,7 @@ export default function Scheduler() {
                     id="autoInvoice" 
                     checked={autoInvoice} 
                     onChange={(e) => setAutoInvoice(e.target.checked)}
-                    className="w-5 h-5 accent-emerald-500"
+                    className="w-5 h-5 accent-forest-500"
                  />
                  <label htmlFor="autoInvoice" className="text-sm font-bold text-white">Auto-Generate Linked Invoice</label>
               </div>
@@ -429,7 +429,7 @@ export default function Scheduler() {
                   onChange={(e) =>
                     setNewJob({ ...newJob, address: e.target.value })
                   }
-                  className="w-full bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
+                  className="w-full bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white focus:border-celtic-500 outline-none"
                 />
               </div>
             </div>

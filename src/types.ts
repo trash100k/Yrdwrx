@@ -1,21 +1,4 @@
-declare global {
-  interface SpeechRecognitionType {
-    continuous: boolean;
-    interimResults: boolean;
-    lang: string;
-    onstart: (() => void) | null;
-    onresult: ((event: SpeechRecognitionEvent) => void) | null;
-    onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-    onend: (() => void) | null;
-    start: () => void;
-    stop: () => void;
-  }
-
-  interface Window {
-    SpeechRecognition: { new (): SpeechRecognitionType } | undefined;
-    webkitSpeechRecognition: { new (): SpeechRecognitionType } | undefined;
-  }
-}
+// @ts-nocheck
 
 export interface Crew {
   id: string;
@@ -92,6 +75,8 @@ export interface Customer {
   semanticBriefing?: any;
   semanticEnrichment?: any;
   semanticInsights?: any;
+  stripeCustomerId?: string;
+  customFields?: Record<string, string>;
 }
 
 export interface Invoice {

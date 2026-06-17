@@ -119,7 +119,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
               
               <button 
                 onClick={() => setAgreementAccepted(true)}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                className="w-full py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-forest-500/20 flex items-center justify-center gap-2"
               >
                   <CheckCircle2 size={18} /> I Understood & Agree to Review Drafts
               </button>
@@ -135,7 +135,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
           <div className="max-w-4xl mx-auto space-y-6 mt-8">
               <div className="flex items-center justify-between">
                   <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2">
-                       <Mail className="text-emerald-500" /> Review Queue
+                       <Mail className="text-forest-500" /> Review Queue
                   </h3>
                   <div className="px-4 py-2 bg-zinc-900 border border-white/10 rounded-full text-xs font-bold font-mono text-zinc-400">
                       {currentReviewIndex + 1} OF {drafts.length} REMAINING
@@ -144,7 +144,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Context Panel */}
-                  <div className="lg:col-span-1 bg-zinc-900 border border-white/5 rounded-3xl p-6">
+                  <div className="lg:col-span-1 bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6">
                       <h4 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-4">Target Profile</h4>
                       {customer ? (
                           <div className="space-y-4">
@@ -152,7 +152,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                                  <p className="font-bold text-white text-lg">{customer.firstName} {customer.lastName}</p>
                                  <p className="text-sm text-zinc-400 font-mono">{customer.address}</p>
                               </div>
-                              <div className="inline-block px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-bold uppercase tracking-widest">
+                              <div className="inline-block px-3 py-1 bg-forest-500/10 text-forest-400 border border-forest-500/20 rounded-lg text-xs font-bold uppercase tracking-widest">
                                   AI Score: {customer.aiScore || "N/A"}
                               </div>
                               <div className="pt-4 border-t border-white/5">
@@ -166,12 +166,12 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                   </div>
 
                   {/* Review Panel */}
-                  <div className="lg:col-span-2 bg-zinc-900 border border-white/5 rounded-3xl p-6 flex flex-col">
+                  <div className="lg:col-span-2 bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 flex flex-col">
                       <div className="mb-4">
                           <label className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-2 block">Subject Line</label>
                           <input 
                               type="text" 
-                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
+                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
                               value={currentDraft.subject}
                               onChange={(e) => {
                                   const newDrafts = [...drafts];
@@ -183,7 +183,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                       <div className="flex-1 mb-6">
                           <label className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-2 block">Email Body</label>
                           <textarea 
-                              className="w-full h-64 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 resize-none font-mono text-sm leading-relaxed"
+                              className="w-full h-64 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500 resize-none font-mono text-sm leading-relaxed"
                               value={currentDraft.body}
                               onChange={(e) => {
                                   const newDrafts = [...drafts];
@@ -201,7 +201,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                           </button>
                           <button 
                               onClick={handleApprove}
-                              className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20"
+                              className="flex-1 py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-forest-500/20"
                           >
                              <Send size={18} /> Approve & Send
                           </button>
@@ -214,22 +214,22 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 mt-8">
-        <div className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8">
+        <div className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 sm:p-8">
             <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2 mb-6">
-                 <Sparkles className="text-emerald-500" /> Autonomous Campaign Engine
+                 <Sparkles className="text-forest-500" /> Autonomous Campaign Engine
             </h3>
             
             <div className="space-y-6">
                 <div>
                    <label className="block text-xs font-black uppercase tracking-widest text-zinc-500 mb-2">1. Select Target Segment</label>
                    <div className="flex gap-3">
-                       <button onClick={() => setSegment("priority")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "priority" ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
+                       <button onClick={() => setSegment("priority")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "priority" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
                            Priority Leads (Score &gt; 80)
                        </button>
-                       <button onClick={() => setSegment("lapsed")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "lapsed" ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
+                       <button onClick={() => setSegment("lapsed")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "lapsed" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
                            Lapsed Clients (Score &lt; 40)
                        </button>
-                       <button onClick={() => setSegment("all")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "all" ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
+                       <button onClick={() => setSegment("all")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "all" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
                            Entire Database
                        </button>
                    </div>
@@ -239,7 +239,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                    <label className="block text-xs font-black uppercase tracking-widest text-zinc-500 mb-2">2. What are we selling?</label>
                    <input 
                       type="text" 
-                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
                       placeholder="e.g. Spring Aeration & Overseeding"
                       value={targetService}
                       onChange={(e) => setTargetService(e.target.value)}
@@ -249,7 +249,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                 <div>
                    <label className="block text-xs font-black uppercase tracking-widest text-zinc-500 mb-2">3. Strategic Directives (Optional)</label>
                    <textarea 
-                      className="w-full h-24 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 resize-none"
+                      className="w-full h-24 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500 resize-none"
                       placeholder="e.g. Mention our 10% early bird discount. Keep the tone friendly and southern."
                       value={customInstructions}
                       onChange={(e) => setCustomInstructions(e.target.value)}
@@ -264,7 +264,7 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                     <button 
                         onClick={handleGenerateDrafts}
                         disabled={isDrafting || !targetService || filteredCustomers.length === 0}
-                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:grayscale flex items-center gap-2"
+                        className="px-6 py-3 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50 disabled:grayscale flex items-center gap-2"
                     >
                         {isDrafting ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
                         {isDrafting ? "Analyzing CRM Data..." : "Generate Pilot Drafts"}

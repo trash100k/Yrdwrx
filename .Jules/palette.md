@@ -1,3 +1,0 @@
-## 2025-06-16 - Sidebar Accessibility and Contextual Feedback
-**Learning:** Collapsed sidebars that hide text labels create an accessibility gap where screen readers only encounter icon-only links without descriptions. Providing `aria-label` on `NavLink` items ensures they remain identifiable in all states. Additionally, using contextual icons (like `ChevronLeft` instead of a static `Menu` icon when the sidebar is open) provides clearer visual feedback for the collapse action.
-**Action:** Always ensure icon-only navigation elements have descriptive `aria-label` attributes and use directional icons for state toggles to signal the expected behavior.

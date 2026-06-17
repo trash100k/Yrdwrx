@@ -56,18 +56,18 @@ export default function DisclaimerModal() {
         <motion.div 
           initial={{ scale: 0.95, y: 10 }}
           animate={{ scale: 1, y: 0 }}
-          className="max-w-xl w-full bg-zinc-950 border border-emerald-500/20 shadow-2xl shadow-emerald-500/5 rounded-2xl p-8 md:p-10 relative overflow-hidden"
+          className="max-w-xl w-full bg-zinc-950 border border-forest-500/20 shadow-2xl shadow-forest-500/5 rounded-2xl p-8 md:p-10 relative overflow-hidden"
         >
           {/* Subtle Background Glow */}
-          <div className="absolute -top-32 -right-32 w-64 h-64 bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none" />
+          <div className="absolute -top-32 -right-32 w-64 h-64 bg-forest-500/10 blur-[100px] rounded-full pointer-events-none" />
           
-          <div className="flex items-center gap-4 text-emerald-500 mb-8 relative z-10">
-            <div className="p-4 bg-emerald-500/10 rounded-2xl hidden sm:block">
+          <div className="flex items-center gap-4 text-forest-500 mb-8 relative z-10">
+            <div className="p-4 bg-forest-500/10 rounded-2xl hidden sm:block">
                <Leaf size={32} />
             </div>
             <div>
               <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">AI Usage Agreement</h2>
-              <p className="text-xs uppercase tracking-widest text-emerald-500/60 font-bold mt-1">Empowering Good People</p>
+              <p className="text-xs uppercase tracking-widest text-forest-500/60 font-bold mt-1">Empowering Good People</p>
             </div>
           </div>
 
@@ -78,12 +78,12 @@ export default function DisclaimerModal() {
 
             <div className="space-y-4">
               <div className="bg-white/5 border border-white/10 p-4 rounded-2xl">
-                <h3 className="font-bold text-white mb-1 flex items-center gap-2"><Handshake size={16} className="text-emerald-400"/> 1. You're the Boss</h3>
+                <h3 className="font-bold text-white mb-1 flex items-center gap-2"><Handshake size={16} className="text-forest-400"/> 1. You're the Boss</h3>
                 <p className="text-white/60">Our AI suggestions for routes, CRM follow-ups, and schedules are just that—suggestions. Always double-check AI-drafted messages and material estimates before finalizing.</p>
               </div>
 
               <div className="bg-white/5 border border-white/10 p-4 rounded-2xl">
-                <h3 className="font-bold text-white mb-1 flex items-center gap-2"><Leaf size={16} className="text-emerald-400"/> 2. Field Safety First</h3>
+                <h3 className="font-bold text-white mb-1 flex items-center gap-2"><Leaf size={16} className="text-forest-400"/> 2. Field Safety First</h3>
                 <p className="text-white/60">For the Compliance tool, the AI weather check is a helpful guide. However, your skilled on-site crew members always have the final say on whether it's safe to apply chemicals securely.</p>
               </div>
             </div>
@@ -95,7 +95,7 @@ export default function DisclaimerModal() {
                 type="checkbox"
                 checked={verified}
                 onChange={(e) => setVerified(e.target.checked)}
-                className="peer appearance-none w-5 h-5 rounded-[4px] border-2 border-emerald-500/50 checked:bg-emerald-500 checked:border-emerald-500 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="peer appearance-none w-5 h-5 rounded-[4px] border-2 border-forest-500/50 checked:bg-forest-500 checked:border-forest-500 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-forest-500/50"
               />
               <CheckCircle2 size={12} className="absolute text-black opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" strokeWidth={4} />
             </div>
@@ -107,7 +107,7 @@ export default function DisclaimerModal() {
           <button
             onClick={handleAccept}
             disabled={loading || !verified}
-            className="w-full mt-6 py-5 bg-emerald-500 text-black font-black uppercase tracking-widest rounded-2xl hover:bg-emerald-400 transition-all flex items-center justify-center gap-2 relative z-10 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full mt-6 py-5 bg-forest-500 text-black font-black uppercase tracking-widest rounded-2xl hover:bg-forest-400 transition-all flex items-center justify-center gap-2 relative z-10 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "Processing..." : <><CheckCircle2 /> Got it, let's get to work</>}
           </button>

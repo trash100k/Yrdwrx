@@ -22,10 +22,10 @@ export function TeamManagement() {
   };
 
   return (
-    <div className="bg-zinc-900 border border-white/5 rounded-2xl overflow-hidden mt-12">
-      <div className="p-6 sm:p-8 bg-black/20 border-b border-white/5 flex items-center justify-between">
+    <div className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl overflow-hidden mt-12">
+      <div className="p-6 sm:p-8 bg-black/20 border-b border-white/5 molten-edge flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/20">
+          <div className="w-12 h-12 rounded-xl bg-celtic-500/10 text-celtic-400 flex items-center justify-center shrink-0 border border-celtic-500/20">
             <Users size={24} />
           </div>
           <div>
@@ -44,7 +44,7 @@ export function TeamManagement() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="team@example.com"
-              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-white/20"
+              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-celtic-500 transition-colors placeholder:text-white/20"
               required
             />
           </div>
@@ -53,7 +53,7 @@ export function TeamManagement() {
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-celtic-500 transition-colors"
             >
               <option value="employee">Employee</option>
               <option value="foreman">Foreman</option>
@@ -62,7 +62,7 @@ export function TeamManagement() {
           <button
             type="submit"
             disabled={isSending || !email}
-            className="w-full sm:w-auto bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full sm:w-auto bg-celtic-500 hover:bg-celtic-600 text-white px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {isSending ? <Users size={18} className="animate-pulse" /> : <UserPlus size={18} />}
             Send Invite
@@ -77,20 +77,20 @@ export function TeamManagement() {
                 <Shield size={16} className="text-zinc-400" /> Employee
               </div>
               <ul className="text-sm text-zinc-400 space-y-2">
-                <li className="flex items-center gap-2"><Check size={14} className="text-emerald-500" /> Access to routing & schedules</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-emerald-500" /> Basic Copilot workflows</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-forest-500" /> Access to routing & schedules</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-forest-500" /> Basic Copilot workflows</li>
                 <li className="flex items-center gap-2"><X size={14} className="text-red-500" /> Cannot see Crew Suite or Inventory</li>
                 <li className="flex items-center gap-2"><X size={14} className="text-red-500" /> Cannot see Financials/CRM</li>
               </ul>
             </div>
             <div className="bg-black/30 border border-white/5 p-4 rounded-xl">
               <div className="flex items-center gap-2 mb-2 text-white font-bold">
-                <Shield size={16} className="text-indigo-400" /> Foreman
+                <Shield size={16} className="text-celtic-400" /> Foreman
               </div>
               <ul className="text-sm text-zinc-400 space-y-2">
-                <li className="flex items-center gap-2"><Check size={14} className="text-emerald-500" /> All Employee features</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-emerald-500" /> Full access to Crew Suite</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-emerald-500" /> Full access to Inventory</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-forest-500" /> All Employee features</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-forest-500" /> Full access to Crew Suite</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-forest-500" /> Full access to Inventory</li>
                 <li className="flex items-center gap-2"><X size={14} className="text-red-500" /> Cannot see Financials/CRM</li>
               </ul>
             </div>

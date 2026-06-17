@@ -78,7 +78,7 @@ export function LeadVerificationPanel({ leads }: LeadVerificationPanelProps) {
             <div className="flex items-center gap-2 pt-4 border-t border-red-500/10">
               <button 
                 onClick={() => handleApprove(lead)}
-                className="flex-1 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 font-black uppercase tracking-widest text-[10px] py-2 rounded-lg transition-all flex items-center justify-center gap-2"
+                className="flex-1 bg-forest-500/10 hover:bg-forest-500 text-forest-400 hover:text-black border border-forest-500/30 font-black uppercase tracking-widest text-[10px] py-2 rounded-lg transition-all flex items-center justify-center gap-2"
               >
                 <Check size={12} /> Approve
               </button>

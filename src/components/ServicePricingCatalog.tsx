@@ -98,7 +98,7 @@ export function ServicePricingCatalog() {
         <button 
            onClick={() => saveCatalog(catalog)}
            disabled={saving}
-           className="px-5 py-2.5 bg-emerald-600 text-white font-medium text-sm rounded-xl hover:bg-emerald-500 transition-colors flex items-center gap-2"
+           className="px-5 py-2.5 bg-forest-600 text-white font-medium text-sm rounded-xl hover:bg-forest-500 transition-colors flex items-center gap-2"
         >
           <Save size={16} />
           {saving ? "Saving..." : "Save Rates"}
@@ -108,14 +108,14 @@ export function ServicePricingCatalog() {
       <div className="space-y-8">
         {catalog.map((category, catIdx) => (
           <div key={category.name}>
-             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-4 pb-2 border-b border-white/5">
+             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-4 pb-2 border-b border-white/5 molten-edge">
                {category.name}
              </h3>
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {category.services.map((service, srvIdx) => (
                   <div 
                     key={service.name} 
-                    className="flex justify-between items-center p-3 rounded-xl bg-white/5 border border-white/5 group hover:border-emerald-500/30 transition-colors"
+                    className="flex justify-between items-center p-3 rounded-xl bg-white/5 border border-white/5 group hover:border-forest-500/30 transition-colors"
                   >
                     <span className="text-sm font-medium text-zinc-200 truncate pr-3" title={service.name}>
                       {service.name}
@@ -127,7 +127,7 @@ export function ServicePricingCatalog() {
                            type="number"
                            value={service.price}
                            onChange={(e) => handlePriceChange(catIdx, srvIdx, e.target.value)}
-                           className="w-full bg-black border border-white/10 rounded-lg pl-6 pr-2 py-1 text-sm text-zinc-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all placeholder-zinc-700"
+                           className="w-full bg-black border border-white/10 rounded-lg pl-6 pr-2 py-1 text-sm text-zinc-200 focus:border-forest-500 focus:ring-1 focus:ring-forest-500 outline-none transition-all placeholder-zinc-700"
                            placeholder="0.00"
                         />
                       </div>
@@ -147,7 +147,7 @@ export function ServicePricingCatalog() {
              <select 
                value={newServiceCategory}
                onChange={(e) => setNewServiceCategory(e.target.value)}
-               className="w-full sm:w-48 bg-black border border-white/10 rounded-xl p-2.5 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500 shrink-0"
+               className="w-full sm:w-48 bg-black border border-white/10 rounded-xl p-2.5 text-sm text-zinc-200 focus:outline-none focus:border-forest-500 shrink-0"
              >
                {catalog.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
              </select>
@@ -156,7 +156,7 @@ export function ServicePricingCatalog() {
                placeholder="Service name..." 
                value={newServiceName}
                onChange={(e) => setNewServiceName(e.target.value)}
-               className="w-full sm:flex-1 min-w-[120px] bg-black border border-white/10 rounded-xl p-2.5 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500 placeholder-zinc-600"
+               className="w-full sm:flex-1 min-w-[120px] bg-black border border-white/10 rounded-xl p-2.5 text-sm text-zinc-200 focus:outline-none focus:border-forest-500 placeholder-zinc-600"
                onKeyDown={(e) => e.key === 'Enter' && addCustomService()}
              />
              <div className="relative w-full sm:w-32 shrink-0">
@@ -166,7 +166,7 @@ export function ServicePricingCatalog() {
                  placeholder="Rate" 
                  value={newServicePrice}
                  onChange={(e) => setNewServicePrice(e.target.value)}
-                 className="w-full bg-black border border-white/10 rounded-xl pl-7 pr-3 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500 placeholder-zinc-600"
+                 className="w-full bg-black border border-white/10 rounded-xl pl-7 pr-3 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-forest-500 placeholder-zinc-600"
                  onKeyDown={(e) => e.key === 'Enter' && addCustomService()}
                />
              </div>

@@ -44,11 +44,11 @@ export default function MagicLinkAuth() {
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-zinc-950 p-6 relative overflow-hidden font-sans">
-       <div className="max-w-md w-full bg-zinc-900 border border-white/5 rounded-2xl p-8 relative z-10 shadow-2xl text-center">
+       <div className="max-w-md w-full bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-8 relative z-10 shadow-2xl text-center">
             
           {status === 'loading' && (
              <div className="animate-in fade-in duration-500">
-               <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 text-blue-400">
+               <div className="w-16 h-16 bg-celtic-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 text-celtic-400">
                   <Loader2 className="animate-spin" size={32} />
                </div>
                <h2 className="text-2xl font-bold text-white mb-2">Authenticating</h2>
@@ -58,13 +58,13 @@ export default function MagicLinkAuth() {
 
           {status === 'success' && (
              <div className="animate-in fade-in duration-500 zoom-in-95">
-               <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 text-emerald-400">
+               <div className="w-16 h-16 bg-forest-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 text-forest-400">
                   <Shield size={32} />
                </div>
                <h2 className="text-2xl font-bold text-white mb-2">Secure Connection Established</h2>
                <p className="text-zinc-400 text-sm mb-6">Redirecting to your isolated workspace ecosystem...</p>
                <div className="flex justify-center">
-                 <Loader2 className="animate-spin text-emerald-500" size={20} />
+                 <Loader2 className="animate-spin text-forest-500" size={20} />
                </div>
              </div>
           )}

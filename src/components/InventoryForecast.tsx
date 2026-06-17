@@ -147,13 +147,13 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
                     forecast.runout 
                       ? "border-red-500/50 bg-red-500/10"
                       : forecast.used > 0 
-                      ? "border-blue-500/30 bg-blue-500/5"
+                      ? "border-celtic-500/30 bg-celtic-500/5"
                       : "border-white/10 bg-white/5"
                   }`}
                 >
                   <div className="flex items-center gap-6">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
-                      forecast.runout ? "bg-red-500 text-white" : forecast.used > 0 ? "bg-blue-500 text-white" : "bg-white/10 text-white/50"
+                      forecast.runout ? "bg-red-500 text-white" : forecast.used > 0 ? "bg-celtic-500 text-white" : "bg-white/10 text-white/50"
                     }`}>
                       {forecast.runout ? <AlertTriangle size={24} /> : <Package2 size={24} />}
                     </div>
@@ -172,7 +172,7 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
                     </div>
                     <div className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/10">
                       <div 
-                        className={`h-full rounded-full ${forecast.runout ? "bg-red-500" : "bg-blue-500"}`} 
+                        className={`h-full rounded-full ${forecast.runout ? "bg-red-500" : "bg-celtic-500"}`} 
                         style={{ width: `${Math.min(100, (forecast.used / (item.stock === 0 ? 1 : item.stock)) * 100)}%` }} 
                       />
                     </div>

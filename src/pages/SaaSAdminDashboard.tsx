@@ -42,9 +42,9 @@ export default function SaaSAdminDashboard() {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-zinc-950 border border-white/5 p-6 rounded-2xl">
+        <div className="bg-zinc-950 border border-white/5 molten-edge p-6 rounded-2xl">
            <div className="flex items-center gap-3 mb-6">
-              <div className="p-3 bg-blue-500/10 text-blue-400 rounded-2xl">
+              <div className="p-3 bg-celtic-500/10 text-celtic-400 rounded-2xl">
                  <Database size={24} />
               </div>
               <div>
@@ -57,9 +57,9 @@ export default function SaaSAdminDashboard() {
            </div>
         </div>
 
-        <div className="bg-zinc-950 border border-white/5 p-6 rounded-2xl">
+        <div className="bg-zinc-950 border border-white/5 molten-edge p-6 rounded-2xl">
            <div className="flex items-center gap-3 mb-6">
-              <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl">
+              <div className="p-3 bg-forest-500/10 text-forest-400 rounded-2xl">
                  <Activity size={24} />
               </div>
               <div>
@@ -89,10 +89,10 @@ export default function SaaSAdminDashboard() {
         </div>
       </div>
 
-      <div className="bg-zinc-950 border border-white/5 rounded-2xl overflow-hidden">
-         <div className="p-6 border-b border-white/5 bg-white/[0.02]">
+      <div className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl overflow-hidden">
+         <div className="p-6 border-b border-white/5 molten-edge bg-white/[0.02]">
             <h3 className="text-lg font-black uppercase tracking-widest text-white flex items-center gap-3">
-              <Shield className="text-purple-500" /> Live Threat Memory Log
+              <Shield className="text-ember-500" /> Live Threat Memory Log
             </h3>
          </div>
          <div className="p-6 overflow-x-auto">
@@ -103,7 +103,7 @@ export default function SaaSAdminDashboard() {
             ) : (
                <table className="w-full text-left min-w-full md:w-[600px]">
                   <thead>
-                     <tr className="text-xs md:text-[10px] text-white/40 uppercase tracking-widest border-b border-white/5">
+                     <tr className="text-xs md:text-[10px] text-white/40 uppercase tracking-widest border-b border-white/5 molten-edge">
                        <th className="pb-4 font-bold">Timestamp</th>
                        <th className="pb-4 font-bold">IP Source</th>
                        <th className="pb-4 font-bold">Attack Vector</th>
@@ -113,11 +113,11 @@ export default function SaaSAdminDashboard() {
                   </thead>
                   <tbody className="text-xs font-mono text-white/80">
                      {threats.map(t => (
-                        <tr key={t.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                        <tr key={t.id} className="border-b border-white/5 molten-edge hover:bg-white/5 transition-colors">
                            <td className="py-4 text-white/40">{new Date(t.timestamp).toLocaleTimeString()}</td>
                            <td className="py-4">{t.ip}</td>
-                           <td className="py-4 text-purple-400 font-bold">{t.type}</td>
-                           <td className="py-4 text-emerald-400">{t.target}</td>
+                           <td className="py-4 text-ember-400 font-bold">{t.type}</td>
+                           <td className="py-4 text-forest-400">{t.target}</td>
                            <td className="py-4 text-right">
                               <span className="bg-red-500/20 text-red-500 px-2 py-1 rounded border border-red-500/30 font-black tracking-widest text-[9px]">
                                 {t.status}

@@ -134,8 +134,8 @@ export function BiometricGuard({ children }: { children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[100] bg-zinc-950/90 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-zinc-900 border border-white/10 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
-        <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Fingerprint className="w-10 h-10 text-emerald-500" />
+        <div className="w-20 h-20 bg-forest-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Fingerprint className="w-10 h-10 text-forest-500" />
         </div>
 
         <h2 className="text-xl font-bold text-white mb-2">
@@ -157,14 +157,14 @@ export function BiometricGuard({ children }: { children: React.ReactNode }) {
         {hasInit ? (
           <button
             onClick={handleUnlock}
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-4 rounded-xl transition-colors mb-3"
+            className="w-full bg-forest-500 hover:bg-forest-600 text-white font-bold py-3 px-4 rounded-xl transition-colors mb-3"
           >
             Unlock with Biometrics
           </button>
         ) : (
           <button
             onClick={handleSetup}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-xl transition-colors mb-3"
+            className="w-full bg-celtic-500 hover:bg-celtic-600 text-white font-bold py-3 px-4 rounded-xl transition-colors mb-3"
           >
             Setup Biometrics
           </button>

@@ -76,7 +76,7 @@ export default function Portfolio() {
   if (loading) {
     return (
       <div className="flex items-center justify-center p-20 h-full w-full bg-zinc-950">
-        <Loader2 className="animate-spin text-emerald-500" size={48} />
+        <Loader2 className="animate-spin text-forest-500" size={48} />
       </div>
     );
   }
@@ -102,10 +102,10 @@ export default function Portfolio() {
         <div className="flex items-center justify-between p-6 shrink-0 absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent">
             <div>
                 <h1 className="text-2xl font-black uppercase tracking-tight flex items-center gap-3">
-                    <Sparkles className="text-emerald-500" />
+                    <Sparkles className="text-forest-500" />
                     Project Showcase
                 </h1>
-                <p className="text-xs font-black uppercase tracking-widest text-emerald-400 mt-1">Client Presentation Mode</p>
+                <p className="text-xs font-black uppercase tracking-widest text-forest-400 mt-1">Client Presentation Mode</p>
             </div>
             
             <div className="flex items-center gap-3">
@@ -132,7 +132,7 @@ export default function Portfolio() {
                 {photos.map((_, idx) => (
                     <div 
                         key={idx} 
-                        className={`h-1 rounded-full transition-all duration-500 ${idx === currentIndex ? "w-8 bg-emerald-500" : "w-2 bg-white/20"}`}
+                        className={`h-1 rounded-full transition-all duration-500 ${idx === currentIndex ? "w-8 bg-forest-500" : "w-2 bg-white/20"}`}
                     />
                 ))}
             </div>
@@ -165,12 +165,12 @@ export default function Portfolio() {
                         className="max-w-4xl"
                     >
                         <div className="flex items-center gap-3 mb-6">
-                            <span className="px-4 py-2 bg-emerald-500/20 text-emerald-400 font-black uppercase tracking-widest text-xs rounded-[10px] border border-emerald-500/20 backdrop-blur-md">
+                            <span className="px-4 py-2 bg-forest-500/20 text-forest-400 font-black uppercase tracking-widest text-xs rounded-[10px] border border-forest-500/20 backdrop-blur-md">
                                 Completed Project
                             </span>
                             {currentJob.varianceFound === false && (
                                 <span className="px-4 py-2 border border-white/20 text-white/80 font-black uppercase tracking-widest text-xs rounded-[10px] backdrop-blur-md flex items-center gap-2">
-                                    <CheckCircle2 size={14} className="text-emerald-500" />
+                                    <CheckCircle2 size={14} className="text-forest-500" />
                                     AI Verified Quality
                                 </span>
                             )}

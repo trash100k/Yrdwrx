@@ -9,6 +9,7 @@ import { collection, query, where, orderBy, onSnapshot } from "firebase/firestor
 import { db } from "../lib/firebase";
 import { useRole } from "../hooks/useRole";
 import { useAuditLog } from "../hooks/useAuditLog";
+import AuditTrail from "../components/AuditTrail";
 
 export default function Compliance() {
   const { showToast } = useToast();
@@ -126,7 +127,7 @@ export default function Compliance() {
         {/* LOG FORM */}
         <div className="bg-zinc-900 border border-white/10 rounded-2xl p-5 sm:p-8">
           <h2 className="text-xl font-bold flex items-center gap-3 mb-6">
-            <Droplets className="text-blue-400" /> New Application Log
+            <Droplets className="text-celtic-400" /> New Application Log
           </h2>
 
           <div className="space-y-4">
@@ -136,7 +137,7 @@ export default function Compliance() {
                 type="text"
                 value={jobId}
                 onChange={(e) => setJobId(e.target.value)}
-                className="w-full mt-1 bg-black border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-blue-500"
+                className="w-full mt-1 bg-black border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-celtic-500"
                 placeholder="Enter Job ID"
               />
             </div>
@@ -146,7 +147,7 @@ export default function Compliance() {
                 type="text"
                 value={chemical}
                 onChange={(e) => setChemical(e.target.value)}
-                className="w-full mt-1 bg-black border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-blue-500"
+                className="w-full mt-1 bg-black border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-celtic-500"
                 placeholder="Enter Chemical Name"
               />
             </div>
@@ -156,7 +157,7 @@ export default function Compliance() {
                 type="text"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full mt-1 bg-black border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-blue-500"
+                className="w-full mt-1 bg-black border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-celtic-500"
                 placeholder="Enter Dosage"
               />
             </div>
@@ -167,7 +168,7 @@ export default function Compliance() {
               className={`w-full mt-4 py-4 rounded-xl font-black uppercase tracking-widest transition-all ${
                 tenant?.settings?.subFeatures?.aiSafetyCheck === false 
                   ? "bg-white/5 text-white/20 cursor-not-allowed hidden"
-                  : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 disabled:opacity-50"
+                  : "bg-celtic-500/20 text-celtic-400 hover:bg-celtic-500/30 disabled:opacity-50"
               }`}
             >
               {loading ? "Checking Weather & Rules..." : "Run AI Safety Check"}
@@ -186,11 +187,11 @@ export default function Compliance() {
                  </div>
               ) : (
                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6">
-                  <div className={`p-4 rounded-xl border flex items-start gap-4 ${weatherCheck.safe ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-500"}`}>
+                  <div className={`p-4 rounded-xl border flex items-start gap-4 ${weatherCheck.safe ? "bg-forest-500/10 border-forest-500/20 text-forest-400" : "bg-red-500/10 border-red-500/20 text-red-500"}`}>
                     {weatherCheck.safe ? <CheckCircle className="shrink-0" /> : <AlertTriangle className="shrink-0" />}
                     <div>
                       <h3 className="font-bold text-lg">{weatherCheck.safe ? "Safe to Apply" : "Warning: Suboptimal Conditions"}</h3>
-                      <p className={`text-sm mt-1 ${weatherCheck.safe ? "text-emerald-400/80" : "text-red-500/80"}`}>{weatherCheck.message}</p>
+                      <p className={`text-sm mt-1 ${weatherCheck.safe ? "text-forest-400/80" : "text-red-500/80"}`}>{weatherCheck.message}</p>
                     </div>
                   </div>
 
@@ -245,68 +246,8 @@ export default function Compliance() {
       )}
 
       {activeTab === "audit" && (
-        <div className="bg-zinc-900 border border-white/10 rounded-2xl p-5 sm:p-8">
-          <div className="flex items-center gap-3 mb-8">
-            <List className="text-emerald-400" size={24} />
-            <div>
-              <h2 className="text-xl font-bold uppercase tracking-tight">Enterprise Audit Trail</h2>
-              <p className="text-xs text-white/50">Immutable log of role-based actions</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {auditLogs.length === 0 ? (
-              <div className="text-center py-12 text-white/30 italic text-sm">
-                No audit logs recorded yet.
-              </div>
-            ) : (
-              auditLogs.map((log) => (
-                <div key={log.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-black/40 border border-white/5 rounded-xl gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] uppercase font-black tracking-widest text-[#B388FF] bg-[#B388FF]/10 px-2 py-0.5 rounded-md">
-                        {log.module}
-                      </span>
-                      <span className="text-[10px] uppercase font-black tracking-widest text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                        {log.actionType}
-                      </span>
-                    </div>
-                    <p className="text-sm text-white/80 font-medium">{log.details}</p>
-                    <p className="text-[10px] text-white/40 uppercase tracking-widest mt-2 flex items-center gap-2">
-                       <span className="text-white/60">{log.userEmail}</span>
-                       <span className="w-1 h-1 bg-white/20 rounded-full"></span>
-                       <span>Role: {log.role}</span>
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-xs font-mono text-white/40">
-                      {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : 'Just now'}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {activeTab === "frameworks" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
-            <h3 className="text-lg font-black text-white mb-2">SOC 2 Type II</h3>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-4">Continuous security monitoring, access control enforcement, and immutable audit logging to meet AICPA Trust Services Criteria.</p>
-            <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase"><CheckCircle size={14} /> Active Enforced</div>
-          </div>
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
-            <h3 className="text-lg font-black text-white mb-2">GDPR & CCPA</h3>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-4">Built-in data portability tools, strict tenant isolation via Row Level Security, and automated right-to-erasure workflows.</p>
-            <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase"><CheckCircle size={14} /> Active Enforced</div>
-          </div>
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
-            <h3 className="text-lg font-black text-white mb-2">PCI-DSS</h3>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-4">No sensitive cardholder data is stored on YardWorx servers. All transactions route securely via Stripe Connect.</p>
-            <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase"><CheckCircle size={14} /> Active Enforced</div>
-          </div>
+        <div className="h-[600px] lg:h-[800px]">
+          <AuditTrail />
         </div>
       )}
     </div>

@@ -87,15 +87,15 @@ export default function TermsOfService() {
     <div className="min-h-[100dvh] bg-zinc-950 text-white px-4 sm:px-6 py-8 sm:py-12 font-sans overflow-y-auto">
       <div className="max-w-6xl mx-auto space-y-8">
         <div>
-          <Link to="/" className="inline-flex items-center gap-2 text-emerald-400 text-xs font-black uppercase tracking-widest hover:text-emerald-300 transition-colors">
+          <Link to="/" className="inline-flex items-center gap-2 text-forest-400 text-xs font-black uppercase tracking-widest hover:text-forest-300 transition-colors">
             <ArrowLeft size={14} /> Return Home
           </Link>
         </div>
 
-        <header className="border-b border-white/5 pb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <header className="border-b border-white/5 molten-edge pb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="space-y-4">
-            <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center">
-              <FileText className="text-blue-500" size={24} />
+            <div className="w-12 h-12 bg-celtic-500/10 rounded-2xl flex items-center justify-center">
+              <FileText className="text-celtic-500" size={24} />
             </div>
             <div>
               <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tight text-white leading-none">Terms of Service</h1>
@@ -111,7 +111,7 @@ export default function TermsOfService() {
               onClick={() => setViewMode("summary")}
               className={`px-4 py-2 rounded-xl text-xs sm:text-xs font-black uppercase tracking-widest transition-all ${
                 viewMode === "summary" || viewMode === "both" && "md:bg-transparent"
-                  ? "bg-emerald-500 text-black md:bg-emerald-500 md:text-black"
+                  ? "bg-forest-500 text-black md:bg-forest-500 md:text-black"
                   : "text-white/60 hover:text-white"
               }`}
             >
@@ -121,7 +121,7 @@ export default function TermsOfService() {
               onClick={() => setViewMode("verbatim")}
               className={`px-4 py-2 rounded-xl text-xs sm:text-xs font-black uppercase tracking-widest transition-all ${
                 viewMode === "verbatim"
-                  ? "bg-blue-500 text-black"
+                  ? "bg-celtic-500 text-black"
                   : "text-white/60 hover:text-white"
               }`}
             >
@@ -131,7 +131,7 @@ export default function TermsOfService() {
               onClick={() => setViewMode("both")}
               className={`hidden md:block px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
                 viewMode === "both"
-                  ? "bg-zinc-800 text-emerald-400 border border-white/5"
+                  ? "bg-zinc-800 text-forest-400 border border-white/5"
                   : "text-white/60 hover:text-white"
               }`}
             >
@@ -141,12 +141,12 @@ export default function TermsOfService() {
         </header>
 
         {/* Visual Intro explaining the "Good People" pledge */}
-        <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-3xl p-6 flex flex-col md:flex-row items-start gap-4">
-          <div className="p-3 bg-emerald-500/10 rounded-2xl shrink-0 text-emerald-400 mt-0.5">
+        <div className="bg-forest-500/5 border border-forest-500/10 rounded-3xl p-6 flex flex-col md:flex-row items-start gap-4">
+          <div className="p-3 bg-forest-500/10 rounded-2xl shrink-0 text-forest-400 mt-0.5">
             <Heart size={20} />
           </div>
           <div>
-            <h3 className="text-sm font-black uppercase tracking-wider text-emerald-400">Our Mutual Handshake Pledge</h3>
+            <h3 className="text-sm font-black uppercase tracking-wider text-forest-400">Our Mutual Handshake Pledge</h3>
             <p className="text-xs text-white/60 leading-relaxed mt-1 font-medium">
               We design software for good people empowering other good people. We built this interactive reader so you get ultimate transparency: <strong className="text-white">Copilot Notes</strong> shows friendly, human summaries, while <strong className="text-white">Legalese</strong> ensures the precise verbatim terms as written in state filings remain fully transparent and clear.
             </p>
@@ -159,13 +159,13 @@ export default function TermsOfService() {
           {/* Summary View (Copilot Notes) */}
           {(viewMode === "summary" || viewMode === "both") && (
             <div className="space-y-6">
-              <div className="flex items-center gap-2 pb-2 border-b border-white/5">
+              <div className="flex items-center gap-2 pb-2 border-b border-white/5 molten-edge">
                 <Sparkles size={16} className="text-amber-400" />
                 <h2 className="text-xs font-black uppercase tracking-widest text-amber-400">Copilot Notes Translation (Plain English)</h2>
               </div>
               <div className="space-y-4">
                 {summaryCards.map((card, i) => (
-                  <div key={i} className="p-6 bg-white/5 border border-white/5 hover:border-emerald-500/20 rounded-3xl transition-all space-y-2">
+                  <div key={i} className="p-6 bg-white/5 border border-white/5 hover:border-forest-500/20 rounded-3xl transition-all space-y-2">
                     <h3 className="text-sm font-black text-white uppercase tracking-wider">{card.title}</h3>
                     <p className="text-xs text-white/70 leading-relaxed font-semibold italic">{card.desc}</p>
                   </div>
@@ -177,14 +177,14 @@ export default function TermsOfService() {
           {/* Verbatim View (Contract Legalese) */}
           {(viewMode === "verbatim" || viewMode === "both") && (
             <div className="space-y-6">
-              <div className="flex items-center gap-2 pb-2 border-b border-white/5">
-                <Scale size={16} className="text-blue-400" />
-                <h2 className="text-xs font-black uppercase tracking-widest text-blue-400">Verbatim Contract (Legally Binding)</h2>
+              <div className="flex items-center gap-2 pb-2 border-b border-white/5 molten-edge">
+                <Scale size={16} className="text-celtic-400" />
+                <h2 className="text-xs font-black uppercase tracking-widest text-celtic-400">Verbatim Contract (Legally Binding)</h2>
               </div>
               <div className="space-y-4">
                 {verbatimSections.map((sec, i) => (
                   <div key={i} className="p-6 bg-zinc-900/40 border border-white/5 rounded-3xl space-y-2">
-                    <h3 className="text-sm font-black text-blue-400 uppercase tracking-widest">{sec.title}</h3>
+                    <h3 className="text-sm font-black text-celtic-400 uppercase tracking-widest">{sec.title}</h3>
                     <p className="text-xs text-white/50 leading-relaxed font-mono">{sec.text}</p>
                   </div>
                 ))}

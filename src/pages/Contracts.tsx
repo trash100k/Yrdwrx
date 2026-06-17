@@ -31,7 +31,7 @@ export default function Contracts() {
               </button>
               
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-400">
+                <div className="w-10 h-10 bg-celtic-500/10 rounded-xl flex items-center justify-center text-celtic-400">
                   <FileText size={20} />
                 </div>
                 <div>
@@ -43,16 +43,16 @@ export default function Contracts() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Client Name</label>
-                  <input type="text" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500" placeholder="e.g. Sunset Ridge HOA" />
+                  <input type="text" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-celtic-500" placeholder="e.g. Sunset Ridge HOA" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Service Plan</label>
-                  <input type="text" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500" placeholder="e.g. Premium Mowing & Trim" />
+                  <input type="text" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-celtic-500" placeholder="e.g. Premium Mowing & Trim" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Billing Cycle</label>
-                    <select className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                    <select className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-celtic-500">
                       <option>Monthly</option>
                       <option>Bi-Weekly</option>
                       <option>Weekly</option>
@@ -61,7 +61,7 @@ export default function Contracts() {
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">MRR ($)</label>
-                    <input type="number" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500" placeholder="0.00" />
+                    <input type="number" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-celtic-500" placeholder="0.00" />
                   </div>
                 </div>
 
@@ -74,7 +74,7 @@ export default function Contracts() {
                   </button>
                   <button
                     onClick={() => setShowAddModal(false)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold uppercase tracking-widest text-sm transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-celtic-600 hover:bg-celtic-500 text-white rounded-xl font-bold uppercase tracking-widest text-sm transition-colors"
                   >
                     <Save size={18} /> Create
                   </button>
@@ -87,7 +87,7 @@ export default function Contracts() {
 
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <FileText size={32} className="text-blue-400" />
+          <FileText size={32} className="text-celtic-400" />
           <h1 className="text-2xl sm:text-3xl sm:text-4xl font-black text-white italic uppercase tracking-tight">Recurring Contracts</h1>
         </div>
         <button 
@@ -101,22 +101,22 @@ export default function Contracts() {
       <div className="flex gap-4 mb-8">
         <button 
           onClick={() => setActiveTab('active')}
-          className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest transition-all ${activeTab === 'active' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50' : 'bg-white/5 text-zinc-400 hover:bg-white/10'}`}
+          className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest transition-all ${activeTab === 'active' ? 'bg-celtic-500/20 text-celtic-400 border border-celtic-500/50' : 'bg-white/5 text-zinc-400 hover:bg-white/10'}`}
         >
           Active
         </button>
         <button 
           onClick={() => setActiveTab('pending')}
-          className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest transition-all ${activeTab === 'pending' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50' : 'bg-white/5 text-zinc-400 hover:bg-white/10'}`}
+          className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest transition-all ${activeTab === 'pending' ? 'bg-celtic-500/20 text-celtic-400 border border-celtic-500/50' : 'bg-white/5 text-zinc-400 hover:bg-white/10'}`}
         >
           Pending Renewal
         </button>
       </div>
 
-      <div className="bg-zinc-900 border border-white/5 rounded-3xl overflow-hidden relative max-w-[100vw]">
+      <div className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl overflow-hidden relative max-w-[100vw]">
         <div className="overflow-x-auto overflow-y-hidden w-full custom-scrollbar">
           <table className="block sm:table w-full whitespace-nowrap text-left min-w-[700px]">
-            <thead className="bg-zinc-950 text-zinc-500 uppercase text-xs font-black tracking-widest border-b border-white/5">
+            <thead className="bg-zinc-950 text-zinc-500 uppercase text-xs font-black tracking-widest border-b border-white/5 molten-edge">
               <tr>
                 <th className="sticky left-0 bg-zinc-950 z-20 p-4 pl-6 shadow-[4px_0_12px_rgba(0,0,0,0.5)]">Client / HOA</th>
                 <th className="p-4">Service Plan</th>
@@ -135,7 +135,7 @@ export default function Contracts() {
               ].map((contract) => (
                 <tr key={contract.id} className="hover:bg-zinc-900 transition-colors cursor-pointer group">
                   <td className="sticky left-0 bg-[#121214] group-hover:bg-[#18181b] z-10 p-4 pl-6 font-bold text-white flex items-center gap-3 border-r border-white/5 shadow-[4px_0_12px_rgba(0,0,0,0.2)]">
-                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-blue-400">
+                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-celtic-400">
                     <FileText size={18} />
                   </div>
                   {contract.name}
@@ -144,9 +144,9 @@ export default function Contracts() {
                 <td className="p-4 text-zinc-400 text-sm flex items-center gap-2">
                   <CreditCard size={14} /> {contract.cycle}
                 </td>
-                <td className="p-4 text-emerald-400 font-bold">{contract.mrr}</td>
+                <td className="p-4 text-forest-400 font-bold">{contract.mrr}</td>
                 <td className="p-4">
-                  <span className={`px-2 py-1 rounded-md text-xs md:text-[10px] font-black uppercase tracking-widest ${contract.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}`}>
+                  <span className={`px-2 py-1 rounded-md text-xs md:text-[10px] font-black uppercase tracking-widest ${contract.status === 'Active' ? 'bg-forest-500/10 text-forest-400 border border-forest-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}`}>
                     {contract.status}
                   </span>
                   {contract.risk && <span className="ml-2 px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-xs md:text-[10px] font-black uppercase tracking-widest">At Risk</span>}

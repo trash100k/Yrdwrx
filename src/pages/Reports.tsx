@@ -220,8 +220,8 @@ export default function Reports() {
             className="space-y-10"
           >
             {/* Property Value Impact Section */}
-            <div className="bg-zinc-900 border border-white/5 shadow-2xl rounded-2xl p-10 text-white relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent pointer-events-none group-hover:from-emerald-500/20 transition-all duration-700" />
+            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-10 text-white relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-br from-forest-500/10 to-transparent pointer-events-none group-hover:from-forest-500/20 transition-all duration-700" />
               <header className="flex items-center justify-between mb-12 relative z-10">
                 <div>
                   <h3 className="text-2xl sm:text-3xl font-black italic tracking-normal md:tracking-tighter leading-none mb-2">
@@ -231,7 +231,7 @@ export default function Reports() {
                     Property Value
                   </p>
                 </div>
-                <div className="w-16 h-16 bg-white/10 rounded-[24px] flex items-center justify-center text-emerald-400 border border-white/5 shadow-glow group-hover:bg-white group-hover:text-black transition-all duration-700">
+                <div className="w-16 h-16 bg-white/10 rounded-[24px] flex items-center justify-center text-forest-400 border border-white/5 shadow-glow group-hover:bg-white group-hover:text-black transition-all duration-700">
                   <TrendingUp size={32} />
                 </div>
               </header>
@@ -241,7 +241,7 @@ export default function Reports() {
                   <p className="micro-label font-black text-white/40 uppercase tracking-widest italic">
                     Curb Appeal
                   </p>
-                  <p className="text-2xl sm:text-3xl font-black text-emerald-400 italic tracking-normal md:tracking-tighter shadow-glow">
+                  <p className="text-2xl sm:text-3xl font-black text-forest-400 italic tracking-normal md:tracking-tighter shadow-glow">
                     +5.2%
                   </p>
                 </div>
@@ -249,7 +249,7 @@ export default function Reports() {
                   <p className="micro-label font-black text-white/40 uppercase tracking-widest italic">
                     Maintenance Premium
                   </p>
-                  <p className="text-2xl sm:text-3xl font-black text-emerald-400 italic tracking-normal md:tracking-tighter shadow-glow">
+                  <p className="text-2xl sm:text-3xl font-black text-forest-400 italic tracking-normal md:tracking-tighter shadow-glow">
                     +$28k
                   </p>
                 </div>
@@ -260,12 +260,12 @@ export default function Reports() {
             </div>
 
             {/* Predictive Maintenance */}
-            <div className="bg-zinc-900 border border-white/5 shadow-2xl rounded-2xl p-10 text-white relative overflow-hidden group">
+            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-10 text-white relative overflow-hidden group">
               <div className="flex items-center justify-between mb-10">
                 <div className="flex items-center gap-4">
                   <Sparkles
                     size={24}
-                    className="text-emerald-400 shadow-glow"
+                    className="text-forest-400 shadow-glow"
                   />
                   <h3 className="text-xl font-black italic tracking-tight uppercase">
                     upcoming service needs.
@@ -273,7 +273,7 @@ export default function Reports() {
                 </div>
                 <button
                   onClick={fetchPredictiveMaintenance}
-                  className="micro-label font-black text-emerald-400 uppercase tracking-widest hover:text-white transition-colors italic"
+                  className="micro-label font-black text-forest-400 uppercase tracking-widest hover:text-white transition-colors italic"
                 >
                   Sync
                 </button>
@@ -288,13 +288,13 @@ export default function Reports() {
                   maintenance.map((m, i: number) => (
                     <div
                       key={i}
-                      className="flex items-start gap-6 p-6 rounded-2xl bg-zinc-900 border border-white/5 hover:border-blue-500/50 transition-all duration-700 group/item"
+                      className="flex items-start gap-6 p-6 rounded-2xl bg-zinc-900 border border-white/5 molten-edge hover:border-celtic-500/50 transition-all duration-700 group/item"
                     >
                       <div
                         className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-2xl transition-transform group-hover/item:scale-110 ${
                           m.urgency === "high"
                             ? "bg-red-500/10 text-red-400 border border-red-500/20 shadow-red-500/10"
-                            : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-emerald-500/10"
+                            : "bg-forest-500/10 text-forest-400 border border-forest-500/20 shadow-forest-500/10"
                         }`}
                       >
                         <AlertCircle size={20} />
@@ -308,7 +308,7 @@ export default function Reports() {
                             className={`micro-label font-black uppercase tracking-widest italic ${
                               m.urgency === "high"
                                 ? "text-red-400 shadow-glow"
-                                : "text-emerald-400 shadow-glow"
+                                : "text-forest-400 shadow-glow"
                             }`}
                           >
                             {m.urgency}
@@ -333,10 +333,10 @@ export default function Reports() {
             </div>
 
             {/* Supply and Materials */}
-            <div className="bg-zinc-900 border border-white/5 shadow-2xl rounded-2xl p-10 relative overflow-hidden group">
+            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-10 relative overflow-hidden group">
               <div className="flex items-center justify-between mb-10">
                 <div className="flex items-center gap-4 text-white">
-                  <Package size={24} className="text-blue-400 shadow-glow" />
+                  <Package size={24} className="text-celtic-400 shadow-glow" />
                   <h3 className="text-xl font-black italic tracking-tight uppercase">
                     Supply & Materials
                   </h3>
@@ -352,10 +352,10 @@ export default function Reports() {
                   inventory.map((item, i: number) => (
                     <div
                       key={i}
-                      className="flex justify-between items-center p-6 rounded-2xl bg-zinc-900 border border-white/5 hover:border-blue-500/50 transition-all group/inv"
+                      className="flex justify-between items-center p-6 rounded-2xl bg-zinc-900 border border-white/5 molten-edge hover:border-celtic-500/50 transition-all group/inv"
                     >
                       <div className="min-w-0">
-                        <h4 className="text-sm font-black text-white italic uppercase truncate group-hover/inv:text-blue-400 transition-colors">
+                        <h4 className="text-sm font-black text-white italic uppercase truncate group-hover/inv:text-celtic-400 transition-colors">
                           {item.item}
                         </h4>
                         <p className="micro-label font-black text-white/20 uppercase tracking-normal md:tracking-tighter mt-1 italic">
@@ -366,7 +366,7 @@ export default function Reports() {
                         <p className="text-xl font-black text-white italic tracking-normal md:tracking-tighter">
                           {item.quantity}
                         </p>
-                        <p className="micro-label font-black text-blue-400 uppercase mt-1 italic tracking-widest">
+                        <p className="micro-label font-black text-celtic-400 uppercase mt-1 italic tracking-widest">
                           Est. ${item.costEstimate}
                         </p>
                       </div>
@@ -382,7 +382,7 @@ export default function Reports() {
             </div>
 
             {/* Revenue breakdown */}
-            <div className="bg-zinc-900 border border-white/5 shadow-2xl p-12 rounded-2xl relative overflow-hidden group">
+            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-12 rounded-2xl relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-80 h-80 bg-zinc-900 rounded-full blur-3xl -mr-40 -mt-40 group-hover:bg-zinc-900 transition-colors" />
               <div className="flex items-center justify-between mb-12 relative z-10">
                 <div>
@@ -455,7 +455,7 @@ export default function Reports() {
             exit={{ opacity: 0, y: -10 }}
             className="space-y-8"
           >
-            <div className="bg-zinc-900 border border-white/5 shadow-2xl rounded-2xl overflow-hidden group">
+            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl overflow-hidden group">
               <div className="p-12 border-b border-white/10 flex items-center justify-between bg-zinc-900">
                 <div className="flex items-center gap-6">
                   <div className="w-16 h-16 bg-white rounded-[24px] flex items-center justify-center text-black shadow-2xl relative group-hover:scale-110 transition-transform duration-700">
@@ -471,7 +471,7 @@ export default function Reports() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 px-6 py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full micro-label font-black uppercase tracking-widest shadow-glow">
+                <div className="flex items-center gap-3 px-6 py-3 bg-forest-500/10 border border-forest-500/20 text-forest-400 rounded-full micro-label font-black uppercase tracking-widest shadow-glow">
                   <ShieldCheck size={18} />
                   History Log
                 </div>
@@ -481,7 +481,7 @@ export default function Reports() {
                 {auditLogs.map((log) => (
                   <div
                     key={log.id}
-                    className="p-10 hover:border-blue-500/50 transition-all duration-700 flex flex-col lg:flex-row lg:items-center justify-between gap-8 group/row"
+                    className="p-10 hover:border-celtic-500/50 transition-all duration-700 flex flex-col lg:flex-row lg:items-center justify-between gap-8 group/row"
                   >
                     <div className="flex items-start gap-8">
                       <div
@@ -489,10 +489,10 @@ export default function Reports() {
                           log.action.includes("ERROR")
                             ? "bg-red-500/10 text-red-400 border border-red-500/20"
                             : log.action.includes("CREATE")
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              ? "bg-forest-500/10 text-forest-400 border border-forest-500/20"
                               : log.action.includes("DELETE")
                                 ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                : "bg-celtic-500/10 text-celtic-400 border border-celtic-500/20"
                         }`}
                       >
                         {log.action.includes("ERROR") ? (
@@ -503,7 +503,7 @@ export default function Reports() {
                       </div>
                       <div>
                         <div className="flex items-center gap-4 mb-3">
-                          <span className="text-xl font-black text-white italic tracking-tight group-hover/row:text-emerald-400 transition-colors uppercase leading-none">
+                          <span className="text-xl font-black text-white italic tracking-tight group-hover/row:text-forest-400 transition-colors uppercase leading-none">
                             {log.action}
                           </span>
                           <span className="micro-label font-black text-white/10 uppercase tracking-widest">
@@ -549,7 +549,7 @@ export default function Reports() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="bg-zinc-900 border border-white/5 shadow-2xl bg-amber-500/5 border border-amber-500/20 rounded-2xl p-10 group hover:bg-amber-500/10 transition-all duration-700">
+                <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl bg-amber-500/5 border border-amber-500/20 rounded-2xl p-10 group hover:bg-amber-500/10 transition-all duration-700">
                   <div className="flex items-center gap-4 text-amber-400 mb-6 group-hover:scale-105 transition-transform">
                     <ShieldAlert size={28} />
                     <h4 className="text-xl font-black italic tracking-tight uppercase">
@@ -561,8 +561,8 @@ export default function Reports() {
                     cannot be edited to ensure accuracy.
                   </p>
                 </div>
-                <div className="bg-zinc-900 border border-white/5 shadow-2xl bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-10 group hover:bg-emerald-500/10 transition-all duration-700">
-                  <div className="flex items-center gap-4 text-emerald-400 mb-6 group-hover:scale-105 transition-transform">
+                <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl bg-forest-500/5 border border-forest-500/20 rounded-2xl p-10 group hover:bg-forest-500/10 transition-all duration-700">
+                  <div className="flex items-center gap-4 text-forest-400 mb-6 group-hover:scale-105 transition-transform">
                     <ShieldCheck size={28} />
                     <h4 className="text-xl font-black italic tracking-tight uppercase">
                       Data Privacy
@@ -616,7 +616,7 @@ function StaffRow({
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded text-emerald-600 text-xs md:text-[10px] font-black">
+      <div className="flex items-center gap-1 bg-forest-50 px-2 py-0.5 rounded text-forest-600 text-xs md:text-[10px] font-black">
         <Star size={10} className="fill-current" />
         {satisfaction}
       </div>

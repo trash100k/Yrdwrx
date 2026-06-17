@@ -13,7 +13,7 @@ import {
   createUserWithEmailAndPassword,
 } from "firebase/auth";
 import { setUserId } from "firebase/analytics";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { motion } from "motion/react";
 import { auth, db, analytics } from "./lib/firebase";
 
@@ -22,7 +22,7 @@ import Onboarding from "./components/Onboarding";
 import Layout from "./components/Layout";
 import { InfrastructureGuard } from "./components/InfrastructureGuard";
 import { TenantProvider } from "./contexts/TenantContext";
-import { YardWorxGuideProvider } from "./contexts/YardWorxGuideContext";
+import { CuttyGuideProvider } from "./contexts/CuttyGuideContext";
 import { FieldModeProvider } from "./contexts/FieldModeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { EnterpriseThemeProvider } from "./contexts/EnterpriseThemeContext";
@@ -47,6 +47,7 @@ const CrewSuite = lazy(() => import("./pages/CrewSuite"));
 const DesignStudio = lazy(() => import("./pages/DesignStudio"));
 const Compliance = lazy(() => import("./pages/Compliance"));
 const Contracts = lazy(() => import("./pages/Contracts"));
+const FormBuilder = lazy(() => import("./pages/FormBuilder"));
 const RouteOptimizer = lazy(() => import("./pages/RouteOptimizer"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Agent = lazy(() => import("./pages/Agent"));
@@ -58,10 +59,11 @@ const TermsOfService = lazy(() => import("./pages/TermsOfService"));
 const DataMap = lazy(() => import("./pages/DataMap"));
 const AiUsage = lazy(() => import("./pages/AiUsage"));
 const SaaSAdminDashboard = lazy(() => import("./pages/SaaSAdminDashboard"));
+const AiPlayground = lazy(() => import("./pages/AiPlayground"));
 
 const PageLoader = () => (
   <div className="flex h-screen w-full items-center justify-center bg-zinc-950">
-    <Loader2 className="animate-spin text-emerald-500" size={48} />
+    <Loader2 className="animate-spin text-forest-500" size={48} />
   </div>
 );
 
@@ -96,13 +98,14 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(false);
   const [isDemo, setIsDemo] = useState(false);
   useEffect(() => {
-    setUser({
-      uid: "demo-user",
-      displayName: "Headless Mode",
-      email: "demo@cutty.io",
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        setUserId(analytics, currentUser.uid);
+      }
+      setLoading(false);
     });
-    setOnboarded(true);
-    setLoading(false);
+    return () => unsubscribe();
   }, []);
   const enterDemoMode = async (setAuthError: (err: string | null) => void) => {
     setIsDemo(true);
@@ -127,7 +130,7 @@ export default function App() {
       setUser({
         uid: "demo-user",
         displayName: "Demo Mode",
-        email: "demo@cutty.io",
+        email: "demo@yardworx.io",
       });
       setOnboarded(true);
     } finally {
@@ -161,7 +164,7 @@ export default function App() {
                 <PageTracker />{" "}
                 <FieldModeProvider>
                   {" "}
-                  <YardWorxGuideProvider>
+                  <CuttyGuideProvider>
                     {" "}
                     <AgreementsGate>
                       <Suspense fallback={<PageLoader />}>
@@ -312,6 +315,10 @@ export default function App() {
                                   path="routing"
                                   element={<RouteOptimizer />}
                                 />
+                                <Route
+                                  path="forms"
+                                  element={<FormBuilder />}
+                                />
                                 <Route path="settings" element={<Settings />} />
                                 <Route
                                   path="compliance"
@@ -320,6 +327,10 @@ export default function App() {
                                 <Route
                                   path="portfolio"
                                   element={<Portfolio />}
+                                />
+                                <Route
+                                  path="ai-playground"
+                                  element={<AiPlayground />}
                                 />
                                 <Route
                                   path="*"
@@ -439,7 +450,7 @@ export default function App() {
                       </Suspense>
                       <ConsentBanner />
                     </AgreementsGate>
-                  </YardWorxGuideProvider>{" "}
+                  </CuttyGuideProvider>{" "}
                 </FieldModeProvider>{" "}
               </BrowserRouter>{" "}
             </ToastProvider>{" "}
@@ -642,7 +653,7 @@ function AuthPage({
         {show2FA ? (
           <div className="space-y-6 text-left animate-in fade-in zoom-in duration-300">
             <div className="bg-black/20 p-4 rounded-2xl border border-white/5 mb-6 text-left">
-              <h3 className="text-sm font-black uppercase tracking-widest text-emerald-400 mb-1">
+              <h3 className="text-sm font-black uppercase tracking-widest text-forest-400 mb-1">
                 New Device Login
               </h3>
               <p className="text-xs text-white/60 leading-relaxed font-semibold">
@@ -668,7 +679,7 @@ function AuthPage({
                     setTwoFACode(e.target.value.replace(/\D/g, "").slice(0, 6))
                   }
                   placeholder="000000"
-                  className="w-full bg-zinc-950/50 text-white font-mono text-center tracking-[0.5em] text-xl border-white/10 rounded-xl px-4 py-4 focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none"
+                  className="w-full bg-zinc-950/50 text-white font-mono text-center tracking-[0.5em] text-xl border-white/10 rounded-xl px-4 py-4 focus:ring-1 focus:ring-forest-500 focus:border-forest-500 transition-all outline-none"
                   required
                   pattern="\d{6}"
                 />
@@ -678,7 +689,7 @@ function AuthPage({
                   type="checkbox"
                   checked={trustDevice}
                   onChange={(e) => setTrustDevice(e.target.checked)}
-                  className="w-4 h-4 accent-emerald-500 rounded bg-white/5 border-white/20"
+                  className="w-4 h-4 accent-forest-500 rounded bg-white/5 border-white/20"
                 />
                 <span className="text-xs md:text-[10px] font-bold text-white uppercase tracking-widest">
                   Trust this device for 14 Days
@@ -716,7 +727,7 @@ function AuthPage({
                   setIsLoggingIn(true);
                   onDemoLogin(setError);
                 }}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl py-4 font-black text-sm tracking-widest uppercase transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg shadow-emerald-500/20"
+                className="w-full bg-forest-500 hover:bg-forest-400 text-black rounded-xl py-4 font-black text-sm tracking-widest uppercase transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg shadow-forest-500/20"
               >
                 Quick Demo Access
               </button>
@@ -778,7 +789,7 @@ function AuthPage({
                         tos: e.target.checked,
                       }))
                     }
-                    className="w-4 h-4 mt-0.5 accent-emerald-500 rounded bg-white/5 border-white/20"
+                    className="w-4 h-4 mt-0.5 accent-forest-500 rounded bg-white/5 border-white/20"
                   />
                   <div>
                     <p className="text-xs md:text-[10px] font-bold text-white uppercase">
@@ -802,7 +813,7 @@ function AuthPage({
                         privacy: e.target.checked,
                       }))
                     }
-                    className="w-4 h-4 mt-0.5 accent-emerald-500 rounded bg-white/5 border-white/20"
+                    className="w-4 h-4 mt-0.5 accent-forest-500 rounded bg-white/5 border-white/20"
                   />
                   <div>
                     <p className="text-xs md:text-[10px] font-bold text-white uppercase">
@@ -826,7 +837,7 @@ function AuthPage({
                         dataMap: e.target.checked,
                       }))
                     }
-                    className="w-4 h-4 mt-0.5 accent-emerald-500 rounded bg-white/5 border-white/20"
+                    className="w-4 h-4 mt-0.5 accent-forest-500 rounded bg-white/5 border-white/20"
                   />
                   <div>
                     <p className="text-xs md:text-[10px] font-bold text-white uppercase">
@@ -850,7 +861,7 @@ function AuthPage({
                         ai: e.target.checked,
                       }))
                     }
-                    className="w-4 h-4 mt-0.5 accent-emerald-500 rounded bg-white/5 border-white/20"
+                    className="w-4 h-4 mt-0.5 accent-forest-500 rounded bg-white/5 border-white/20"
                   />
                   <div>
                     <p className="text-xs md:text-[10px] font-bold text-white uppercase">

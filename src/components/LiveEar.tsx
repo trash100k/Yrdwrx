@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
+import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { useToast } from "../contexts/ToastContext";
 
 import { useFieldMode } from "../contexts/FieldModeContext";
@@ -24,7 +24,7 @@ import { useFieldMode } from "../contexts/FieldModeContext";
 export default function LiveEar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setFocus, setJobStatus } = useYardWorxGuide();
+  const { setFocus, setJobStatus } = useCuttyGuide();
   const { toggleFieldMode } = useFieldMode();
   const { showToast } = useToast();
   const [isActive, setIsActive] = useState(false);
@@ -236,7 +236,7 @@ export default function LiveEar() {
   };
 
   return (
-    <div className="flex items-center gap-4 bg-zinc-900 border border-white/5 p-2 rounded-3xl shadow-xl">
+    <div className="flex items-center gap-4 bg-zinc-900 border border-white/5 molten-edge p-2 rounded-3xl shadow-xl">
       <div className="pl-4 pr-3 hidden sm:block">
         <p className="text-[12px] font-bold uppercase text-zinc-300 tracking-wider leading-none mb-1.5">
           Voice Assistant
@@ -251,8 +251,8 @@ export default function LiveEar() {
         id="voice-assistant-trigger"
         className={`w-10 h-10 lg:w-14 lg:h-14 rounded-xl lg:rounded-2xl flex items-center justify-center transition-all duration-300 relative overflow-hidden ${
           isActive
-            ? "bg-emerald-500 text-black shadow-[0_0_20px_#10b981]"
-            : "bg-white/5 text-emerald-400 hover:bg-white/10 border border-emerald-500/20"
+            ? "bg-forest-500 text-black shadow-[0_0_20px_#10b981]"
+            : "bg-white/5 text-forest-400 hover:bg-white/10 border border-forest-500/20"
         }`}
       >
         {isConnecting ? (
@@ -277,7 +277,7 @@ export default function LiveEar() {
           animate={{ opacity: 1, x: 0 }}
           className="max-w-[200px] break-words pr-4"
         >
-          <p className="text-xs md:text-[10px] font-black uppercase text-emerald-400 tracking-widest leading-none mb-1">
+          <p className="text-xs md:text-[10px] font-black uppercase text-forest-400 tracking-widest leading-none mb-1">
             Incoming Audio
           </p>
           <p className="text-xs md:text-[11px] font-black italic text-white/60 truncate leading-none lowercase tracking-normal md:tracking-tighter">
@@ -293,14 +293,14 @@ export default function LiveEar() {
             initial={{ opacity: 0, y: 10, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute top-full mt-4 right-0 bg-black/90 border border-emerald-500/30 p-4 rounded-[24px] shadow-2xl min-w-[240px] backdrop-blur-3xl z-50 pointer-events-auto"
+            className="absolute top-full mt-4 right-0 bg-black/90 border border-forest-500/30 p-4 rounded-[24px] shadow-2xl min-w-[240px] backdrop-blur-3xl z-50 pointer-events-auto"
           >
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-emerald-500 rounded-xl flex items-center justify-center text-black">
+              <div className="w-8 h-8 bg-forest-500 rounded-xl flex items-center justify-center text-black">
                 <Target size={16} />
               </div>
               <div>
-                <p className="text-[8px] font-black uppercase text-emerald-400 tracking-[0.2em]">
+                <p className="text-[8px] font-black uppercase text-forest-400 tracking-[0.2em]">
                   Performing Action
                 </p>
                 <p className="text-xs font-black italic text-white lowercase">

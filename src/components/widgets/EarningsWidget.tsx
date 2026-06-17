@@ -25,20 +25,20 @@ export default function EarningsWidget({ isReel, flexOrder }: { isReel: boolean,
       style={flexOrder !== undefined ? { order: flexOrder } : undefined}
       className={
         isReel
-          ? "relative bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl space-y-8 flex flex-col justify-between w-[85vw] md:w-full md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
-          : "bg-zinc-950 border border-white/5 rounded-2xl sm:rounded-2xl p-5 sm:p-8 col-span-1 lg:col-span-2 shadow-2xl space-y-8 flex flex-col justify-between"
+          ? "relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-2xl space-y-8 flex flex-col justify-between w-[85vw] md:w-full md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
+          : "bg-zinc-950 border border-white/5 molten-edge rounded-2xl sm:rounded-2xl p-5 sm:p-8 col-span-1 lg:col-span-2 shadow-2xl space-y-8 flex flex-col justify-between"
       }
     >
       <div className="flex justify-between items-center">
         <div className="space-y-1 shrink-0">
-          <span className="text-xs md:text-[10px] font-bold text-emerald-400 tracking-widest uppercase">
+          <span className="text-xs md:text-[10px] font-bold text-forest-400 tracking-widest uppercase">
             Income Delta
           </span>
           <h4 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">
             Active Inflow Progress
           </h4>
         </div>
-        <div className="text-xs text-zinc-500 font-bold bg-zinc-900 border border-white/5 px-4 py-2 rounded-xl">
+        <div className="text-xs text-zinc-500 font-bold bg-zinc-900 border border-white/5 molten-edge px-4 py-2 rounded-xl">
           Live Audit Syncing
         </div>
       </div>
@@ -88,7 +88,7 @@ export default function EarningsWidget({ isReel, flexOrder }: { isReel: boolean,
           <p className="text-xs md:text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
             Projected MTD
           </p>
-          <p className="text-lg font-bold text-emerald-400 mt-1">$155,000</p>
+          <p className="text-lg font-bold text-forest-400 mt-1">$155,000</p>
         </div>
         <div>
           <p className="text-xs md:text-[10px] text-zinc-500 uppercase tracking-widest font-bold">

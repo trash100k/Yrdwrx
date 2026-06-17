@@ -11,7 +11,7 @@ import {
   Menu,
   FileText,
   X,
-  Leaf,
+  Sword,
   ReceiptText,
   Package,
   Star,
@@ -27,7 +27,6 @@ import {
   CloudAlert,
   Sparkles,
   ChevronRight,
-  ChevronLeft,
   PieChart,
   Zap,
   Truck,
@@ -37,28 +36,129 @@ import {
   Workflow,
   Bot,
   Presentation,
+  User,
+  ListChecks,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   motion,
   AnimatePresence,
   useScroll,
   useMotionValueEvent,
 } from "motion/react";
-import { cn } from "../lib/utils";
-import YardChat from "./YardChat";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+import CuttyChat from "./CuttyChat";
 import LiveEar from "./LiveEar";
 import WalkthroughOverlay from "./WalkthroughOverlay";
 import FieldModeInterface from "./FieldModeInterface";
 import { BiometricGuard } from "./auth/BiometricGuard";
 import AgenticOutreachDrawer from "./AgenticOutreachDrawer";
 import { useEnterpriseTheme } from "../contexts/EnterpriseThemeContext";
-import { useYardWorxGuide } from "../contexts/YardWorxGuideContext";
+import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { useFieldMode } from "../contexts/FieldModeContext";
 import { useOfflineStatus } from "../hooks/useOfflineStatus";
 import { useTenant } from "../contexts/TenantContext";
 import { useRole } from "../hooks/useRole";
+import { CommandPalette } from "./CommandPalette";
+import { NotificationsCenter } from "./NotificationsCenter";
+import { UserProfileMenu } from "./UserProfileMenu";
+import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
+import { QuickCreateMenu } from "./QuickCreateMenu";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+const GrassSwordIcon = ({ className, size = 24 }: { className?: string; size?: number | string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 100 100"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    style={{ transform: "rotate(45deg)" }}
+  >
+    <defs>
+      <linearGradient id="bladeGrad" x1="50" y1="5" x2="50" y2="60" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stopColor="var(--color-forest-300, #5aeb8c)" />
+        <stop offset="50%" stopColor="var(--color-forest-500, #05a845)" />
+        <stop offset="100%" stopColor="var(--color-forest-800, #065626)" />
+      </linearGradient>
+      <linearGradient id="hiltGrad" x1="20" y1="60" x2="80" y2="95" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stopColor="var(--color-ash, #8d99ae)" />
+        <stop offset="100%" stopColor="var(--color-coldsteel, #1f2833)" />
+      </linearGradient>
+    </defs>
+    
+    {/* Blade - Leaf shape */}
+    <path
+      d="M50 5 Q70 30 60 60 L40 60 Q30 30 50 5 Z"
+      fill="url(#bladeGrad)"
+      stroke="var(--color-forest-900, #064721)"
+      strokeWidth="2"
+      strokeLinejoin="round"
+    />
+    
+    {/* Blade central vein/spine */}
+    <path
+      d="M50 5 Q52 30 50 60"
+      stroke="var(--color-forest-700, #046d2e)"
+      strokeWidth="1.5"
+      fill="none"
+    />
+    <path
+      d="M50 20 Q55 25 57 23 M50 35 Q56 40 58 37 M50 45 Q44 49 42 45 M50 25 Q45 28 44 25"
+      stroke="var(--color-forest-700, #046d2e)"
+      strokeWidth="1"
+      fill="none"
+      strokeLinecap="round"
+    />
+
+    {/* Hilt - Twisted Vines / Roots */}
+    {/* Base wrapping around blade base */}
+    <path
+      d="M35 60 Q50 55 65 60 Q70 65 65 70 Q50 65 35 70 Z"
+      fill="url(#hiltGrad)"
+    />
+    {/* Left crossguard vine */}
+    <path
+      d="M40 65 Q25 60 20 50 Q18 45 23 48 Q28 55 45 65"
+      fill="none"
+      stroke="url(#hiltGrad)"
+      strokeWidth="4"
+      strokeLinecap="round"
+    />
+    {/* Right crossguard vine */}
+    <path
+      d="M60 65 Q75 60 80 50 Q82 45 77 48 Q72 55 55 65"
+      fill="none"
+      stroke="url(#hiltGrad)"
+      strokeWidth="4"
+      strokeLinecap="round"
+    />
+    {/* Handle twisted vines */}
+    <path
+      d="M45 65 C55 75 40 85 50 95 C60 85 45 75 55 65"
+      fill="none"
+      stroke="url(#hiltGrad)"
+      strokeWidth="8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M52 68 C42 78 58 88 48 93"
+      fill="none"
+      stroke="var(--color-forged, #0b0c10)"
+      strokeWidth="3"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
 import { syncService } from "../services/syncService";
 import { auth } from "../lib/firebase";
@@ -70,13 +170,22 @@ export default function Layout() {
   const [showFABActions, setShowFABActions] = useState(false);
   const [pendingSyncs, setPendingSyncs] = useState(0);
   const location = useLocation();
+  const navigate = useNavigate();
   const isOffline = useOfflineStatus();
   const { tenant } = useTenant();
   const { role } = useRole();
   const [isBrainOpen, setIsBrainOpen] = useState(false);
   const [isOutreachOpen, setIsOutreachOpen] = useState(false);
-  const { getSpacingClasses } = useEnterpriseTheme();
-  const { activeFocus, jobStatus } = useYardWorxGuide();
+  
+  // QoL States
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
+  
+  const { getSpacingClasses, themeSettings, updateThemeSetting } = useEnterpriseTheme();
+  const { activeFocus, jobStatus } = useCuttyGuide();
 
   const {
     isFieldMode,
@@ -92,10 +201,17 @@ export default function Layout() {
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     const previous = scrollY.getPrevious() || 0;
-    if (latest > previous && latest > 150) {
-      setHiddenMobileNav(true);
-    } else {
+    if (latest < 50) {
       setHiddenMobileNav(false);
+      return;
+    }
+    // Only toggle if scrolled more than 10px to avoid jitter
+    if (Math.abs(latest - previous) > 10) {
+      if (latest > previous) {
+        setHiddenMobileNav(true);
+      } else {
+        setHiddenMobileNav(false);
+      }
     }
   });
 
@@ -131,6 +247,29 @@ export default function Layout() {
 
   const rolePrefix =
     role === "employee" || role === "foreman" ? "/employee" : "/admin";
+
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && e.target instanceof HTMLElement && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
+        setIsShortcutsOpen(prev => !prev);
+      }
+      if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setIsBrainOpen(prev => !prev);
+      }
+      
+      // Global navigation shortcuts
+       if (e.key.toLowerCase() === "c" && !e.metaKey && !e.ctrlKey && e.target instanceof HTMLElement && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
+           // Basic navigation shortcut example: If someone types "gc", we handled the "g" part via a state context typically, but for simplicity:
+      }
+    };
+    document.addEventListener("keydown", handleGlobalShortcuts);
+    return () => document.removeEventListener("keydown", handleGlobalShortcuts);
+  }, []);
 
   const toggleGroup = (group: string) => {
     setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
@@ -172,10 +311,18 @@ export default function Layout() {
     {
       id: "agent",
       icon: Bot,
-      label: "YardWorx Copilot",
+      label: "YardPilot",
       path: `${rolePrefix}/agent`,
       group: "BUSINESS",
       allowedRoles: ["owner", "admin"],
+    },
+    {
+      id: "aiPlayground",
+      icon: Sparkles,
+      label: "AI Features",
+      path: `${rolePrefix}/ai-playground`,
+      group: "BUSINESS",
+      allowedRoles: ["owner", "admin", "foreman", "employee"],
     },
     {
       id: "designStudio",
@@ -198,6 +345,14 @@ export default function Layout() {
       icon: ReceiptText,
       label: "Invoices",
       path: `${rolePrefix}/invoices`,
+      group: "FINANCE",
+      allowedRoles: ["owner", "admin"],
+    },
+    {
+      id: "forms",
+      icon: ListChecks,
+      label: "Forms",
+      path: `${rolePrefix}/forms`,
       group: "FINANCE",
       allowedRoles: ["owner", "admin"],
     },
@@ -286,23 +441,27 @@ export default function Layout() {
           )}
         >
           <div className="flex-1 flex flex-col">
-            <div className="mb-12">
+            <div className="mb-12 flex justify-center">
               <Link
                 to={rolePrefix}
                 id="cutty-logo"
-                className="flex items-center gap-5 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-3xl"
+                className="flex flex-col items-center gap-1 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-2xl"
               >
-                <div className="w-16 h-16 bg-emerald-600 rounded-3xl flex items-center justify-center shrink-0 shadow-2xl">
-                  <Leaf size={32} className="text-white" />
-                </div>
                 {isSidebarOpen && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white uppercase">
-                      YardWorx
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-1 min-w-0">
+                    <h1 className="font-['Cinzel_Decorative'] text-lg lg:text-xl font-bold tracking-widest text-white uppercase leading-none truncate text-center">
+                      YARDWORX
                     </h1>
-                    <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest">
-                      Management
-                    </p>
+                    <div className="flex flex-col pt-1 border-t border-white/10 items-center">
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-sans mb-0.5">
+                        Powered By
+                      </p>
+                      <div className="font-['Cinzel_Decorative'] text-base tracking-[0.15em] uppercase leading-none font-bold drop-shadow-xl flex items-center">
+                        <span className="text-white">G</span>
+                        <span className="text-[#E34A27]" style={{ textShadow: "0 0 8px rgba(227, 74, 39, 0.6), 0 0 16px rgba(227, 74, 39, 0.3)" }}>AE</span>
+                        <span className="text-white">LWORX</span>
+                      </div>
+                    </div>
                   </motion.div>
                 )}
               </Link>
@@ -317,8 +476,6 @@ export default function Layout() {
                   {isSidebarOpen ? (
                     <button
                       onClick={() => toggleGroup(group)}
-                      aria-expanded={expandedGroups[group]}
-                      aria-controls={`nav-group-${group.toLowerCase()}`}
                       className="w-full flex items-center justify-between px-4 py-4 text-[15px] font-bold text-zinc-300 uppercase tracking-wider hover:text-white transition-colors"
                     >
                       <span>{group}</span>
@@ -336,7 +493,6 @@ export default function Layout() {
                   <AnimatePresence initial={false}>
                     {(expandedGroups[group] || !isSidebarOpen) && (
                       <motion.div
-                        id={`nav-group-${group.toLowerCase()}`}
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
@@ -361,7 +517,6 @@ export default function Layout() {
                               key={item.path}
                               to={item.path}
                               id={navId}
-                              aria-label={item.label}
                               className={({ isActive }) =>
                                 cn(
                                   "flex items-center gap-5 px-4 py-4 rounded-3xl transition-all duration-200",
@@ -389,12 +544,12 @@ export default function Layout() {
 
             <div className="mt-auto pt-8 border-t border-white/5 space-y-4">
               {tenant && (
-                <div className="p-4 bg-zinc-900 border border-white/5 rounded-2xl flex flex-col gap-1 items-center justify-center">
+                <div className="p-4 bg-zinc-900 border border-white/5 molten-edge rounded-2xl flex flex-col gap-1 items-center justify-center">
                   <span className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/50">
                     {tenant.name}
                   </span>
                   <span
-                    className={`text-xs font-black uppercase tracking-widest ${tenant.tier === "enterprise" ? "text-blue-400" : tenant.tier === "pro" ? "text-emerald-400" : "text-zinc-400"}`}
+                    className={`text-xs font-black uppercase tracking-widest ${tenant.tier === "enterprise" ? "text-celtic-400" : tenant.tier === "pro" ? "text-forest-400" : "text-zinc-400"}`}
                   >
                     {tenant.tier} tier
                   </span>
@@ -407,25 +562,24 @@ export default function Layout() {
               )}
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                aria-label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-                aria-expanded={isSidebarOpen}
+                aria-label="Toggle sidebar"
                 className="w-full flex items-center justify-center p-6 rounded-3xl bg-white/5 text-zinc-400 hover:text-white transition-all border border-white/5"
               >
-                {isSidebarOpen ? <ChevronLeft size={24} /> : <Menu size={24} />}
+                <Menu size={24} />
               </button>
             </div>
           </div>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-20 lg:pt-32">
           <AnimatePresence>
             {isOffline && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="bg-amber-500 text-black px-6 py-2 flex items-center justify-center gap-3 overflow-hidden z-50 shrink-0"
+                className="fixed top-20 lg:top-32 left-0 right-0 bg-amber-500 text-black px-6 py-2 flex items-center justify-center gap-3 overflow-hidden z-50 shadow-md"
               >
                 <WifiOff size={14} />
                 <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-center">
@@ -434,78 +588,119 @@ export default function Layout() {
               </motion.div>
             )}
           </AnimatePresence>
-          <header className="h-24 lg:h-32 flex items-center justify-between px-6 lg:px-16 shrink-0 sticky top-0 z-30 border-b border-white/5 bg-black/40 backdrop-blur-xl">
+          <header
+            className={cn(
+              "fixed top-0 left-0 right-0 h-20 lg:h-32 flex items-center justify-between px-4 sm:px-8 lg:px-16 z-[100] border-b border-white/10 molten-edge bg-zinc-950/95 backdrop-blur-3xl shadow-2xl transition-all duration-300",
+              isSidebarOpen ? "lg:left-64" : "lg:left-24"
+            )}
+          >
             <Link
               to={rolePrefix}
-              className="flex items-center gap-2 sm:gap-3 lg:hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-xl"
+              className="flex items-center gap-2 sm:gap-3 lg:hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-xl"
             >
-              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-emerald-600 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-xl">
-                <Leaf size={24} className="sm:w-7 sm:h-7" />
+              <div className="flex flex-col pt-1 items-center">
+                <span className="font-['Cinzel_Decorative'] font-bold tracking-tight text-xl sm:text-3xl text-white leading-none">
+                  YARDWORX
+                </span>
+                <div className="flex items-center justify-center gap-1.5 mt-1 sm:mt-1.5 ml-2">
+                  <span className="text-[8px] sm:text-[9px] text-zinc-400 tracking-widest font-sans uppercase">
+                    Powered By
+                  </span>
+                  <div className="font-['Cinzel_Decorative'] text-[10px] sm:text-xs tracking-[0.15em] uppercase leading-none font-bold drop-shadow-xl flex items-center">
+                    <span className="text-white">G</span>
+                    <span className="text-[#E34A27]" style={{ textShadow: "0 0 8px rgba(227, 74, 39, 0.6), 0 0 16px rgba(227, 74, 39, 0.3)" }}>AE</span>
+                    <span className="text-white">LWORX</span>
+                  </div>
+                </div>
               </div>
-              <span className="font-bold tracking-tight text-xl sm:text-3xl text-white">
-                YARDWORX
-              </span>
             </Link>
 
-            <div className="flex-1 max-w-2xl hidden lg:block">
-              <div className="relative group">
+            <div className="flex-1 max-w-2xl hidden lg:flex justify-start mr-auto lg:pr-12">
+              <div 
+                className="relative group w-full cursor-pointer"
+                onClick={() => setIsCommandPaletteOpen(true)}
+              >
                 <Search
                   size={22}
-                  className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-emerald-500 transition-colors"
+                  className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-hover:text-forest-500 transition-colors pointer-events-none"
                 />
                 <label htmlFor="system-search" className="sr-only">
                   Search
                 </label>
-                <input
-                  id="system-search"
-                  type="text"
-                  placeholder="Search for customers, equipment, or jobs..."
-                  className="w-full min-w-0 pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold focus:bg-white/10 focus:border-emerald-500/30 focus:outline-none placeholder:text-zinc-500 transition-all text-white"
-                />
+                <div
+                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-500 flex items-center justify-between"
+                >
+                  <span>Search for customers, equipment, or jobs...</span>
+                  <div className="flex items-center gap-1">
+                    <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">⌘</kbd>
+                    <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">K</kbd>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-4 sm:gap-8">
+            <div className="flex items-center gap-4 sm:gap-6">
               {tenant?.settings?.features?.reports !== false &&
                 tenant?.settings?.subFeatures?.liveEarAlwaysOn !== false && (
                   <LiveEar />
                 )}
 
-              <div className="flex items-center gap-2 sm:gap-4 border-l border-white/10 pl-4 sm:pl-8">
+              <div className="flex items-center gap-2 sm:gap-4 border-l border-white/10 pl-4 sm:pl-6">
+                
                 <button
-                  id="outreach-trigger"
-                  onClick={() => setIsOutreachOpen(true)}
-                  className="w-10 h-10 lg:w-14 lg:h-14 bg-white/5 border border-white/10 rounded-xl lg:rounded-2xl text-emerald-400 hover:text-white flex items-center justify-center transition-all relative"
-                  aria-label="Agentic Outreach"
-                  title="Launch Agentic Outreach Slider"
+                  onClick={() => {
+                    if (themeSettings.visualContrast === 'outdoor-light') {
+                      updateThemeSetting('visualContrast', 'classic-obsidian');
+                    } else {
+                      updateThemeSetting('visualContrast', 'outdoor-light');
+                    }
+                  }}
+                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 hover:text-amber-400"
+                  aria-label="Toggle Field Theme"
                 >
-                  <Rocket size={22} className="text-emerald-400" />
-                  <span className="absolute top-2 right-2 w-3 h-3 bg-emerald-400 rounded-full border border-black animate-pulse" />
+                  {themeSettings.visualContrast === 'outdoor-light' ? <Moon size={20} /> : <Sun size={20} />}
+                </button>
+
+                <button
+                  onClick={() => setIsQuickCreateOpen(true)}
+                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
+                  aria-label="Quick Create"
+                >
+                  <Plus size={20} />
+                </button>
+
+                <button
+                  onClick={() => setIsNotificationsOpen(true)}
+                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                  aria-label="Notifications"
+                >
+                  <Bell size={20} />
+                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
                 </button>
 
                 <button
                   id="brain-trigger"
                   onClick={() => setIsBrainOpen(true)}
-                  className="w-10 h-10 lg:w-14 lg:h-14 bg-white/5 border border-white/10 rounded-xl lg:rounded-2xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
                   aria-label="Get Help"
                 >
-                  <Brain size={24} />
-                  <span className="absolute top-2 right-2 w-3 h-3 bg-emerald-500 rounded-full border-2 border-black" />
+                  <Brain size={20} />
+                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-forest-500 rounded-full border-2 border-black" />
                 </button>
 
-                <div className="hidden xl:block text-right mr-4">
-                  <p className="text-[12px] font-bold text-zinc-300 uppercase tracking-wide leading-none mb-1">
-                    Logged in as
-                  </p>
-                  <p className="text-[16px] font-bold text-white">Supervisor</p>
-                </div>
-                <div className="w-10 h-10 lg:w-14 lg:h-14 rounded-xl lg:rounded-2xl overflow-hidden border-2 border-white/10 hidden sm:block">
-                  <img
-                    src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=100&h=100"
-                    alt="User"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                  />
+                <div 
+                  className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors"
+                  onClick={() => setIsUserMenuOpen(true)}
+                >
+                  <div className="text-right">
+                    <p className="text-[12px] font-bold text-zinc-400 uppercase tracking-wide leading-none mb-1">
+                      Logged in as
+                    </p>
+                    <p className="text-[14px] font-bold text-white">Supervisor</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-forest-500/20 border border-forest-500/30 flex items-center justify-center text-forest-400">
+                    <User size={18} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -540,7 +735,7 @@ export default function Layout() {
                     <h2 className="text-xl sm:text-2xl font-black italic text-white uppercase tracking-normal md:tracking-tighter mb-2">
                       Loading Job Info...
                     </h2>
-                    <p className="text-xs md:text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400">
+                    <p className="text-xs md:text-[10px] font-black uppercase tracking-[0.3em] text-forest-400">
                       Customizing your experience
                     </p>
                   </div>
@@ -649,7 +844,7 @@ export default function Layout() {
                 aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
                 className={cn(
                   "flex-1 flex flex-col items-center justify-center h-16 rounded-2xl transition-all",
-                  isMobileMenuOpen ? "text-emerald-400" : "text-zinc-400",
+                  isMobileMenuOpen ? "text-forest-400" : "text-zinc-400",
                 )}
               >
                 {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -657,7 +852,7 @@ export default function Layout() {
             </div>
           </motion.nav>
 
-          <YardChat isOpen={isBrainOpen} setIsOpen={setIsBrainOpen} />
+          <CuttyChat isOpen={isBrainOpen} setIsOpen={setIsBrainOpen} />
           <WalkthroughOverlay />
           <AgenticOutreachDrawer
             isOpen={isOutreachOpen}
@@ -710,6 +905,13 @@ export default function Layout() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* QoL Features */}
+          <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
+          <QuickCreateMenu isOpen={isQuickCreateOpen} onClose={() => setIsQuickCreateOpen(false)} />
+          <NotificationsCenter isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
+          <UserProfileMenu isOpen={isUserMenuOpen} onClose={() => setIsUserMenuOpen(false)} />
+          <KeyboardShortcutsModal isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
         </main>
       </div>
     </>

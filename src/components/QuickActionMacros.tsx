@@ -19,18 +19,18 @@ const MACROS = [
     label: "Auto-Invoice Queue",
     description: "Batch process 14 completed jobs & dispatch invoices.",
     icon: FileText,
-    color: "text-emerald-500",
-    bg: "bg-emerald-500/10",
-    border: "border-emerald-500/20",
+    color: "text-forest-500",
+    bg: "bg-forest-500/10",
+    border: "border-forest-500/20",
   },
   {
     id: "revenue",
     label: "Sweep Unbilled Revenue",
     description: "Scan system for missed billable hours ($4,250 found).",
     icon: Magnet,
-    color: "text-blue-500",
-    bg: "bg-blue-500/10",
-    border: "border-blue-500/20",
+    color: "text-celtic-500",
+    bg: "bg-celtic-500/10",
+    border: "border-celtic-500/20",
   },
 ];
 
@@ -66,7 +66,7 @@ export default function QuickActionMacros() {
   };
 
   return (
-    <div className="bg-zinc-950 border border-white/5 shadow-md p-6 sm:p-8 rounded-[24px] relative overflow-hidden group">
+    <div className="bg-zinc-950 border border-white/5 molten-edge shadow-md p-6 sm:p-8 rounded-[24px] relative overflow-hidden group">
       <header className="mb-6 relative z-10 flex items-center gap-4">
         <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-zinc-300">
           <Zap size={20} />

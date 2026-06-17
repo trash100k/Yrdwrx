@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { fetchApi } from "../lib/api";
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { cn } from "../lib/utils";
 import {
   APIProvider,
   Map,
@@ -76,7 +75,7 @@ export default function JobMap({
           <p className="text-sm font-medium text-white/60 leading-relaxed">
             {" "}
             Please wait or provide a valid secure{" "}
-            <code className="bg-white/10 px-2 py-0.5 rounded text-emerald-400">
+            <code className="bg-white/10 px-2 py-0.5 rounded text-forest-400">
               GOOGLE_MAPS_API_KEY
             </code>{" "}
             in the workspace settings to enable real-time map tracking.{" "}
@@ -123,7 +122,7 @@ export default function JobMap({
               {" "}
               <div className="flex items-center justify-between mb-8">
                 {" "}
-                <span className="micro-label font-black text-emerald-400 uppercase tracking-widest italic">
+                <span className="micro-label font-black text-forest-400 uppercase tracking-widest italic">
                   Job Selection
                 </span>{" "}
                 <button
@@ -182,7 +181,7 @@ export default function JobMap({
                       <div className="flex items-center gap-2">
                         {" "}
                         <div
-                          className={`w-1.5 h-1.5 rounded-full ${selectedJob.status === "completed" ? "bg-emerald-500" : "bg-blue-400"}`}
+                          className={`w-1.5 h-1.5 rounded-full ${selectedJob.status === "completed" ? "bg-forest-500" : "bg-celtic-400"}`}
                         />{" "}
                         <span className="text-xs md:text-[10px] font-black text-white uppercase tracking-widest">
                           {selectedJob.status}
@@ -208,7 +207,7 @@ export default function JobMap({
                       {" "}
                       <div className="flex items-center gap-3">
                         {" "}
-                        <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                        <div className="w-10 h-10 bg-forest-500/10 rounded-xl flex items-center justify-center text-forest-400 border border-forest-500/20">
                           {" "}
                           <TrendingUp size={18} />{" "}
                         </div>{" "}
@@ -224,7 +223,7 @@ export default function JobMap({
                       </div>{" "}
                       <div className="text-right">
                         {" "}
-                        <p className="text-xs md:text-[10px] font-black text-emerald-400">
+                        <p className="text-xs md:text-[10px] font-black text-forest-400">
                           96%
                         </p>{" "}
                         <p className="text-[7px] font-black text-white/20 uppercase">
@@ -264,7 +263,7 @@ export default function JobMap({
                 {" "}
                 <Link
                   to="../crm"
-                  className="w-full py-4 bg-emerald-500 text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-[0.2em] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3"
+                  className="w-full py-4 bg-forest-500 text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-[0.2em] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3"
                 >
                   {" "}
                   <History size={16} /> View Client Profile{" "}
@@ -334,9 +333,9 @@ function Markers({ jobs, onMarkerClick }: MarkersProps) {
                   className={cn(
                     "w-12 h-12 rounded-3xl rotate-45 flex items-center justify-center transition-all duration-500 group-hover:scale-125 border border-zinc-900/40 shadow-2xl relative",
                     job.status === "completed"
-                      ? "bg-emerald-500"
+                      ? "bg-forest-500"
                       : job.status === "in-progress" || job.status === "on-site"
-                        ? "bg-blue-500 animate-pulse"
+                        ? "bg-celtic-500 animate-pulse"
                         : "bg-slate-700",
                   )}
                 >
@@ -391,6 +390,9 @@ function Markers({ jobs, onMarkerClick }: MarkersProps) {
       )}{" "}
     </>
   );
+}
+function cn(...inputs: (string | undefined | null | false)[]) {
+  return inputs.filter(Boolean).join(" ");
 }
 function DrawingControl({
   onPolygonComplete,

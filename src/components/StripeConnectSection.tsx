@@ -62,18 +62,18 @@ export function StripeConnectSection() {
   return (
     <section className="mt-12 pt-12 border-t border-white/10">
       <h2 className="text-xl font-black uppercase tracking-widest flex items-center gap-3 mb-6 text-white">
-        <CreditCard className="text-emerald-500" /> Billing & Payments
+        <CreditCard className="text-forest-500" /> Billing & Payments
       </h2>
       
-      <div className="bg-zinc-950 border border-white/5 rounded-2xl p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6 relative overflow-hidden">
+      <div className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6 relative overflow-hidden">
         {isConnected && (
-            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[50px] pointer-events-none" />
+            <div className="absolute top-0 right-0 w-32 h-32 bg-forest-500/10 blur-[50px] pointer-events-none" />
         )}
         <div className="flex-1 relative z-10">
           <div className="flex items-center gap-3">
             <h3 className="font-bold text-lg text-white">Stripe Connect Integration</h3>
             {isConnected ? (
-              <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
+              <span className="px-2 py-1 bg-forest-500/20 text-forest-400 border border-forest-500/30 rounded text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
                 <CheckCircle size={10} /> Connected
               </span>
             ) : (
@@ -84,7 +84,7 @@ export function StripeConnectSection() {
           </div>
           {isConnected && (
              <div className="pt-2">
-                 <p className="text-xs md:text-[10px] font-mono text-emerald-400/80 bg-emerald-500/5 px-3 py-2 rounded-lg border border-emerald-500/10 inline-block">
+                 <p className="text-xs md:text-[10px] font-mono text-forest-400/80 bg-forest-500/5 px-3 py-2 rounded-lg border border-forest-500/10 inline-block">
                     Connected Account ID: {tenant.stripeAccountId}
                  </p>
              </div>
@@ -112,7 +112,7 @@ export function StripeConnectSection() {
              <button
                onClick={handleConnect}
                disabled={isConnecting}
-               className="px-6 py-4 bg-[#635BFF] hover:bg-[#524ac9] text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 min-w-[200px]"
+               className="px-6 py-4 bg-[#635BFF] hover:bg-[#524ac9] text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-celtic-500/20 flex items-center justify-center gap-2 min-w-[200px]"
              >
                {isConnecting ? (
                   <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin block" />

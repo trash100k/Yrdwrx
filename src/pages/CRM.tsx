@@ -12,7 +12,6 @@ import {
   doc,
   updateDoc,
   deleteDoc,
-  writeBatch,
 } from "firebase/firestore";
 import { auth, db, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
@@ -50,6 +49,10 @@ import {
   Upload,
   Share,
   Download,
+  CheckSquare,
+  Folder,
+  User,
+  Briefcase,
 } from "lucide-react";
 import Papa from "papaparse";
 import { motion, AnimatePresence } from "motion/react";
@@ -59,6 +62,14 @@ import { ingestKnowledge, fetchRelevantMemory } from "../services/brainService";
 import { z } from "zod";
 import { useTenant } from "../contexts/TenantContext";
 import { AutonomousCampaigns } from "../components/AutonomousCampaigns";
+import { Pipeline } from "../components/Pipeline";
+import { CustomerMap } from "../components/CustomerMap";
+import { CRMDashboard } from "../components/CRMDashboard";
+import { CRMTasks } from "../components/CRMTasks";
+import { CRMDocuments } from "../components/CRMDocuments";
+import { CRMJobs } from "../components/CRMJobs";
+import { CRMCustomFields } from "../components/CRMCustomFields";
+import { CustomerPortalCard } from "../components/CustomerPortalCard";
 import { useToast } from "../contexts/ToastContext";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Customer, Insight } from "../types";
@@ -91,7 +102,7 @@ export default function CRM() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [knowledge, setKnowledge] = useState<Record<string, any>[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [activeTab, setActiveTab] = useState<"logs" | "brain" | "campaigns">("logs");
+  const [activeTab, setActiveTab] = useState<"logs" | "brain" | "campaigns" | "pipeline" | "map" | "dashboard" | "tasks" | "documents">("dashboard");
   const [selectedSegment, setSelectedSegment] = useState<
     | "all"
     | "priority"
@@ -139,6 +150,15 @@ export default function CRM() {
   const [showBulkActionMenu, setShowBulkActionMenu] = useState(false);
   const [showBulkTagModal, setShowBulkTagModal] = useState(false);
   const [bulkTagInput, setBulkTagInput] = useState("");
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
+  
+  const [customerViewTab, setCustomerViewTab] = useState<"overview" | "sms" | "tasks" | "documents" | "estimates" | "jobs">("overview");
+  
+  const [smsMessage, setSmsMessage] = useState("");
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [smsHistory, setSmsHistory] = useState<any[]>([]);
 
   const addModalRef = useFocusTrap<HTMLDivElement>(showAddModal);
   const lowStockModalRef = useFocusTrap<HTMLDivElement>(showLowStockModal);
@@ -230,14 +250,9 @@ export default function CRM() {
     
     setIsSaving(true);
     try {
-      const chunkSize = 500;
-      for (let i = 0; i < selectedClients.length; i += chunkSize) {
-        const batch = writeBatch(db);
-        const chunk = selectedClients.slice(i, i + chunkSize);
-        for (const id of chunk) {
-          batch.delete(doc(db, "tenants", tenant.id, "customers", id));
-        }
-        await batch.commit();
+      // In a real app we might batch this
+      for (const id of selectedClients) {
+        await deleteDoc(doc(db, "customers", id));
       }
       showToast(`${selectedClients.length} clients deleted successfully`, "success");
       setSelectedClients([]);
@@ -257,25 +272,14 @@ export default function CRM() {
     setIsSaving(true);
     try {
       const tagList = bulkTagInput.split(',').map(t => t.trim()).filter(Boolean);
-
-      // Firestore writeBatch has a limit of 500 operations per batch
-      const BATCH_LIMIT = 500;
-      for (let i = 0; i < selectedClients.length; i += BATCH_LIMIT) {
-        const batch = writeBatch(db);
-        const chunk = selectedClients.slice(i, i + BATCH_LIMIT);
-
-        for (const id of chunk) {
-          const client = customers.find(c => c.id === id);
-          if (client) {
-            const currentTags = client.tags || [];
-            const newTags = Array.from(new Set([...currentTags, ...tagList]));
-            const clientRef = doc(db, "tenants", tenant.id, "customers", id);
-            batch.update(clientRef, { tags: newTags });
-          }
+      for (const id of selectedClients) {
+        const client = customers.find(c => c.id === id);
+        if (client) {
+          const currentTags = client.tags || [];
+          const newTags = Array.from(new Set([...currentTags, ...tagList]));
+          await updateDoc(doc(db, "customers", id), { tags: newTags });
         }
-        await batch.commit();
       }
-
       showToast(`${selectedClients.length} clients tagged successfully`, "success");
       setShowBulkTagModal(false);
       setBulkTagInput("");
@@ -393,6 +397,102 @@ export default function CRM() {
       console.error(err);
     } finally {
       setIsFetchingEmails(false);
+    }
+  };
+
+  const handleDeleteSelectedCustomer = async () => {
+    if (!selectedCustomer?.id) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedCustomer.firstName} ${selectedCustomer.lastName}? This action cannot be undone.`)) return;
+    
+    try {
+      await deleteDoc(doc(db, "customers", selectedCustomer.id));
+      showToast("Client deleted successfully", "success");
+      setSelectedCustomer(null);
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      showToast("Failed to delete client", "error");
+    }
+  };
+
+  const handleSendSms = async () => {
+    if (!selectedCustomer?.phone || !smsMessage.trim()) {
+      showToast("Please enter a message and ensure the client has a phone number.", "error");
+      return;
+    }
+    
+    setIsSendingSms(true);
+    try {
+      const res = await fetchApi("/api/sms/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: selectedCustomer.phone,
+          message: smsMessage
+        })
+      });
+      
+      if (!res.ok) throw new Error("Failed to send SMS");
+      const data = await res.json();
+      
+      showToast("SMS sent securely via Twilio.", "success");
+      setSmsMessage("");
+      
+      // Update local history for preview
+      setSmsHistory(prev => [{
+        id: Date.now().toString(),
+        body: smsMessage,
+        date: new Date().toISOString(),
+        direction: "outbound"
+      }, ...prev]);
+      
+      // Also log it
+      await logSystemEvent("TWILIO_SMS_SENT", { customerId: selectedCustomer.id });
+    } catch (err: any) {
+      console.error(err);
+      showToast("Failed to send SMS.", "error");
+    } finally {
+      setIsSendingSms(false);
+    }
+  };
+
+  const handleUpdateCustomerProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCustomer?.id) return;
+    setIsSaving(true);
+    setFormErrors({});
+    
+    try {
+      const validated = customerSchema.safeParse({
+        firstName: editCustomer.firstName,
+        lastName: editCustomer.lastName,
+        email: editCustomer.email || "",
+        phone: editCustomer.phone || "",
+        address: editCustomer.address || "",
+        notes: editCustomer.notes || "",
+      });
+      
+      if (!validated.success) {
+        const errors: Record<string, string> = {};
+        validated.error.issues.forEach(err => {
+          errors[err.path[0] as string] = err.message;
+        });
+        setFormErrors(errors);
+        return;
+      }
+      
+      await updateDoc(doc(db, "customers", editCustomer.id), {
+        ...validated.data,
+        updatedAt: serverTimestamp(),
+      });
+      
+      showToast("Client profile updated securely.", "success");
+      setShowEditModal(false);
+      setSelectedCustomer({ ...selectedCustomer, ...validated.data } as Customer);
+    } catch (err: any) {
+      console.error(err);
+      setFormErrors({ _form: "Failed to update profile due to an unexpected error." });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -722,15 +822,8 @@ export default function CRM() {
             aiScoreLabel: "Evaluating",
           }));
 
-          const BATCH_LIMIT = 500;
-          for (let i = 0; i < imports.length; i += BATCH_LIMIT) {
-            const batch = writeBatch(db);
-            const chunk = imports.slice(i, i + BATCH_LIMIT);
-            for (const item of chunk) {
-              const docRef = doc(collection(db, "customers"));
-              batch.set(docRef, item);
-            }
-            await batch.commit();
+          for (const item of imports) {
+            await addDoc(collection(db, "customers"), item);
           }
 
           showToast(`Successfully imported ${imports.length} past customers`, "success");
@@ -798,15 +891,8 @@ export default function CRM() {
         }
       }
       
-      const BATCH_LIMIT = 500;
-      for (let i = 0; i < imports.length; i += BATCH_LIMIT) {
-        const batch = writeBatch(db);
-        const chunk = imports.slice(i, i + BATCH_LIMIT);
-        for (const item of chunk) {
-          const docRef = doc(collection(db, "customers"));
-          batch.set(docRef, item);
-        }
-        await batch.commit();
+      for (const item of imports) {
+        await addDoc(collection(db, "customers"), item);
       }
       
       showToast(`Imported ${imports.length} contacts from Google Workspace`, "success");
@@ -862,19 +948,19 @@ export default function CRM() {
       <div className="max-w-7xl mx-auto space-y-6 min-h-[1000px] flex flex-col">
         {tenant?.settings?.features?.cockpit_buttons && (
           <div className="mb-2 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <button onClick={() => setShowAddModal(true)} className="flex flex-col items-center justify-center gap-2 p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-[20px] text-emerald-400 hover:bg-emerald-500/20 transition-all group shadow-sm">
+            <button onClick={() => setShowAddModal(true)} className="flex flex-col items-center justify-center gap-2 p-6 bg-forest-500/10 border border-forest-500/20 rounded-[20px] text-forest-400 hover:bg-forest-500/20 transition-all group shadow-sm">
               <UserPlus size={24} className="group-hover:scale-110 transition-transform" />
               <span className="font-bold text-sm">Add Client</span>
             </button>
-            <button onClick={handleGoogleContactsImport} className="flex flex-col items-center justify-center gap-2 p-6 bg-blue-500/10 border border-blue-500/20 rounded-[20px] text-blue-400 hover:bg-blue-500/20 transition-all group shadow-sm">
+            <button onClick={handleGoogleContactsImport} className="flex flex-col items-center justify-center gap-2 p-6 bg-celtic-500/10 border border-celtic-500/20 rounded-[20px] text-celtic-400 hover:bg-celtic-500/20 transition-all group shadow-sm">
               <Users size={24} className="group-hover:scale-110 transition-transform" />
               <span className="font-bold text-sm">Sync Workspace</span>
             </button>
-            <button onClick={() => { if(fileInputRef.current) fileInputRef.current.click() }} className="flex flex-col items-center justify-center gap-2 p-6 bg-purple-500/10 border border-purple-500/20 rounded-[20px] text-purple-400 hover:bg-purple-500/20 transition-all group shadow-sm">
+            <button onClick={() => { if(fileInputRef.current) fileInputRef.current.click() }} className="flex flex-col items-center justify-center gap-2 p-6 bg-ember-500/10 border border-ember-500/20 rounded-[20px] text-ember-400 hover:bg-ember-500/20 transition-all group shadow-sm">
               <Upload size={24} className="group-hover:scale-110 transition-transform" />
               <span className="font-bold text-sm">Import CSV</span>
             </button>
-            <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
+            <div className="flex flex-col items-center justify-center gap-2 p-6 bg-zinc-900 border border-white/5 molten-edge rounded-[20px] text-zinc-400 shadow-sm relative overflow-hidden">
                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-400/50 to-transparent"></div>
                <Zap size={24} className="text-yellow-400 animate-pulse" />
                <span className="font-bold text-sm text-yellow-400/80">Easy Mode Active</span>
@@ -886,7 +972,7 @@ export default function CRM() {
           className="flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-8 mb-10 pb-8 border-b-4 border-white/10 relative z-10"
         >
           <div className="space-y-4">
-            <div className="inline-flex items-center gap-3 px-4 py-2 bg-blue-500/10 rounded-full border border-blue-500 text-xs font-black uppercase tracking-widest text-blue-500">
+            <div className="inline-flex items-center gap-3 px-4 py-2 bg-celtic-500/10 rounded-full border border-celtic-500 text-xs font-black uppercase tracking-widest text-celtic-500">
               <Users size={16} />
               Customer Ops
             </div>
@@ -903,7 +989,7 @@ export default function CRM() {
                 Search clients, notes, or vectors
               </label>
               <Search
-                className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-emerald-400 transition-colors"
+                className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-forest-400 transition-colors"
                 size={24}
                 aria-hidden="true"
               />
@@ -911,7 +997,7 @@ export default function CRM() {
                 id="crm-search"
                 type="text"
                 placeholder="Search registries..."
-                className="w-full min-w-0 pl-16 pr-8 py-5 bg-black border border-white/5 rounded-3xl text-xl uppercase font-black tracking-widest focus:bg-zinc-900 focus:border-emerald-500/50 focus:outline-none placeholder:text-zinc-600 transition-all shadow-inner"
+                className="w-full min-w-0 pl-16 pr-8 py-5 bg-black border border-white/5 rounded-3xl text-xl uppercase font-black tracking-widest focus:bg-zinc-900 focus:border-forest-500/50 focus:outline-none placeholder:text-zinc-600 transition-all shadow-inner"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -928,9 +1014,60 @@ export default function CRM() {
                 role="tab"
                 aria-selected={activeTab === "logs"}
                 onClick={() => setActiveTab("logs")}
-                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform border-4 ${activeTab === "logs" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "logs" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
               >
+                <Users size={20} aria-hidden="true" />
                 Registry
+              </button>
+              <button
+                id="dashboard-tab"
+                role="tab"
+                aria-selected={activeTab === "dashboard"}
+                onClick={() => setActiveTab("dashboard")}
+                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "dashboard" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+              >
+                <BarChart3 size={20} aria-hidden="true" />
+                Dashboard
+              </button>
+              <button
+                id="tasks-tab"
+                role="tab"
+                aria-selected={activeTab === "tasks"}
+                onClick={() => setActiveTab("tasks")}
+                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "tasks" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+              >
+                <CheckSquare size={20} aria-hidden="true" />
+                Tasks
+              </button>
+              <button
+                id="documents-tab"
+                role="tab"
+                aria-selected={activeTab === "documents"}
+                onClick={() => setActiveTab("documents")}
+                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "documents" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+              >
+                <FileText size={20} aria-hidden="true" />
+                Documents
+              </button>
+              <button
+                id="pipeline-tab"
+                role="tab"
+                aria-selected={activeTab === "pipeline"}
+                onClick={() => setActiveTab("pipeline")}
+                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "pipeline" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+              >
+                <LayoutGrid size={20} aria-hidden="true" />
+                Pipeline
+              </button>
+              <button
+                id="map-tab"
+                role="tab"
+                aria-selected={activeTab === "map"}
+                onClick={() => setActiveTab("map")}
+                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "map" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+              >
+                <MapPin size={20} aria-hidden="true" />
+                Map
               </button>
               <button
                 id="saved-notes-tab"
@@ -947,7 +1084,7 @@ export default function CRM() {
                 role="tab"
                 aria-selected={activeTab === "campaigns"}
                 onClick={() => setActiveTab("campaigns")}
-                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "campaigns" ? "bg-emerald-500 text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-emerald-500/60 hover:text-emerald-500 hover:bg-emerald-500/5"}`}
+                className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "campaigns" ? "bg-forest-500 text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-forest-500/60 hover:text-forest-500 hover:bg-forest-500/5"}`}
               >
                 <Mail size={20} aria-hidden="true" />
                 Campaigns
@@ -963,6 +1100,16 @@ export default function CRM() {
         <div className="structural-border bg-black/20 flex-1 flex flex-col min-h-[800px] overflow-hidden rounded-2xl">
           {activeTab === "campaigns" ? (
              <AutonomousCampaigns customers={customers} />
+          ) : activeTab === "dashboard" ? (
+             <CRMDashboard customers={customers} />
+          ) : activeTab === "tasks" ? (
+             <CRMTasks customers={customers} />
+          ) : activeTab === "documents" ? (
+             <CRMDocuments customers={customers} />
+          ) : activeTab === "pipeline" ? (
+             <Pipeline customers={filteredCustomers} onSelectCustomer={setSelectedCustomer} />
+          ) : activeTab === "map" ? (
+             <CustomerMap customers={filteredCustomers} onSelectCustomer={setSelectedCustomer} />
           ) : activeTab === "logs" ? (
             <>
               <div className="px-8 py-6 border-b flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-zinc-900">
@@ -970,7 +1117,7 @@ export default function CRM() {
                   <div className="relative group w-full md:min-w-[300px]">
                     <Search
                       size={18}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-emerald-400 transition-colors"
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-forest-400 transition-colors"
                       aria-hidden="true"
                     />
                     <label htmlFor="crm-search-input" className="sr-only">
@@ -982,7 +1129,7 @@ export default function CRM() {
                       placeholder="Search clients hub..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-12 pr-6 py-3 bg-white/5 border border-white/5 rounded-2xl text-sm font-bold focus:bg-white/10 focus:border-emerald-500/30 focus:outline-none placeholder:text-zinc-600 transition-all"
+                      className="w-full pl-12 pr-6 py-3 bg-white/5 border border-white/5 rounded-2xl text-sm font-bold focus:bg-white/10 focus:border-forest-500/30 focus:outline-none placeholder:text-zinc-600 transition-all"
                     />
                   </div>
                   <div className="h-6 w-px bg-white/5 hidden md:block" />
@@ -1008,7 +1155,7 @@ export default function CRM() {
                         role="tab"
                         aria-selected={selectedSegment === seg}
                         onClick={() => setSelectedSegment(seg)}
-                        className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${selectedSegment === seg ? "bg-emerald-500 text-black shadow-glow" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                        className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${selectedSegment === seg ? "bg-forest-500 text-black shadow-glow" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                       >
                         {seg.replace("_", " ").replace("hoa", "HOA")}
                       </button>
@@ -1022,7 +1169,7 @@ export default function CRM() {
                   <button
                     onClick={handleGoogleContactsImport}
                     disabled={isImporting}
-                    className="flex items-center gap-3 px-6 py-4 bg-white/5 border border-white/5 text-emerald-400 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-white/10 hover:border-emerald-500/30 transition-all shadow-lg hidden md:flex disabled:opacity-50"
+                    className="flex items-center gap-3 px-6 py-4 bg-white/5 border border-white/5 text-forest-400 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-white/10 hover:border-forest-500/30 transition-all shadow-lg hidden md:flex disabled:opacity-50"
                   >
                     <UserPlus size={16} />
                     {isImporting ? "Syncing Workspace..." : "Workspace Sync"}
@@ -1038,7 +1185,7 @@ export default function CRM() {
                   <button
                     id="add-client-button"
                     onClick={() => setShowAddModal(true)}
-                    className="flex items-center gap-3 px-6 py-4 bg-emerald-600 text-white rounded-xl font-bold text-sm tracking-wide hover:bg-emerald-500 transition-all shadow-lg"
+                    className="flex items-center gap-3 px-6 py-4 bg-forest-600 text-white rounded-xl font-bold text-sm tracking-wide hover:bg-forest-500 transition-all shadow-lg"
                   >
                     <UserPlus size={18} />
                     New Client
@@ -1076,9 +1223,9 @@ export default function CRM() {
               </div>
 
               {selectedClients.length > 0 && (
-                <div className="bg-emerald-500/10 border-y border-emerald-500/20 px-10 py-3 flex items-center justify-between z-10 transition-all">
-                  <div className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse border-emerald-500" />
+                <div className="bg-forest-500/10 border-y border-forest-500/20 px-10 py-3 flex items-center justify-between z-10 transition-all">
+                  <div className="text-xs font-bold text-forest-400 uppercase tracking-widest flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-forest-500 animate-pulse border-forest-500" />
                     {selectedClients.length} clients selected
                   </div>
                   <div className="flex items-center gap-3">
@@ -1111,7 +1258,7 @@ export default function CRM() {
                             type="checkbox"
                             checked={selectedClients.length === filteredCustomers.length && filteredCustomers.length > 0}
                             onChange={handleToggleSelectAll}
-                            className="w-4 h-4 rounded border-white/20 bg-black/50 text-emerald-500 focus:ring-emerald-500/20 focus:ring-offset-0 cursor-pointer"
+                            className="w-4 h-4 rounded border-white/20 bg-black/50 text-forest-500 focus:ring-forest-500/20 focus:ring-offset-0 cursor-pointer"
                           />
                           <span>Name & Contact</span>
                         </div>
@@ -1134,7 +1281,7 @@ export default function CRM() {
                     {filteredCustomers.map((client) => (
                       <tr
                         key={client.id}
-                        className="hover:bg-zinc-900 transition-all group cursor-pointer border-l-4 border-transparent hover:border-emerald-500"
+                        className="hover:bg-zinc-900 transition-all group cursor-pointer border-l-4 border-transparent hover:border-forest-500"
                         onClick={() => handleSelectCustomer(client)}
                       >
                         <td className="sticky left-0 bg-[#121214] group-hover:bg-[#18181b] z-10 pl-8 pr-6 py-8 border-r border-white/5 shadow-[4px_0_12px_rgba(0,0,0,0.2)]">
@@ -1144,11 +1291,11 @@ export default function CRM() {
                               checked={!!client.id && selectedClients.includes(client.id)}
                               onClick={(e) => e.stopPropagation()}
                               onChange={(e) => handleToggleSelectClient(client.id as string, e as any)}
-                              className="w-4 h-4 rounded border-white/20 bg-black/50 text-emerald-500 focus:ring-emerald-500/20 focus:ring-offset-0 cursor-pointer shrink-0"
+                              className="w-4 h-4 rounded border-white/20 bg-black/50 text-forest-500 focus:ring-forest-500/20 focus:ring-offset-0 cursor-pointer shrink-0"
                             />
                             <div className="flex items-center gap-5 min-w-0">
                               <div
-                                className="w-14 h-14 bg-zinc-900 border border-white/5 rounded-2xl flex items-center justify-center text-zinc-400 font-black text-xl group-hover:bg-emerald-500 group-hover:text-black transition-all duration-500 shadow-2xl shrink-0"
+                                className="w-14 h-14 bg-zinc-900 border border-white/5 molten-edge rounded-2xl flex items-center justify-center text-zinc-400 font-black text-xl group-hover:bg-forest-500 group-hover:text-black transition-all duration-500 shadow-2xl shrink-0"
                                 aria-hidden="true"
                               >
                                 {client.firstName[0]}
@@ -1158,7 +1305,7 @@ export default function CRM() {
                                 <div className="text-xl font-black italic tracking-normal md:tracking-tighter flex items-center gap-3 lowercase mb-1 leading-none truncate">
                                   {client.firstName} {client.lastName}
                                   {client.priority && (
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]" />
+                                    <div className="w-1.5 h-1.5 rounded-full bg-forest-500 shadow-[0_0_10px_#10b981]" />
                                   )}
                                 </div>
                                 <div className="text-xs md:text-[10px] text-zinc-600 font-black uppercase tracking-widest leading-none">
@@ -1206,9 +1353,9 @@ export default function CRM() {
                                   strokeLinecap="round"
                                   className={`${
                                     client.aiScore > 80
-                                      ? "text-emerald-500"
+                                      ? "text-forest-500"
                                       : client.aiScore > 50
-                                        ? "text-blue-500"
+                                        ? "text-celtic-500"
                                         : "text-zinc-500"
                                   } transition-all duration-1000 shadow-glow`}
                                 />
@@ -1220,9 +1367,9 @@ export default function CRM() {
                             <span
                               className={`text-[8px] font-black uppercase tracking-widest mt-3 px-2 py-0.5 rounded-full border border-white/5 ${
                                 client.aiScoreLabel === "Growth Potential"
-                                  ? "text-emerald-400 bg-emerald-500/5"
+                                  ? "text-forest-400 bg-forest-500/5"
                                   : client.aiScoreLabel === "High Promise"
-                                    ? "text-blue-400 bg-blue-500/5"
+                                    ? "text-celtic-400 bg-celtic-500/5"
                                     : "text-white/20"
                               }`}
                             >
@@ -1275,7 +1422,7 @@ export default function CRM() {
                     Saved Notes • Business History
                   </span>
                   <div className="h-6 w-px bg-white/5" />
-                  <span className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase">
+                  <span className="text-xs md:text-[10px] text-forest-400 font-bold uppercase">
                     {filteredKnowledge.length} Total Memories
                   </span>
                 </div>
@@ -1291,11 +1438,11 @@ export default function CRM() {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9 }}
                         key={node.id}
-                        className="bg-zinc-900 border border-white/5 shadow-2xl p-6 hover:border-emerald-500/30 transition-all group"
+                        className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-6 hover:border-forest-500/30 transition-all group"
                       >
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                            <div className="w-9 h-9 bg-forest-500/10 rounded-xl flex items-center justify-center text-forest-400 border border-forest-500/20">
                               <BookOpen size={16} />
                             </div>
                             <span className="text-xs font-black text-white uppercase tracking-wider">
@@ -1369,7 +1516,7 @@ export default function CRM() {
                       </div>
                       <button
                         onClick={handleIngest}
-                        className="micro-label text-emerald-400 hover:text-emerald-300 transition-colors"
+                        className="micro-label text-forest-400 hover:text-forest-300 transition-colors"
                       >
                         Start Learning
                       </button>
@@ -1402,7 +1549,7 @@ export default function CRM() {
                 <header className="px-6 sm:px-10 py-6 sm:py-10 border-b border-white/10 flex flex-col xl:flex-row xl:items-center justify-between bg-zinc-900 gap-6">
                   <div className="flex items-center gap-6 min-w-0">
                     <div
-                      className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 bg-emerald-500 text-black rounded-3xl flex items-center justify-center text-xl sm:text-2xl sm:text-3xl font-black italic shadow-2xl"
+                      className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 bg-forest-500 text-black rounded-3xl flex items-center justify-center text-xl sm:text-2xl sm:text-3xl font-black italic shadow-2xl"
                       aria-hidden="true"
                     >
                       {selectedCustomer.firstName[0]}
@@ -1418,24 +1565,70 @@ export default function CRM() {
                           {selectedCustomer.lastName}
                         </h2>
                         {selectedCustomer.isHOA && (
-                          <div className="micro-label bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-1 rounded-lg">
+                          <div className="micro-label bg-ember-500/10 text-ember-400 border border-ember-500/20 px-2 py-1 rounded-lg">
                             Community Partner
                           </div>
                         )}
                       </div>
-                      <p className="text-white/40 font-bold tracking-tight text-lg truncate">
-                        {selectedCustomer.address}
-                      </p>
+                      <div className="flex items-center gap-3 mt-2">
+                        <p className="text-white/40 font-bold tracking-tight text-lg truncate">
+                          {selectedCustomer.address}
+                        </p>
+                        <div className="flex items-center gap-2 border border-white/10 rounded-lg pl-2 pr-1 py-1 bg-black/40">
+                          <span className="text-[10px] uppercase font-black text-white/40 tracking-widest">Status:</span>
+                          <select 
+                            value={selectedCustomer.status || "lead"}
+                            onChange={async (e) => {
+                              const newStatus = e.target.value;
+                              try {
+                                await updateDoc(doc(db, "customers", selectedCustomer.id!), { status: newStatus });
+                                setSelectedCustomer({...selectedCustomer, status: newStatus});
+                                showToast(`Disposition updated to ${newStatus}`, "success");
+                              } catch(err) {
+                                showToast("Failed to update status", "error");
+                              }
+                            }}
+                            className="bg-transparent text-xs font-bold text-white uppercase focus:outline-none cursor-pointer appearance-none"
+                          >
+                            <option value="lead">Lead</option>
+                            <option value="contacted">Contacted</option>
+                            <option value="estimate">Estimate Sent</option>
+                            <option value="active">Active Client</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="lost">Lost</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:gap-4 shrink-0">
+                    {(userRole === "admin" || userRole === "owner") && (
+                      <button
+                        onClick={() => handleDeleteSelectedCustomer()}
+                        className="px-4 py-4 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-2xl transition-all micro-label font-black uppercase tracking-widest flex items-center gap-2 border-4 border-red-500/20"
+                        aria-label="Delete Client"
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setEditCustomer(selectedCustomer);
+                        setShowEditModal(true);
+                      }}
+                      className="px-6 py-4 bg-white/5 text-white hover:bg-white hover:text-black rounded-2xl transition-all micro-label font-black uppercase tracking-widest flex items-center gap-2 border-4 border-white/10"
+                      aria-label="Edit Profile"
+                    >
+                      <UserPlus size={16} aria-hidden="true" />
+                      Edit Profile
+                    </button>
                     <button
                       onClick={() => {
                         const url = `${window.location.origin}/portal/${selectedCustomer.id}`;
                         navigator.clipboard.writeText(url);
                         showToast("Client Portal Link copied to clipboard", "success");
                       }}
-                      className="px-6 py-4 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black rounded-2xl transition-all micro-label font-black uppercase tracking-widest flex items-center gap-2 border-4 border-emerald-500/20"
+                      className="px-6 py-4 bg-forest-500/20 text-forest-400 hover:bg-forest-500 hover:text-black rounded-2xl transition-all micro-label font-black uppercase tracking-widest flex items-center gap-2 border-4 border-forest-500/20"
                       aria-label="Share Magic Link"
                     >
                       <Share size={16} aria-hidden="true" />
@@ -1459,13 +1652,36 @@ export default function CRM() {
                     </button>
                   </div>
                 </header>
+                
+                <div className="bg-zinc-950 border-b border-white/10 px-6 sm:px-10 flex overflow-x-auto custom-scrollbar">
+                  {[
+                    { id: "overview", label: "Overview", icon: User },
+                    { id: "timeline", label: "Timeline", icon: History },
+                    { id: "estimates", label: "Estimates", icon: FileText },
+                    { id: "jobs", label: "Jobs", icon: Briefcase },
+                    { id: "sms", label: "Twilio SMS", icon: MessageSquare },
+                    { id: "tasks", label: "Tasks", icon: CheckSquare },
+                    { id: "documents", label: "Documents", icon: Folder }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setCustomerViewTab(tab.id as any)}
+                      className={`px-6 py-4 border-b-2 text-xs md:text-[10px] font-black uppercase tracking-widest whitespace-nowrap flex items-center gap-2 transition-all ${customerViewTab === tab.id ? "border-forest-500 text-forest-500 bg-forest-500/5" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
+                    >
+                      <tab.icon size={14} />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
                 <div
                   className="flex-1 overflow-auto p-10 space-y-6 lg:space-y-10 custom-scrollbar"
                   aria-labelledby="modal-client-name"
                 >
-                  {/* Agent Intelligence Section */}
-                  <section className="bg-emerald-500 rounded-2xl p-8 text-black relative overflow-hidden shadow-2xl shadow-emerald-500/20">
+                  {customerViewTab === "overview" && (
+                    <>
+                      {/* Agent Intelligence Section */}
+                  <section className="bg-forest-500 rounded-2xl p-8 text-black relative overflow-hidden shadow-2xl shadow-forest-500/20">
                     <div className="absolute top-0 right-0 w-48 h-48 bg-white/20 rounded-full -mr-24 -mt-24 opacity-50 blur-3xl animate-pulse" />
                     <div className="flex items-center gap-4 mb-8 relative">
                       <div className="w-12 h-12 bg-black/10 rounded-2xl flex items-center justify-center">
@@ -1574,10 +1790,10 @@ export default function CRM() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-10">
                     {/* Left Column: Vision Analysis */}
                     <div className="space-y-6 sm:space-y-8">
-                      <div className="bg-zinc-900 border border-white/5 shadow-2xl p-8">
+                      <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-8">
                         <div className="flex items-center justify-between mb-8">
                           <div className="flex items-center gap-3">
-                            <Eye size={22} className="text-blue-400" />
+                            <Eye size={22} className="text-celtic-400" />
                             <h4 className="text-xs md:text-[10px] text-white/40 uppercase">
                               Site Analysis
                             </h4>
@@ -1586,7 +1802,7 @@ export default function CRM() {
                             <Link
                               to="../design-studio"
                               state={{ customer: selectedCustomer }}
-                              className="text-xs md:text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors uppercase font-black tracking-widest"
+                              className="text-xs md:text-[10px] text-forest-400 hover:text-forest-300 transition-colors uppercase font-black tracking-widest"
                             >
                               Design Grid
                             </Link>
@@ -1605,13 +1821,13 @@ export default function CRM() {
                             (insight: Insight, i: number) => (
                               <div
                                 key={i}
-                                className="group cursor-pointer p-6 rounded-[28px] bg-white/5 border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.08] transition-all"
+                                className="group cursor-pointer p-6 rounded-[28px] bg-white/5 border border-white/5 hover:border-celtic-500/30 hover:bg-white/[0.08] transition-all"
                               >
                                 <div className="flex justify-between items-start mb-2">
                                   <h5 className="text-sm font-black text-white">
                                     {insight.title}
                                   </h5>
-                                  <span className="micro-label text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-lg border border-blue-500/20">
+                                  <span className="micro-label text-celtic-400 bg-celtic-500/10 px-2 py-0.5 rounded-lg border border-celtic-500/20">
                                     +{insight.roi} ROI
                                   </span>
                                 </div>
@@ -1621,7 +1837,7 @@ export default function CRM() {
                                 <button
                                   onClick={() => draftProposal(insight.title)}
                                   disabled={isDraftingProposal}
-                                  className="mt-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 micro-label text-emerald-400"
+                                  className="mt-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 micro-label text-forest-400"
                                 >
                                   <FileText size={14} />
                                   {isDraftingProposal
@@ -1648,19 +1864,19 @@ export default function CRM() {
                     {/* Right Column: Property Profile */}
                     <div className="space-y-6 sm:space-y-8">
                       {selectedCustomer.isHOA && (
-                        <div className="bg-purple-500/5 rounded-2xl p-8 border border-purple-500/20 shadow-2xl relative overflow-hidden group/hoa">
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-3xl -mr-16 -mt-16" />
+                        <div className="bg-ember-500/5 rounded-2xl p-8 border border-ember-500/20 shadow-2xl relative overflow-hidden group/hoa">
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-ember-500/10 blur-3xl -mr-16 -mt-16" />
                           <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-3">
                               <ShieldAlert
                                 size={20}
-                                className="text-purple-400"
+                                className="text-ember-400"
                               />
-                              <h4 className="text-xs md:text-[10px] text-purple-400 font-black uppercase tracking-widest">
+                              <h4 className="text-xs md:text-[10px] text-ember-400 font-black uppercase tracking-widest">
                                 Community Rules
                               </h4>
                             </div>
-                            <button className="text-[9px] font-black text-purple-400/40 hover:text-purple-400 uppercase tracking-widest transition-colors decoration-purple-500/20 underline underline-offset-4">
+                            <button className="text-[9px] font-black text-ember-400/40 hover:text-ember-400 uppercase tracking-widest transition-colors decoration-ember-500/20 underline underline-offset-4">
                               Edit Bylaws
                             </button>
                           </div>
@@ -1669,9 +1885,9 @@ export default function CRM() {
                               (rule: string, i: number) => (
                                 <div
                                   key={i}
-                                  className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group-hover/hoa:border-purple-500/20 transition-all"
+                                  className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group-hover/hoa:border-ember-500/20 transition-all"
                                 >
-                                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_10px_#a855f7]" />
+                                  <div className="w-1.5 h-1.5 rounded-full bg-ember-500 shadow-[0_0_10px_#a855f7]" />
                                   <span className="text-xs font-bold text-white/70 uppercase tracking-tight">
                                     {rule}
                                   </span>
@@ -1730,19 +1946,22 @@ export default function CRM() {
                         </div>
                       </div>
 
+                      <CustomerPortalCard customer={selectedCustomer} />
+                      <CRMCustomFields customer={selectedCustomer} onUpdate={() => {}} />
+
                       {/* Property Value Growth (HOA Board Presentation) */}
                       {selectedCustomer.isHOA && (
                         <div className="bg-black/40 rounded-2xl p-10 border border-white/5 shadow-2xl relative">
                           <div className="flex items-center justify-between mb-8">
                             <div>
-                              <h4 className="text-xs md:text-[10px] text-emerald-400 font-black uppercase tracking-widest flex items-center gap-2">
+                              <h4 className="text-xs md:text-[10px] text-forest-400 font-black uppercase tracking-widest flex items-center gap-2">
                                 <TrendingUp size={16} /> Estimated Value Growth
                               </h4>
                               <p className="text-xs md:text-[10px] text-white/40 uppercase mt-1">
                                 For Board Presentation
                               </p>
                             </div>
-                            <button className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all text-[9px] px-4 py-2 font-black uppercase tracking-widest rounded-full border-2 border-emerald-500/20 hover:border-emerald-500">
+                            <button className="bg-forest-500/10 text-forest-400 hover:bg-forest-500 hover:text-black transition-all text-[9px] px-4 py-2 font-black uppercase tracking-widest rounded-full border-2 border-forest-500/20 hover:border-forest-500">
                               Export PDF
                             </button>
                           </div>
@@ -1805,13 +2024,13 @@ export default function CRM() {
                             initial={{ opacity: 0, scale: 0.9 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.9 }}
-                            className="bg-zinc-900 border border-white/5 shadow-2xl p-10 border-emerald-500/20 relative overflow-hidden"
+                            className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-10 border-forest-500/20 relative overflow-hidden"
                           >
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-3xl -mr-16 -mt-16" />
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-forest-500/5 blur-3xl -mr-16 -mt-16" />
                             <div className="flex items-center justify-between mb-8">
                               <h3
                                 id="proposal-draft-label"
-                                className="text-xs md:text-[10px] text-emerald-400 font-bold uppercase"
+                                className="text-xs md:text-[10px] text-forest-400 font-bold uppercase"
                               >
                                 Draft Quote
                               </h3>
@@ -1832,11 +2051,11 @@ export default function CRM() {
                             <textarea
                               id="proposal-draft-text"
                               aria-labelledby="proposal-draft-label"
-                              className="w-full min-w-0 h-80 text-base sm:text-sm text-white/80 font-medium leading-relaxed custom-scrollbar pr-4 mb-8 bg-black/40 p-6 rounded-3xl border border-white/5 focus:border-emerald-500/30 focus:outline-none transition-all resize-none shadow-inner"
+                              className="w-full min-w-0 h-80 text-base sm:text-sm text-white/80 font-medium leading-relaxed custom-scrollbar pr-4 mb-8 bg-black/40 p-6 rounded-3xl border border-white/5 focus:border-forest-500/30 focus:outline-none transition-all resize-none shadow-inner"
                               value={proposalDraft}
                               onChange={(e) => setProposalDraft(e.target.value)}
                             />
-                            <button className="w-full bg-emerald-500 text-black rounded-3xl py-5 font-bold text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                            <button className="w-full bg-forest-500 text-black rounded-3xl py-5 font-bold text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-forest-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all">
                               <Send size={18} /> Send to{" "}
                               {selectedCustomer.firstName}
                             </button>
@@ -1877,7 +2096,7 @@ export default function CRM() {
                         </button>
                         {isSavingNotes && (
                           <div
-                            className="w-4 h-4 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"
+                            className="w-4 h-4 border-2 border-forest-500/20 border-t-forest-500 rounded-full animate-spin"
                             aria-label="Saving notes"
                           />
                         )}
@@ -1893,7 +2112,7 @@ export default function CRM() {
                       <textarea
                         id="client-site-notes"
                         aria-labelledby="site-notes-label"
-                        className="w-full min-w-0 min-h-[220px] bg-zinc-900 border border-white/5 shadow-2xl p-10 text-lg text-white font-medium focus:border-emerald-500/30 focus:outline-none transition-all leading-relaxed placeholder:text-white/10"
+                        className="w-full min-w-0 min-h-[220px] bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-10 text-lg text-white font-medium focus:border-forest-500/30 focus:outline-none transition-all leading-relaxed placeholder:text-white/10"
                         placeholder="Special instructions, gate codes, pet info..."
                         value={customerNotes}
                         onChange={(e) => {
@@ -1940,7 +2159,7 @@ export default function CRM() {
                          const headerDate = email.payload.headers.find((h: any) => h.name === 'Date')?.value || '';
                          let bodySnippet = email.snippet || '';
                          return (
-                           <div key={email.id || idx} className="bg-zinc-900 border border-white/5 shadow-2xl p-8">
+                           <div key={email.id || idx} className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-8">
                             <div className="flex justify-between items-center mb-4">
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-xl bg-red-500/10 border-4 border-red-500/20 flex items-center justify-center">
@@ -1960,13 +2179,13 @@ export default function CRM() {
                          )
                       })}
 
-                      <div className="bg-zinc-900 border border-white/5 shadow-2xl p-8">
+                      <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-8">
                         <div className="flex justify-between items-center mb-4">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center">
                               <MessageSquare
                                 size={14}
-                                className="text-emerald-400"
+                                className="text-forest-400"
                               />
                             </div>
                             <span className="text-sm font-black italic uppercase tracking-tight">
@@ -1977,7 +2196,7 @@ export default function CRM() {
                             24.0 hours ago
                           </span>
                         </div>
-                        <p className="text-sm text-white/60 font-medium leading-relaxed italic border-l-4 border-emerald-500/20 pl-6 py-2">
+                        <p className="text-sm text-white/60 font-medium leading-relaxed italic border-l-4 border-forest-500/20 pl-6 py-2">
                           "Discussed the upcoming fertilization schedule. Client
                           indicated high satisfaction with the precision hedge
                           trimming."
@@ -1985,6 +2204,175 @@ export default function CRM() {
                       </div>
                     </div>
                   </section>
+                  </>
+                  )}
+
+                  {customerViewTab === "timeline" && (
+                    <div className="space-y-6">
+                      <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl relative">
+                        <div className="absolute left-[39px] top-12 bottom-12 w-px bg-white/10 z-0 hidden sm:block"></div>
+                        <h4 className="text-sm font-black uppercase tracking-widest text-white mb-8 flex items-center gap-2">
+                          <History size={16} className="text-forest-400" /> Activity History
+                        </h4>
+                        
+                        <div className="space-y-8 relative z-10">
+                          {/* Event 1 */}
+                          <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 group">
+                            <div className="w-10 h-10 rounded-full bg-forest-500/20 border border-forest-500/50 flex items-center justify-center shrink-0 z-10 group-hover:scale-110 transition-transform hidden sm:flex">
+                              <Star size={14} className="text-forest-400" />
+                            </div>
+                            <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl p-6 group-hover:border-white/10 transition-colors">
+                              <div className="flex justify-between items-start mb-2">
+                                <h5 className="text-sm font-bold text-white">Client Created</h5>
+                                <span className="text-[10px] text-white/40 uppercase font-black tracking-widest bg-black/40 px-2 py-1 rounded">Just Now</span>
+                              </div>
+                              <p className="text-xs text-white/60">Profile was added to the unified registry.</p>
+                            </div>
+                          </div>
+                          
+                          {/* Event 2 */}
+                          <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 group">
+                            <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/50 flex items-center justify-center shrink-0 z-10 group-hover:scale-110 transition-transform hidden sm:flex">
+                              <Brain size={14} className="text-blue-400" />
+                            </div>
+                            <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl p-6 group-hover:border-white/10 transition-colors">
+                              <div className="flex justify-between items-start mb-2">
+                                <h5 className="text-sm font-bold text-white">Property Evaluated</h5>
+                                <span className="text-[10px] text-white/40 uppercase font-black tracking-widest bg-black/40 px-2 py-1 rounded">2 hours ago</span>
+                              </div>
+                              <p className="text-xs text-white/60">Automatic AI property analysis completed for ({selectedCustomer.address}).</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {customerViewTab === "sms" && (
+                    <div className="space-y-6">
+                      <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl flex flex-col h-[500px]">
+                        <h4 className="text-sm font-black uppercase tracking-widest text-white mb-6 flex items-center gap-2">
+                          <MessageSquare size={16} className="text-forest-400" /> Twilio SMS Hub
+                        </h4>
+                        
+                        <div className="flex-1 overflow-y-auto space-y-4 mb-6 custom-scrollbar pr-2">
+                          {smsHistory.map((msg) => (
+                            <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`max-w-[80%] rounded-2xl p-4 ${msg.direction === 'outbound' ? 'bg-forest-500/20 border border-forest-500/30 text-white' : 'bg-white/5 border border-white/5 text-white/80'}`}>
+                                <p className="text-sm font-medium">{msg.body}</p>
+                                <span className="text-[9px] opacity-40 mt-2 block">{new Date(msg.date).toLocaleTimeString()}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {smsHistory.length === 0 && (
+                            <div className="text-center py-20 text-white/20 italic text-sm font-medium">
+                              No recent messages. Start a conversation above.
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-auto relative">
+                          <textarea
+                            value={smsMessage}
+                            onChange={(e) => setSmsMessage(e.target.value)}
+                            placeholder="Type an SMS message to send via Twilio..."
+                            className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 pr-16 text-sm text-white resize-none h-24 focus:border-forest-500/50 focus:outline-none transition-all custom-scrollbar"
+                          />
+                          <button
+                            onClick={handleSendSms}
+                            disabled={isSendingSms || !smsMessage.trim()}
+                            className="absolute bottom-4 right-4 w-10 h-10 bg-forest-500 text-black rounded-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
+                          >
+                            <Send size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {customerViewTab === "estimates" && (
+                     <div className="space-y-6">
+                       <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl flex flex-col items-center justify-center py-20 text-center">
+                         <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-4">
+                           <FileText size={24} className="text-white/40" />
+                         </div>
+                         <h4 className="text-lg font-black tracking-tight text-white uppercase mb-2">No Open Estimates</h4>
+                         <p className="text-sm text-white/40 mb-8 max-w-sm">Use the AI Property analyzer or Design Studio to easily generate a new proposal to sync to QuickBooks/Stripe.</p>
+                         <button className="px-6 py-3 bg-white text-black text-xs font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all">
+                           Create Blank Quote
+                         </button>
+                       </div>
+                     </div>
+                  )}
+
+                  {customerViewTab === "tasks" && (
+                    <div className="space-y-6">
+                      <div className="bg-zinc-900 border border-white/5 molten-edge p-6 shadow-2xl flex items-center gap-4">
+                        <input
+                          type="text"
+                          placeholder="Quick add a follow-up task..."
+                          className="flex-1 bg-transparent border-none text-white font-medium focus:outline-none text-sm placeholder:text-white/20"
+                        />
+                        <button className="px-4 py-2 bg-forest-500 text-black rounded-lg text-xs font-black uppercase tracking-widest hover:bg-forest-400">Add</button>
+                      </div>
+                      
+                      <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl">
+                         <h4 className="text-xs font-black text-white/40 uppercase tracking-widest mb-6">Upcoming Tasks</h4>
+                         <div className="space-y-3">
+                           <div className="flex items-start gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors cursor-pointer group">
+                             <div className="w-5 h-5 rounded border border-white/20 mt-0.5 group-hover:border-forest-500/50 flex items-center justify-center transition-colors">
+                               <CheckSquare size={12} className="opacity-0 group-hover:opacity-100 text-forest-500" />
+                             </div>
+                             <div>
+                               <p className="text-sm font-bold text-white mb-1">Follow up on Fall Cleanup proposal</p>
+                               <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-400/10 px-2 py-0.5 rounded border border-rose-400/20">Due Today</span>
+                             </div>
+                           </div>
+                           <div className="flex items-start gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors cursor-pointer group">
+                             <div className="w-5 h-5 rounded border border-white/20 mt-0.5 group-hover:border-forest-500/50 flex items-center justify-center transition-colors">
+                               <CheckSquare size={12} className="opacity-0 group-hover:opacity-100 text-forest-500" />
+                             </div>
+                             <div>
+                               <p className="text-sm font-bold text-white mb-1">Check irrigation system leaks</p>
+                               <span className="text-[10px] uppercase font-bold text-white/40">Next Week</span>
+                             </div>
+                           </div>
+                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {customerViewTab === "jobs" && (
+                    <CRMJobs customer={selectedCustomer} />
+                  )}
+
+                  {customerViewTab === "documents" && (
+                    <div className="space-y-6">
+                      <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl">
+                        <div className="flex items-center justify-between mb-8">
+                          <h4 className="text-sm font-black uppercase tracking-widest text-white">Files & Photos</h4>
+                          <label className="px-4 py-2 bg-white/10 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all cursor-pointer border border-white/10">
+                            Upload File
+                            <input type="file" className="hidden" accept="image/*,.pdf,.doc" />
+                          </label>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="aspect-square bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center justify-center p-4 hover:bg-white/10 transition-colors cursor-pointer group relative overflow-hidden">
+                             <FileText size={24} className="text-white/40 mb-3 group-hover:scale-110 transition-transform" />
+                             <span className="text-[10px] font-bold text-white text-center truncate w-full">Contract.pdf</span>
+                          </div>
+                          <div className="aspect-square bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center justify-center p-4 hover:bg-white/10 transition-colors cursor-pointer group relative overflow-hidden">
+                             <img src="https://images.unsplash.com/photo-1558904541-efa843a96f09?w=800&q=80" alt="Lawn" className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-opacity" />
+                             <div className="relative z-10 w-full h-full flex flex-col justify-end">
+                               <span className="text-[10px] font-bold text-white bg-black/60 px-2 py-1 rounded truncate w-full">Backyard_Before.jpg</span>
+                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
                 <footer className="px-6 sm:px-10 py-6 sm:py-10 border-t border-white/10 bg-black/40 flex gap-6">
@@ -2010,14 +2398,14 @@ export default function CRM() {
                         " " +
                         selectedCustomer.lastName,
                     }}
-                    className="flex-1 py-5 bg-zinc-900 border border-white/5 shadow-2xl text-white font-black text-xs uppercase tracking-[0.2em] hover:bg-white hover:text-black transition-all flex items-center justify-center gap-3"
+                    className="flex-1 py-5 bg-zinc-900 border border-white/5 molten-edge shadow-2xl text-white font-black text-xs uppercase tracking-[0.2em] hover:bg-white hover:text-black transition-all flex items-center justify-center gap-3"
                   >
                     <FileText size={18} />
                     Generate Invoice
                   </Link>
                   <button
                     onClick={() => handleSendMagicLink(selectedCustomer)}
-                    className="flex-1 py-5 bg-emerald-500/10 border-4 border-emerald-500/20 shadow-2xl text-emerald-400 font-black text-xs uppercase tracking-[0.2em] hover:bg-emerald-500 hover:text-black transition-all flex flex-col items-center justify-center gap-1"
+                    className="flex-1 py-5 bg-forest-500/10 border-4 border-forest-500/20 shadow-2xl text-forest-400 font-black text-xs uppercase tracking-[0.2em] hover:bg-forest-500 hover:text-black transition-all flex flex-col items-center justify-center gap-1"
                   >
                     <div className="flex items-center gap-2">
                        <Share size={18} />
@@ -2051,7 +2439,7 @@ export default function CRM() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-zinc-900 border border-white/5 w-full max-w-lg rounded-2xl overflow-hidden relative shadow-2xl p-10"
+              className="bg-zinc-900 border border-white/5 molten-edge w-full max-w-lg rounded-2xl overflow-hidden relative shadow-2xl p-10"
             >
               <div className="flex items-center gap-4 mb-8">
                 <div className="w-12 h-12 bg-rose-500/20 rounded-2xl flex items-center justify-center text-rose-500">
@@ -2110,7 +2498,7 @@ export default function CRM() {
                 </button>
                 <button
                   onClick={() => setShowLowStockModal(false)}
-                  className="flex-1 py-4 bg-emerald-500 text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest hover:scale-105 shadow-xl shadow-emerald-500/20"
+                  className="flex-1 py-4 bg-forest-500 text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest hover:scale-105 shadow-xl shadow-forest-500/20"
                 >
                   Proceed with Draft
                 </button>
@@ -2132,7 +2520,7 @@ export default function CRM() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-zinc-900 border border-white/5 w-full max-w-xl rounded-2xl overflow-hidden relative shadow-2xl flex flex-col"
+              className="bg-zinc-900 border border-white/5 molten-edge w-full max-w-xl rounded-2xl overflow-hidden relative shadow-2xl flex flex-col"
             >
               <div className="p-10 border-b border-white/10 bg-zinc-900">
                 <div className="flex items-center justify-between mb-2">
@@ -2313,7 +2701,7 @@ export default function CRM() {
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="w-full bg-emerald-500 text-black py-6 rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                    className="w-full bg-forest-500 text-black py-6 rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-forest-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
                   >
                     {isSaving ? (
                       <span className="inline-block w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -2335,6 +2723,161 @@ export default function CRM() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Edit Client Modal */}
+      <AnimatePresence>
+        {showEditModal && editCustomer && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:pl-64">
+            <div
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => setShowEditModal(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-2xl bg-zinc-950 border border-white/5 molten-edge rounded-[32px] p-8 sm:p-12 shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar"
+            >
+              <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-8">
+                Edit Client Profile
+              </h3>
+
+              <form onSubmit={handleUpdateCustomerProfile} className="space-y-6">
+                {formErrors._form && (
+                  <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-2xl text-xs font-bold mb-6">
+                    {formErrors._form}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 ml-2">
+                      First Name
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      className={`w-full bg-white/5 border ${formErrors.firstName ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
+                      value={editCustomer.firstName}
+                      onChange={(e) =>
+                        setEditCustomer({ ...editCustomer, firstName: e.target.value })
+                      }
+                    />
+                    {formErrors.firstName && (
+                      <p className="text-xs md:text-[10px] text-rose-500 font-bold ml-2">
+                        {formErrors.firstName}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 ml-2">
+                      Last Name
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      className={`w-full bg-white/5 border ${formErrors.lastName ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
+                      value={editCustomer.lastName}
+                      onChange={(e) =>
+                        setEditCustomer({ ...editCustomer, lastName: e.target.value })
+                      }
+                    />
+                    {formErrors.lastName && (
+                      <p className="text-xs md:text-[10px] text-rose-500 font-bold ml-2">
+                        {formErrors.lastName}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 ml-2">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    className={`w-full bg-white/5 border ${formErrors.email ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
+                    value={editCustomer.email || ""}
+                    onChange={(e) =>
+                      setEditCustomer({ ...editCustomer, email: e.target.value })
+                    }
+                  />
+                  {formErrors.email && (
+                    <p className="text-xs md:text-[10px] text-rose-500 font-bold ml-2">
+                      {formErrors.email}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/40 ml-2">
+                      Phone
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      className={`w-full bg-white/5 border ${formErrors.phone ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
+                      value={editCustomer.phone || ""}
+                      onChange={(e) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          phone: e.target.value,
+                        })
+                      }
+                    />
+                    {formErrors.phone && (
+                      <p className="text-xs md:text-[10px] text-rose-500 font-bold ml-2">
+                        {formErrors.phone}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/40 ml-2">
+                      Service Address
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      className={`w-full bg-white/5 border ${formErrors.address ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
+                      value={editCustomer.address || ""}
+                      onChange={(e) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          address: e.target.value,
+                        })
+                      }
+                    />
+                    {formErrors.address && (
+                      <p className="text-xs md:text-[10px] text-rose-500 font-bold ml-2">
+                        {formErrors.address}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 mt-8">
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="w-full bg-forest-500 text-black py-6 rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                  >
+                    {isSaving ? "Saving..." : "Save Changes"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="w-full py-6 bg-white/5 border border-white/5 text-white/60 hover:text-white rounded-3xl font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showBulkTagModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:pl-64">
@@ -2366,7 +2909,7 @@ export default function CRM() {
                 <button
                   onClick={handleBulkTag}
                   disabled={isSaving || !bulkTagInput.trim()}
-                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-4 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all flex items-center justify-center"
+                  className="w-full bg-forest-500 hover:bg-forest-400 text-black py-4 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all flex items-center justify-center"
                 >
                   {isSaving ? "Saving..." : "Apply Tags"}
                 </button>

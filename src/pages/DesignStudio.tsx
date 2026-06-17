@@ -7,7 +7,6 @@ import React, { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useTenant } from "../contexts/TenantContext";
 import { useRole } from "../hooks/useRole";
-import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { DesignDatabasePanel } from "../components/DesignDatabasePanel";
 import { useAuditLog } from "../hooks/useAuditLog";
 import { motion, AnimatePresence } from "motion/react";
@@ -89,6 +88,7 @@ export default function DesignStudio() {
   const [result, setResult] = useState<DesignResult | null>(null);
   const [mockupImage, setMockupImage] = useState<string | null>(null);
   const [isGeneratingMockup, setIsGeneratingMockup] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [overriddenViolations, setOverriddenViolations] = useState(false);
@@ -98,54 +98,63 @@ export default function DesignStudio() {
   const [activeView, setActiveView] = useState<"studio" | "database">("studio");
   const [activeTab, setActiveTab] = useState<"scribble" | "compare">("scribble");
 
-  const onResult = React.useCallback((event: any) => {
-    let currentTranscript = "";
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      currentTranscript += event.results[i][0].transcript;
-    }
-    setTranscript(currentTranscript);
-  }, []);
+  const recognitionRef = useRef<any>(null);
 
-  const [isActive, setIsActive] = useState(false);
-
-  const onError = React.useCallback((event: any) => {
-    console.error("Speech recognition error", event.error);
-  }, []);
-
-  const onEnd = React.useCallback(() => {
-    if (isActive) {
-      setTimeout(() => {
-         if (isActive) start();
-      }, 500);
-    }
-  }, [isActive]);
-
-  const { isListening: isRecording, supported, start, stop, recognition } = useSpeechRecognition({
-    continuous: true,
-    interimResults: true,
-    onResult,
-    onError,
-    onEnd
-  });
-
-  // Cleanup
   useEffect(() => {
+    if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+
+      rec.onresult = (event: any) => {
+        let currentTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        setTranscript(currentTranscript);
+      };
+
+      rec.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsRecording(false);
+      };
+
+      rec.onend = () => {
+        if (isRecording) {
+          try {
+            rec.start();
+          } catch (e) {}
+        }
+      };
+
+      recognitionRef.current = rec;
+    }
+
     return () => {
-      stop();
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
     };
-  }, [stop]);
+  }, [isRecording]);
 
   const toggleRecording = () => {
-    if (!supported) {
+    if (!recognitionRef.current) {
       alert("Speech recognition is not supported in this browser environment. Please use Google Chrome or Safari.");
       return;
     }
-    if (isActive) {
-      setIsActive(false);
-      stop();
+    if (isRecording) {
+      setIsRecording(false);
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
     } else {
-      setIsActive(true);
-      start();
+      setIsRecording(true);
+      try {
+        recognitionRef.current.start();
+      } catch (e) {}
     }
   };
 
@@ -187,46 +196,25 @@ export default function DesignStudio() {
     }
   }, [location.state]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      const MAX_WIDTH = 1080;
-      const MAX_HEIGHT = 1080;
-      let width = img.width;
-      let height = img.height;
-
-      if (width > height) {
-        if (width > MAX_WIDTH) {
-          height *= MAX_WIDTH / width;
-          width = MAX_WIDTH;
-        }
-      } else {
-        if (height > MAX_HEIGHT) {
-          width *= MAX_HEIGHT / height;
-          height = MAX_HEIGHT;
-        }
+    if (file) {
+      try {
+        const base64 = await compressImage(file, 1200, 1200, 0.8);
+        
+        setImage(base64);
+        setActiveTab("scribble");
+        
+        // Also capture the original natural aspect ratio
+        const img = new Image();
+        img.onload = () => {
+          setImageAspectRatio(img.width / img.height);
+        };
+        img.src = base64;
+      } catch (err) {
+        console.error("Image compression error:", err);
       }
-
-      canvas.width = width;
-      canvas.height = height;
-
-      ctx?.drawImage(img, 0, 0, width, height);
-
-      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75);
-      setImage(compressedBase64);
-      setActiveTab("scribble");
-      setImageAspectRatio(width / height);
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
+    }
   };
 
   const generateMockup = async () => {
@@ -364,8 +352,8 @@ export default function DesignStudio() {
     <div className="space-y-12">
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-10 pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
-          <div className="inline-flex items-center gap-3 px-4 py-2 bg-emerald-500/10 rounded-full border border-emerald-500 text-xs font-black uppercase tracking-widest text-emerald-500">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
+          <div className="inline-flex items-center gap-3 px-4 py-2 bg-forest-500/10 rounded-full border border-forest-500 text-xs font-black uppercase tracking-widest text-forest-500">
+            <div className="w-2 h-2 bg-forest-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
             Design Studio Ready
           </div>
           <h1 className="text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words font-sans font-black tracking-normal md:tracking-tighter leading-none text-white italic uppercase">
@@ -429,7 +417,7 @@ export default function DesignStudio() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-900/60 p-4 rounded-2xl border border-white/5 text-sm">
             {/* Step 1 */}
             <div className="flex items-center gap-3">
-              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${!image ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>1</span>
+              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${!image ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5, 168, 69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>1</span>
               <div>
                 <span className={`font-black uppercase tracking-widest text-[10px] block ${!image ? "text-white" : "text-zinc-500"}`}>Step 1: Point & Shoot</span>
               </div>
@@ -437,7 +425,7 @@ export default function DesignStudio() {
             <div className="hidden sm:block text-zinc-800 text-xs font-mono">─────────</div>
             {/* Step 2 */}
             <div className="flex items-center gap-3">
-              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${image && !result ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>2</span>
+              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${image && !result ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5, 168, 69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>2</span>
               <div>
                 <span className={`font-black uppercase tracking-widest text-[10px] block ${image && !result ? "text-white" : "text-zinc-500"}`}>Step 2: Scribble & Talk</span>
               </div>
@@ -445,7 +433,7 @@ export default function DesignStudio() {
             <div className="hidden sm:block text-zinc-800 text-xs font-mono">─────────</div>
             {/* Step 3 */}
             <div className="flex items-center gap-3">
-              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${result ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>3</span>
+              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${result ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5, 168, 69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>3</span>
               <div>
                 <span className={`font-black uppercase tracking-widest text-[10px] block ${result ? "text-white" : "text-zinc-500"}`}>Step 3: Reveal Comparison</span>
               </div>
@@ -480,15 +468,15 @@ export default function DesignStudio() {
               )}
 
               <div className={`flex-1 bg-black/40 rounded-2xl border border-white/5 p-4 sm:p-6 relative overflow-hidden transition-all flex flex-col ${image ? "" : "min-h-[500px] h-[550px]"}`}>
-                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-[100px] -mr-32 -mt-32 pointer-events-none" />
+                <div className="absolute top-0 right-0 w-64 h-64 bg-forest-500/5 rounded-full blur-[100px] -mr-32 -mt-32 pointer-events-none" />
 
                 <div className="flex-1 relative flex items-center justify-center min-h-0">
                   {!image ? (
                     <div 
-                      className="absolute inset-0 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-xl hover:border-emerald-500/20 hover:bg-white/[0.02] cursor-pointer transition-all text-center p-8 group"
+                      className="absolute inset-0 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-xl hover:border-forest-500/20 hover:bg-white/[0.02] cursor-pointer transition-all text-center p-8 group"
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <div className="w-20 h-20 bg-emerald-500/10 rounded-3xl flex items-center justify-center border border-emerald-500/20 group-hover:scale-110 transition-transform text-emerald-400 mb-6 shadow-[0_10px_30px_rgba(16,185,129,0.1)]">
+                      <div className="w-20 h-20 bg-forest-500/10 rounded-3xl flex items-center justify-center border border-forest-500/20 group-hover:scale-110 transition-transform text-forest-400 mb-6 shadow-[0_10px_30px_rgba(5, 168, 69,0.1)]">
                         <Camera size={36} />
                       </div>
                       <h3 className="text-xl font-black italic uppercase tracking-wider text-white mb-2">📸 Point & Shoot</h3>
@@ -513,8 +501,8 @@ export default function DesignStudio() {
                         exit={{ opacity: 0 }}
                         className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm rounded-xl"
                       >
-                        <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin shadow-[0_0_15px_rgba(16,185,129,0.2)]" />
-                        <p className="mt-6 font-black uppercase tracking-[0.2em] text-emerald-400 text-xs">
+                        <div className="w-16 h-16 border-4 border-forest-500/20 border-t-forest-500 rounded-full animate-spin shadow-[0_0_15px_rgba(5, 168, 69,0.2)]" />
+                        <p className="mt-6 font-black uppercase tracking-[0.2em] text-forest-400 text-xs">
                           Gemini Analyzing Scene...
                         </p>
                         <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mt-2">formulating geo-spatial materials</p>
@@ -526,7 +514,7 @@ export default function DesignStudio() {
 
               {/* Voice Interface Dock */}
               {image && (
-                <div className="h-28 bg-zinc-900 border border-white/5 rounded-2xl p-4 flex items-center gap-6 shrink-0 transition-all">
+                <div className="h-28 bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-4 flex items-center gap-6 shrink-0 transition-all">
                   <button
                     onClick={toggleRecording}
                     aria-label={
@@ -598,10 +586,10 @@ export default function DesignStudio() {
                       className="h-full flex flex-col items-center justify-center gap-4 text-center p-6"
                     >
                       <div className="relative">
-                        <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
+                        <div className="w-16 h-16 border-4 border-forest-500/20 border-t-forest-500 rounded-full animate-spin" />
                         <Sparkles
                           size={20}
-                          className="absolute inset-0 m-auto text-emerald-400 animate-pulse"
+                          className="absolute inset-0 m-auto text-forest-400 animate-pulse"
                         />
                       </div>
                       <div>
@@ -620,7 +608,7 @@ export default function DesignStudio() {
                       className="space-y-8"
                     >
                       <div>
-                        <p className="micro-label text-emerald-400 uppercase tracking-widest font-black mb-4 flex items-center gap-2">
+                        <p className="micro-label text-forest-400 uppercase tracking-widest font-black mb-4 flex items-center gap-2">
                           <ImageIcon size={14} /> Identified Areas
                         </p>
                         <div className="space-y-3">
@@ -641,7 +629,7 @@ export default function DesignStudio() {
                       </div>
 
                       <div>
-                        <p className="micro-label text-emerald-400 uppercase tracking-widest font-black mb-4 flex items-center gap-2">
+                        <p className="micro-label text-forest-400 uppercase tracking-widest font-black mb-4 flex items-center gap-2">
                           <CloudLightning size={14} /> Design Vision
                         </p>
                         <p className="text-xs font-bold italic text-white leading-relaxed tracking-normal p-4 bg-white/5 rounded-xl border border-white/5 uppercase">
@@ -683,30 +671,6 @@ export default function DesignStudio() {
                             )}
                           </div>
                         )}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-4">
-                          <p className="micro-label text-emerald-400 uppercase tracking-widest font-black flex items-center gap-2">
-                            <Trees size={14} /> Materials Needed
-                          </p>
-                          
-                          {tenant?.settings?.subFeatures?.semanticStyleLearning && (
-                            <span className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg text-[9px] font-black uppercase tracking-widest">
-                              <BrainCircuit size={12} /> Semantic Style Match Active
-                            </span>
-                          )}
-                        </div>
-                        
-                        {tenant?.settings?.subFeatures?.semanticStyleLearning && (
-                          <div className="mb-4 p-4 bg-black/20 border border-white/5 rounded-2xl text-xs text-white/50 leading-relaxed font-bold">
-                            <span className="text-white">YardWorx Logic: </span>
-                            Gemini pulled directly from your custom contractor installation heuristics:<br/>
-                            <span className="italic opacity-80 mt-1 block border-l-2 border-emerald-500/50 pl-2">
-                              "{tenant?.settings?.customInstallRules || 'No custom rules applied.'}"
-                            </span>
-                          </div>
-                        )}
 
                         {result.approvalRequired && (
                           <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between gap-3">
@@ -726,14 +690,14 @@ export default function DesignStudio() {
                           {/* Reveal mockup rendering */}
                           <div className="flex flex-col gap-4">
                             {mockupImage ? (
-                              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between text-emerald-400">
+                              <div className="p-4 bg-forest-500/10 border border-forest-500/20 rounded-2xl flex items-center justify-between text-forest-400">
                                 <div className="flex items-center gap-2">
                                   <CheckCircle2 size={16} />
                                   <span className="text-[10px] font-black uppercase tracking-widest">Active Slider Active</span>
                                 </div>
                                 <button 
                                   onClick={() => setActiveTab("compare")} 
-                                  className="px-4 py-1.5 bg-emerald-500 text-black hover:bg-emerald-400 rounded-xl text-[10px] font-black uppercase transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                                  className="px-4 py-1.5 bg-forest-500 text-black hover:bg-forest-400 rounded-xl text-[10px] font-black uppercase transition-all shadow-[0_0_15px_rgba(5, 168, 69,0.2)]"
                                 >
                                   Open Slider
                                 </button>
@@ -742,7 +706,7 @@ export default function DesignStudio() {
                               <button
                                 onClick={generateMockup}
                                 disabled={isGeneratingMockup}
-                                className="w-full py-5 bg-gradient-to-r from-emerald-500 to-teal-500 text-black border border-transparent rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(16,185,129,0.35)] hover:scale-[1.02] active:scale-95 duration-200"
+                                className="w-full py-5 bg-gradient-to-r from-forest-500 to-forest-500 text-black border border-transparent rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(5, 168, 69,0.35)] hover:scale-[1.02] active:scale-95 duration-200"
                               >
                                 {isGeneratingMockup ? (
                                     <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> Formulating High-Res Render...</>
@@ -755,12 +719,12 @@ export default function DesignStudio() {
 
                           <div>
                             <div className="flex items-center justify-between mb-4">
-                              <p className="micro-label text-emerald-400 uppercase tracking-widest font-black flex items-center gap-2">
+                              <p className="micro-label text-forest-400 uppercase tracking-widest font-black flex items-center gap-2">
                                 <Trees size={14} /> Materials Needed
                               </p>
                               
                               {tenant?.settings?.subFeatures?.semanticStyleLearning && (
-                                <span className="flex items-center gap-1 px-2.5 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-md text-[8px] font-black uppercase tracking-widest">
+                                <span className="flex items-center gap-1 px-2.5 py-0.5 bg-celtic-500/10 text-celtic-400 border border-celtic-500/20 rounded-md text-[8px] font-black uppercase tracking-widest">
                                   <BrainCircuit size={10} /> Style Sync
                                 </span>
                               )}
@@ -769,7 +733,7 @@ export default function DesignStudio() {
                             {tenant?.settings?.subFeatures?.semanticStyleLearning && (
                               <div className="mb-4 p-3 bg-black/40 border border-white/5 rounded-xl text-[11px] text-white/50 leading-relaxed font-bold">
                                 <span className="text-white">YardWorx Custom Rule:</span><br/>
-                                <span className="italic opacity-80 mt-1 block border-l-2 border-emerald-500/50 pl-2">
+                                <span className="italic opacity-80 mt-1 block border-l-2 border-forest-500/50 pl-2">
                                   "{tenant?.settings?.customInstallRules || 'No custom rules applied.'}"
                                 </span>
                               </div>
@@ -808,7 +772,7 @@ export default function DesignStudio() {
                               {(result.tiers && activeTier !== "standard" ? result.tiers[activeTier].estimatedMaterials : result.estimatedMaterials).map((material: any, idx: number) => (
                                 <div
                                   key={idx}
-                                  className="flex items-center justify-between p-3.5 bg-white/5 border-l-2 border-emerald-500/40 rounded-xl"
+                                  className="flex items-center justify-between p-3.5 bg-white/5 border-l-2 border-forest-500/40 rounded-xl"
                                 >
                                   <div>
                                     <p className="text-xs font-black uppercase text-white tracking-widest">
@@ -818,7 +782,7 @@ export default function DesignStudio() {
                                       {material.quantity}
                                     </p>
                                     {material.geoSpatialVolume && tenant?.settings?.subFeatures?.visionAnalysis !== false && (
-                                      <p className="border border-emerald-500/20 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 mt-1.5 inline-block rounded-md text-[8px] font-black uppercase tracking-[0.2em]">
+                                      <p className="border border-forest-500/20 text-forest-400 bg-forest-500/10 px-2 py-0.5 mt-1.5 inline-block rounded-md text-[8px] font-black uppercase tracking-[0.2em]">
                                         AI Geo-Spatial Vol: {material.geoSpatialVolume}
                                       </p>
                                     )}
@@ -861,7 +825,7 @@ export default function DesignStudio() {
                           </div>
 
                           <div className="pt-6 border-t border-white/5">
-                            <p className="micro-label text-emerald-400 uppercase tracking-widest font-black mb-2 flex items-center justify-between">
+                            <p className="micro-label text-forest-400 uppercase tracking-widest font-black mb-2 flex items-center justify-between">
                               <span>ROI Valuation</span>
                               {result.tiers && activeTier !== "standard" && result.tiers[activeTier].totalCost && role !== "employee" && role !== "foreman" && (
                                 <span className="text-amber-400 font-mono">Total Est: ${result.tiers[activeTier].totalCost}</span>
@@ -879,10 +843,10 @@ export default function DesignStudio() {
                             <button 
                               onClick={handleSaveToDrive}
                               disabled={isSavingDrive}
-                              className="w-full bg-blue-500/10 text-blue-400 py-4 rounded-xl border border-blue-500/20 font-black uppercase tracking-widest text-xs hover:bg-blue-500/20 active:scale-95 duration-150 transition-all flex items-center justify-center gap-2"
+                              className="w-full bg-celtic-500/10 text-celtic-400 py-4 rounded-xl border border-celtic-500/20 font-black uppercase tracking-widest text-xs hover:bg-celtic-500/20 active:scale-95 duration-150 transition-all flex items-center justify-center gap-2"
                             >
                               {isSavingDrive ? (
-                                <div className="w-4 h-4 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
+                                <div className="w-4 h-4 border-2 border-celtic-400/30 border-t-celtic-400 rounded-full animate-spin" />
                               ) : (
                                 <Save size={14} />
                               )}
@@ -917,7 +881,7 @@ export default function DesignStudio() {
         <button
           onClick={() => image && processDesign(image)}
           aria-label="Process design transformation"
-          className={`fixed bottom-12 right-12 w-20 h-20 bg-emerald-500 text-black rounded-3xl shadow-2xl flex items-center justify-center transition-all ${image ? "scale-100 opacity-100 rotate-0" : "scale-0 opacity-0 rotate-180"}`}
+          className={`fixed bottom-12 right-12 w-20 h-20 bg-forest-500 text-black rounded-3xl shadow-2xl flex items-center justify-center transition-all ${image ? "scale-100 opacity-100 rotate-0" : "scale-0 opacity-0 rotate-180"}`}
         >
           <Plus size={32} />
         </button>
@@ -931,7 +895,7 @@ export default function DesignStudio() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-2xl bg-zinc-900 border-4 border-emerald-500/20 rounded-2xl p-8 sm:p-12 shadow-2xl relative"
+              className="w-full max-w-2xl bg-zinc-900 border-4 border-forest-500/20 rounded-2xl p-8 sm:p-12 shadow-2xl relative"
             >
               <button 
                 onClick={closeOnboarding}
@@ -942,12 +906,12 @@ export default function DesignStudio() {
               </button>
               
               <div className="flex flex-col sm:flex-row items-center gap-6 mb-8 text-center sm:text-left">
-                <div className="w-20 h-20 shrink-0 bg-emerald-500/10 rounded-3xl flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                <div className="w-20 h-20 shrink-0 bg-forest-500/10 rounded-3xl flex items-center justify-center text-forest-400 border border-forest-500/20">
                   <BrainCircuit size={40} />
                 </div>
                 <div>
                   <h2 className="text-2xl sm:text-3xl font-black italic text-white uppercase tracking-normal md:tracking-tighter mb-1">YardWorx Logic Engine</h2>
-                  <p className="text-emerald-400 font-bold uppercase tracking-widest text-xs md:text-[11px] bg-emerald-500/10 inline-block px-3 py-1 rounded-md">Semantic Style Learning Active</p>
+                  <p className="text-forest-400 font-bold uppercase tracking-widest text-xs md:text-[11px] bg-forest-500/10 inline-block px-3 py-1 rounded-md">Semantic Style Learning Active</p>
                 </div>
               </div>
               
@@ -957,7 +921,7 @@ export default function DesignStudio() {
                 </p>
                 <div className="bg-black/40 border border-white/10 rounded-3xl p-6 md:p-8 space-y-6">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-                    <Target size={20} className="text-emerald-400 shrink-0 mt-1 sm:mt-0" />
+                    <Target size={20} className="text-forest-400 shrink-0 mt-1 sm:mt-0" />
                     <div>
                       <h3 className="text-white font-black uppercase tracking-widest text-xs md:text-[11px] mb-1">Geo-Spatial Calculation</h3>
                       <p className="text-xs text-white/50">Draw on the canvas. AI analyzes the physical area to estimate precise yardage matching your real-world practices.</p>
@@ -965,7 +929,7 @@ export default function DesignStudio() {
                   </div>
                   
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-                    <Trees size={20} className="text-emerald-400 shrink-0 mt-1 sm:mt-0" />
+                    <Trees size={20} className="text-forest-400 shrink-0 mt-1 sm:mt-0" />
                     <div>
                       <h3 className="text-white font-black uppercase tracking-widest text-xs md:text-[11px] mb-1">Actionable Nuance</h3>
                       <p className="text-xs text-white/50">YardWorx reads your <span className="text-white">Custom Installation Heuristics</span> from settings to select your preferred plant spacing, soils, and material volumes.</p>
@@ -973,7 +937,7 @@ export default function DesignStudio() {
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-                    <Map size={20} className="text-emerald-400 shrink-0 mt-1 sm:mt-0" />
+                    <Map size={20} className="text-forest-400 shrink-0 mt-1 sm:mt-0" />
                     <div>
                       <h3 className="text-white font-black uppercase tracking-widest text-xs md:text-[11px] mb-1">Hallucination Busters</h3>
                       <p className="text-xs text-white/50">It prevents impossible requests (e.g. planting a tree in a driveway) using strong physics constraints.</p>
@@ -984,7 +948,7 @@ export default function DesignStudio() {
 
               <button 
                 onClick={closeOnboarding}
-                className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:scale-[1.02] active:scale-95 transition-all"
+                className="w-full bg-forest-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-[0_0_40px_rgba(5, 168, 69,0.3)] hover:scale-[1.02] active:scale-95 transition-all"
               >
                 Acknowledge & Start Designing
               </button>
