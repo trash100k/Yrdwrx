@@ -16,6 +16,7 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 import admin from "firebase-admin";
 import Redis from "ioredis";
+import { isPrivateIP } from "./src/lib/securityUtils";
 
 dotenv.config();
 
@@ -1648,9 +1649,16 @@ async function startServer() {
   app.post("/api/agent/onboarding-scrape", aiLimiter, async (req, res) => {
     try {
       const { url } = req.body;
+
+      if (!url || isPrivateIP(url)) {
+        return res.status(400).json({ error: "Invalid or restricted URL provided." });
+      }
+
       let rawText = "";
       try {
-          const fetchRes = await fetch(url);
+          // SECURITY: Disable automatic redirect following to prevent redirect-based SSRF bypasses.
+          // The isPrivateIP check only validates the initial URL.
+          const fetchRes = await fetch(url, { redirect: 'error' });
           rawText = await fetchRes.text();
           rawText = rawText.replace(/<[^>]*>?/gm, ' ').slice(0, 10000); // Rudimentary tag stripping to fit in context window
       } catch (fetchErr) {
