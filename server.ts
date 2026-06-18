@@ -14,6 +14,7 @@ import { WebSocketServer } from "ws";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import { validateUrl } from "./src/lib/securityUtils";
 
 dotenv.config();
 
@@ -1645,9 +1646,16 @@ async function startServer() {
   app.post("/api/agent/onboarding-scrape", aiLimiter, async (req, res) => {
     try {
       const { url } = req.body;
+
+      // SSRF Mitigation: Validate URL and prevent access to private IP ranges
+      if (!validateUrl(url)) {
+        return res.status(400).json({ error: "Invalid URL provided for scraping." });
+      }
+
       let rawText = "";
       try {
-          const fetchRes = await fetch(url);
+          // SSRF Mitigation: Explicitly set redirect to 'error' to prevent redirect-based bypasses
+          const fetchRes = await fetch(url, { redirect: 'error' });
           rawText = await fetchRes.text();
           rawText = rawText.replace(/<[^>]*>?/gm, ' ').slice(0, 10000); // Rudimentary tag stripping to fit in context window
       } catch (fetchErr) {
