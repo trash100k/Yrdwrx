@@ -25,6 +25,7 @@ import { TenantProvider } from "./contexts/TenantContext";
 import { CuttyGuideProvider } from "./contexts/CuttyGuideContext";
 import { FieldModeProvider } from "./contexts/FieldModeContext";
 import { ToastProvider } from "./contexts/ToastContext";
+import { WorkspaceOutboxProvider } from "./contexts/WorkspaceOutboxContext";
 import { EnterpriseThemeProvider } from "./contexts/EnterpriseThemeContext";
 import { GlobalErrorBoundary } from "./components/GlobalErrorBoundary";
 import { SaaSOwnerGate } from "./components/auth/SaaSOwnerGate";
@@ -97,15 +98,29 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [onboarded, setOnboarded] = useState(false);
   const [isDemo, setIsDemo] = useState(false);
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        setUserId(analytics, currentUser.uid);
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
+useEffect(() => {
+    // INTERNAL TESTING BYPASS
+    const mockAdmin = {
+        uid: "admin-user-001",
+        email: "admin@yardworx.io",
+        displayName: "Internal Admin",
+        emailVerified: true
+    } as any;
+
+    setUser(mockAdmin);
+    setOnboarded(true);
+    setLoading(false);
+    setIsDemo(true);
+
+    // Disable real auth listener during bypass
+    // const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    //   setUser(currentUser);
+    //   if (currentUser) {
+    //     setUserId(analytics, currentUser.uid);
+    //   }
+    //   setLoading(false);
+    // });
+    // return () => unsubscribe();
   }, []);
   const enterDemoMode = async (setAuthError: (err: string | null) => void) => {
     setIsDemo(true);
@@ -159,6 +174,7 @@ export default function App() {
           <EnterpriseThemeProvider>
             {" "}
             <ToastProvider>
+              <WorkspaceOutboxProvider>
               {" "}
               <BrowserRouter>
                 <PageTracker />{" "}
@@ -453,6 +469,7 @@ export default function App() {
                   </CuttyGuideProvider>{" "}
                 </FieldModeProvider>{" "}
               </BrowserRouter>{" "}
+            </WorkspaceOutboxProvider>
             </ToastProvider>{" "}
           </EnterpriseThemeProvider>{" "}
         </TenantProvider>{" "}

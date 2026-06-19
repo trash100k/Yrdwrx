@@ -71,7 +71,7 @@ export const PrinterFriendlyInvoice = forwardRef<HTMLDivElement, Props>(
             {!invoice?.items || invoice.items.length === 0 ? (
               <tr className="border-b border-gray-100">
                 <td className="py-4 px-2 text-gray-800">
-                  {invoice?.serviceType || "Standard Services Rendered"}
+                  {invoice?.type || "Standard Services Rendered"}
                 </td>
                 <td className="py-4 px-2 text-right font-medium text-gray-800">
                   ${(invoice?.amount || 0).toLocaleString(undefined, {

@@ -27,20 +27,8 @@ import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 import { useRole } from "../hooks/useRole";
 
-interface SpeechRecognitionType {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: { results: { transcript: string }[][] }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
 
-interface SpeechRecognitionConstructor {
-  new (): SpeechRecognitionType;
-}
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 export default function BrainChat({
   isOpen = true,
@@ -53,17 +41,16 @@ export default function BrainChat({
   mode?: "overlay" | "full";
   hideHeader?: boolean;
 }) {
+  const { transcript: hookTranscript, isListening, startListening, stopListening, setTranscript: setHookTranscript } = useSpeechRecognition();
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<
     { id: string; text: string; sender: "user" | "agent" }[]
   >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
-  const [isListening, setIsListening] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const { startTour, setFocus } = useCuttyGuide();
   const { tenant } = useTenant();
   const { role } = useRole();
@@ -88,52 +75,19 @@ export default function BrainChat({
     return () => clearInterval(interval);
   }, [isLoading]);
 
-  // Initialize Speech Recognition
+  // Sync hook transcript to query
   useEffect(() => {
-    const SpeechRecognition =
-      (
-        window as unknown as {
-          SpeechRecognition: SpeechRecognitionConstructor;
-          webkitSpeechRecognition: SpeechRecognitionConstructor;
-        }
-      ).SpeechRecognition ||
-      (
-        window as unknown as {
-          SpeechRecognition: SpeechRecognitionConstructor;
-          webkitSpeechRecognition: SpeechRecognitionConstructor;
-        }
-      ).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = "en-US";
-
-      recognitionRef.current.onresult = (event: {
-        results: { transcript: string }[][];
-      }) => {
-        const transcript = event.results[0][0].transcript;
-        setQuery((prev) => prev + (prev ? " " : "") + transcript);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onerror = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-      };
-    }
-  }, []);
+      if (hookTranscript) {
+          setQuery(prev => prev + (prev ? " " : "") + hookTranscript);
+          setHookTranscript("");
+      }
+  }, [hookTranscript]);
 
   const toggleListening = () => {
     if (isListening) {
-      recognitionRef.current?.stop();
+      stopListening();
     } else {
-      setQuery("");
-      recognitionRef.current?.start();
-      setIsListening(true);
+      startListening();
     }
   };
 

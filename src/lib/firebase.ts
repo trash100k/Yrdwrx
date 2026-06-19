@@ -11,7 +11,7 @@ import {
   addDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import firebaseConfig from "../../firebase-applet-config.json";
+const firebaseConfig = { projectId: "gen-lang-client-0666744694" };
 
 const app = initializeApp(firebaseConfig);
 

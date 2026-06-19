@@ -2,6 +2,7 @@ import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import { Mic, Loader2, Play, Square, FileText, CheckSquare, X, Wand2 } from "lucide-react";
+
 import { Job } from "../types";
 import { updateDoc, doc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -11,62 +12,25 @@ interface Props {
   onClose: () => void;
 }
 
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+
 export function VoiceMemoJobModal({ job, onClose }: Props) {
-  const [isRecording, setIsRecording] = useState(false);
+  const { transcript: hookTranscript, isListening: isRecording, startListening, stopListening, setTranscript: setHookTranscript } = useSpeechRecognition();
   const [transcript, setTranscript] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   
   const [notes, setNotes] = useState(job.notes || "");
   const [checklist, setChecklist] = useState(job.checklist || []);
-  
-  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "webkitSpeechRecognition" in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-
-      recognitionRef.current.onresult = (event: any) => {
-        let currentTranscript = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        setTranscript((prev) => prev ? prev + " " + currentTranscript : currentTranscript);
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsRecording(false);
-      };
-      
-      recognitionRef.current.onend = () => {
-         if (isRecording) {
-            recognitionRef.current.start();
-         }
-      }
-    }
-    
-    return () => {
-        if (recognitionRef.current) {
-            recognitionRef.current.stop();
-        }
-    }
-  }, [isRecording]);
+    setTranscript(hookTranscript);
+  }, [hookTranscript]);
 
   const toggleRecording = () => {
-    if (!recognitionRef.current) {
-        alert("Speech recognition is not supported in this browser. Please use Chrome.");
-        return;
-    }
     if (isRecording) {
-      setIsRecording(false);
-      recognitionRef.current.stop();
+      stopListening();
     } else {
-      setTranscript("");
-      setIsRecording(true);
-      recognitionRef.current.start();
+      startListening();
     }
   };
 

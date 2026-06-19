@@ -97,7 +97,7 @@ export function StripeConnectSection() {
                 <button
                   type="button"
                   className="px-6 py-4 bg-white hover:bg-zinc-200 text-black font-black text-xs uppercase tracking-widest rounded-2xl transition-all flex items-center justify-center gap-2"
-                  onClick={() => alert("Redirecting to Stripe Dashboard...")}
+                  onClick={() => window.open("https://dashboard.stripe.com/test", "_blank")}
                 >
                   Stripe Dashboard <ExternalLink size={14} />
                 </button>

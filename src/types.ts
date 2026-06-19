@@ -85,6 +85,9 @@ export interface Invoice {
   client?: string;
   amount: number;
   status: "PAID" | "PENDING" | "OVERDUE" | "DRAFT" | "paid" | string;
+  address?: string;
+  type?: string;
+  serviceType?: string;
   date: string;
   dueDate?: string;
   items?: Record<string, unknown>[];
