@@ -14,6 +14,7 @@ import { WebSocketServer } from "ws";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import { validateSafeUrl } from "./src/lib/securityUtils.js";
 
 dotenv.config();
 
@@ -1645,9 +1646,15 @@ async function startServer() {
   app.post("/api/agent/onboarding-scrape", aiLimiter, async (req, res) => {
     try {
       const { url } = req.body;
+
+      // SSRF PROTECTION: Validate URL and prevent internal network access
+      if (!await validateSafeUrl(url)) {
+        return res.status(400).json({ error: "Invalid or restricted URL." });
+      }
+
       let rawText = "";
       try {
-          const fetchRes = await fetch(url);
+          const fetchRes = await fetch(url, { redirect: 'error' });
           rawText = await fetchRes.text();
           rawText = rawText.replace(/<[^>]*>?/gm, ' ').slice(0, 10000); // Rudimentary tag stripping to fit in context window
       } catch (fetchErr) {
