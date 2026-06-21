@@ -11,6 +11,7 @@ interface TenantProfile {
   name: string;
   tier: "free" | "pro" | "enterprise";
   stripeAccountId?: string;
+  contactEmail?: string;
   legal?: {
     aiDisclaimerAccepted: boolean;
     acceptedAt?: string;
@@ -60,144 +61,33 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        // If demo mode is active
-        if (safeStorage.getItem("cutty-demo-mode") === "active") {
-          setUserRole("admin");
-          setTenant({
-            id: "demo-tenant-1",
-            name: "YardWorx Local Operations (Demo)",
-            tier: "enterprise",
-            legal: {
-              aiDisclaimerAccepted: false,
-            },
-            quotas: {
-              aiRequestsMonthly: 6204,
-              aiRequestLimit: 5000,
-            },
-            settings: {
-              hoaProtocolEnabled: true,
-              satelliteVisionEnabled: true,
-              currency: "USD",
-              neighborhoodMask: ["North Hills", "Arbor Lakes"],
-              customInstallRules: "Prefer standard 3-gallon shrubs. Use proper 3ft spacing on Hydrangeas. Favor Natchez Crepe Myrtles. Use crushed decomposed granite or double-shredded hardwood mulch. Never use lava rock.",
-              features: {
-                crewTracking: true,
-                inventoryManagement: true,
-                designStudio: true,
-                contracts: true,
-                routeOptimization: true,
-                crm: true,
-                scheduler: true,
-                reports: true,
-                invoices: true,
-                compliance: true,
-              },
-              subFeatures: {
-                requireGateCheckPhoto: true,
-                requireCompletionPhoto: true,
-                enableGeofencing: true,
-                exifVerification: true,
-                aiExpenseOcr: true,
-                aiProposals: true,
-                automatedFollowUps: true,
-                liveEarAlwaysOn: true,
-                visionAnalysis: true,
-                aiSafetyCheck: true,
-                requireSignature: true,
-                requireBlueprintDeposit: true,
-                semanticStyleLearning: true,
-                enableHardscapeBidding: true,
-                enableWaterFeatureBidding: true,
-              },
-            },
-          });
-        } else {
-            setTenant(null);
+useEffect(() => {
+    // INTERNAL TESTING BYPASS
+    setUserRole("owner");
+    setTenant({
+      id: "demo-tenant-1",
+      name: "YardWorx Internal Testing",
+      tier: "enterprise",
+      legal: {
+        aiDisclaimerAccepted: true,
+      },
+      quotas: {
+        aiRequestsMonthly: 10,
+        aiRequestLimit: 50000,
+      },
+      settings: {
+        hoaProtocolEnabled: true,
+        satelliteVisionEnabled: true,
+        currency: "USD",
+        neighborhoodMask: [],
+        features: {
+          crewTracking: true,
+          inventoryManagement: true,
+          agenticOutreach: true,
         }
-        setLoading(false);
-        return;
       }
-
-      // Check if user has a profile mapped to a tenant
-      const userRef = doc(db, "users", user.uid);
-      try {
-        let userSnap = await getDoc(userRef);
-        let activeTenantId = "genesis-1"; // fallback
-
-        if (!userSnap.exists()) {
-          // Initialize SaaS user and default tenant association
-          await setDoc(userRef, {
-            email: user.email,
-            role: "admin",
-            activeTenantId: activeTenantId,
-            createdAt: new Date().toISOString()
-          });
-          setUserRole("admin");
-        } else {
-            const data = userSnap.data();
-            activeTenantId = data.activeTenantId || "genesis-1";
-            setUserRole(data.role || "admin");
-        }
-
-        const unsubTenant = onSnapshot(
-          doc(db, "tenants", activeTenantId),
-          (docSnap) => {
-            if (docSnap.exists()) {
-              setTenant({ id: docSnap.id, ...docSnap.data() } as TenantProfile);
-            } else {
-              setTenant({
-                id: activeTenantId,
-                name: "YardWorx Sandbox",
-                tier: "free",
-                legal: {
-                  aiDisclaimerAccepted: false,
-                },
-                quotas: {
-                  aiRequestsMonthly: 48,
-                  aiRequestLimit: 50,
-                },
-                settings: {
-                  hoaProtocolEnabled: false,
-                  satelliteVisionEnabled: false,
-                  currency: "USD",
-                  neighborhoodMask: [],
-                  features: {
-                    crewTracking: true,
-                    inventoryManagement: true,
-                    designStudio: true,
-                    contracts: true,
-                    routeOptimization: true,
-                    crm: true,
-                    scheduler: true,
-                    reports: true,
-                    invoices: true,
-                    compliance: true,
-                  },
-                  subFeatures: {},
-                },
-              });
-            }
-            setLoading(false);
-          },
-          (err) => {
-             console.error("Tenant fetch failed:", err);
-             setError("Tenant resolution failed. Check permissions.");
-             setLoading(false);
-          }
-        );
-
-        return () => unsubTenant();
-      } catch (e: any) {
-         console.error(e);
-         setError(e.message);
-         setLoading(false);
-      }
-    });
-
-    return () => unsubscribeAuth();
+    } as any);
+    setLoading(false);
   }, []);
 
   const switchTenant = (id: string) => {

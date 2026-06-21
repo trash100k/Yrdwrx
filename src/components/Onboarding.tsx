@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
@@ -15,7 +15,9 @@ import {
   Brain,
   Zap,
 } from "lucide-react";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 export default function Onboarding({ onComplete }: { onComplete: () => void }) {
+  const { transcript: hookTranscript, isListening: isRec, startListening, stopListening, setTranscript: setHookTranscript } = useSpeechRecognition();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     companyName: "",
@@ -32,7 +34,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     },
   });
   const [error, setError] = useState<string | null>(null);
-  const [isListening, setIsListening] = useState<string | null>(null);
+  const [activeDictationField, setActiveDictationField] = useState<string | null>(null);
 
   const availableServices = [
     "Lawn Mowing",
@@ -44,37 +46,19 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     "Fertilization",
   ];
 
+
+      useEffect(() => {
+          if (hookTranscript && activeDictationField) {
+              setFormData(prev => ({ ...prev, [activeDictationField]: hookTranscript }));
+              setHookTranscript("");
+              stopListening();
+              setActiveDictationField(null);
+          }
+      }, [hookTranscript]);
+
   const handleDictation = (field: "companyName" | "ownerPhone" | "serviceArea") => {
-    // @ts-ignore
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError("Speech recognition is not supported in this browser.");
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    
-    recognition.onstart = () => {
-       setIsListening(field);
-    };
-    
-    recognition.onresult = (event: any) => {
-       const transcript = event.results[0][0].transcript;
-       setFormData(prev => ({ ...prev, [field]: transcript }));
-       setIsListening(null);
-    };
-
-    recognition.onerror = () => {
-       setIsListening(null);
-       setError("Error recognizing speech. Please try again.");
-    };
-
-    recognition.onend = () => {
-       setIsListening(null);
-    };
-
-    recognition.start();
+     setActiveDictationField(field);
+     startListening();
   };
 
   const handleAutoDetectLocation = () => {

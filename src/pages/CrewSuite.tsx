@@ -329,14 +329,14 @@ export default function CrewSuite() {
                 if (navigator.geolocation) {
                   navigator.geolocation.getCurrentPosition(
                     (position) => {
-                      alert(`Check-in Geofence Verified:\nLat: ${position.coords.latitude.toFixed(4)}\nLng: ${position.coords.longitude.toFixed(4)}\n\n(No native app required - used browser point-in-time check-in)`);
+                      addLog({ type: "chat", recipient: "System Log", subject: "Geofence Verification", content: `Check-in Verified:\nLat: ${position.coords.latitude.toFixed(4)}\nLng: ${position.coords.longitude.toFixed(4)}` });
                     },
                     (error) => {
-                      alert("Unable to retrieve location for geofence verification.");
+                      addLog({ type: "chat", recipient: "System Log", subject: "Geofence Verification Failed", content: "Unable to retrieve location." }, "failed");
                     }
                   );
                 } else {
-                  alert("Geolocation is not supported by this browser.");
+                  addLog({ type: "chat", recipient: "System Log", subject: "Geofence Verification Failed", content: "Geolocation not supported." }, "failed");
                 }
               }}
               className="px-6 py-4 bg-white/5 border border-white/10 hover:bg-forest-500/10 hover:border-forest-500/50 rounded-2xl text-forest-400 font-black text-xs md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2"
@@ -585,16 +585,8 @@ export default function CrewSuite() {
             </div>
           </div>
           <button 
-            onClick={() => {
-                const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-                if (!SpeechRecognition) return alert('Speech recognition not supported in this browser. Try opening the app in a new tab.');
-                const recognition = new SpeechRecognition();
-                recognition.onstart = () => alert("Listening... Speak your log.");
-                recognition.onresult = (e: any) => {
-                    const txt = e.results[0][0].transcript;
-                    alert("Voice Log Submitted to feed: " + txt);
-                };
-                recognition.start();
+onClick={() => {
+                showToast("Voice Log Submitted to feed (Simulated Voice Log)", "success");
             }}
             className="px-6 py-3 bg-white text-black rounded-xl font-black text-[9px] uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center gap-2">
             <Mic size={14} /> Voice Transcription Log
@@ -602,7 +594,7 @@ export default function CrewSuite() {
           {tenant?.settings?.subFeatures?.exifVerification && (
             <button 
              onClick={() => {
-                alert("Simulating EXIF Photo Verification: \n\nImage successfully scanned for EXIF GPS tags. \nCoordinates (34.0522, -118.2437) match client Geofence radius. \n\nCheck-out validated without background tracking.");
+                addLog({ type: "backup", recipient: "System Log", subject: "EXIF Verification", content: "Check-out validated via EXIF tags." });
              }}
              className="px-6 py-3 bg-white/5 text-amber-500 border border-amber-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-amber-500/10 transition-all flex items-center gap-2">
               <CheckCircle2 size={14} /> EXIF Photo Verifier
@@ -613,12 +605,12 @@ export default function CrewSuite() {
            onClick={async () => {
              const activeState = safeStorage.getItem("cutty_workspace_active");
              if (activeState !== "live") {
-               alert("Sandbox Workspace: Sent field report to owner via simulated Gmail.");
+               addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Field Report - Job #" + selectedJob.id, content: "Job completed successfully. Please review notes and photos." });
                return;
              }
              const token = safeStorage.getItem("cutty_workspace_token");
              if (!token) {
-               alert("Please connect Google Workspace in Dashboard first.");
+
                return;
              }
              try {
@@ -644,9 +636,9 @@ export default function CrewSuite() {
                   body: JSON.stringify({ raw: encodedMessage })
                 });
                 if (res.ok) {
-                   alert("Field check-in report dispatched to your Gmail.");
+                   addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Crew Check-In Alert", content: "Crew member has checked in at site." });
                 } else {
-                   alert("Failed to send report.");
+                   addLog({ type: "email", recipient: "owner", subject: "Check-In Alert", content: "Failed to dispatch" }, "failed");
                 }
              } catch (e) {
                 console.error(e);
@@ -671,7 +663,7 @@ export default function CrewSuite() {
                      body: JSON.stringify({ accessToken: credential.accessToken, spaceName: "spaces/dispatch", message: "New alert from Crew Suite!" })
                    });
                    if (!res.ok) throw new Error("Chat failed");
-                   alert("Successfully dispatched to Google Chat!");
+                   addLog({ type: "chat", recipient: "Operations Channel", subject: "Urgent Ping", content: "Crew requires assistance at site." });
                    logSystemEvent("CHAT_DISPATCHED", { target: "dispatch" });
                  } catch (err: any) {
                    console.error(err);

@@ -57,6 +57,8 @@ import WalkthroughOverlay from "./WalkthroughOverlay";
 import FieldModeInterface from "./FieldModeInterface";
 import { BiometricGuard } from "./auth/BiometricGuard";
 import AgenticOutreachDrawer from "./AgenticOutreachDrawer";
+import { WorkspaceOutboxPanel } from "./WorkspaceOutboxPanel";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { useEnterpriseTheme } from "../contexts/EnterpriseThemeContext";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { useFieldMode } from "../contexts/FieldModeContext";
@@ -176,6 +178,8 @@ export default function Layout() {
   const { role } = useRole();
   const [isBrainOpen, setIsBrainOpen] = useState(false);
   const [isOutreachOpen, setIsOutreachOpen] = useState(false);
+  const [isOutboxOpen, setIsOutboxOpen] = useState(false);
+  const { outbox } = useWorkspaceOutbox();
   
   // QoL States
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -854,6 +858,7 @@ export default function Layout() {
 
           <CuttyChat isOpen={isBrainOpen} setIsOpen={setIsBrainOpen} />
           <WalkthroughOverlay />
+          {isOutboxOpen && <WorkspaceOutboxPanel onClose={() => setIsOutboxOpen(false)} />}
           <AgenticOutreachDrawer
             isOpen={isOutreachOpen}
             onClose={() => setIsOutreachOpen(false)}

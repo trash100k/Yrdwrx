@@ -59,11 +59,20 @@ export default function LiveEar() {
       nextStartTimeRef.current = audioCtx.currentTime;
 
       // Try grabbing video but don't fail if they don't have a camera
-      let stream;
+let stream;
       try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error("getUserMedia not supported");
+        }
         stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: "environment" } });
       } catch (e) {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch(audioErr) {
+            console.error("Cannot access media devices", audioErr);
+            setIsConnecting(false);
+            return;
+        }
       }
       
       const source = audioCtx.createMediaStreamSource(stream);

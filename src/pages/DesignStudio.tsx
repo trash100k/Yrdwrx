@@ -7,6 +7,9 @@ import React, { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useTenant } from "../contexts/TenantContext";
 import { useRole } from "../hooks/useRole";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+import { useToast } from "../contexts/ToastContext";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { DesignDatabasePanel } from "../components/DesignDatabasePanel";
 import { useAuditLog } from "../hooks/useAuditLog";
 import { motion, AnimatePresence } from "motion/react";
@@ -68,6 +71,8 @@ interface DesignResult {
 export default function DesignStudio() {
   const location = useLocation();
   const { tenant } = useTenant();
+  const { showToast } = useToast();
+  const { addLog } = useWorkspaceOutbox();
   const { role } = useRole();
   const { logAction } = useAuditLog();
   const [image, setImage] = useState<string | null>(null);
@@ -88,73 +93,32 @@ export default function DesignStudio() {
   const [result, setResult] = useState<DesignResult | null>(null);
   const [mockupImage, setMockupImage] = useState<string | null>(null);
   const [isGeneratingMockup, setIsGeneratingMockup] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const { transcript: hookTranscript, isListening: isRecording, startListening, stopListening, setTranscript: setHookTranscript } = useSpeechRecognition();
   const [transcript, setTranscript] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [overriddenViolations, setOverriddenViolations] = useState(false);
 
   const [isGeneratingTiers, setIsGeneratingTiers] = useState(false);
-  const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "best">("standard");
+const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "best">("standard");
   const [activeView, setActiveView] = useState<"studio" | "database">("studio");
   const [activeTab, setActiveTab] = useState<"scribble" | "compare">("scribble");
 
-  const recognitionRef = useRef<any>(null);
-
   useEffect(() => {
-    if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      const rec = new SpeechRecognition();
-      rec.continuous = true;
-      rec.interimResults = true;
-
-      rec.onresult = (event: any) => {
-        let currentTranscript = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        setTranscript(currentTranscript);
-      };
-
-      rec.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsRecording(false);
-      };
-
-      rec.onend = () => {
-        if (isRecording) {
-          try {
-            rec.start();
-          } catch (e) {}
-        }
-      };
-
-      recognitionRef.current = rec;
+    if (hookTranscript) {
+      setTranscript(hookTranscript);
     }
-
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {}
-      }
-    };
-  }, [isRecording]);
+  }, [hookTranscript]);
 
   const toggleRecording = () => {
-    if (!recognitionRef.current) {
-      alert("Speech recognition is not supported in this browser environment. Please use Google Chrome or Safari.");
-      return;
-    }
     if (isRecording) {
-      setIsRecording(false);
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
+      stopListening();
+      if (transcript.length > 10) {
+        showToast("Voice notes captured.", "success");
+      }
     } else {
-      setIsRecording(true);
-      try {
-        recognitionRef.current.start();
-      } catch (e) {}
+      startListening();
+      setTranscript("");
+      showToast("Listening... speak your design notes.", "success");
     }
   };
 
@@ -339,10 +303,10 @@ export default function DesignStudio() {
       });
 
       if (!res.ok) throw new Error("Drive upload failed");
-      alert("Successfully backed up design logic format to Google Drive!");
+      addLog({ type: "backup", recipient: "Google Drive", subject: "Design Backup", content: "Design exported successfully." });
     } catch (err: any) {
       console.error(err);
-      alert(`Simulation Mode: Google Drive backup attempted, but caught API restrictions: ${err.message}`);
+      addLog({ type: "backup", recipient: "Google Drive", subject: "Design Backup", content: err.message }, "failed");
     } finally {
       setIsSavingDrive(false);
     }

@@ -506,7 +506,7 @@ async function startServer() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        connectSrc: ["'self'", "https://*.googleapis.com", "wss://*.googleapis.com", "https://*.stripe.com", "https://maps.googleapis.com", "https://*.firebaseio.com", "wss://*.firebaseio.com", "https://*.run.app", "wss://*.run.app"],
+        connectSrc: ["'self'", "ws://localhost:*", "http://localhost:*", "https://*.googleapis.com", "wss://*.googleapis.com", "https://*.stripe.com", "https://maps.googleapis.com", "https://*.firebaseio.com", "wss://*.firebaseio.com", "https://*.run.app", "wss://*.run.app"],
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://maps.googleapis.com", "https://js.stripe.com"], // Vite needs eval for dev, Stripe/Maps need external scripts
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],

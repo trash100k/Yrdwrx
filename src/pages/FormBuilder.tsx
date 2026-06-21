@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
-import { db, handleFirestoreError } from "../lib/firebase";
+import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { Plus, Trash2, Save, X, Edit, ListChecks } from "lucide-react";
@@ -20,7 +20,7 @@ export default function FormBuilder() {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setForms(data);
     }, (error) => {
-      handleFirestoreError(error, "Error loading inspection forms");
+      handleFirestoreError(error, OperationType.LIST, "Error loading inspection forms");
     });
     return () => unsubscribe();
   }, [tenant]);
@@ -75,7 +75,7 @@ export default function FormBuilder() {
       setIsEditing(false);
       setCurrentForm(null);
     } catch (e: any) {
-      handleFirestoreError(e, "Failed to save form");
+      handleFirestoreError(e, OperationType.UPDATE, "Failed to save form");
       showToast("Failed to save form", "error");
     }
   };

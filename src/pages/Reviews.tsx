@@ -35,9 +35,11 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 import { syncService } from "../services/syncService";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 
 export default function Reviews() {
   const { tenant } = useTenant();
+  const { addLog } = useWorkspaceOutbox();
   const [reviews, setReviews] = useState<
     {
       id: string;
@@ -470,7 +472,7 @@ export default function Reviews() {
                  <button 
                   onClick={() => {
                       const ans = window.confirm("Deploy optimized review requests to 4 recently completed clients via Gmail?");
-                      if(ans) alert("Review Solicitation Dispatched to Workspace Outbox.");
+                      if(ans) addLog({ type: "email", recipient: "Client", subject: "How did we do?", content: "Please leave us a review." });
                   }}
                   className="w-full bg-celtic-600 hover:bg-celtic-500 text-white font-black uppercase tracking-widest text-[9px] py-4 rounded-xl transition-all flex items-center justify-center gap-2">
                      <Send size={14} /> Solicit Recent Jobs (4)

@@ -54,6 +54,7 @@ import {
   Folder,
   User,
   Briefcase,
+  Activity,
 } from "lucide-react";
 import Papa from "papaparse";
 import { motion, AnimatePresence } from "motion/react";
@@ -652,11 +653,11 @@ export default function CRM() {
       
       // In a real application, the backend would email this link.
       // For this demo, we expose it so the user can copy it.
-      alert('Secure Magic Link Generated (Server would email this):\n\n' + data.magicLink);
+      addLog({ type: "magic-link", recipient: "Client", subject: "Secure Magic Link", content: data.magicLink });
       
     } catch (err) {
       console.error("Error sending magic link:", err);
-      alert("Failed to handle magic link.");
+      addLog({ type: "magic-link", recipient: "Client", subject: "Secure Magic Link", content: "Failed to generate" }, "failed");
     }
   };
 
@@ -1027,7 +1028,7 @@ export default function CRM() {
                 onClick={() => setActiveTab("dashboard")}
                 className={`px-4 sm:px-8 py-3 sm:py-4 rounded-2xl text-sm font-black tracking-widest uppercase transition-transform flex items-center gap-3 border-4 ${activeTab === "dashboard" ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105" : "border-transparent text-white/40 hover:text-white hover:bg-white/5"}`}
               >
-                <BarChart3 size={20} aria-hidden="true" />
+                <Activity size={20} aria-hidden="true" />
                 Dashboard
               </button>
               <button
