@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Search, Map, Users, Calendar, Truck, Terminal, Sparkles, X, Activity } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
@@ -6,9 +6,27 @@ import { useRole } from "../hooks/useRole";
 
 export const CommandPalette = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
   const { role } = useRole();
   const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
+
+  const actions = useMemo(() => [
+    { id: "Dashboard", icon: Activity, path: `${rolePrefix}` },
+    { id: "CRM", icon: Users, path: `${rolePrefix}/crm` },
+    { id: "Scheduler", icon: Calendar, path: `${rolePrefix}/scheduler` },
+    { id: "Crew Suite", icon: Truck, path: `${rolePrefix}/crew-suite` },
+    { id: "YardPilot (AI)", icon: Sparkles, path: `${rolePrefix}/agent` },
+  ], [rolePrefix]);
+
+  const filteredActions = useMemo(() =>
+    actions.filter((a) => a.id.toLowerCase().includes(searchTerm.toLowerCase())),
+    [actions, searchTerm]
+  );
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [searchTerm]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -19,20 +37,25 @@ export const CommandPalette = ({ isOpen, onClose }: { isOpen: boolean; onClose: 
       if (e.key === "Escape" && isOpen) {
         onClose();
       }
+
+      if (!isOpen || filteredActions.length === 0) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev + 1) % filteredActions.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev - 1 + filteredActions.length) % filteredActions.length);
+      } else if (e.key === "Enter") {
+        if (filteredActions[selectedIndex]) {
+          navigate(filteredActions[selectedIndex].path);
+          onClose();
+        }
+      }
     };
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
-  }, [isOpen, onClose]);
-
-  const actions = [
-    { id: "Dashboard", icon: Activity, path: `${rolePrefix}` },
-    { id: "CRM", icon: Users, path: `${rolePrefix}/crm` },
-    { id: "Scheduler", icon: Calendar, path: `${rolePrefix}/scheduler` },
-    { id: "Crew Suite", icon: Truck, path: `${rolePrefix}/crew-suite` },
-    { id: "YardPilot (AI)", icon: Sparkles, path: `${rolePrefix}/agent` },
-  ];
-
-  const filteredActions = actions.filter((a) => a.id.toLowerCase().includes(searchTerm.toLowerCase()));
+  }, [isOpen, onClose, filteredActions, selectedIndex, navigate]);
 
   return (
     <AnimatePresence>
@@ -70,26 +93,34 @@ export const CommandPalette = ({ isOpen, onClose }: { isOpen: boolean; onClose: 
               </button>
             </div>
 
-            <div className="p-4 max-h-[50vh] overflow-y-auto custom-scrollbar">
+            <div className="p-4 max-h-[50vh] overflow-y-auto custom-scrollbar" role="listbox" id="command-palette-results">
               {filteredActions.length > 0 ? (
                 <div className="space-y-1">
                   <p className="px-4 py-2 text-[10px] uppercase font-black tracking-widest text-zinc-500">Navigation</p>
                   {filteredActions.map((action, i) => (
                     <button
                       key={action.id}
+                      role="option"
+                      aria-selected={i === selectedIndex}
                       onClick={() => {
                         navigate(action.path);
                         onClose();
                       }}
-                      className="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-white/5 transition-colors group"
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all group ${
+                        i === selectedIndex ? "bg-white/10 ring-1 ring-white/20" : "hover:bg-white/5"
+                      }`}
                     >
-                      <div className="flex items-center gap-4 text-zinc-300 group-hover:text-white">
-                        <div className="w-10 h-10 rounded-lg bg-black/50 border border-white/5 flex items-center justify-center group-hover:border-forest-500/30 group-hover:bg-forest-500/10 transition-colors">
-                           <action.icon size={18} className="group-hover:text-forest-400 transition-colors" />
+                      <div className={`flex items-center gap-4 transition-colors ${i === selectedIndex ? "text-white" : "text-zinc-300"} group-hover:text-white`}>
+                        <div className={`w-10 h-10 rounded-lg bg-black/50 border flex items-center justify-center transition-colors ${
+                          i === selectedIndex ? "border-forest-500/50 bg-forest-500/20" : "border-white/5 group-hover:border-forest-500/30 group-hover:bg-forest-500/10"
+                        }`}>
+                           <action.icon size={18} className={`${i === selectedIndex ? "text-forest-400" : "group-hover:text-forest-400"} transition-colors`} />
                         </div>
                         <span className="font-bold text-lg tracking-tight">{action.id}</span>
                       </div>
-                      <span className="text-[10px] font-bold text-zinc-600 border border-zinc-800 px-2 py-1 rounded bg-black">Jump to</span>
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded bg-black border transition-colors ${
+                        i === selectedIndex ? "text-forest-400 border-forest-500/30" : "text-zinc-600 border-zinc-800"
+                      }`}>Jump to</span>
                     </button>
                   ))}
                 </div>

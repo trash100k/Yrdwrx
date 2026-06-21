@@ -46,6 +46,7 @@ import {
   ChevronRight,
   TrendingUp,
   Users,
+  BarChart3,
   Upload,
   Share,
   Download,
