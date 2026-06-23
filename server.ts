@@ -3330,14 +3330,22 @@ async function startServer() {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
       
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
-      // In a real app, send an email here using SendGrid or Mailgun
-      // We will just return the link so the frontend can show it or simulate sending
+      if (!process.env.JWT_SECRET) {
+        throw new Error("CRITICAL SECURITY ERROR: JWT_SECRET environment variable is not set.");
+      }
+
+      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+      // SECURITY PATTERN: Magic links must never be returned in the API response or logged.
+      // They must only be sent via a secure side-channel like email (e.g. SendGrid/Mailgun).
+      // For this demo environment, we log it to the server console only for developer access.
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
+      console.log(`[SECURITY] Magic link generated for ${email}: ${magicLink}`);
       
-      res.json({ success: true, token, magicLink });
+      res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      console.error("[SECURITY ERROR] Magic link generation failed:", err.message);
+      res.status(500).json({ error: "An internal security error occurred." });
     }
   });
 
@@ -3346,7 +3354,11 @@ async function startServer() {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      if (!process.env.JWT_SECRET) {
+        throw new Error("CRITICAL SECURITY ERROR: JWT_SECRET environment variable is not set.");
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });

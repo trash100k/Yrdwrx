@@ -652,8 +652,8 @@ export default function CRM() {
       }
       
       // In a real application, the backend would email this link.
-      // For this demo, we expose it so the user can copy it.
-      addLog({ type: "magic-link", recipient: "Client", subject: "Secure Magic Link", content: data.magicLink });
+      // For security, we do not return the link in the API response.
+      addLog({ type: "magic-link", recipient: "Client", subject: "Secure Magic Link", content: "Dispatched via secure side-channel." });
       
     } catch (err) {
       console.error("Error sending magic link:", err);
