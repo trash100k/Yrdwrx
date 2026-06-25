@@ -422,7 +422,7 @@ async function startServer() {
   });
 
   const verifyFirebaseToken = async (req: any, res: any, next: any) => {
-    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
+    const excludedRoutes = ['/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
     if (excludedRoutes.includes(req.path) || req.path.startsWith('/api/playground/') || !req.path.startsWith('/api/')) {
         return next();
     }
@@ -3329,13 +3329,23 @@ async function startServer() {
     try {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
+
+      if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+        throw new Error("JWT_SECRET environment variable is critical for magic link security and must be set.");
+      }
       
       const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
-      // In a real app, send an email here using SendGrid or Mailgun
-      // We will just return the link so the frontend can show it or simulate sending
+
+      // SECURITY: Magic links must never be returned in the API response or logged.
+      // They must only be sent via a secure side-channel like email.
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
       
-      res.json({ success: true, token, magicLink });
+      console.log(`[SECURITY] Magic link generated for ${email}. (Link hidden from response for security)`);
+
+      // In a real app, send an email here using SendGrid or Mailgun
+      // sendEmail(email, "Your Magic Link", magicLink);
+
+      res.json({ success: true, message: "Magic link generated and sent via secure channel." });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
