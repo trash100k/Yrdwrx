@@ -63,6 +63,7 @@ import { Link } from "react-router-dom";
 import { ingestKnowledge, fetchRelevantMemory } from "../services/brainService";
 import { z } from "zod";
 import { useTenant } from "../contexts/TenantContext";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { AutonomousCampaigns } from "../components/AutonomousCampaigns";
 import { Pipeline } from "../components/Pipeline";
 import { CustomerMap } from "../components/CustomerMap";
@@ -100,6 +101,7 @@ const generatePropertyGrowthData = (baseValue = 450000) => {
 
 export default function CRM() {
   const { tenant, userRole } = useTenant();
+  const { addLog } = useWorkspaceOutbox();
   const { showToast } = useToast();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [knowledge, setKnowledge] = useState<Record<string, any>[]>([]);
@@ -652,8 +654,8 @@ export default function CRM() {
       }
       
       // In a real application, the backend would email this link.
-      // For this demo, we expose it so the user can copy it.
-      addLog({ type: "magic-link", recipient: "Client", subject: "Secure Magic Link", content: data.magicLink });
+      // For this demo, we log the success without exposing the sensitive link.
+      addLog({ type: "magic-link", recipient: "Client", subject: "Secure Magic Link", content: "Link sent securely via side-channel" });
       
     } catch (err) {
       console.error("Error sending magic link:", err);
