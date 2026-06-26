@@ -18,6 +18,12 @@ import { validateSafeUrl } from "./src/lib/securityUtils.js";
 
 dotenv.config();
 
+// SECURITY: Enforce strict secret validation in production
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  console.error("CRITICAL SECURITY ERROR: JWT_SECRET environment variable is not set in production mode.");
+  process.exit(1);
+}
+
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
   try {
@@ -352,6 +358,43 @@ async function startServer() {
   // Increased to 50mb to support large high-resolution base64 image uploads from phone cameras
   app.use(express.json({ limit: "50mb" }));
 
+  const verifyFirebaseToken = async (req: any, res: any, next: any) => {
+    // SECURITY: Ensure we use originalUrl to accurately match against the /api/ prefix
+    // Only strictly public endpoints should be excluded from Firebase Auth
+    const fullPath = req.originalUrl.split('?')[0];
+    const excludedRoutes = ['/api/auth/magic-link/validate', '/api/stripe/webhook'];
+
+    if (excludedRoutes.includes(fullPath) || fullPath.startsWith('/api/playground/')) {
+        return next();
+    }
+    const tokenHeader = req.headers['x-firebase-auth'];
+    if (!tokenHeader || !tokenHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Unauthorized: Missing or invalid x-firebase-auth token" });
+    }
+    try {
+        const token = tokenHeader.split('Bearer ')[1];
+        const admin = require("firebase-admin");
+        if (!admin.apps.length) {
+          const fs = require("fs");
+          let config = {};
+          if (fs.existsSync('./firebase-applet-config.json')) {
+             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+             config = { projectId: appletConfig.projectId };
+          }
+          admin.initializeApp(config);
+        }
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        req.user = decodedToken;
+        next();
+    } catch (e) {
+        console.error("Firebase auth middleware error:", e);
+        return res.status(401).json({ error: "Unauthorized: Invalid token" });
+    }
+  };
+
+  // Mount Auth middleware early to protect all /api/ routes
+  app.use("/api/", verifyFirebaseToken);
+
   // --- IN-MEMORY THREAT LOG (For Founder Dashboard) ---
   const threatLog: Array<{ id: string, timestamp: string, ip: string, type: string, target: string, status: string }> = [];
   
@@ -368,6 +411,10 @@ async function startServer() {
   };
 
   app.get("/api/security/threats", (req, res) => {
+    // SECURITY: Restrict threat log access to SaaS Owner only
+    if ((req as any).user?.email !== "isaacsonzach13@gmail.com") {
+      return res.status(403).json({ error: "Access Denied: Level-0 Admin clearance required." });
+    }
     res.json(threatLog);
   });
 
@@ -420,38 +467,6 @@ async function startServer() {
 
     next();
   });
-
-  const verifyFirebaseToken = async (req: any, res: any, next: any) => {
-    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
-    if (excludedRoutes.includes(req.path) || req.path.startsWith('/api/playground/') || !req.path.startsWith('/api/')) {
-        return next();
-    }
-    const tokenHeader = req.headers['x-firebase-auth'];
-    if (!tokenHeader || !tokenHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: "Unauthorized: Missing or invalid x-firebase-auth token" });
-    }
-    try {
-        const token = tokenHeader.split('Bearer ')[1];
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-          const fs = require("fs");
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-             config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
-        }
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        req.user = decodedToken;
-        next();
-    } catch (e) {
-        console.error("Firebase auth middleware error:", e);
-        return res.status(401).json({ error: "Unauthorized: Invalid token" });
-    }
-  };
-
-  app.use("/api/", verifyFirebaseToken);
 
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -3325,18 +3340,37 @@ async function startServer() {
   });
 
   // Magic Links API
-  app.post("/api/auth/magic-link/generate", (req, res) => {
+  app.post("/api/auth/magic-link/generate", async (req, res) => {
     try {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
       
+      // SECURITY: Ensure the requester is an admin/employee for the client's tenant
+      // We verify this by checking if the client exists in Firestore and matches the user's tenantId
+      const admin = require("firebase-admin");
+      const db = admin.firestore();
+      const clientSnap = await db.collection("customers").doc(clientId).get();
+
+      if (!clientSnap.exists) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+
+      const clientData = clientSnap.data();
+      const userTenantId = (req as any).user?.tenantId || (req as any).user?.firebase?.tenant;
+
+      // Basic RLS check: only allow generation if tenant matches (simplified for brevity)
+      if (clientData.tenantId !== userTenantId && (req as any).user?.email !== "isaacsonzach13@gmail.com") {
+        console.warn(`SECURITY: Unauthorized magic link generation attempt by ${(req as any).user?.email} for client ${clientId}`);
+        return res.status(403).json({ error: "Unauthorized to generate link for this client." });
+      }
+
       const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
       
       res.json({ success: true, token, magicLink });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
