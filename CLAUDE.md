@@ -197,6 +197,10 @@ to see what's outstanding and what's in flight. As you work: check off items you
 newly-discovered tasks under the right phase, keep its file/line references accurate, and bump
 its `_Last updated_` line. Don't start a parallel/competing list — this is the one.
 
+`MARKET_RESEARCH.md` (repo root) holds the cited US market study that drives the roadmap's
+priorities (table-stakes, AI positioning, beachhead, pricing). Consult it for product/GTM context;
+`TODO.md` is the actionable backlog derived from it.
+
 ## Working agreements for AI assistants
 
 - **Consult and maintain `TODO.md`** (the standing backlog, see above) when doing feature or

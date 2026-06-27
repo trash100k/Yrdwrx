@@ -13,9 +13,10 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-27 — expanded into the full ship-ready launch checklist (multi-tenant,
-> billing, security/endpoint-gating, Design Studio grounding, tests, market-fit) from four
-> investigations incl. a live pentest._
+> _Last updated: 2026-06-27 — re-prioritized from the deep US market study (`MARKET_RESEARCH.md`):
+> QuickBooks/payments/recurring billing are now launch table-stakes (A7); AI repositioned as on-site
+> closing; added the Gemini-native build-leverage map + the beachhead. Prior: full ship-ready
+> checklist from four investigations incl. a live pentest._
 
 ## How to use this file
 
@@ -149,6 +150,24 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 - [ ] **Rewrite the README.** Replace the boilerplate with real features, architecture, env vars, the
   role matrix, and deploy steps (see [Appendix A](#appendix-a--feature-inventory)).
 
+### A7 — Market table-stakes for a credible launch 🔴 (from `MARKET_RESEARCH.md`)
+> The deep market study is blunt: these are the **entry bar**, shipped by every incumbent (Jobber,
+> LMN, SingleOps, Aspire) — not differentiators. Operator tool usage: accounting **77%**, invoicing
+> **72%**, estimating **61%**. Missing them = not credible, regardless of how good the AI is.
+
+- [ ] **QuickBooks sync.** The confirmed competitive **moat** (every incumbent ships it; "double
+  entry is a thing of the past"). Ship **one-way** first (Jobber-style: customers, invoices, payments,
+  items → QuickBooks Online), then two-way (SingleOps/LMN-style) as a stickiness follow-up. _Decide
+  one-way-now vs two-way at design time — it interacts with the Supabase migration._
+- [ ] **Online payments to the contractor's customers** — card + **ACH** on invoices (extends the
+  existing Stripe Connect wiring); branded invoice sent on job completion via SMS/email.
+- [ ] **Recurring / seasonal billing & contract auto-renew** — core to landscaper economics
+  (mowing/maintenance seasons). Pairs with making Contracts real (Part B).
+- [ ] **Online booking / instant-quote request** — beyond the magic-link portal; a customer-facing
+  intake that feeds the CRM pipeline.
+- [ ] **Crew time-tracking → payroll** — clock-in/out tied to jobs (`/api/workflows/payroll` drafts
+  an audit but there's no timeclock).
+
 ---
 
 ## Part A★ — Flagship: Live Ear live design vision 🟢
@@ -170,6 +189,36 @@ streams mic + camera to `/api/live` → `ai.live.connect`; this extends it (not 
   to client" via the portal/magic-link flow (`/portal/:clientId`, `/api/auth/magic-link/*`).
 - [ ] **Firebase Storage upload.** `storage` is exported but unused (`src/lib/firebase.ts:36`) — store
   yard photos as durable URLs, not inline base64.
+
+---
+
+## Gemini-native capabilities → features (build leverage)
+*Why a lot of this ships cheap and **with confidence**: the capabilities below are baked into the
+Gemini models and **already wired + proven in `server.ts`** — extending them is pattern-reuse, not
+greenfield. Cite the line when building so it's reuse, not aspiration.*
+
+**Cheap + confident (reuse the proven pattern):**
+- **Google Search grounding** (`server.ts:1607` brain/query, `:3186` playground) → lead/customer/
+  property **enrichment**, local **market & competitor-pricing intel**, plant/horticulture facts, and
+  **state pesticide / EPA regulatory lookups**. Citations are the "confidence."
+- **Google Maps grounding** (`server.ts:3187`) → property context, geocoding, neighborhood/drive context.
+- **Structured output / `responseSchema`** (pervasive; `server.ts:2855`) → reliable extraction (intake,
+  receipts, quotes, invoices) and any model→DB write.
+- **Function calling / tools** (`server.ts:3448`) → Live Ear actions + agentic workflows.
+- **Vision + image-gen** (`/api/design/*`, OCR) → yard analysis, plant ID, before/after render.
+- **Thinking mode** (`server.ts:3191`) → complex multi-step estimates / plans.
+
+**Still real (non-AI) engineering — don't let "Gemini can do it" mask these:**
+- **QuickBooks** sync (deterministic API + reconciliation) — A7, the moat.
+- **Stripe** card/ACH payments + recurring/seasonal billing — A7.
+- **Aerial/satellite measurement** accuracy — needs an imagery provider (see Part D); **grounding ≠
+  measurement**.
+- **Supabase multi-tenant backend** (the migration) — infra, not AI.
+
+> **Guardrail:** grounding gives *factual* confidence + citations, but the model's **numbers**
+> (measurements, prices) are still on us — keep quotes **catalog-grounded / deterministic**, never
+> model-invented. (This is both the Design Studio fix in A4 and the market-trust point in Part D.)
+> Search/Maps grounding carry cost + latency + quota — **gate by tier** (ties to A5 quota work).
 
 ---
 
@@ -203,29 +252,46 @@ streams mic + camera to `/api/live` → `ai.live.connect`; this extends it (not 
 
 ---
 
-## Part D — Market-fit / form-fit for landscapers
-*Why a landscaper buys this over Jobber / LMN / Service Autopilot / Yardbook, and what to sharpen.*
+## Part D — Market-fit / positioning (from `MARKET_RESEARCH.md`)
+*Verified against the US market study. Full report + citations in `MARKET_RESEARCH.md`.*
 
-- **The wedge — sell on the spot.** The killer loop is **photo → AI design vision → tiered quote →
-  e-sign → invoice → Stripe payment**, narrated live by Live Ear while standing in the customer's
-  yard. No incumbent closes a *designed, priced* job at the doorstep. This is the demo that sells.
-- **Trust through grounded pricing.** Quotes must come from the contractor's **own catalog + live
-  inventory** (A4), not AI guesses — landscapers won't trust (or send) hallucinated numbers.
-- **Field-first & offline.** Crews work in trucks with bad signal: the PWA + `syncService` offline
-  queue and mobile field mode are real differentiators — keep them first-class.
-- **Recurring seasonal revenue.** Mowing/maintenance is contract-based and seasonal — make Contracts
-  real (Part B) and add **seasonal recurring billing** (below); this is core to landscaper economics.
-- **Compliance as a moat.** EPA chemical-application logging with weather/safety checks + signatures
-  (`Compliance.tsx`, real today) is a genuine differentiator for chemical-applying companies.
-- **Tier the value.** free = single crew + core CRM/scheduling/invoicing; pro = Design Studio + Live
-  Ear + routing; enterprise = compliance, multi-crew, advanced reporting. Enforce via A5.
+**Competitive reality (don't fool ourselves):** the market is mature and commoditized. The AI bets
+are **contested** — Jobber Voice (Sept 2025) overlaps Live Ear; Aspire PropertyIntel / SatQuote /
+SiteRecon do AI estimating; ReimagineHome already does photo-to-design. So **don't position as "AI
+estimating" (aerial owns it) or "voice admin" (Jobber owns it).**
 
-**Named form-fit gaps to add as backlog (not in the code yet):**
-- [ ] **QuickBooks / accounting export** — the #1 integration ask for this segment; none exists.
-- [ ] **Seasonal recurring billing & contract auto-renew** (Stripe subscriptions per *their* customers).
-- [ ] **Crew time-tracking → payroll** — `/api/workflows/payroll` drafts an audit but there's no
-  timeclock; field crews need clock-in/out tied to jobs.
-- [ ] **Customer-facing booking / instant-quote request** beyond the magic-link portal.
+**The open lane — sell on the spot.** The one workflow incumbents *don't* own: **live, on-site,
+customer-facing visual selling**. They anchor on remote aerial measurement to *avoid* the site
+visit; our edge is the opposite — co-create a designed, priced, good/better/best proposal **in the
+driveway**, narrated by Live Ear, then e-sign → invoice → get paid. This is the demo that sells.
+
+> **Positioning statement:** *"Close the job in the driveway. YardWorx turns a phone photo and a
+> conversation into a designed, priced, good/better/best proposal your customer signs on the spot —
+> then syncs to QuickBooks and gets you paid."*
+
+**Recommended beachhead: small-to-mid residential design-build / install landscapers.** They live on
+visual selling + upsell (our strength), sit **below Aspire's revenue floor** (Aspire is revenue-tiered,
+$1M+, explicitly not for startups), and are under-served at the SMB price point. Avoid commercial
+maintenance (Aspire's turf; heavy on routing/scale we lack). _Secondary wedge:_ pesticide-applying
+**lawn-care** operators — the federal 30-day customer-furnishing rule for **restricted-use** products
+is still in force, and our Compliance module (EPA log + signature + audit + portal) can fulfill it.
+_(Don't over-specify recordkeeping schemas in marketing without state-level legal review.)_
+
+**Pricing & packaging (verified band $200–$650/mo):** undercut LMN's mandatory onboarding fee with
+**no setup fee + a free/low entry tier** to land; Pro ~$199–299/mo (AI selling suite + QuickBooks +
+payments); Enterprise above. Tier the value: free = core CRM/scheduling/invoicing; pro = Design
+Studio + Live Ear + routing; enterprise = compliance, multi-crew, reporting. Enforce via A5.
+
+**Durable strengths to keep first-class:** field-first PWA + offline `syncService`; catalog-grounded
+(non-hallucinated) pricing (A4) — the trust point; Compliance/EPA logging.
+
+**Strategic decision — aerial/satellite measurement.** Incumbents market remote takeoff as the speed
+win (SiteRecon: 24-hr proposals vs 3–4 days, doubled close rates). Photo-from-the-yard does **not**
+replace it. Decide: **build vs partner** (Nearmap / SatQuote-style integration, or Gemini Maps
+satellite tiles) to neutralize the gap. _Open question — see `MARKET_RESEARCH.md`._
+
+> Most table-stakes form-fit gaps (QuickBooks, payments, recurring billing, online booking,
+> time-tracking) were **promoted to launch blockers in [A7](#a7--market-table-stakes-for-a-credible-launch--from-market_researchmd)** — they're no longer "later" backlog.
 
 ---
 
