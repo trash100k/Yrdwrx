@@ -17,7 +17,8 @@ touches so work **reuses what already exists** instead of rebuilding it. See the
 > It is linked from `CLAUDE.md` so it's discoverable. Treat it as the to-do list of record —
 > don't start a parallel one.
 >
-> _Last updated: 2026-06-27_
+> _Last updated: 2026-06-27 — added Phase 2.5 (Design Studio) + the global auth-bypass CRITICAL
+> from a live simulation/pentest._
 
 ## How to use this file
 
@@ -73,6 +74,17 @@ touches so work **reuses what already exists** instead of rebuilding it. See the
 > Auth is fully bypassed for internal testing. Before launch, restore it (keep an explicit,
 > clearly-labeled demo path).
 
+- [ ] **🔴 CRITICAL — fix the server-side auth bypass. Every `/api/*` route is currently
+  unauthenticated.** `server.ts:454` mounts `app.use("/api/", verifyFirebaseToken)`, but Express
+  strips the `/api` mount prefix, so **inside** the middleware `req.path` is `/design/process`
+  (not `/api/design/process`). The early-out `if (!req.path.startsWith('/api/')) return next();`
+  is therefore **always true** → the token is never checked. _Proven live:_ `POST /api/design/process`
+  and `/api/crm/briefing` return `200` with no token and with a garbage `Bearer` token.
+  - Fix: branch on the un-stripped path (`req.originalUrl` / `req.baseUrl + req.path`), or invert
+    the logic so the default is "require token," and keep the small excluded-routes allowlist.
+  - Note the coupling: client `fetchApi` only attaches a token when `auth.currentUser` exists, and
+    auth is mock-bypassed today — so server enforcement and the items below must land together or
+    every request 401s.
 - [ ] **Restore the real auth listener.** Re-enable `onAuthStateChanged` in `src/App.tsx:101-124`
   (currently commented out; a mock admin is injected instead). Preserve a deliberate
   demo/bypass toggle behind a flag, not as the default.
@@ -130,6 +142,62 @@ touches so work **reuses what already exists** instead of rebuilding it. See the
   durable URLs instead of inline base64.
 
 ---
+
+## 🔴 Phase 2.5 — Design Studio: make it work & make it safe
+
+> **Huge priority.** Findings below are from a live simulation + pentest (server booted in mock
+> mode, probes fired at the three `/api/design/*` routes). Each item cites the evidence/loc.
+> The global auth bypass (Phase 1, first item) was discovered here — fix that too.
+
+**Functional — it doesn't actually run today**
+- [ ] **Mockup / "Reveal Slider" returns nothing.** `POST /api/design/generate-mockup` →
+  `500 "Image generation failed"`. `ai.interactions.create` (`server.ts:2343`) is **not** covered
+  by mock mode and uses the **experimental** Interactions API + a speculative model
+  (`gemini-3.1-flash-image`) and response shape. Decide: (a) validate the real Interactions API
+  shape against a live key, or (b) switch to a supported image path; and add a mock fallback so
+  dev returns a placeholder render instead of 500.
+- [ ] **Studio crashes in mock mode (the default with no `GEMINI_API_KEY`).** `/api/design/process`
+  and `/api/design/tiers` return `{}` in mock mode (the design prompt falls through to the generic
+  `OUTPUT FORMAT: JSON` → `{}` branch at `server.ts:202-204`). The UI then calls
+  `result.identifiedAreas.map(...)` (`DesignStudio.tsx:579`) and
+  `result.tiers[activeTier].estimatedMaterials` (`:736`) on `undefined` → **TypeError / white screen**.
+  - Add a realistic mock branch in `getMockText` for the design system instruction (return a full
+    `{identifiedAreas, visionSummary, estimatedMaterials, strategicValue}` shape).
+  - Defensive render: guard `identifiedAreas` / `tiers[activeTier]` before mapping.
+- [ ] **No input validation → 500s.** Missing `image` → `500 "Cannot read properties of undefined
+  (reading 'includes')"` (`server.ts:2317` and `:2339`); `designCatalog[].type.toUpperCase()`
+  crashes on a non-string `type`. Validate inputs and return `400` with a clear message.
+
+**Security — pentest findings**
+- [ ] **Privilege escalation via client-controlled role.** `role` is read from `req.body.role`
+  (`server.ts:2232`) and governs the air-gap whitelist, **financial visibility** (costs), and
+  `approvalRequired`. Derive role from the verified token (`req.user`) instead of trusting the body.
+  (Cosmetic today because of the auth bypass — but must be fixed alongside it.)
+- [ ] **Prompt injection.** `prompt`, `settings.customInstallRules`, and `settings.designCatalog[]`
+  names/descriptions are concatenated raw into the system instruction (`server.ts:2247,2275,2316`).
+  The "STRICT AIR GAP" text is just more prompt and is trivially overridden. Sanitize/segregate
+  user content (delimit + instruct the model to treat it as data), and don't rely on prose guardrails
+  for the employee/foreman financial air-gap — enforce that server-side.
+- [ ] **Unbounded, non-tenant-scoped response cache.** `cacheApiResponse(120/300)` keys on the full
+  request body **including the base64 image** and stores results in a `Map` that never evicts
+  (`server.ts:254-299`) → memory-growth DoS, and the key ignores tenant/user so identical inputs
+  share cached output across tenants. Add eviction/TTL sweeping + a max size, and include
+  tenant/user in the cache key. Same global-key issue applies to `.gemini_cache.json`.
+- [ ] **Rate limiter misconfig.** `aiLimiter` throws `ERR_ERL_KEY_GEN_IPV6` on every boot
+  (`server.ts:473` — keyGenerator uses `req.ip` without the `ipKeyGenerator` helper). Affects all
+  AI routes incl. design; IPv6 clients can also evade the per-user limit. Use the helper.
+
+**Polish / cleanup**
+- [ ] **Governance scanner false-positives.** Legit design content containing `../`, `1=1`, or
+  `.env` is blocked with `403` (proven via probes; `server.ts:375-422`). It blocks real customer
+  data (addresses, notes) while being trivially bypassable. Scope it tighter or drop it in favor of
+  real validation + auth.
+- [ ] **Dead code / no-ops.** `markup` is destructured but the UI never sends it (it bakes markup
+  into `image`); the frontend references a non-existent top-level `data.estimatedCost`
+  (`DesignStudio.tsx:237`); botanical override / `approvalRequired` are client-only and not enforced
+  server-side. Remove or wire up.
+- [ ] **UX:** the results panel is dense and assumes a happy path; add loading/empty/error states
+  for the (now-handled) failure cases above.
 
 ## 🟢 Phase 3 — "It's ugly": UX / visual polish
 
