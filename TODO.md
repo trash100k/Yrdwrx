@@ -7,6 +7,18 @@ This is grounded in the real state of the codebase — every task names the file
 touches so work **reuses what already exists** instead of rebuilding it. See the
 [Reference appendix](#reference-appendix) for the full file map.
 
+> **This is a living document.** It is the standing backlog for YardWorx. Any agent (or human)
+> picking up work should:
+> 1. **Read it first** to see what's outstanding and what's already in flight.
+> 2. **Check off** items as they land, and **add** newly-discovered work in the right phase.
+> 3. **Keep file/line refs accurate** when code moves (the [appendix](#reference-appendix) is the source of truth).
+> 4. Update the `_Last updated_` line below.
+>
+> It is linked from `CLAUDE.md` so it's discoverable. Treat it as the to-do list of record —
+> don't start a parallel one.
+>
+> _Last updated: 2026-06-27_
+
 ## How to use this file
 
 - Work top-to-bottom. **🔴 Phase 0 must land before anything else** — the app does not start
