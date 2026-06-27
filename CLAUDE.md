@@ -188,8 +188,19 @@ for Puppeteer, non-root `appuser`, port 3000). `cloudbuild.yaml` builds the imag
 GCR, and deploys to **Cloud Run** (`us-central1`, 2 CPU, 1Gi, min 1 instance, concurrency 80).
 The container runs `npm run start` → `node dist/server.cjs`.
 
+## Standing backlog — `TODO.md`
+
+`TODO.md` (repo root) is the **living to-do list of record** for this project: the phased
+roadmap for getting the app running in production (Cloud Run + Firebase + Gemini) and building
+the flagship **Live Ear** "design vision" feature. **Before starting substantial work, read it**
+to see what's outstanding and what's in flight. As you work: check off items you complete, add
+newly-discovered tasks under the right phase, keep its file/line references accurate, and bump
+its `_Last updated_` line. Don't start a parallel/competing list — this is the one.
+
 ## Working agreements for AI assistants
 
+- **Consult and maintain `TODO.md`** (the standing backlog, see above) when doing feature or
+  production-readiness work.
 - **Branch:** develop on the branch you were assigned (e.g. `claude/...`); create it locally
   if missing. Commit with clear messages. Do **not** push to `main` or open a PR unless
   explicitly asked.
