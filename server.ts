@@ -18,6 +18,15 @@ import { validateSafeUrl } from "./src/lib/securityUtils.js";
 
 dotenv.config();
 
+// CRITICAL SECURITY CHECK: Ensure JWT_SECRET is set in production
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET environment variable is missing in production mode.");
+  process.exit(1);
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || "cutty-super-secret-key-for-development";
+const SAAS_ADMIN_EMAIL = process.env.SAAS_ADMIN_EMAIL || "isaacsonzach13@gmail.com";
+
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
   try {
@@ -367,10 +376,6 @@ async function startServer() {
     if (threatLog.length > 200) threatLog.pop();
   };
 
-  app.get("/api/security/threats", (req, res) => {
-    res.json(threatLog);
-  });
-
   // Enterprise Governance, Data Lineage & Pentesting Protection Middleware
   app.use((req, res, next) => {
     if (req.url.startsWith('/api/playground/')) return next();
@@ -422,10 +427,14 @@ async function startServer() {
   });
 
   const verifyFirebaseToken = async (req: any, res: any, next: any) => {
-    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
-    if (excludedRoutes.includes(req.path) || req.path.startsWith('/api/playground/') || !req.path.startsWith('/api/')) {
+    const normalizedPath = req.path;
+    const excludedRoutes = ['/api/auth/magic-link/validate', '/api/stripe/webhook'];
+
+    // Only protect /api/ routes that aren't explicitly excluded
+    if (!normalizedPath.startsWith('/api/') || excludedRoutes.includes(normalizedPath) || normalizedPath.startsWith('/api/playground/')) {
         return next();
     }
+
     const tokenHeader = req.headers['x-firebase-auth'];
     if (!tokenHeader || !tokenHeader.startsWith('Bearer ')) {
         return res.status(401).json({ error: "Unauthorized: Missing or invalid x-firebase-auth token" });
@@ -451,7 +460,15 @@ async function startServer() {
     }
   };
 
-  app.use("/api/", verifyFirebaseToken);
+  app.use(verifyFirebaseToken);
+
+  app.get("/api/security/threats", (req, res) => {
+    // Strict SaaS Admin authorization
+    if (req.user?.email !== SAAS_ADMIN_EMAIL) {
+      return res.status(403).json({ error: "Access Denied: SaaS Admin authorization required." });
+    }
+    res.json(threatLog);
+  });
 
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -3330,7 +3347,7 @@ async function startServer() {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
       
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
+      const token = jwt.sign({ clientId, email }, JWT_SECRET, { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
@@ -3346,7 +3363,7 @@ async function startServer() {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      const decoded = jwt.verify(token, JWT_SECRET);
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
