@@ -561,15 +561,16 @@ replaces `onSnapshot`, `create/update/remove` replace `addDoc/updateDoc/deleteDo
 reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status is **UPPERCASE**
 (`SCHEDULED|IN_PROGRESS|COMPLETED`). Verify each screen logged-in before moving on.
 
-- [ ] **CRM** (`src/pages/CRM.tsx`) — `customers` (→ `customersRepo`) + `knowledge` (→ `knowledgeRepo`).
+- [x] **CRM** (`src/pages/CRM.tsx`) — `customers` (→ `customersRepo`) + `knowledge` (→ `knowledgeRepo`). DONE.
       ~14 customer call sites incl. a dynamic-path `addDoc` (`:787`) and bulk import (`:864/:933`).
       This is where the agent's `create_contact`/`load_client_data`/`add_client_note`/`set_gate_code` land.
-- [ ] **Scheduler** (`src/pages/Scheduler.tsx`) — `jobs` → `jobsRepo` (agent `schedule_job`).
-- [ ] **Invoices** (`src/pages/Invoices.tsx`) — `invoices` → `invoicesRepo`, `expenses` → `expensesRepo`
-      (agent `create_invoice`/`create_quote`/`log_expense`). Invoices used a free-text `client` name;
-      prefer `customer_id`.
-- [ ] **Inventory** (`src/pages/Inventory.tsx`) — `inventory` → `inventoryRepo`, `materialLogs` →
-      `material_logs` (agent `check_inventory`/`log_inventory_usage` already write here).
+- [x] **Scheduler** (`src/pages/Scheduler.tsx`) — `jobs` → `jobsRepo` (+ its auto-invoice → `invoicesRepo`). DONE.
+- [x] **Invoices** (`src/pages/Invoices.tsx`) — `invoices` → `invoicesRepo`, `expenses` → `expensesRepo`
+      (agent `create_invoice`/`create_quote`/`log_expense`). Status lowercased on read; agent now writes
+      `data.client` + `"draft"`. DONE.
+- [x] **Inventory** (`src/pages/Inventory.tsx`) — `inventory` → `inventoryRepo`, `materialLogs` →
+      `materialLogsRepo` (added to repos/index). DONE. NOTE: the inventory offline syncService path
+      (Firestore-targeted) is bypassed — re-add an offline queue against Supabase later if needed.
 - [ ] **CrewSuite** (`src/pages/CrewSuite.tsx`) — `crews` → `crewsRepo` (+ `employees` table; add an
       `employeesRepo` for `load_employee_data`).
 - [ ] **Reviews** (`src/pages/Reviews.tsx`) — `reviews` → `reviewsRepo`.
