@@ -962,16 +962,29 @@ export async function createApp({ startListening = false } = {}) {
 
       // Reuse the tenant the signup trigger created, if present.
       let tenantId: string | null = null;
+      let existingRole: string | null = null;
       if (uid) {
-        const { data: prof } = await sb.from("profiles").select("tenant_id").eq("firebase_uid", uid).maybeSingle();
+        const { data: prof } = await sb.from("profiles").select("tenant_id, role").eq("firebase_uid", uid).maybeSingle();
         tenantId = prof?.tenant_id || null;
+        existingRole = prof?.role || null;
       }
+      // Only a tenant OWNER may (re)write the business profile. An invited employee who
+      // happens to pass through onboarding must NOT be silently escalated to owner or be
+      // allowed to overwrite the company's name/tier/settings — they just accept the
+      // agreements. Brand-new self-serve signups have no profile yet -> default to owner.
+      const isOwnerSetup = !existingRole || existingRole === "owner";
+      const effectiveRole = existingRole || "owner";
       // Finishing onboarding implies the agreements were accepted (the form gates on them),
       // so record the AI disclaimer on the tenant too — that stops the in-app walkthrough from
       // re-asking it (and from re-popping every session).
       const legal = { aiDisclaimerAccepted: true, acceptedAt: new Date().toISOString() };
       if (tenantId) {
-        await sb.from("tenants").update({ name: companyName, tier: safeTier, settings: tenantSettings, legal }).eq("id", tenantId);
+        // Don't let a non-owner clobber tenant fields; still record their disclaimer.
+        if (isOwnerSetup) {
+          await sb.from("tenants").update({ name: companyName, tier: safeTier, settings: tenantSettings, legal }).eq("id", tenantId);
+        } else {
+          await sb.from("tenants").update({ legal }).eq("id", tenantId);
+        }
       } else {
         tenantId = crypto.randomUUID();
         const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier, settings: tenantSettings, legal });
@@ -979,7 +992,7 @@ export async function createApp({ startListening = false } = {}) {
       }
       if (uid) {
         const { error: pErr } = await sb.from("profiles").upsert(
-          { firebase_uid: uid, tenant_id: tenantId, role: "owner", email, display_name: settings.ownerName || undefined, agreements_accepted: true, is_platform_admin: isPlatformAdmin },
+          { firebase_uid: uid, tenant_id: tenantId, role: effectiveRole, email, display_name: settings.ownerName || undefined, agreements_accepted: true, is_platform_admin: isPlatformAdmin && isOwnerSetup },
           { onConflict: "firebase_uid" },
         );
         if (pErr) throw pErr;
@@ -988,7 +1001,7 @@ export async function createApp({ startListening = false } = {}) {
 
       // Optional starter dataset so a brand-new owner can see how YardWorx works immediately.
       let demoDataLoaded = false;
-      if (loadDemoData && tenantId) {
+      if (loadDemoData && tenantId && isOwnerSetup) {
         try {
           const { data: existing } = await sb.from("customers").select("id").eq("tenant_id", tenantId).limit(1);
           if (!existing || existing.length === 0) {
