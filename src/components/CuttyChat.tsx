@@ -19,16 +19,76 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
-import { auth } from "../lib/firebase";
+import { getCurrentUser } from "../lib/supabase";
 import { useTenant } from "../contexts/TenantContext";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 import { useRole } from "../hooks/useRole";
+import { executeAgentAction } from "../lib/agentActions";
 
 
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+
+// Lightweight intent detection for the TEXT agent. High-confidence verbs map to the SAME
+// tool-calls the voice agent uses (executeAgentAction); anything else falls through to Q&A.
+function detectAgentIntent(text: string): { name: string; args: any } | null {
+  const t = (text || "").trim();
+  const low = t.toLowerCase();
+  if (!t) return null;
+  const amount = () => {
+    const m = t.match(/\$?\s*([\d,]+(?:\.\d{1,2})?)/);
+    return m ? Number(m[1].replace(/,/g, "")) : undefined;
+  };
+  const grab = (re: RegExp) => {
+    const m = t.match(re);
+    return m && m[1] ? m[1].trim().replace(/[.,]$/, "") : undefined;
+  };
+
+  if (/\bgate code|lock\s?box code|access code\b/.test(low)) {
+    return { name: "set_gate_code", args: { clientName: grab(/for ([A-Za-z .'-]+?)(?: is|,|\.|$)/i), gateCode: grab(/code(?: for .+?)?(?: is| =|:)?\s*([A-Za-z0-9#*]{2,})\b/i) } };
+  }
+  if (/\b(log (an )?expense|spent|receipt|bought|paid for)\b/.test(low) && amount() !== undefined) {
+    return { name: "log_expense", args: { amount: amount(), merchant: grab(/(?:at|from|on) ([A-Za-z0-9 .&'-]+?)(?: for|,|\.|$)/i) } };
+  }
+  if (/\b(invoice|bill|charge)\b/.test(low) && amount() !== undefined) {
+    return { name: "create_invoice", args: { clientName: grab(/(?:invoice|bill|charge)\s+([A-Za-z .'-]+?)(?: for| \$|\d|,|\.|$)/i), amount: amount(), serviceDescription: grab(/for ([A-Za-z0-9 .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(quote|estimate)\b/.test(low) && amount() !== undefined) {
+    return { name: "create_quote", args: { clientName: grab(/(?:quote|estimate)\s+(?:for\s+)?([A-Za-z .'-]+?)(?: for| \$|\d|,|\.|$)/i), amount: amount(), serviceDescription: grab(/for ([A-Za-z0-9 .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(schedule|book|set up)\b/.test(low) || /\bput .+ down\b/.test(low)) {
+    const date = (t.match(/\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\b/i) || [])[0];
+    const svc = (t.match(/\b(mow\w*|clean\s?up|trim\w*|mulch\w*|aerat\w*|fertiliz\w*|leaf removal|snow\w*|irrigation|install\w*|landscap\w*)\b/i) || [])[0];
+    return { name: "schedule_job", args: { clientName: grab(/(?:for|put|book|schedule) ([A-Za-z .'-]+?)(?: down| for| on| next| tomorrow|,|\.|$)/i), serviceType: svc, date } };
+  }
+  if (/\b(used|using|took|take|grab\w*|pulled)\b/.test(low) && /\b(mulch|fertiliz\w*|fuel|gas|seed|sod|stone|gravel|bag\w*|gallon\w*|pallet\w*|unit\w*)\b/.test(low)) {
+    const qty = (t.match(/\b(\d+)\b/) || [])[1];
+    return { name: "log_inventory_usage", args: { itemName: (t.match(/\b(mulch|fertilizer|fuel|gas|seed|sod|stone|gravel)\b/i) || [])[1], quantity: qty ? Number(qty) : 1, clientName: grab(/for ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) } };
+  }
+  if (/\bcheck (the )?(stock|inventory)\b/.test(low) || /\bin stock\b/.test(low) || /how (much|many) .+ (do we have|left)/.test(low)) {
+    return { name: "check_inventory", args: { itemName: (t.match(/\b(mulch|fertilizer|fuel|gas|seed|sod|stone|gravel)\b/i) || [])[1] } };
+  }
+  if (/\breview\b/.test(low) && /\b(request|ask|get|remind|send)\b/.test(low)) {
+    return { name: "request_review", args: { clientName: grab(/from ([A-Za-z .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(design|redesign|render|mock\s?up|landscape (?:plan|design))\b/.test(low) || /show .+ ideas/.test(low)) {
+    return { name: "build_design_vision", args: { clientName: grab(/for ([A-Za-z .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(field mode|start (the )?route|heading out|start my day|on my way)\b/.test(low)) {
+    return { name: "enter_field_mode", args: {} };
+  }
+  if (/\b(add|create|new)\b/.test(low) && /\b(lead|contact|customer|client|prospect)\b/.test(low)) {
+    const nm = grab(/(?:named|called|:) ([A-Za-z .'-]+?)(?:,|\.| at | on |$)/i) || grab(/\b(?:lead|contact|customer|client|prospect)\s+(?:named |called )?([A-Za-z]+(?: [A-Za-z]+)?)/i);
+    const parts = (nm || "").split(/\s+/);
+    return { name: "create_contact", args: { firstName: parts[0] || nm, lastName: parts.slice(1).join(" "), phone: (t.match(/(\+?\d[\d\-() ]{6,}\d)/) || [])[1], email: (t.match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0] } };
+  }
+  if (/\b(pull up|look up|open|find|show me)\b/.test(low) && /\b(client|customer|account|profile|file|history)\b/.test(low)) {
+    return { name: "load_client_data", args: { clientName: grab(/(?:client|customer|account|profile|file|history)(?: for| named| called| of)? ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) || grab(/(?:pull up|look up|open|find|show me)(?: the)? ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) } };
+  }
+  return null;
+}
 
 export default function BrainChat({
   isOpen = true,
@@ -51,6 +111,7 @@ export default function BrainChat({
   const navigate = useNavigate();
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const loadedCustomerRef = useRef<any>(null);
   const { startTour, setFocus } = useCuttyGuide();
   const { tenant } = useTenant();
   const { role } = useRole();
@@ -195,7 +256,7 @@ export default function BrainChat({
 
   useEffect(() => {
     if (isOpen && messages.length === 0) {
-      const userKey = auth.currentUser?.email || "anonymous";
+      const userKey = getCurrentUser()?.email || "anonymous";
       const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
       const hasAcceptedDisclaimer = tenant?.legal?.aiDisclaimerAccepted === true || tenant?.id.startsWith("demo-");
 
@@ -238,30 +299,33 @@ export default function BrainChat({
 
   useEffect(() => {
     const handleVoiceAction = (e: CustomEvent) => {
-      const { name, args } = e.detail;
-      let text = "";
-      if (name === "log_inventory_usage") {
-        text = `Logged Hands-free Inventory Audit: ${args.quantity}x ${args.itemName}`;
-        if (args.clientName) text += ` to job for ${args.clientName}`;
-        text += `. The fees and item reductions were placed successfully.`;
-      } else if (name === "check_inventory") {
-        text = `Checking inventory for ${args.itemName || "items"}. I have opened the Asset Hub.`;
-      } else if (name === "schedule_job") {
-        text = `I've opened the scheduler to book ${args.clientName || 'the client'} for a new job.`;
-      } else if (name === "load_client_data") {
-        text = `Pulled up the profile for ${args.clientName}. Ready to assist.`;
-      } else if (name === "add_client_note") {
-        text = `Added note to ${args.clientName}'s profile: "${args.note}"`;
-      } else if (name === "create_invoice") {
-        text = `Prepared an invoice for ${args.clientName} for $${args.amount}.`;
-      } else if (name === "create_lead") {
-        text = `Created a new lead for ${args.firstName} ${args.lastName || ''}.`;
-      } else if (name === "log_expense") {
-        text = `Logged a new out-of-pocket expense for $${args.amount}.`;
-      } else if (name === "enter_field_mode") {
-        text = `Entering Field Mode for optimized mobile operations.`;
-      } else if (name === "load_employee_data") {
-        text = `Looking up crew member ${args.employeeName}.`;
+      const { name, args, _result } = e.detail || {};
+      // Prefer the executor's real confirmation; fall back to a generic line.
+      let text = _result?.message || "";
+      if (!text) {
+        if (name === "log_inventory_usage") {
+          text = `Logged inventory use: ${args.quantity}x ${args.itemName}`;
+          if (args.clientName) text += ` for ${args.clientName}`;
+          text += ".";
+        } else if (name === "check_inventory") {
+          text = `Checking inventory for ${args.itemName || "items"}.`;
+        } else if (name === "schedule_job") {
+          text = `Opened the scheduler to book ${args.clientName || "the client"}.`;
+        } else if (name === "load_client_data") {
+          text = `Pulled up the profile for ${args.clientName}.`;
+        } else if (name === "add_client_note") {
+          text = `Added note to ${args.clientName}'s profile.`;
+        } else if (name === "create_invoice") {
+          text = `Prepared an invoice for ${args.clientName} for $${args.amount}.`;
+        } else if (name === "create_lead" || name === "create_contact") {
+          text = `Created a new contact for ${args.firstName} ${args.lastName || ""}.`;
+        } else if (name === "log_expense") {
+          text = `Logged an expense for $${args.amount}.`;
+        } else if (name === "enter_field_mode") {
+          text = `Entering Field Mode.`;
+        } else if (name === "load_employee_data") {
+          text = `Looking up crew member ${args.employeeName}.`;
+        }
       }
 
       if (text) {
@@ -310,7 +374,7 @@ export default function BrainChat({
             }).catch(console.error);
          }
          
-         const userKey = auth.currentUser?.email || "anonymous";
+         const userKey = getCurrentUser()?.email || "anonymous";
          const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
          
          if (!hasSeen) {
@@ -368,7 +432,7 @@ export default function BrainChat({
         return;
       } else {
         setActiveWorkflow("idle");
-        const userKey = auth.currentUser?.email || "anonymous";
+        const userKey = getCurrentUser()?.email || "anonymous";
         safeStorage.setItem(`has-seen-walkthrough-${userKey}`, "true");
         setMessages((prev) => [
           ...prev,
@@ -405,7 +469,7 @@ export default function BrainChat({
       setActiveWorkflow("idle");
       window.dispatchEvent(new CustomEvent("configure-dashboard-widgets", { detail: { propertyType: propertyTypeStr, bottleneck: bottleneckStr, viewStyle: "easy" } }));
       
-      const userKey = auth.currentUser?.email || "anonymous";
+      const userKey = getCurrentUser()?.email || "anonymous";
       safeStorage.setItem(`has-seen-walkthrough-${userKey}`, "true");
 
       setMessages((prev) => [
@@ -458,63 +522,31 @@ export default function BrainChat({
         return;
     }
 
-    if (currentQuery.includes("campaign") || currentQuery.includes("outreach")) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "Initializing generative outreach campaign. Sourcing leads in a 20 mile radius and compiling personalized offers. The sequence will begin shortly.",
-          },
-        ]);
-        return;
-    }
-
-    if (currentQuery.includes("verify system alignment") || currentQuery.includes("compliance protocol")) {
+    // Real agentic action? Route it through the shared executor so the text agent DOES
+    // things (create contact / job / invoice / expense / etc.), not just answer questions.
+    const intent = detectAgentIntent(userMessage.text);
+    if (intent) {
       setIsLoading(true);
-      setTimeout(() => {
+      try {
+        const result = await executeAgentAction(intent, {
+          navigate,
+          rolePrefix,
+          getLoadedCustomer: () => loadedCustomerRef.current,
+          setLoadedCustomer: (c) => {
+            loadedCustomerRef.current = c;
+          },
+        });
         setMessages((prev) => [
           ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "System check complete. Operational parameters are strictly aligned. Data vectors remain fully isolated. Active restrictions: [No unverified agent loops], [No PII spillage]. You are clear to proceed.",
-          },
+          { id: String(Date.now()), sender: "agent", text: result.message },
         ]);
+        if (result.navigateTo && location.pathname !== result.navigateTo) {
+          navigate(result.navigateTo);
+        }
+        if ((tenant?.settings as any)?.voiceEnabled !== false) playVoice(result.message);
+      } finally {
         setIsLoading(false);
-      }, 4000);
-      return;
-    }
-
-    if (currentQuery.includes("draft a secure client estimate") || currentQuery.includes("draft estimate")) {
-      setIsLoading(true);
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "Accessing internal pricing matrix. I've drafted a standard landscaping estimate based on your historical averages for a 1/2 acre property. Please verify the numbers before sending to the client.",
-          },
-        ]);
-        setIsLoading(false);
-      }, 3500);
-      return;
-    }
-
-    if (currentQuery.includes("summarize the crm database securely") || currentQuery.includes("audit crm")) {
-      setIsLoading(true);
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "Sanitizing identifiable headers... Your CRM holds 214 total clients. Analysis indicates a 14% drop in active recurring services this quarter. I've highlighted the unassigned accounts in your dashboard.",
-          },
-        ]);
-        setIsLoading(false);
-      }, 4500);
+      }
       return;
     }
 
@@ -665,32 +697,25 @@ export default function BrainChat({
                     </p>
                   </div>
                   <div className="flex flex-wrap justify-center gap-3">
+                    {/* Honest example prompts — they pre-fill the composer; you edit + send,
+                        and the agent actually performs the action. */}
                     <button
-                      onClick={() => {
-                        setQuery("Verify system alignment and compliance protocol");
-                        setTimeout(() => handleQuery(), 100);
-                      }}
+                      onClick={() => setQuery("Add a lead named ")}
                       className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black transition-all"
                     >
-                      Security Check
+                      Add a lead
                     </button>
                     <button
-                      onClick={() => {
-                        setQuery("Draft a secure client estimate");
-                        setTimeout(() => handleQuery(), 100);
-                      }}
+                      onClick={() => setQuery("Schedule a mowing for ")}
                       className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black transition-all"
                     >
-                      Draft Estimate
+                      Schedule a job
                     </button>
                     <button
-                      onClick={() => {
-                        setQuery("Summarize the CRM database securely");
-                        setTimeout(() => handleQuery(), 100);
-                      }}
+                      onClick={() => setQuery("Draft an invoice for  for $")}
                       className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white hover:text-black transition-all"
                     >
-                      Audit CRM
+                      Draft an invoice
                     </button>
                   </div>
                 </div>

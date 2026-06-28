@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, Map, Users, Calendar, Truck, Terminal, Sparkles, X, Activity } from "lucide-react";
+import { Search, Map, Users, Calendar, Truck, Terminal, Sparkles, X, Activity, Send } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { useRole } from "../hooks/useRole";
 
-export const CommandPalette = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolean; onClose: () => void; onOutreach?: () => void }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
   const { role } = useRole();
   const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
+
+  // A command either navigates (path) or runs an action.
+  const run = (a: any) => {
+    if (a?.action) a.action();
+    else if (a?.path) navigate(a.path);
+    onClose();
+  };
 
   const actions = useMemo(() => [
     { id: "Dashboard", icon: Activity, path: `${rolePrefix}` },
@@ -17,7 +24,8 @@ export const CommandPalette = ({ isOpen, onClose }: { isOpen: boolean; onClose: 
     { id: "Scheduler", icon: Calendar, path: `${rolePrefix}/scheduler` },
     { id: "Crew Suite", icon: Truck, path: `${rolePrefix}/crew-suite` },
     { id: "YardPilot (AI)", icon: Sparkles, path: `${rolePrefix}/agent` },
-  ], [rolePrefix]);
+    ...(onOutreach ? [{ id: "Agentic Outreach", icon: Send, action: () => onOutreach() }] : []),
+  ], [rolePrefix, onOutreach]);
 
   const filteredActions = useMemo(() =>
     actions.filter((a) => a.id.toLowerCase().includes(searchTerm.toLowerCase())),
@@ -48,8 +56,7 @@ export const CommandPalette = ({ isOpen, onClose }: { isOpen: boolean; onClose: 
         setSelectedIndex((prev) => (prev - 1 + filteredActions.length) % filteredActions.length);
       } else if (e.key === "Enter") {
         if (filteredActions[selectedIndex]) {
-          navigate(filteredActions[selectedIndex].path);
-          onClose();
+          run(filteredActions[selectedIndex]);
         }
       }
     };
@@ -102,10 +109,7 @@ export const CommandPalette = ({ isOpen, onClose }: { isOpen: boolean; onClose: 
                       key={action.id}
                       role="option"
                       aria-selected={i === selectedIndex}
-                      onClick={() => {
-                        navigate(action.path);
-                        onClose();
-                      }}
+                      onClick={() => run(action)}
                       className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all group ${
                         i === selectedIndex ? "bg-white/10 ring-1 ring-white/20" : "hover:bg-white/5"
                       }`}

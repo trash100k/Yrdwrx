@@ -31,97 +31,46 @@ export default function MarkupCanvas({
   imageAspectRatio,
 }: MarkupCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const [fabricCanvas, setFabricCanvas] = useState<fabric.Canvas | null>(null);
   const [activeTool, setActiveTool] = useState<
     "select" | "pencil" | "rect" | "circle" | "x"
   >("pencil");
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // ARCHITECTURE: the photo is a plain <img> with object-contain (the browser scales it
+  // perfectly), and the fabric canvas sits on top as a TRANSPARENT drawing layer sized to the
+  // same box. Export composites photo + drawings. This replaced fabric's backgroundImage,
+  // which rendered the photo half-size in a quadrant regardless of scale math ("pixel lock").
   useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return;
 
-    const canvas = new fabric.Canvas(canvasRef.current, {
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
-      isDrawingMode: true,
-    });
-
-    // Configure brush
+    const canvas = new fabric.Canvas(canvasRef.current, { isDrawingMode: true, enableRetinaScaling: false });
     canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
     canvas.freeDrawingBrush.width = 5;
-    canvas.freeDrawingBrush.color = "#10b981"; // Green (Emerald)
+    canvas.freeDrawingBrush.color = "#10b981";
 
+    // Keep the drawing canvas exactly the size of its container (the displayed photo box).
+    const fit = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const W = el.clientWidth, H = el.clientHeight;
+      if (!W || !H) return;
+      canvas.setDimensions({ width: W, height: H });
+      canvas.requestRenderAll();
+    };
+    (canvas as any)._fit = fit;
     setFabricCanvas(canvas);
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) {
-          canvas.setDimensions({ width, height });
-          if (canvas.backgroundImage) {
-            const img = canvas.backgroundImage as fabric.Image;
-            const scaleX = width / img.width!;
-            const scaleY = height / img.height!;
-            const scale = Math.min(scaleX, scaleY);
-            img.set({
-              scaleX: scale,
-              scaleY: scale,
-              left: (width - img.width! * scale) / 2,
-              top: (height - img.height! * scale) / 2,
-            });
-          }
-          canvas.renderAll();
-        }
-      }
-    });
-
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
+    const resizeObserver = new ResizeObserver(() => fit());
+    resizeObserver.observe(containerRef.current);
+    fit();
 
     return () => {
       canvas.dispose();
       resizeObserver.disconnect();
     };
   }, []);
-
-  useEffect(() => {
-    if (!fabricCanvas || !containerRef.current) return;
-
-    // Dynamically update canvas dimensions to match the raw HTML container's state
-    fabricCanvas.setDimensions({
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
-    });
-
-    if (!backgroundImage) return;
-
-    const isDataUrl = backgroundImage.startsWith("data:");
-    const options = isDataUrl ? {} : { crossOrigin: "anonymous" };
-
-    fabric.FabricImage.fromURL(backgroundImage, options).then((img) => {
-      // Scale image to fit canvas
-      const canvasWidth = fabricCanvas.width!;
-      const canvasHeight = fabricCanvas.height!;
-      const scaleX = canvasWidth / img.width!;
-      const scaleY = canvasHeight / img.height!;
-      const scale = Math.min(scaleX, scaleY);
-
-      img.set({
-        scaleX: scale,
-        scaleY: scale,
-        left: (canvasWidth - img.width! * scale) / 2,
-        top: (canvasHeight - img.height! * scale) / 2,
-        selectable: false,
-        evented: false,
-      });
-
-      fabricCanvas.backgroundImage = img;
-      fabricCanvas.renderAll();
-    }).catch((err) => {
-      console.error("Failed to load fabric background image:", err);
-    });
-  }, [fabricCanvas, backgroundImage, imageAspectRatio]);
 
   const setTool = (tool: "select" | "pencil" | "rect" | "circle" | "x") => {
     setActiveTool(tool);
@@ -187,45 +136,38 @@ export default function MarkupCanvas({
 
   const clearCanvas = () => {
     if (!fabricCanvas) return;
+    // Drawings only live on the fabric layer now; the photo is a separate <img>, so a plain
+    // clear() wipes the markup and leaves the photo untouched.
     fabricCanvas.clear();
-    // Re-render background if it exists
-    if (backgroundImage) {
-      const isDataUrl = backgroundImage.startsWith("data:");
-      const options = isDataUrl ? {} : { crossOrigin: "anonymous" };
-      fabric.FabricImage.fromURL(backgroundImage, options).then((img) => {
-        const canvasWidth = fabricCanvas.width!;
-        const canvasHeight = fabricCanvas.height!;
-        const scaleX = canvasWidth / img.width!;
-        const scaleY = canvasHeight / img.height!;
-        const scale = Math.min(scaleX, scaleY);
-        img.set({
-          scaleX: scale,
-          scaleY: scale,
-          left: (canvasWidth - img.width! * scale) / 2,
-          top: (canvasHeight - img.height! * scale) / 2,
-          selectable: false,
-          evented: false,
-        });
-        fabricCanvas.backgroundImage = img;
-        fabricCanvas.renderAll();
-      });
-    }
+    fabricCanvas.requestRenderAll();
   };
 
   const exportCanvas = () => {
     if (!fabricCanvas) return;
     try {
-      const dataUrl = fabricCanvas.toDataURL({
-        format: "jpeg",
-        quality: 0.8,
-      });
-      onSave(dataUrl);
-    } catch (err) {
-      console.warn("toDataURL failed due to browser security restrictions:", err);
-      // Resilient fallback: use original background image directly if canvas export is blocked
-      if (backgroundImage) {
-        onSave(backgroundImage);
+      const el = containerRef.current;
+      const W = el ? el.clientWidth : fabricCanvas.getWidth();
+      const H = el ? el.clientHeight : fabricCanvas.getHeight();
+      const out = document.createElement("canvas");
+      out.width = W; out.height = H;
+      const ctx = out.getContext("2d");
+      if (!ctx) throw new Error("no 2d ctx");
+      ctx.fillStyle = "#0a0a0a";
+      ctx.fillRect(0, 0, W, H);
+      // 1) photo, object-contain (matches the on-screen <img>)
+      const imgEl = imgRef.current;
+      if (imgEl && imgEl.naturalWidth) {
+        const s = Math.min(W / imgEl.naturalWidth, H / imgEl.naturalHeight);
+        const dw = imgEl.naturalWidth * s, dh = imgEl.naturalHeight * s;
+        ctx.drawImage(imgEl, (W - dw) / 2, (H - dh) / 2, dw, dh);
       }
+      // 2) markup drawings on top (fabric's canvas element, transparent bg)
+      const drawEl = (fabricCanvas as any).lowerCanvasEl || canvasRef.current;
+      if (drawEl) ctx.drawImage(drawEl, 0, 0, W, H);
+      onSave(out.toDataURL("image/jpeg", 0.85));
+    } catch (err) {
+      console.warn("Composite export failed; falling back to the original photo:", err);
+      if (backgroundImage) onSave(backgroundImage);
     }
   };
 
@@ -287,43 +229,39 @@ export default function MarkupCanvas({
           </button>
           <button
             onClick={exportCanvas}
-            className="px-5 py-2 bg-forest-500 text-black rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(5, 168, 69,0.3)] hover:scale-105 active:scale-95 transition-all"
+            className="px-5 py-2 bg-forest-500 text-black rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(5,168,69,0.3)] hover:scale-105 active:scale-95 transition-all"
           >
             Finalize Vision
           </button>
         </div>
       </div>
 
-      <div className="flex-1 w-full h-full flex items-center justify-center min-h-0 p-4 relative">
-        <div className="relative rounded-2xl border border-white/10 bg-black/40 overflow-hidden shadow-2xl flex items-center justify-center" style={{ maxWidth: '100%', maxHeight: '100%' }}>
-          
-          <img 
-            src={backgroundImage || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'/%3E"}
-            className="invisible"
-            style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain' }}
-            alt="sizer"
-            {...((!backgroundImage || !backgroundImage.startsWith("data:")) ? { crossOrigin: "anonymous" } : {})}
-          />
-
-          <div
-            ref={containerRef}
-            className="absolute inset-0 w-full h-full"
-          >
-            <canvas ref={canvasRef} />
-            {!backgroundImage && (
-              <div className="absolute inset-0 flex items-center justify-center flex-col gap-4 pointer-events-none">
-                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center border border-white/10">
-                  <MousePointer2
-                    size={32}
-                    className="text-white/20 animate-bounce"
-                  />
-                </div>
-                <p className="micro-label opacity-40">
-                  Awaiting visual input feed...
-                </p>
+      {/* Definite-size workspace: the photo is a plain object-contain <img> (perfect browser
+          scaling), with the transparent fabric drawing canvas overlaid on top. */}
+      <div className="flex-1 w-full min-h-0 p-1 sm:p-4 relative">
+        <div
+          ref={containerRef}
+          className="relative w-full h-full rounded-2xl border border-white/10 bg-black/40 overflow-hidden shadow-2xl"
+          style={{ touchAction: 'none' }}
+        >
+          {backgroundImage && (
+            <img
+              ref={imgRef}
+              src={backgroundImage}
+              alt="Yard photo"
+              className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+              {...(!backgroundImage.startsWith("data:") ? { crossOrigin: "anonymous" } : {})}
+            />
+          )}
+          <canvas ref={canvasRef} className="absolute inset-0" />
+          {!backgroundImage && (
+            <div className="absolute inset-0 flex items-center justify-center flex-col gap-4 pointer-events-none">
+              <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center border border-white/10">
+                <MousePointer2 size={32} className="text-white/20 animate-bounce" />
               </div>
-            )}
-          </div>
+              <p className="micro-label opacity-40">Awaiting visual input feed...</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -18,7 +18,7 @@ export default function Portfolio() {
     const q = query(
       collection(db, "jobs"),
       where("tenantId", "==", tenantId),
-      where("status", "==", "completed")
+      where("status", "==", "COMPLETED")
     );
 
     const unsub = onSnapshot(
@@ -35,7 +35,9 @@ export default function Portfolio() {
       }
     );
 
-    return () => unsub();
+    // Safety: never spin forever if Firestore is slow/unreachable — fall back to the empty state.
+    const t = setTimeout(() => setLoading(false), 6000);
+    return () => { unsub(); clearTimeout(t); };
   }, [tenant?.id]);
 
   useEffect(() => {

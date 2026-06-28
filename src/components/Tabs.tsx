@@ -10,7 +10,7 @@ interface TabsProps {
 
 export function Tabs({ tabs, activeTab, onChange, className = "" }: TabsProps) {
   return (
-    <div className={`flex items-center p-1 bg-black/40 border border-white/5 rounded-2xl w-max ${className}`}>
+    <div className={`flex items-center p-1 bg-black/40 border border-white/5 rounded-2xl w-max max-w-full overflow-x-auto custom-scrollbar-hide ${className}`}>
       {tabs.map((tab) => {
         const isActive = activeTab === tab;
         return (

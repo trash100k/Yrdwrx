@@ -141,7 +141,7 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
             <button 
               type="submit"
               disabled={isSubmitting || !formData.firstName || !formData.address}
-              className="flex items-center gap-2 bg-forest-500 hover:bg-forest-400 text-black px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(5, 168, 69,0.3)] transition-all disabled:opacity-50"
+              className="flex items-center gap-2 bg-forest-500 hover:bg-forest-400 text-black px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(5,168,69,0.3)] transition-all disabled:opacity-50"
             >
               {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               Submit Lead

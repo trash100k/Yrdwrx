@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, collection, query, orderBy, where, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { ApiClient } from "../lib/apiClient";
 import { MapPin, Calendar, CreditCard, Droplet, Leaf, CheckCircle2, Lock, Send, AlertCircle, Globe } from "lucide-react";
@@ -91,43 +91,136 @@ export default function ClientPortal() {
     return () => unsubscribe();
   }, [clientId]);
 
+  // Real invoices for this client. Invoices store the client as a free-text `client`
+  // name string (see Invoices.tsx / Scheduler.tsx), scoped by `tenantId` — there is no
+  // foreign-key id on the invoice doc. We query by tenant and match by name locally so
+  // we never render another tenant's billing.
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
+
+  const clientNames = React.useMemo(() => {
+    if (!client) return [];
+    const candidates = [
+      client.name,
+      [client.firstName, client.lastName].filter(Boolean).join(" "),
+      client.companyName,
+      client.firstName,
+    ];
+    return candidates
+      .filter((n) => typeof n === "string" && n.trim().length > 0)
+      .map((n) => n.trim().toLowerCase());
+  }, [client]);
+
+  useEffect(() => {
+    if (!client) return;
+    const tenantId = client.tenantId || tenant?.id;
+    if (!tenantId) {
+      setInvoicesLoading(false);
+      return;
+    }
+    setInvoicesLoading(true);
+
+    const q = query(collection(db, "invoices"), where("tenantId", "==", tenantId));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const rows = snapshot.docs
+          .map((d) => ({ id: d.id, ...d.data() } as any))
+          .filter((inv) => !inv.isArchived)
+          .filter((inv) => {
+            const invClient = (inv.client || "").trim().toLowerCase();
+            if (!invClient) return false;
+            return clientNames.includes(invClient);
+          });
+        setInvoices(rows);
+        setInvoicesLoading(false);
+      },
+      (err) => {
+        console.error("Error loading invoices", err);
+        setInvoicesLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [client, tenant?.id, clientNames]);
+
+  const isInvoicePaid = (inv: any) => {
+    const s = String(inv?.status || "").toLowerCase();
+    return s === "paid";
+  };
+
+  const outstandingBalance = React.useMemo(
+    () =>
+      invoices
+        .filter((inv) => !isInvoicePaid(inv))
+        .reduce((acc, inv) => acc + (Number(inv.amount) || 0), 0),
+    [invoices]
+  );
+
+  const formatMoney = (n: number) =>
+    (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
 
-  const handlePayment = async () => {
+  // Pay a REAL invoice. We send the invoice id (and tenant) so the server fetches the
+  // authoritative amount from Firestore and stamps session.metadata.invoiceId — the only
+  // way the Stripe webhook can later mark this exact invoice paid. Never send a literal amount.
+  const handlePayment = async (invoice: any) => {
+    if (!invoice?.id) return;
     setPaymentLoading(true);
+    setPayingInvoiceId(invoice.id);
     setPaymentError(null);
     try {
-      const res = await ApiClient.post<any>("/api/stripe/checkout", { 
-        amount: 145, 
-        description: "YardWorx Landscapes Invoice: INV-2026-104", 
-        successUrl: window.location.href, 
+      const res = await ApiClient.post<any>("/api/stripe/checkout", {
+        invoiceId: invoice.id,
+        tenantId: invoice.tenantId || client?.tenantId || tenant?.id,
+        description: `YardWorx Landscapes Invoice: INV-${String(invoice.id).slice(0, 6)}`,
+        successUrl: window.location.href,
         cancelUrl: window.location.href,
-        tenantStripeAccountId: tenant?.stripeAccountId
+        tenantStripeAccountId: tenant?.stripeAccountId,
       });
-      if (res.checkoutUrl) {
-        window.location.href = res.checkoutUrl;
+      const url = res.checkoutUrl || res.url || res.simulatedUrl;
+      if (url) {
+        window.location.href = url;
+      } else if (res.error) {
+        setPaymentError(res.error);
+      } else {
+        setPaymentError("Unable to start checkout. Please try again.");
       }
     } catch (err: any) {
       setPaymentError(err.message || "Payment declined or failed. Please try again.");
     } finally {
       setPaymentLoading(false);
+      setPayingInvoiceId(null);
     }
   };
+
+  // Blueprint-unlock deposit. There is no invoice doc for a deposit, so the amount comes
+  // from the tenant's configured deposit setting (source of truth) rather than a magic
+  // literal in this client. Falls back to the displayed default only if unconfigured.
+  const depositAmount =
+    Number(tenant?.settings?.subFeatures?.blueprintDepositAmount) || 250;
 
   const handleDepositPayment = async () => {
     setPaymentLoading(true);
     setPaymentError(null);
     try {
-      const res = await ApiClient.post<any>("/api/stripe/checkout", { 
-        amount: 250, 
-        description: "Blueprint Unlock Deposit", 
-        successUrl: window.location.href, 
+      const res = await ApiClient.post<any>("/api/stripe/checkout", {
+        amount: depositAmount,
+        description: "Blueprint Unlock Deposit",
+        successUrl: window.location.href,
         cancelUrl: window.location.href,
-        tenantStripeAccountId: tenant?.stripeAccountId
+        tenantStripeAccountId: tenant?.stripeAccountId,
       });
-      if (res.checkoutUrl) {
-        window.location.href = res.checkoutUrl;
+      const url = res.checkoutUrl || res.url || res.simulatedUrl;
+      if (url) {
+        window.location.href = url;
+      } else if (res.error) {
+        setPaymentError(res.error);
+      } else {
+        setPaymentError("Unable to start checkout. Please try again.");
       }
     } catch (err: any) {
       setPaymentError(err.message || "Payment declined or failed. Please try again.");
@@ -277,51 +370,69 @@ export default function ClientPortal() {
           {activeTab === "invoices" && (
             <div className="bg-zinc-900 border-4 border-white/5 rounded-2xl p-5 sm:p-8 shadow-2xl">
               <h2 className="text-xs font-black text-forest-400 uppercase tracking-widest mb-8">Billing & Invoices</h2>
-              
-              <div className="bg-rose-500/10 border-2 border-rose-500/20 rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
-                <div>
-                  <h3 className="text-rose-400 font-black uppercase tracking-widest text-xs mb-1">Outstanding Balance</h3>
-                  <p className="text-2xl sm:text-3xl sm:text-4xl font-black italic tracking-normal md:tracking-tighter text-white">$145.00</p>
-                </div>
-                <div className="flex flex-col items-end gap-2 w-full md:w-auto">
-                  {paymentError && (
-                    <div className="bg-rose-500/20 text-rose-400 text-xs px-3 py-2 rounded-lg flex items-center gap-2 max-w-sm">
-                       <AlertCircle size={14} />
-                       {paymentError}
-                    </div>
-                  )}
-                  <button 
-                    onClick={handlePayment}
-                    disabled={paymentLoading}
-                    className="w-full md:w-auto bg-white text-black font-black uppercase tracking-widest text-xs py-4 px-8 rounded-xl hover:scale-105 transition-transform flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                  >
-                    <CreditCard size={16} /> {paymentLoading ? "Processing..." : paymentError ? "Retry Payment" : "Pay Securely Now"}
-                  </button>
-                </div>
-              </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between bg-black/40 p-4 sm:p-6 rounded-2xl border-2 border-white/5">
-                  <div>
-                    <h4 className="font-bold text-sm">October Maintenance</h4>
-                    <p className="text-white/50 text-xs">INV-2026-104</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-black">$145.00</p>
-                    <p className="text-rose-400 text-xs md:text-[10px] font-black uppercase tracking-widest">Unpaid</p>
-                  </div>
+              {invoicesLoading ? (
+                <div className="py-16 text-center text-white/30 animate-pulse font-black uppercase tracking-[0.3em] text-xs">
+                  Loading Invoices...
                 </div>
-                <div className="flex items-center justify-between bg-black/40 p-4 sm:p-6 rounded-2xl border-2 border-white/5 opacity-50 grayscale">
-                  <div>
-                    <h4 className="font-bold text-sm">September Maintenance</h4>
-                    <p className="text-white/50 text-xs">INV-2026-092</p>
+              ) : invoices.length === 0 ? (
+                <div className="bg-black/40 border-2 border-white/5 rounded-2xl p-12 text-center">
+                  <div className="w-14 h-14 bg-forest-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 text-forest-400">
+                    <CreditCard size={26} />
                   </div>
-                  <div className="text-right">
-                    <p className="font-black">$145.00</p>
-                    <p className="text-forest-400 text-xs md:text-[10px] font-black uppercase tracking-widest">Paid</p>
-                  </div>
+                  <h3 className="font-black uppercase tracking-widest text-sm mb-1">No Invoices Yet</h3>
+                  <p className="text-white/40 text-xs">You're all caught up. New invoices will appear here.</p>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div className="bg-rose-500/10 border-2 border-rose-500/20 rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div>
+                      <h3 className="text-rose-400 font-black uppercase tracking-widest text-xs mb-1">Outstanding Balance</h3>
+                      <p className="text-2xl sm:text-3xl sm:text-4xl font-black italic tracking-normal md:tracking-tighter text-white">${formatMoney(outstandingBalance)}</p>
+                    </div>
+                    {paymentError && (
+                      <div className="bg-rose-500/20 text-rose-400 text-xs px-3 py-2 rounded-lg flex items-center gap-2 max-w-sm">
+                        <AlertCircle size={14} />
+                        {paymentError}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    {invoices.map((inv) => {
+                      const paid = isInvoicePaid(inv);
+                      return (
+                        <div
+                          key={inv.id}
+                          className={`flex flex-col sm:flex-row sm:items-center justify-between bg-black/40 p-4 sm:p-6 rounded-2xl border-2 border-white/5 gap-4 ${paid ? "opacity-50 grayscale" : ""}`}
+                        >
+                          <div>
+                            <h4 className="font-bold text-sm">{inv.items?.[0]?.description || "Service Invoice"}</h4>
+                            <p className="text-white/50 text-xs">INV-{String(inv.id).slice(0, 6)}{inv.date ? ` • Due ${inv.date}` : ""}</p>
+                          </div>
+                          <div className="flex items-center gap-4 sm:gap-6">
+                            <div className="text-right">
+                              <p className="font-black">${formatMoney(inv.amount)}</p>
+                              <p className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${paid ? "text-forest-400" : "text-rose-400"}`}>
+                                {paid ? "Paid" : inv.status || "Unpaid"}
+                              </p>
+                            </div>
+                            {!paid && (
+                              <button
+                                onClick={() => handlePayment(inv)}
+                                disabled={paymentLoading}
+                                className="bg-white text-black font-black uppercase tracking-widest text-[10px] sm:text-xs py-3 px-5 rounded-xl hover:scale-105 transition-transform flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 whitespace-nowrap"
+                              >
+                                <CreditCard size={14} /> {payingInvoiceId === inv.id ? "Processing..." : "Pay Now"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -434,7 +545,7 @@ export default function ClientPortal() {
                           disabled={paymentLoading}
                           className="w-full py-4 bg-white text-black font-black uppercase tracking-widest text-xs md:text-[11px] rounded-xl hover:scale-[1.02] transition-transform shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <CreditCard size={14} /> {paymentLoading ? "Processing..." : paymentError ? "Retry Deposit" : "Pay $250 Deposit to Unlock Blueprint"}
+                          <CreditCard size={14} /> {paymentLoading ? "Processing..." : paymentError ? "Retry Deposit" : `Pay $${formatMoney(depositAmount)} Deposit to Unlock Blueprint`}
                         </button>
                         <p className="text-center text-xs md:text-[10px] font-bold uppercase tracking-widest text-white/40 mt-4">
                           100% applied to project cost

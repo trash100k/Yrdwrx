@@ -49,13 +49,17 @@ import { SubscriptionGuard } from "../components/SubscriptionGuard";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { HandsFreeDictator } from "../components/HandsFreeDictator";
+import { executeAgentAction } from "../lib/agentActions";
 import { ResourceAssignmentModal } from "../components/ResourceAssignmentModal";
 import { ResourceTimeline } from "../components/ResourceTimeline";
+import { TimeClock } from "../components/TimeClock";
 
 export default function CrewSuite() {
   const { tenant } = useTenant();
   const { showToast } = useToast();
+  const { addLog } = useWorkspaceOutbox();
   const [crews, setCrews] = useState<
     {
       id: string;
@@ -569,6 +573,10 @@ export default function CrewSuite() {
         <ResourceTimeline />
       )}
 
+      <div className="mt-10 max-w-md">
+        <TimeClock />
+      </div>
+
       <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-10 mt-10 rounded-2xl relative overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-12 gap-6 relative z-10">
           <div className="flex items-center gap-4">
@@ -1010,7 +1018,30 @@ onClick={() => {
         )}
       </AnimatePresence>
     </div>
-    <HandsFreeDictator />
+    <HandsFreeDictator
+      onProcessAction={async (data: any) => {
+        // Turn a parsed field dictation into a real action.
+        if (data?.intent === "UPDATE_INVENTORY" && data?.data?.item) {
+          await executeAgentAction(
+            {
+              name: "log_inventory_usage",
+              args: { itemName: data.data.item, quantity: data.data.quantity || 1 },
+            },
+            { showToast },
+          );
+        } else if (data?.intent === "UPDATE_CREW_STATUS") {
+          showToast("Status logged", data.summary || "Crew update noted", "success");
+          try {
+            addLog({
+              type: "chat",
+              recipient: "Operations Channel",
+              subject: "Crew Status Update",
+              content: data.summary || "Field status update",
+            });
+          } catch {}
+        }
+      }}
+    />
     <AnimatePresence>
       <ResourceAssignmentModal
         isOpen={isResourceAssignOpen}

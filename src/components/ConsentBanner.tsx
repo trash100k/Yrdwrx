@@ -28,7 +28,7 @@ export function ConsentBanner() {
   if (!isVisible) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-white/10 z-50 p-4 sm:p-6 shadow-2xl">
+    <div className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-white/10 z-50 p-4 sm:p-6 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-4">
           <div className="p-2 bg-celtic-500/10 rounded-full shrink-0">

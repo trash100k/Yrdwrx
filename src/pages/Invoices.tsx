@@ -41,9 +41,11 @@ import {
   Eye,
   Zap,
   Printer,
+  Repeat,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
+import { useToast } from "../contexts/ToastContext";
 import { syncService } from "../services/syncService";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { useReactToPrint } from "react-to-print";
@@ -55,6 +57,7 @@ import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
 
 export default function Invoices() {
   const { tenant } = useTenant();
+  const { showToast } = useToast();
   const location = useLocation();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [expenses, setExpenses] = useState<
@@ -312,19 +315,103 @@ export default function Invoices() {
   const handleGeneratePdf = async (inv: any) => {
     try {
       setGeneratingPdfId(inv.id);
-      
-      // Mock network delay for PDF generation
-      await new Promise(resolve => setTimeout(resolve, 2500));
 
+      // The server route renders the invoice PDF via Puppeteer and attaches it to a Gmail
+      // draft, so it requires a Gmail OAuth access token. We obtain one the same way the
+      // rest of the app does (signInWithPopup + scope) — see CRM.tsx / Dashboard.tsx.
+      const provider = new GoogleAuthProvider();
+      provider.addScope("https://www.googleapis.com/auth/gmail.compose");
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken;
+      if (!accessToken) throw new Error("Could not authorize Gmail for the invoice draft.");
+
+      const res = await fetchApi("/api/invoices/generate-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceId: inv.id,
+          accessToken,
+          merchant: inv.client || "Client",
+          amount: inv.amount || 0,
+          clientEmail: inv.clientEmail || inv.email || "",
+        }),
+      });
+
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
+
+      if (!res.ok || data?.error || data?.success === false) {
+        throw new Error(data?.error || "PDF generation failed.");
+      }
+
+      // Only flip status to "sent" after the PDF/draft was created successfully.
+      const tenantId = tenant?.id || "genesis-1";
       await updateDoc(doc(db, "invoices", inv.id), {
         status: "sent",
         updatedAt: serverTimestamp(),
       });
-      
+      await logSystemEvent("INVOICE_PDF_GENERATED", {
+        invoiceId: inv.id,
+        client: inv.client,
+        tenantId,
+      });
+
+      showToast(data?.message || "Invoice PDF generated and draft created.", "success");
+
+      // Best-effort SMS delivery with a pay link to the client portal. Never let an SMS
+      // failure block or revert the PDF + status flow.
+      const phone = inv.clientPhone || inv.phone;
+      if (phone) {
+        try {
+          const portalLink = `${window.location.origin}/portal/${inv.customerId || inv.clientId || ""}`;
+          await fetchApi("/api/sms/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: phone,
+              message: `Your invoice INV-${String(inv.id).slice(0, 6)} for $${(inv.amount || 0).toLocaleString()} is ready. Pay securely here: ${portalLink}`,
+            }),
+          });
+        } catch (smsErr) {
+          console.warn("Invoice SMS delivery failed (non-blocking):", smsErr);
+        }
+      }
     } catch (err: any) {
       console.error(err);
+      showToast(err?.message || "Failed to generate invoice PDF.", "error");
     } finally {
       setGeneratingPdfId(null);
+    }
+  };
+
+  // Set up recurring/seasonal billing for this invoice's customer (Stripe subscription on the
+  // connected account). Opens Stripe Checkout, or confirms a simulated plan without keys.
+  const handleMakeRecurring = async (inv: any) => {
+    const interval = (typeof window !== "undefined" && window.prompt
+      ? window.prompt("Billing interval: weekly, biweekly, monthly, quarterly, seasonal, or yearly", "monthly")
+      : "monthly");
+    if (!interval) return;
+    try {
+      const res = await fetchApi("/api/stripe/recurring/checkout", {
+        method: "POST",
+        body: JSON.stringify({
+          customerId: inv.customerId || inv.clientId || inv.client,
+          amount: inv.amount,
+          description: `Recurring service — ${inv.client || "Customer"}`,
+          interval: String(interval).toLowerCase().trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data?.error || "Could not set up recurring billing.", "error"); return; }
+      if (data?.url || data?.checkoutUrl) { window.location.href = data.url || data.checkoutUrl; return; }
+      showToast(data?.simulated ? `Recurring plan ready (${data.interval}). Connect Stripe to go live.` : "Recurring billing set up.", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Could not set up recurring billing.", "error");
     }
   };
 
@@ -523,6 +610,14 @@ export default function Invoices() {
                       ) : (
                         <Download size={18} aria-hidden="true" />
                       )}
+                    </button>
+                    <button
+                      onClick={() => handleMakeRecurring(inv)}
+                      className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-md transition-all"
+                      aria-label={`Set up recurring billing for ${inv.client}`}
+                      title="Set up recurring / seasonal billing"
+                    >
+                      <Repeat size={18} aria-hidden="true" />
                     </button>
                     <button
                       onClick={async () => {

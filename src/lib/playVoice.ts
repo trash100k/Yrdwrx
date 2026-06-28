@@ -1,6 +1,8 @@
+import { fetchApi } from "./api";
+
 export async function playVoice(text: string) {
   try {
-    const res = await fetch("/api/agent/tts", {
+    const res = await fetchApi("/api/agent/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text })

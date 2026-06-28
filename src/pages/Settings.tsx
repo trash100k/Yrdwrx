@@ -4,11 +4,13 @@ import { safeStorage } from '../lib/storage';
 import React, { useState } from "react";
 import { useTenant } from "../contexts/TenantContext";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { auth, db } from "../lib/firebase";
+import { db } from "../lib/firebase";
+import { getCurrentUser, signOutUser } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
-import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe } from "lucide-react";
+import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
-import { deleteUser, signOut } from "firebase/auth";
+import { fetchApi } from "../lib/api";
+import { useEffect } from "react";
 
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
 import { StripeConnectSection } from "../components/StripeConnectSection";
@@ -16,6 +18,103 @@ import { IntegrationSettings } from "../components/IntegrationSettings";
 import { WorkflowBuilderSection } from "../components/WorkflowBuilderSection";
 import { TeamManagement } from "../components/TeamManagement";
 import { Link } from "react-router-dom";
+
+// Shareable public booking link (online booking / instant-quote intake). Operators put this
+// on their website / Google profile; submissions land as NEW leads in the pipeline.
+function BookingLinkSection({ tenantId }: { tenantId?: string }) {
+  const [copied, setCopied] = useState(false);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const link = tenantId ? `${origin}/book/${tenantId}` : "";
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
+  };
+  return (
+    <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-4">
+      <div className="space-y-1">
+        <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Lead Capture</span>
+        <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">Online Booking Link</h3>
+        <p className="text-sm text-zinc-400">Share this on your website, Google profile, or texts. Requests come in as new leads.</p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <input
+          readOnly
+          value={link || "Sign in to a tenant to generate your link"}
+          className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/80 font-mono truncate"
+        />
+        <button
+          onClick={copy}
+          disabled={!link}
+          className="shrink-0 px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all"
+        >
+          {copied ? "Copied!" : "Copy Link"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+// QuickBooks Online connect + one-way sync. Reads status from the server (tokens never reach
+// the client); shows Connect / Sync actions that light up once QBO creds are configured.
+function QuickBooksSection() {
+  const { showToast } = useToast();
+  const [status, setStatus] = useState<{ configured?: boolean; connected?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try { const r = await fetchApi("/api/quickbooks/status"); setStatus(await r.json()); } catch { setStatus({ configured: false, connected: false }); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const r = await fetchApi("/api/quickbooks/connect");
+      const d = await r.json();
+      if (r.ok && d?.url) { window.location.href = d.url; return; }
+      showToast(d?.error || "QuickBooks is not configured yet.", "error");
+    } catch (e: any) { showToast(e?.message || "Could not start QuickBooks connect.", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const sync = async () => {
+    setBusy(true);
+    try {
+      const r = await fetchApi("/api/quickbooks/sync", { method: "POST", body: JSON.stringify({}) });
+      const d = await r.json();
+      if (r.ok) showToast(`Synced ${d.synced}/${d.total} customers to QuickBooks.`, "success");
+      else showToast(d?.error || "QuickBooks sync unavailable.", "error");
+    } catch (e: any) { showToast(e?.message || "QuickBooks sync failed.", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const connected = status?.connected;
+  const configured = status?.configured;
+  return (
+    <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-1">
+          <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Accounting</span>
+          <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">QuickBooks Online</h3>
+          <p className="text-sm text-zinc-400">Push customers + invoices to QuickBooks so books reconcile automatically.</p>
+        </div>
+        <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${connected ? "text-forest-400 bg-forest-500/10 border-forest-500/20" : "text-zinc-400 bg-white/5 border-white/10"}`}>
+          {connected ? "Connected" : configured ? "Not connected" : "Not configured"}
+        </span>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <button onClick={connect} disabled={busy} className="px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all">
+          {connected ? "Reconnect" : "Connect QuickBooks"}
+        </button>
+        <button onClick={sync} disabled={busy || !connected} className="px-6 py-3 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white font-black text-xs uppercase tracking-widest rounded-xl border border-white/10 transition-all">
+          Sync Customers
+        </button>
+      </div>
+      {!configured && (
+        <p className="text-[10px] text-zinc-600">Set QBO_CLIENT_ID / QBO_CLIENT_SECRET / QBO_REDIRECT_URI to enable.</p>
+      )}
+    </section>
+  );
+}
 
 export default function Settings() {
   const { tenant } = useTenant();
@@ -128,7 +227,7 @@ export default function Settings() {
       icon: Activity,
       description: "Business intelligence and metric dashboards.",
       subSettings: [
-        { id: "liveEarAlwaysOn", label: "Meridian Ear (Always-On)", desc: "Enable ambient voice tracking for hands-free management." },
+        { id: "liveEarAlwaysOn", label: "Live Ear (Always-On)", desc: "Enable ambient voice tracking for hands-free management." },
         { id: "visionAnalysis", label: "AI Vision Analysis", desc: "Enable computer vision to spot diseases / measure lots." }
       ]
     },
@@ -207,31 +306,25 @@ export default function Settings() {
       return;
     }
     
-    if (auth.currentUser?.uid?.startsWith("demo-")) {
+    if (getCurrentUser()?.uid?.startsWith("demo-")) {
       showToast("Cannot delete data in Demo mode.", "error");
       setShowDeleteModal(false);
       return;
     }
-    
+
     setIsDeleting(true);
     try {
-      if (auth.currentUser) {
-        // Delete user doc
-        await deleteDoc(doc(db, "users", auth.currentUser.uid));
-        // Delete user auth
-        await deleteUser(auth.currentUser);
-      }
-      showToast("All your data has been successfully deleted.", "success");
+      // Deleting a Supabase Auth user requires service-role/admin privileges that are
+      // not available to the browser client. Sign the user out here; the actual account
+      // + data deletion must be performed by a privileged server endpoint.
+      // TODO: server-side account deletion endpoint
+      showToast("You have been signed out. Account deletion has been requested.", "success");
       setShowDeleteModal(false);
-      await signOut(auth);
+      await signOutUser();
       window.location.href = "/";
     } catch (err: any) {
       console.error("Error deleting data:", err);
-      if (err.code === "auth/requires-recent-login") {
-         showToast("For security reasons, please log out and log back in before deleting your account.", "error");
-      } else {
-         showToast(err.message || "Failed to delete your data.", "error");
-      }
+      showToast(err.message || "Failed to delete your data.", "error");
     } finally {
       setIsDeleting(false);
     }
@@ -356,6 +449,10 @@ export default function Settings() {
       </section>
 
       <ServicePricingCatalog />
+
+      <BookingLinkSection tenantId={tenant?.id} />
+
+      <QuickBooksSection />
 
       <StripeConnectSection />
       

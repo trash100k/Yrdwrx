@@ -33,20 +33,37 @@ finish vertical slices over half-touching many files. When two paths exist, pick
 real landscaper to value fastest (quote → job → invoice → paid), and write down the assumption.
 
 ## 2. Current state (DONE — do not redo)
+*Honest baseline. "DONE" = the code/infra exists and is verified; it does **not** mean the demo runs on
+it (the working demo still uses Firestore + mocked auth) or that the human go-live steps (§7) are done.*
 - **Backend (hybrid, decided):** Firebase Auth + Cloud Run + **Vertex Gemini** + **Supabase Postgres
   for data** (bridged via Supabase Third-Party Auth → Firebase; RLS keys on `auth.jwt()->>'sub'`).
 - **Supabase project `bzpxudpmksnawmaanxal`** (org GaelWorx `tsfrkcrubwmcokeeziys`): full schema +
   RLS **live & verified** (cross-tenant isolation proven; `get_advisors` security = 0). Migrations in
-  `supabase/migrations/0001..0005`. Tables incl. customers/jobs/invoices/tasks/documents/etc.
+  `supabase/migrations/0001..0006` (`0006` adds the supporting tables — `material_logs`/`messages`/
+  `audit_logs`/`system_logs`/`telemetry` — same RLS pattern). Tables incl. customers/jobs/invoices/tasks/documents/etc.
+  **But:** Supabase is **inert in the demo** — RLS token is null under mocked auth and nothing provisions
+  `tenants`/`profiles` rows yet, so the running app is still on **Firestore**.
 - **Build/boot fixed:** `npm run build` emits frontend **and** `dist/server.cjs`; it boots + serves.
-- **Auth-bypass fixed:** `verifyFirebaseToken` matches the full path, enforced behind **`REQUIRE_AUTH`**
-  (default off so the mock-admin demo runs; flip on with real auth).
+- **Auth:** `verifyFirebaseToken` matches the full path, enforced behind **`REQUIRE_AUTH`** (server) +
+  **`VITE_REQUIRE_AUTH`** (client mirror) — both default off so the mock-admin demo runs. Real
+  `onAuthStateChanged`/`useRole`/`TenantContext` wiring + the **`POST /api/tenants/provision`** /
+  **`GET /api/tenants/me`** endpoints are landing; flip both flags on **with the human go-live steps (§7)**.
+- **Billing/security/AI (this session):** tenant-safe Stripe (`application_fee`, ACH, require `invoiceId`)
+  + `/api/stripe/subscribe`; tier enforcement + AI **credit-wallet** metering (402/429); security
+  hardening (playground gated, threats admin-only, fail-fast `JWT_SECRET`, IPv6 limiter, tenant-scoped
+  caches, env-driven CSP); **AI mock-mode 503 fallbacks** for the non-mocked routes.
 - **Repo layer** (`src/lib/repos/*`) over Supabase with **transparent camelCase↔snake_case mapping** in
   `makeRepo` — the frontend's camelCase works against Supabase with near-zero churn. Repos exist for all
   domains (`customersRepo`, `jobsRepo`, `invoicesRepo`, …).
-- **CRM** components (Tasks/Jobs/Documents/CustomFields/Notifications/Contracts) built; **Design Studio**
-  reliable + catalog-grounded pricing + 3D preview; **Live Ear** dev-safe + executes tools for real.
+- **CRM** components (Tasks/Jobs/Documents/CustomFields/Notifications/Contracts) built. **Design Studio:**
+  `/api/design/process` + `/tiers` are now **catalog-grounded** (line-item prices from the tenant catalog,
+  not model-invented) + dev-safe in mock mode this session; the live-key image-mockup path still needs
+  validation. **Live Ear:** dev-safe streaming; Live tools are **partly stubbed** (not all execute real
+  writes yet) — do not treat as fully wired.
 - **Branch:** all work on **`claude/claude-md-docs-pl7crd`**; PRs merged to `main` as we go.
+- **Still to do (not done):** the full **Firestore → Supabase page cutover** (CRM/Scheduler/Invoices/
+  Inventory/Dashboard onto repos; restore real auth + tenant provisioning end-to-end) and **all human-only
+  go-live blockers (§7 / README)** — Third-Party Auth, secrets, flip both flags, provision tenant, Stripe, PITR.
 - **Known follow-up:** the 4 components built before the camelCase mapping (CRMTasks/Jobs/Documents/
   NotificationsCenter) still use snake_case field names — update them to camelCase (they don't run live
   until keys land, so no current breakage).

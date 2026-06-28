@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db } from '../lib/firebase';
+import { getCurrentUser } from '../lib/supabase';
 import { useTenant } from '../contexts/TenantContext';
 import { useRole } from './useRole';
 
@@ -12,8 +13,8 @@ export function useAuditLog() {
     try {
       await addDoc(collection(db, 'audit_logs'), {
         tenantId: tenant.id,
-        userId: auth.currentUser?.uid || 'unknown',
-        userEmail: auth.currentUser?.email || 'unknown',
+        userId: getCurrentUser()?.uid || 'unknown',
+        userEmail: getCurrentUser()?.email || 'unknown',
         role,
         module: moduleName,
         actionType,

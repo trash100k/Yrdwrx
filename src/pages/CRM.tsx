@@ -73,9 +73,38 @@ import { CRMJobs } from "../components/CRMJobs";
 import { CRMCustomFields } from "../components/CRMCustomFields";
 import { CustomerPortalCard } from "../components/CustomerPortalCard";
 import { useToast } from "../contexts/ToastContext";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Customer, Insight } from "../types";
 import { LeadVerificationPanel } from "../components/LeadVerificationPanel";
+
+// Deterministic lead score (0-100) derived from a lead's real, on-file fields.
+// Stable across reloads (no Math.random) so the displayed score is meaningful.
+function computeLeadScore(lead: any): number {
+  if (!lead) return 0;
+  let score = 0;
+  const has = (v: any) =>
+    v != null && String(v).trim() !== "" && String(v).trim().toLowerCase() !== "unknown";
+  if (has(lead.email)) score += 20;
+  if (has(lead.phone)) score += 20;
+  if (has(lead.address)) score += 20;
+  if (has(lead.serviceInterest) || has(lead.segment) || (Array.isArray(lead.tags) && lead.tags.length > 0))
+    score += 15;
+  if (has(lead.budget) || has(lead.propertySize)) score += 15;
+  if (has(lead.notes)) score += 5;
+  if (lead.isHOA || lead.priority) score += 5;
+  return Math.min(100, score);
+}
+
+// Deterministic value in [0, n) derived from a stable entity id (simple string hash).
+function stableIndexFromId(id: string | undefined, n: number): number {
+  if (!id || n <= 0) return 0;
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = (h * 31 + id.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h) % n;
+}
 
 const customerSchema = z.object({
   firstName: z.string().min(2),
@@ -101,6 +130,7 @@ const generatePropertyGrowthData = (baseValue = 450000) => {
 export default function CRM() {
   const { tenant, userRole } = useTenant();
   const { showToast } = useToast();
+  const { addLog } = useWorkspaceOutbox();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [knowledge, setKnowledge] = useState<Record<string, any>[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -809,20 +839,26 @@ export default function CRM() {
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          const imports = results.data.map((row: any) => ({
-            firstName: row.firstName || row.first_name || row["First Name"] || "Unknown",
-            lastName: row.lastName || row.last_name || row["Last Name"] || "Unknown",
-            email: row.email || row.Email || "",
-            phone: row.phone || row.Phone || "",
-            address: row.address || row.Address || "",
-            notes: row.notes || row.Notes || "",
-            status: "imported",
-            tenantId: tenant?.id || "genesis-1",
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            aiScore: Math.floor(Math.random() * 40) + 40, // Simulated initial score
-            aiScoreLabel: "Evaluating",
-          }));
+          const imports = results.data.map((row: any) => {
+            const record = {
+              firstName: row.firstName || row.first_name || row["First Name"] || "Unknown",
+              lastName: row.lastName || row.last_name || row["Last Name"] || "Unknown",
+              email: row.email || row.Email || "",
+              phone: row.phone || row.Phone || "",
+              address: row.address || row.Address || "",
+              notes: row.notes || row.Notes || "",
+              status: "imported",
+              tenantId: tenant?.id || "genesis-1",
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+            // Deterministic score from the lead's real fields (stable across reloads).
+            return {
+              ...record,
+              aiScore: computeLeadScore(record),
+              aiScoreLabel: "Evaluating",
+            };
+          });
 
           for (const item of imports) {
             await addDoc(collection(db, "customers"), item);
@@ -1386,8 +1422,8 @@ export default function CRM() {
                             </span>
                             <span className="micro-label px-3 py-1 bg-white/5 rounded-lg border border-white/5 uppercase">
                               {
-                                ["Inbound SMS", "Direct Link", "Ref 12"][
-                                  Math.floor(Math.random() * 3)
+                                ["Inbound SMS", "Direct Link", "Referral"][
+                                  stableIndexFromId(client.id, 3)
                                 ]
                               }
                             </span>

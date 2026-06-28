@@ -3,19 +3,16 @@
 import React, { useEffect, useState, Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AddToHomeScreen } from "./components/AddToHomeScreen";
-import {
-  onAuthStateChanged,
-  User,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signInAnonymously,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-} from "firebase/auth";
-import { setUserId } from "firebase/analytics";
-import { doc, getDoc, setDoc } from "firebase/firestore";
 import { motion } from "motion/react";
-import { auth, db, analytics } from "./lib/firebase";
+import {
+  onAuthChange,
+  signInWithEmail,
+  signUpWithEmail,
+  signInWithMagicLink,
+} from "./lib/supabase";
+import { getCurrentProfile, clearProfileCache } from "./lib/repos/profile";
+
+const REQUIRE_AUTH = import.meta.env.VITE_REQUIRE_AUTH === "true";
 
 // Components & Contexts
 import Onboarding from "./components/Onboarding";
@@ -55,6 +52,7 @@ const Agent = lazy(() => import("./pages/Agent"));
 const Portfolio = lazy(() => import("./pages/Portfolio"));
 const ClientPortal = lazy(() => import("./pages/ClientPortal"));
 const MagicLinkAuth = lazy(() => import("./pages/MagicLinkAuth"));
+const BookingIntake = lazy(() => import("./pages/BookingIntake"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 const TermsOfService = lazy(() => import("./pages/TermsOfService"));
 const DataMap = lazy(() => import("./pages/DataMap"));
@@ -94,63 +92,75 @@ function RolePathRedirect({ subPath }: { subPath: string }) {
 import { safeStorage } from "./lib/storage";
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [onboarded, setOnboarded] = useState(false);
   const [isDemo, setIsDemo] = useState(false);
 useEffect(() => {
-    // INTERNAL TESTING BYPASS
-    const mockAdmin = {
-        uid: "admin-user-001",
-        email: "admin@yardworx.io",
-        displayName: "Internal Admin",
-        emailVerified: true
-    } as any;
+    // DEMO / INTERNAL TESTING BYPASS — when auth is NOT required, inject the mock admin
+    // exactly as before so the demo path is unchanged.
+    if (!REQUIRE_AUTH) {
+      const mockAdmin = {
+          uid: "admin-user-001",
+          email: "admin@yardworx.io",
+          displayName: "Internal Admin",
+          emailVerified: true
+      } as any;
 
-    setUser(mockAdmin);
-    setOnboarded(true);
-    setLoading(false);
-    setIsDemo(true);
+      setUser(mockAdmin);
+      setOnboarded(true);
+      setLoading(false);
+      setIsDemo(true);
+      return;
+    }
 
-    // Disable real auth listener during bypass
-    // const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-    //   setUser(currentUser);
-    //   if (currentUser) {
-    //     setUserId(analytics, currentUser.uid);
-    //   }
-    //   setLoading(false);
-    // });
-    // return () => unsubscribe();
+    // REAL AUTH — subscribe to Supabase auth state and resolve onboarding from the
+    // user's profile (tenant_id + agreements_accepted), provisioned by the signup trigger.
+    let active = true;
+
+    const unsubscribe = onAuthChange(async (currentUser) => {
+      if (!active) return;
+      setUser(currentUser);
+
+      if (!currentUser) {
+        // Signed out — drop any cached identity and reset onboarding state.
+        clearProfileCache();
+        setOnboarded(false);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        clearProfileCache();
+        const profile = await getCurrentProfile(true);
+        if (!active) return;
+        setOnboarded(
+          !!(profile && profile.tenant_id && profile.agreements_accepted),
+        );
+      } catch (e) {
+        if (active) setOnboarded(false);
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
   const enterDemoMode = async (setAuthError: (err: string | null) => void) => {
+    // Local-only demo: no network auth. Repos stay inert and demo pages render with
+    // mock state. Real persistence requires VITE_REQUIRE_AUTH=true + a Supabase login.
     setIsDemo(true);
     safeStorage.setItem("cutty-demo-mode", "active");
-    try {
-      /* Attempt anonymous sign-in, but handle failure gracefully */ await signInAnonymously(
-        auth,
-      );
-      setOnboarded(true);
-    } catch (error) {
-      const err = error as { code?: string };
-      /* Check for admin-restricted-operation (provider disabled in console) */ if (
-        err.code === "auth/admin-restricted-operation"
-      ) {
-        console.warn(
-          "Anonymous Auth is disabled in Firebase Console. Demo mode will proceed with local state simulation.",
-        );
-        setAuthError("Demo mode optimized.");
-      } else {
-        console.error("Demo mode authentication error:", err);
-      }
-      setUser({
-        uid: "demo-user",
-        displayName: "Demo Mode",
-        email: "demo@yardworx.io",
-      });
-      setOnboarded(true);
-    } finally {
-      setLoading(false);
-    }
+    setUser({
+      uid: "demo-user",
+      displayName: "Demo Mode",
+      email: "demo@yardworx.io",
+    });
+    setOnboarded(true);
+    setLoading(false);
   };
   if (loading) {
     return (
@@ -196,6 +206,11 @@ useEffect(() => {
                           <Route
                             path="/portal/auth/:token"
                             element={<MagicLinkAuth />}
+                          />
+                          {/* Public online booking / instant-quote intake (no auth). */}
+                          <Route
+                            path="/book/:tenantId"
+                            element={<BookingIntake />}
                           />
                           {!user ? (
                             <Route
@@ -490,49 +505,23 @@ function AuthPage({
     dataMap: false,
     ai: false,
   });
-  /* Email & Password Auth States */ const [activeTab, setActiveTab] = useState<
-    "email" | "google"
-  >("email");
+  const [activeTab, setActiveTab] = useState<"email" | "magic">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [company, setCompany] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
-
-  const [show2FA, setShow2FA] = useState(false);
-  const [twoFACode, setTwoFACode] = useState("");
-  const [trustDevice, setTrustDevice] = useState(false);
-  const [pendingUser, setPendingUser] = useState<any>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const allAgreed =
     agreements.tos && agreements.privacy && agreements.dataMap /* && agreements.ai */;
 
-  const handleDeviceCheck = (user: any) => {
-    // 14-day Trust Window Logic
-    const expiry = safeStorage.getItem(`cutty_trusted_${user.uid}`);
-    if (expiry && parseInt(expiry) > Date.now()) {
-      return true;
-    }
-    return false;
-  };
-
-  const executeLogin = () => {
-    if (trustDevice && pendingUser) {
-      // 14 days represented in ms
-      safeStorage.setItem(
-        `cutty_trusted_${pendingUser.uid}`,
-        (Date.now() + 14 * 24 * 60 * 60 * 1000).toString(),
-      );
-    }
-    setPendingUser(null);
-    setShow2FA(false);
-    // Reload to bypass auth view cleanly
-    window.location.reload();
-  };
-
-  /* Handle standard Email & Password flow */ const handleEmailAuth = async (
-    e: React.FormEvent,
-  ) => {
+  /* Email & password via Supabase Auth. Signup metadata (company/display name) is read
+     by the handle_new_user DB trigger to provision the tenant + owner profile. */
+  const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    setInfo(null);
     if (!email || !password || (isSignUp && !confirmPassword)) {
       setError("Please fill in all required fields.");
       return;
@@ -546,96 +535,54 @@ function AuthPage({
       return;
     }
     setIsLoggingIn(true);
-    setError(null);
     try {
       if (isSignUp) {
-        const cred = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password,
-        );
-        await setDoc(
-          doc(db, "users", cred.user.uid),
-          {
-            email: cred.user.email,
-            agreementsAccepted: true,
-            agreementsAcceptedAt: new Date().toISOString(),
-          },
-          { merge: true },
-        );
-      } else {
-        const cred = await signInWithEmailAndPassword(auth, email, password);
-        if (!handleDeviceCheck(cred.user)) {
-          setPendingUser(cred.user);
-          setShow2FA(true);
-          setIsLoggingIn(false);
-          return;
+        const data = await signUpWithEmail(email, password, {
+          company_name: company.trim() || undefined,
+          display_name: email.split("@")[0],
+        });
+        // If email confirmation is required, no session is returned yet.
+        if (!data?.session) {
+          setInfo("Account created. Check your email to confirm, then sign in.");
+          setIsSignUp(false);
         }
+        // Otherwise onAuthChange routes the user straight in.
+      } else {
+        await signInWithEmail(email, password);
+        // onAuthChange handles routing once the session is established.
       }
     } catch (error) {
-      const err = error as { code?: string; message?: string };
-      console.error("Email authentication failure:", err);
-      if (
-        err.code === "auth/user-not-found" ||
-        err.code === "auth/wrong-password"
-      ) {
-        setError("Invalid email or password associated with this profile.");
-      } else if (err.code === "auth/email-already-in-use") {
-        setError("This email address is already registered. Try signing in.");
-      } else if (err.code === "auth/invalid-email") {
-        setError("Please enter a valid email address.");
-      } else if (err.code === "auth/operation-not-allowed") {
-        /* Fallback or explain gracefully */ console.warn(
-          "Email/Password provider is disabled in Firebase console.",
-        );
-        setError(
-          "Standard email/password was not fully configured online. Entering simulated safe local mode...",
-        );
-        setTimeout(() => {
-          safeStorage.setItem("cutty-demo-mode", "active");
-          window.location.reload();
-        }, 3000);
+      const msg = String((error as any)?.message || "");
+      console.error("Email authentication failure:", error);
+      if (/invalid login credentials/i.test(msg)) {
+        setError("Invalid email or password.");
+      } else if (/already registered|already been registered/i.test(msg)) {
+        setError("This email is already registered. Try signing in.");
+      } else if (/email not confirmed/i.test(msg)) {
+        setInfo("Please confirm your email first — check your inbox.");
       } else {
-        setError(
-          err.message ||
-            "An error occurred. Please verify your connection or try again.",
-        );
+        setError(msg || "Authentication failed. Check your connection and try again.");
       }
     } finally {
       setIsLoggingIn(false);
     }
   };
-  const handleGoogleLogin = async () => {
-    setIsLoggingIn(true);
+
+  /* Passwordless magic-link via Supabase Auth. */
+  const handleMagicLink = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError(null);
-    const provider = new GoogleAuthProvider();
+    setInfo(null);
+    if (!email) {
+      setError("Enter your email to receive a magic link.");
+      return;
+    }
+    setIsLoggingIn(true);
     try {
-      const cred = await signInWithPopup(auth, provider);
-      await setDoc(
-        doc(db, "users", cred.user.uid),
-        {
-          email: cred.user.email,
-          agreementsAccepted: true,
-          agreementsAcceptedAt: new Date().toISOString(),
-        },
-        { merge: true },
-      );
-      if (!handleDeviceCheck(cred.user)) {
-        setPendingUser(cred.user);
-        setShow2FA(true);
-        setIsLoggingIn(false);
-        return;
-      }
+      await signInWithMagicLink(email, window.location.origin);
+      setInfo("Magic link sent. Check your email to finish signing in.");
     } catch (error) {
-      const err = error as { code?: string };
-      console.error("Login failed:", err);
-      if (err.code === "auth/popup-closed-by-user") {
-        setError("The login popup was closed. Please try again.");
-      } else if (err.code === "auth/cancelled-popup-request") {
-        setError("Login was cancelled. Please try again.");
-      } else {
-        setError("Login failed. Make sure popups are enabled and try again.");
-      }
+      setError(String((error as any)?.message || "Couldn't send the magic link. Try again."));
     } finally {
       setIsLoggingIn(false);
     }
@@ -667,74 +614,7 @@ function AuthPage({
         <p className="text-zinc-400 mb-8 font-semibold text-sm tracking-wide uppercase">
           Operational Cockpit Portal
         </p>{" "}
-        {show2FA ? (
-          <div className="space-y-6 text-left animate-in fade-in zoom-in duration-300">
-            <div className="bg-black/20 p-4 rounded-2xl border border-white/5 mb-6 text-left">
-              <h3 className="text-sm font-black uppercase tracking-widest text-forest-400 mb-1">
-                New Device Login
-              </h3>
-              <p className="text-xs text-white/60 leading-relaxed font-semibold">
-                Please enter the 6-digit confirmation code we sent to your
-                device to verify this new session.
-              </p>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                executeLogin();
-              }}
-              className="space-y-4"
-            >
-              <div className="space-y-1">
-                <label className="text-xs md:text-[11px] font-bold text-zinc-400 uppercase tracking-wider pl-1 font-medium">
-                  Secondary PIN
-                </label>
-                <input
-                  type="text"
-                  value={twoFACode}
-                  onChange={(e) =>
-                    setTwoFACode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
-                  placeholder="000000"
-                  className="w-full bg-zinc-950/50 text-white font-mono text-center tracking-[0.5em] text-xl border-white/10 rounded-xl px-4 py-4 focus:ring-1 focus:ring-forest-500 focus:border-forest-500 transition-all outline-none"
-                  required
-                  pattern="\d{6}"
-                />
-              </div>
-              <label className="flex items-center gap-3 cursor-pointer py-2 border border-white/5 bg-white/5 rounded-xl px-4">
-                <input
-                  type="checkbox"
-                  checked={trustDevice}
-                  onChange={(e) => setTrustDevice(e.target.checked)}
-                  className="w-4 h-4 accent-forest-500 rounded bg-white/5 border-white/20"
-                />
-                <span className="text-xs md:text-[10px] font-bold text-white uppercase tracking-widest">
-                  Trust this device for 14 Days
-                </span>
-              </label>
-              <div className="pt-2 flex flex-col gap-2">
-                <button
-                  type="submit"
-                  disabled={twoFACode.length !== 6}
-                  className="w-full bg-white text-black font-black uppercase tracking-wider text-xs rounded-xl py-4 hover:scale-[1.01] active:scale-95 transition-all text-center disabled:opacity-50"
-                >
-                  Verify Identity
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShow2FA(false);
-                    setPendingUser(null);
-                    auth.signOut();
-                  }}
-                  className="w-full bg-transparent border border-white/10 text-white/60 font-bold uppercase tracking-wider text-xs md:text-[10px] rounded-xl py-3 hover:bg-white/5 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : (
+        {(
           <>
             <div className="mb-6">
               <button
@@ -771,24 +651,30 @@ function AuthPage({
                 className={`flex-1 py-3 text-xs uppercase tracking-wider font-bold rounded-xl transition-all ${activeTab === "email" ? "bg-white text-black shadow-md" : "text-zinc-400 hover:text-zinc-200"}`}
               >
                 {" "}
-                Email Pin{" "}
+                Email & Password{" "}
               </button>{" "}
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab("google");
+                  setActiveTab("magic");
                   setError(null);
                 }}
-                className={`flex-1 py-3 text-xs uppercase tracking-wider font-bold rounded-xl transition-all ${activeTab === "google" ? "bg-white text-black shadow-md" : "text-zinc-400 hover:text-zinc-200"}`}
+                className={`flex-1 py-3 text-xs uppercase tracking-wider font-bold rounded-xl transition-all ${activeTab === "magic" ? "bg-white text-black shadow-md" : "text-zinc-400 hover:text-zinc-200"}`}
               >
                 {" "}
-                Google OAuth{" "}
+                Magic Link{" "}
               </button>{" "}
             </div>{" "}
             {error && (
               <div className="mb-6 p-4 bg-red-500/10 text-red-400 rounded-2xl text-xs font-bold border border-red-500/20 text-left leading-relaxed">
                 {" "}
                 {error}{" "}
+              </div>
+            )}{" "}
+            {info && (
+              <div className="mb-6 p-4 bg-forest-500/10 text-forest-400 rounded-2xl text-xs font-bold border border-forest-500/20 text-left leading-relaxed">
+                {" "}
+                {info}{" "}
               </div>
             )}{" "}
             <div className="space-y-6">
@@ -949,6 +835,21 @@ function AuthPage({
                       />{" "}
                     </div>
                   )}
+                  {isSignUp && (
+                    <div className="space-y-1">
+                      <label className="text-xs md:text-[11px] font-bold text-zinc-400 uppercase tracking-wider pl-1 font-medium">
+                        Company Name
+                      </label>
+                      <input
+                        aria-label="Company Name"
+                        type="text"
+                        placeholder="Evergreen Lawn & Landscape"
+                        value={company}
+                        onChange={(e) => setCompany(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white text-sm focus:outline-none focus:border-white transition-all font-semibold"
+                      />
+                    </div>
+                  )}
                   <button
                     type="submit"
                     disabled={isLoggingIn || !allAgreed}
@@ -981,36 +882,36 @@ function AuthPage({
                   </div>{" "}
                 </form>
               ) : (
-                <div className="space-y-4">
-                  {" "}
+                <form onSubmit={handleMagicLink} className="space-y-4 text-left">
+                  <div className="space-y-1">
+                    <label className="text-xs md:text-[11px] font-bold text-zinc-400 uppercase tracking-wider pl-1 font-medium">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      aria-label="Email Address"
+                      placeholder="supervisor@landscapes.com"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white text-sm focus:outline-none focus:border-white transition-all font-semibold"
+                    />
+                  </div>
                   <button
-                    type="button"
-                    onClick={handleGoogleLogin}
+                    type="submit"
                     disabled={isLoggingIn || !allAgreed}
-                    className="w-full bg-white text-black rounded-xl py-4.5 font-bold text-sm tracking-tight hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-2xl cursor-pointer"
+                    className="w-full mt-2 bg-white text-black font-black uppercase tracking-wider text-xs rounded-xl py-4 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                   >
-                    {" "}
                     {isLoggingIn ? (
                       <span className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin block" />
                     ) : (
-                      <>
-                        {" "}
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="w-5 h-5 fill-current shrink-0"
-                        >
-                          {" "}
-                          <path d="M21.35,11.1H12.18V13.83H18.69C18.36,17.64 15.19,19.27 12.19,19.27C8.36,19.27 5.05,16.25 5.05,12C5.05,7.74 8.36,4.73 12.19,4.73C15.31,4.73 17.09,6.74 17.09,6.74L19.09,4.74C19.09,4.74 16.4,2 12.18,2C6.47,2 2,6.48 2,12C2,17.52 6.47,22 12.18,22C17.55,22 21.5,18.33 21.5,12.63C21.5,11.76 21.35,11.1 21.35,11.1V11.1Z" />{" "}
-                        </svg>{" "}
-                        Sign in with Google{" "}
-                      </>
-                    )}{" "}
-                  </button>{" "}
-                  <p className="text-xs text-zinc-500 max-w-xs mx-auto leading-normal">
-                    Allows direct linking to Google Calendar slots and
-                    dispatching Gmail reports.
-                  </p>{" "}
-                </div>
+                      "Email Me a Magic Link"
+                    )}
+                  </button>
+                  <p className="text-xs text-zinc-500 max-w-xs mx-auto leading-normal text-center">
+                    We'll email you a secure one-tap sign-in link — no password needed.
+                  </p>
+                </form>
               )}
             </div>{" "}
           </>

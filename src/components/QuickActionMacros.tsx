@@ -1,73 +1,58 @@
 // @ts-nocheck
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { Zap, ShieldAlert, FileText, Magnet, Loader2, CheckCircle2 } from "lucide-react";
-import { useToast } from "../contexts/ToastContext";
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { Zap, UserPlus, CalendarPlus, FileText, Map } from "lucide-react";
+import { useRole } from "../hooks/useRole";
 
-const MACROS = [
-  {
-    id: "dispatch",
-    label: "Emergency Dispatch Protocol",
-    description: "Re-route closest available crew to high-priority incident.",
-    icon: ShieldAlert,
-    color: "text-red-500",
-    bg: "bg-red-500/10",
-    border: "border-red-500/20",
-  },
-  {
-    id: "invoice",
-    label: "Auto-Invoice Queue",
-    description: "Batch process 14 completed jobs & dispatch invoices.",
-    icon: FileText,
-    color: "text-forest-500",
-    bg: "bg-forest-500/10",
-    border: "border-forest-500/20",
-  },
-  {
-    id: "revenue",
-    label: "Sweep Unbilled Revenue",
-    description: "Scan system for missed billable hours ($4,250 found).",
-    icon: Magnet,
-    color: "text-celtic-500",
-    bg: "bg-celtic-500/10",
-    border: "border-celtic-500/20",
-  },
-];
-
+// Honest quick-launchers — they open the real flow (no fake progress bars or invented
+// numbers). Owners can also just talk to YardPilot to do these hands-free.
 export default function QuickActionMacros() {
-  const [activeMacro, setActiveMacro] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const { showToast } = useToast();
-  const intervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const navigate = useNavigate();
+  const { role } = useRole();
+  const prefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
 
-  React.useEffect(() => {
-    return () => {
-       if (intervalRef.current) clearInterval(intervalRef.current);
-    }
-  }, []);
-
-  const executeMacro = (macroId: string) => {
-    setActiveMacro(macroId);
-    setProgress(0);
-
-    intervalRef.current = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          setTimeout(() => {
-            setActiveMacro(null);
-            showToast("Macro execution completed successfully.", "success");
-          }, 800);
-          return 100;
-        }
-        return prev + Math.floor(Math.random() * 15) + 5;
-      });
-    }, 200);
-  };
+  const ACTIONS = [
+    {
+      id: "client",
+      label: "Add Client",
+      icon: UserPlus,
+      to: `${prefix}/crm`,
+      color: "text-celtic-400",
+      bg: "bg-celtic-500/10",
+      border: "border-celtic-500/20",
+    },
+    {
+      id: "job",
+      label: "Schedule Job",
+      icon: CalendarPlus,
+      to: `${prefix}/scheduler`,
+      color: "text-forest-400",
+      bg: "bg-forest-500/10",
+      border: "border-forest-500/20",
+    },
+    {
+      id: "invoice",
+      label: "Create Invoice",
+      icon: FileText,
+      to: `${prefix}/invoices`,
+      color: "text-amber-400",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/20",
+    },
+    {
+      id: "route",
+      label: "Optimize Routes",
+      icon: Map,
+      to: `${prefix}/routing`,
+      color: "text-sky-400",
+      bg: "bg-sky-500/10",
+      border: "border-sky-500/20",
+    },
+  ];
 
   return (
-    <div className="bg-zinc-950 border border-white/5 molten-edge shadow-md p-6 sm:p-8 rounded-[24px] relative overflow-hidden group">
-      <header className="mb-6 relative z-10 flex items-center gap-4">
+    <div className="bg-zinc-950 border border-white/5 molten-edge shadow-md p-6 sm:p-8 rounded-[24px] relative overflow-hidden">
+      <header className="mb-6 flex items-center gap-4">
         <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-zinc-300">
           <Zap size={20} />
         </div>
@@ -76,54 +61,24 @@ export default function QuickActionMacros() {
             Quick Actions
           </h2>
           <p className="text-sm font-medium text-zinc-500">
-            High-velocity compound system operations
+            Jump straight into the most common tasks
           </p>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10">
-        {MACROS.map((macro) => {
-          const isActive = activeMacro === macro.id;
-          const isProcessingOther = activeMacro && activeMacro !== macro.id;
-          const Icon = macro.icon;
-
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {ACTIONS.map((a) => {
+          const Icon = a.icon;
           return (
             <button
-              key={macro.id}
-              onClick={() => executeMacro(macro.id)}
-              disabled={activeMacro !== null}
-              className={`p-5 border flex flex-col items-center justify-center text-center relative overflow-hidden transition-all duration-300 rounded-[20px] ${
-                isProcessingOther
-                  ? "opacity-40 grayscale cursor-not-allowed border-white/5 bg-white/5"
-                  : isActive
-                  ? `border-white/20 ${macro.bg}`
-                  : `${macro.border} hover:border-white/10 hover:bg-white/5`
-              }`}
+              key={a.id}
+              onClick={() => navigate(a.to)}
+              className={`p-5 border flex flex-col items-center justify-center text-center gap-3 rounded-[20px] transition-all duration-200 ${a.border} hover:border-white/20 hover:bg-white/5 active:scale-95`}
             >
-              <div className="mb-3 relative z-10 flex justify-center w-full">
-                <div className={`p-2 rounded-lg ${macro.bg}`}>
-                  {isActive && progress >= 100 ? (
-                    <CheckCircle2 size={24} className="text-white" />
-                  ) : isActive ? (
-                    <Loader2 size={24} className={`animate-spin ${macro.color}`} />
-                  ) : (
-                    <Icon size={24} className={macro.color} />
-                  )}
-                </div>
+              <div className={`p-2 rounded-lg ${a.bg}`}>
+                <Icon size={24} className={a.color} />
               </div>
-              
-              <h3 className="text-sm font-bold text-white mb-0.5 relative z-10 leading-snug">
-                {macro.label}
-              </h3>
-
-              {/* Progress Bar Background */}
-              {isActive && (
-                <motion.div
-                  initial={{ width: "0%" }}
-                  animate={{ width: `${progress}%` }}
-                  className="absolute bottom-0 left-0 h-1 bg-white/20"
-                />
-              )}
+              <h3 className="text-sm font-bold text-white leading-snug">{a.label}</h3>
             </button>
           );
         })}

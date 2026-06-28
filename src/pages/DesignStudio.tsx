@@ -328,6 +328,33 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     }
   };
 
+  // Read back this client's previously-saved visions so they aren't write-only.
+  const [savedVisions, setSavedVisions] = useState<any[]>([]);
+  useEffect(() => {
+    if (!activeCustomer?.id) {
+      setSavedVisions([]);
+      return;
+    }
+    let active = true;
+    designVisionsRepo
+      .list()
+      .then((rows: any[]) => {
+        if (active) setSavedVisions((rows || []).filter((r) => r.customerId === activeCustomer.id));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [activeCustomer?.id, isSavingVision]);
+
+  const reopenVision = (v: any) => {
+    if (!v) return;
+    setResult(v.proposal || null);
+    setImage(v.beforeUrl || null);
+    setMockupImage(v.afterUrl || null);
+    showToast("Loaded saved vision.", "success");
+  };
+
   const [isSavingDrive, setIsSavingDrive] = useState(false);
 
   const handleSaveToDrive = async () => {
@@ -365,8 +392,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   };
 
   return (
-    <div className="space-y-12">
-      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-10 pb-8 border-b-4 border-white/10 relative z-10">
+    <div className="space-y-6 sm:space-y-12">
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-5 lg:gap-10 pb-5 sm:pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
           <div className="inline-flex items-center gap-3 px-4 py-2 bg-forest-500/10 rounded-full border border-forest-500 text-xs font-black uppercase tracking-widest text-forest-500">
             <div className="w-2 h-2 bg-forest-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
@@ -380,6 +407,26 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
               ? `Architecting transformation for ${activeCustomer.firstName} ${activeCustomer.lastName}'s property at ${activeCustomer.address}.`
               : "Upload a photo of the yard, mark what you want changed, and let YardWorx help you design."}
           </p>
+
+          {activeCustomer?.id && savedVisions.length > 0 && (
+            <div className="mt-4 max-w-xl">
+              <p className="text-[10px] font-black uppercase tracking-widest text-forest-400 mb-2">
+                Saved visions for this client — tap to reopen
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {savedVisions.slice(0, 6).map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => reopenVision(v)}
+                    title={v.summary || "Saved vision"}
+                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:border-forest-500/40 hover:bg-forest-500/10 text-xs font-bold text-white/80 transition-all max-w-[240px] truncate"
+                  >
+                    {(v.summary || "Vision").slice(0, 44)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {(role === "admin" || role === "owner") && (
             <div className="flex bg-black p-1 rounded-2xl border-2 border-white/10 mt-8 w-fit">
@@ -428,12 +475,12 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
       {activeView === "database" ? (
         <DesignDatabasePanel />
       ) : (
-        <div className="flex flex-col gap-8 min-h-[750px]">
+        <div className="flex flex-col gap-6">
           {/* Step progression tracking line */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-900/60 p-4 rounded-2xl border border-white/5 text-sm">
             {/* Step 1 */}
             <div className="flex items-center gap-3">
-              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${!image ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5, 168, 69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>1</span>
+              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${!image ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5,168,69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>1</span>
               <div>
                 <span className={`font-black uppercase tracking-widest text-[10px] block ${!image ? "text-white" : "text-zinc-500"}`}>Step 1: Point & Shoot</span>
               </div>
@@ -441,7 +488,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
             <div className="hidden sm:block text-zinc-800 text-xs font-mono">─────────</div>
             {/* Step 2 */}
             <div className="flex items-center gap-3">
-              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${image && !result ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5, 168, 69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>2</span>
+              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${image && !result ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5,168,69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>2</span>
               <div>
                 <span className={`font-black uppercase tracking-widest text-[10px] block ${image && !result ? "text-white" : "text-zinc-500"}`}>Step 2: Scribble & Talk</span>
               </div>
@@ -449,7 +496,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
             <div className="hidden sm:block text-zinc-800 text-xs font-mono">─────────</div>
             {/* Step 3 */}
             <div className="flex items-center gap-3">
-              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${result ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5, 168, 69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>3</span>
+              <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-black ${result ? "bg-forest-500 text-black shadow-[0_0_15px_rgba(5,168,69,0.3)] animate-pulse" : "bg-white/10 text-white/40"}`}>3</span>
               <div>
                 <span className={`font-black uppercase tracking-widest text-[10px] block ${result ? "text-white" : "text-zinc-500"}`}>Step 3: Reveal Comparison</span>
               </div>
@@ -493,7 +540,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                 </div>
               )}
 
-              <div className={`flex-1 bg-black/40 rounded-2xl border border-white/5 p-4 sm:p-6 relative overflow-hidden transition-all flex flex-col ${image ? "" : "min-h-[500px] h-[550px]"}`}>
+              <div className={`flex-1 bg-black/40 rounded-2xl border border-white/5 p-2 sm:p-6 relative overflow-hidden transition-all flex flex-col min-h-[65vh] xl:min-h-[600px]`}>
                 <div className="absolute top-0 right-0 w-64 h-64 bg-forest-500/5 rounded-full blur-[100px] -mr-32 -mt-32 pointer-events-none" />
 
                 <div className="flex-1 relative flex items-center justify-center min-h-0">
@@ -502,7 +549,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                       className="absolute inset-0 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-xl hover:border-forest-500/20 hover:bg-white/[0.02] cursor-pointer transition-all text-center p-8 group"
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <div className="w-20 h-20 bg-forest-500/10 rounded-3xl flex items-center justify-center border border-forest-500/20 group-hover:scale-110 transition-transform text-forest-400 mb-6 shadow-[0_10px_30px_rgba(5, 168, 69,0.1)]">
+                      <div className="w-20 h-20 bg-forest-500/10 rounded-3xl flex items-center justify-center border border-forest-500/20 group-hover:scale-110 transition-transform text-forest-400 mb-6 shadow-[0_10px_30px_rgba(5,168,69,0.1)]">
                         <Camera size={36} />
                       </div>
                       <h3 className="text-xl font-black italic uppercase tracking-wider text-white mb-2">📸 Point & Shoot</h3>
@@ -531,7 +578,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                         exit={{ opacity: 0 }}
                         className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm rounded-xl"
                       >
-                        <div className="w-16 h-16 border-4 border-forest-500/20 border-t-forest-500 rounded-full animate-spin shadow-[0_0_15px_rgba(5, 168, 69,0.2)]" />
+                        <div className="w-16 h-16 border-4 border-forest-500/20 border-t-forest-500 rounded-full animate-spin shadow-[0_0_15px_rgba(5,168,69,0.2)]" />
                         <p className="mt-6 font-black uppercase tracking-[0.2em] text-forest-400 text-xs">
                           Gemini Analyzing Scene...
                         </p>
@@ -727,7 +774,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                 </div>
                                 <button 
                                   onClick={() => setActiveTab("compare")} 
-                                  className="px-4 py-1.5 bg-forest-500 text-black hover:bg-forest-400 rounded-xl text-[10px] font-black uppercase transition-all shadow-[0_0_15px_rgba(5, 168, 69,0.2)]"
+                                  className="px-4 py-1.5 bg-forest-500 text-black hover:bg-forest-400 rounded-xl text-[10px] font-black uppercase transition-all shadow-[0_0_15px_rgba(5,168,69,0.2)]"
                                 >
                                   Open Slider
                                 </button>
@@ -736,7 +783,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                               <button
                                 onClick={generateMockup}
                                 disabled={isGeneratingMockup}
-                                className="w-full py-5 bg-gradient-to-r from-forest-500 to-forest-500 text-black border border-transparent rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(5, 168, 69,0.35)] hover:scale-[1.02] active:scale-95 duration-200"
+                                className="w-full py-5 bg-gradient-to-r from-forest-500 to-forest-500 text-black border border-transparent rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(5,168,69,0.35)] hover:scale-[1.02] active:scale-95 duration-200"
                               >
                                 {isGeneratingMockup ? (
                                     <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> Formulating High-Res Render...</>
@@ -1009,7 +1056,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
 
               <button 
                 onClick={closeOnboarding}
-                className="w-full bg-forest-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-[0_0_40px_rgba(5, 168, 69,0.3)] hover:scale-[1.02] active:scale-95 transition-all"
+                className="w-full bg-forest-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-[0_0_40px_rgba(5,168,69,0.3)] hover:scale-[1.02] active:scale-95 transition-all"
               >
                 Acknowledge & Start Designing
               </button>

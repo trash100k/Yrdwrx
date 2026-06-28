@@ -163,7 +163,7 @@ const GrassSwordIcon = ({ className, size = 24 }: { className?: string; size?: n
 );
 
 import { syncService } from "../services/syncService";
-import { auth } from "../lib/firebase";
+import { getCurrentUser } from "../lib/supabase";
 import DisclaimerModal from "./DisclaimerModal";
 
 export default function Layout() {
@@ -201,6 +201,7 @@ export default function Layout() {
 
   const [hiddenMobileNav, setHiddenMobileNav] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const gChordRef = useRef(0); // timestamp of the last "g" press for chord nav
   const { scrollY } = useScroll({ container: scrollRef });
 
   useMotionValueEvent(scrollY, "change", (latest) => {
@@ -219,16 +220,26 @@ export default function Layout() {
     }
   });
 
-  // Auto-open brain chat for new users
+  // Auto-open brain chat for new users — but NEVER interrupt a focused workspace (Design
+  // Studio, Field Mode, Live Ear, Route Optimizer), and only once per browser session so it
+  // doesn't re-pop on every navigation/reload.
   useEffect(() => {
-    const userKey = auth.currentUser?.email || "anonymous";
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname;
+      if (/design-studio|field|live|route-optimizer/i.test(path)) return;
+      try { if (window.sessionStorage.getItem("cutty-autoopened") === "1") return; } catch (e) {}
+    }
+    const userKey = getCurrentUser()?.email || "anonymous";
     const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
     const hasAcceptedDisclaimer =
       tenant?.legal?.aiDisclaimerAccepted === true ||
       tenant?.id.startsWith("demo-");
 
     if (!hasSeen || !hasAcceptedDisclaimer) {
-      const timer = setTimeout(() => setIsBrainOpen(true), 2000);
+      const timer = setTimeout(() => {
+        try { window.sessionStorage.setItem("cutty-autoopened", "1"); } catch (e) {}
+        setIsBrainOpen(true);
+      }, 2500);
       return () => clearTimeout(timer);
     }
   }, [tenant]);
@@ -266,14 +277,36 @@ export default function Layout() {
         setIsBrainOpen(prev => !prev);
       }
       
-      // Global navigation shortcuts
-       if (e.key.toLowerCase() === "c" && !e.metaKey && !e.ctrlKey && e.target instanceof HTMLElement && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
-           // Basic navigation shortcut example: If someone types "gc", we handled the "g" part via a state context typically, but for simplicity:
+      // "G then <key>" chord navigation (e.g. G then C -> CRM).
+      const typing =
+        e.target instanceof HTMLElement &&
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          (e.target as HTMLElement).isContentEditable);
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !typing) {
+        const k = e.key.toLowerCase();
+        if (k === "g") {
+          gChordRef.current = Date.now();
+          return;
+        }
+        if (Date.now() - gChordRef.current < 1200) {
+          const dest: Record<string, string> = {
+            d: "",
+            c: "/crm",
+            s: "/scheduler",
+            i: "/invoices",
+            r: "/routing",
+          };
+          if (k in dest) {
+            gChordRef.current = 0;
+            navigate(`${rolePrefix}${dest[k]}`);
+          }
+        }
       }
     };
     document.addEventListener("keydown", handleGlobalShortcuts);
     return () => document.removeEventListener("keydown", handleGlobalShortcuts);
-  }, []);
+  }, [rolePrefix, navigate]);
 
   const toggleGroup = (group: string) => {
     setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
@@ -376,7 +409,7 @@ export default function Layout() {
       group: "BUSINESS",
       allowedRoles: ["owner", "admin"],
     },
-    ...(auth.currentUser?.email === "isaacsonzach13@gmail.com"
+    ...(getCurrentUser()?.email === "isaacsonzach13@gmail.com"
       ? [
           {
             id: "saas-admin",
@@ -912,7 +945,14 @@ export default function Layout() {
           </AnimatePresence>
 
           {/* QoL Features */}
-          <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
+          <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            onOutreach={() => {
+              setIsCommandPaletteOpen(false);
+              setIsOutreachOpen(true);
+            }}
+          />
           <QuickCreateMenu isOpen={isQuickCreateOpen} onClose={() => setIsQuickCreateOpen(false)} />
           <NotificationsCenter isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
           <UserProfileMenu isOpen={isUserMenuOpen} onClose={() => setIsUserMenuOpen(false)} />

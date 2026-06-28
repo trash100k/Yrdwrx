@@ -6,7 +6,7 @@ import fs from "fs";
 import crypto from "crypto";
 import cluster from "cluster";
 import os from "os";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { createServer as createViteServer } from "vite";
 import puppeteer from "puppeteer";
 import { GoogleGenAI, Modality, Type, LiveServerMessage, GenerateVideosOperation } from "@google/genai";
@@ -15,8 +15,61 @@ import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import { validateSafeUrl } from "./src/lib/securityUtils.js";
+import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 
 dotenv.config();
+
+// Thrown by AI surfaces that cannot be meaningfully mocked (audio/video/image bytes,
+// long-running agents) when no GEMINI_API_KEY is present. Handlers map this to a clean
+// 503 so a missing key DEGRADES uniformly instead of throwing an opaque 500.
+class AiUnavailableError extends Error {
+  code: string;
+  constructor(message: string, code = "AI_UNAVAILABLE") {
+    super(message);
+    this.name = "AiUnavailableError";
+    this.code = code;
+  }
+}
+// Standard 503 responder for the above (keeps the ~20 unmockable AI routes consistent).
+function aiUnavailable(res: any, message: string, code = "AI_UNAVAILABLE") {
+  return res.status(503).json({ error: message, code });
+}
+// Map a caught AI error to a clean response: 503 for unmockable surfaces (missing key),
+// 500 otherwise. Use in catch blocks of routes that call media/agent AI surfaces.
+function handleAiError(res: any, e: any, context = "AI request failed") {
+  if (e instanceof AiUnavailableError) {
+    return res.status(503).json({ error: e.message, code: e.code });
+  }
+  console.error(context + ":", e?.message || e);
+  return res.status(500).json({ error: e?.message || context });
+}
+
+// --- Catalog-grounded pricing (the trust point: quotes use the contractor's real numbers,
+// never the model's invented ones; restricted roles get a hard $0 financial air-gap) -------
+function flattenCatalog(settings: any): Array<{ name: string; price: number }> {
+  const out: Array<{ name: string; price: number }> = [];
+  const sc = settings?.serviceCatalog;
+  if (Array.isArray(sc)) {
+    for (const group of sc) for (const svc of (group?.services || [])) {
+      if (svc?.name && typeof svc.price === "number") out.push({ name: String(svc.name).toLowerCase(), price: svc.price });
+    }
+  }
+  return out;
+}
+function groundMaterials(materials: any[], catalog: Array<{ name: string; price: number }>, isRestrictedRole: boolean): number {
+  let total = 0;
+  if (!Array.isArray(materials)) return 0;
+  for (const mat of materials) {
+    if (isRestrictedRole) { mat.estimatedCost = 0; continue; }
+    const itemName = String(mat?.item || "").toLowerCase();
+    if (itemName && catalog.length) {
+      const hit = catalog.find((c) => itemName.includes(c.name) || c.name.includes(itemName));
+      if (hit) { mat.estimatedCost = hit.price; mat.priceSource = "catalog"; }
+    }
+    total += Number(mat?.estimatedCost) || 0;
+  }
+  return total;
+}
 
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
@@ -52,6 +105,20 @@ if (isMockMode) {
   ai.models.generateContent = async (request) => {
     return { text: getMockText(request) };
   };
+  // Root-cause fix for mock-mode 500s: only generateContent was stubbed above, so every
+  // OTHER AI surface (get/generateImages/generateVideos/interactions/operations/live)
+  // hit the real SDK with a bogus key and threw. Stub them consistently:
+  //  - ai.models.get(...).generateContent → route through the mocked generateContent
+  //  - media/agent surfaces that can't be mocked → throw AiUnavailableError (→ 503)
+  // @ts-ignore
+  ai.models.get = (..._args: any[]) => ({ generateContent: ai.models.generateContent });
+  // @ts-ignore
+  ai.models.generateImages = async () => { throw new AiUnavailableError("Image generation requires GEMINI_API_KEY", "MEDIA_UNAVAILABLE"); };
+  // @ts-ignore
+  ai.models.generateVideos = async () => { throw new AiUnavailableError("Video generation requires GEMINI_API_KEY", "VIDEO_UNAVAILABLE"); };
+  // NOTE: ai.interactions / ai.operations / ai.live are getter-only on the SDK and cannot
+  // be reassigned, so the routes that use them guard on isMockMode directly (research/*,
+  // marketing/video-status|download, design/generate-mockup, and the /api/live WS handler).
 }
 
 function getMockText(request: any): string {
@@ -230,15 +297,36 @@ function getMockText(request: any): string {
   if (instr.includes("OUTPUT FORMAT: JSON")) {
     return JSON.stringify({});
   }
+  // Hands-free field dictation: classify into an inventory or crew-status update.
+  if (instr.includes("processing continuous voice dictations")) {
+    const c = contentStr.toLowerCase();
+    if (/(mulch|bag|bags|shovel|fertiliz|seed|sod|stone|gravel|fuel|gas|pallet|inventory|stock|counted|pine straw|units?)/.test(c)) {
+      const qty = (contentStr.match(/\b(\d+)\b/) || [])[1];
+      const item = (c.match(/(mulch|fertilizer|seed|sod|stone|gravel|fuel|gas|pine straw|shovels?)/) || [])[1] || "supplies";
+      return JSON.stringify({
+        intent: "UPDATE_INVENTORY",
+        summary: `Logged ${qty || ""} ${item}`.replace(/\s+/g, " ").trim() + " to inventory.",
+        data: { item, quantity: qty ? Number(qty) : null },
+      });
+    }
+    if (/(crew|job|site|arrived|delayed|finished|completed|on (my|the) way|en route)/.test(c)) {
+      return JSON.stringify({ intent: "UPDATE_CREW_STATUS", summary: "Crew/job status update noted.", data: {} });
+    }
+    return JSON.stringify({ intent: "UNKNOWN_OR_UNPARSEABLE", summary: "", data: {} });
+  }
 
   return "I'm a mock AI response since the system is running without a GEMINI_API_KEY.";
 }
 
-// ==== PERSISTENT FILE-BASED CACHE FOR GEMINI ====
-const CACHE_FILE = path.join(process.cwd(), ".gemini_cache.json");
+// ==== GEMINI RESPONSE CACHE ====
+// Disk persistence is OPT-IN via GEMINI_CACHE_FILE. On Cloud Run the FS is ephemeral,
+// per-instance, and the container runs as non-root, so a cwd write is wasted work that
+// can also EROFS-fail in the hot path. Default: in-memory only (fast, safe). Set
+// GEMINI_CACHE_FILE=/some/writable/path to persist locally.
+const CACHE_FILE = process.env.GEMINI_CACHE_FILE || "";
 let geminiCache: Record<string, string> = {};
 
-if (fs.existsSync(CACHE_FILE)) {
+if (CACHE_FILE && fs.existsSync(CACHE_FILE)) {
   try {
     geminiCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
     console.log(`[Cache Loaded] Loaded ${Object.keys(geminiCache).length} cached Gemini responses.`);
@@ -247,12 +335,17 @@ if (fs.existsSync(CACHE_FILE)) {
   }
 }
 
+let _cacheWriteTimer: any = null;
 function saveGeminiCache() {
-  try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(geminiCache, null, 2));
-  } catch (err) {
-    console.error("Failed to write gemini cache:", err);
-  }
+  if (!CACHE_FILE) return; // in-memory only
+  // Debounced async write — never block the generateContent hot path on disk IO.
+  if (_cacheWriteTimer) return;
+  _cacheWriteTimer = setTimeout(() => {
+    _cacheWriteTimer = null;
+    fs.writeFile(CACHE_FILE, JSON.stringify(geminiCache), (err) => {
+      if (err) console.error("Failed to write gemini cache:", err);
+    });
+  }, 2000);
 }
 
 const originalGenerateContent = ai.models.generateContent.bind(ai.models);
@@ -278,6 +371,10 @@ ai.models.generateContent = async (request: any) => {
 };
 // =================================================
 
+// Stripe webhook idempotency (per-worker; a shared store is a scale follow-up). Guards
+// against duplicate deliveries double-applying invoice-paid / tier changes.
+const processedStripeEvents = new Set<string>();
+
 // ==== In-Memory API Cache Middlewares ====
 const apiCacheStore = new Map<string, { expires: number; data: any }>();
 
@@ -299,9 +396,12 @@ function cacheApiResponse(durationSeconds: number) {
       );
     }
 
+    // Tenant-scope the cache key so two tenants issuing an identical body (common for
+    // templated CRM/design prompts) never receive each other's cached result (PII bleed).
+    const cacheTenant = req.user?.tenantId || req.user?.tenant_id || req.user?.uid || "anon";
     const key = crypto
       .createHash("sha256")
-      .update(req.originalUrl + "_" + JSON.stringify(req.body || {}))
+      .update(cacheTenant + "|" + req.originalUrl + "_" + JSON.stringify(req.body || {}))
       .digest("hex");
 
     const cached = apiCacheStore.get(key);
@@ -326,7 +426,9 @@ function cacheApiResponse(durationSeconds: number) {
   };
 }
 
-async function startServer() {
+// Exported so tests (supertest) can build the configured app WITHOUT binding a port.
+// Default: do NOT listen (test-safe). The process entrypoint passes startListening:true.
+export async function createApp({ startListening = false } = {}) {
   const app = express();
   app.set('trust proxy', 1);
   const PORT = 3000;
@@ -346,34 +448,124 @@ async function startServer() {
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
       const event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
 
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        
-        // Find invoice or update status securely using admin
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-            const fs = require("fs");
-            let config = {};
-            if (fs.existsSync('./firebase-applet-config.json')) {
-               const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-               config = { projectId: appletConfig.projectId };
-            }
-            admin.initializeApp(config);
-        }
-        
-        // Use session.metadata.invoiceId if we passed it in checkout
-        if (session.metadata && session.metadata.invoiceId) {
-           await admin.firestore().collection("invoices").doc(session.metadata.invoiceId).update({
-             status: "paid",
-             updatedAt: admin.firestore.FieldValue.serverTimestamp()
-           });
-        }
+      // Idempotency: ack duplicates without re-applying.
+      if (processedStripeEvents.has(event.id)) return res.json({ received: true, duplicate: true });
+      processedStripeEvents.add(event.id);
+      if (processedStripeEvents.size > 5000) processedStripeEvents.clear();
+
+      const admin = require("firebase-admin");
+      if (!admin.apps.length) {
+          const fs = require("fs");
+          let config = {};
+          if (fs.existsSync('./firebase-applet-config.json')) {
+             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+             config = { projectId: appletConfig.projectId };
+          }
+          admin.initializeApp(config);
       }
-      
+      const fdb = admin.firestore();
+
+      // Map a Stripe subscription's price/metadata to a tenant tier.
+      const setTenantTier = async (tenantId: string, tier: string) => {
+        if (!tenantId || !tier) return;
+        try { await fdb.collection("tenants").doc(String(tenantId)).update({ tier }); } catch (e) {}
+        // Also reflect into Supabase (system of record) when service-role is configured.
+        try {
+          const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          if (url && key) {
+            const { createClient } = require("@supabase/supabase-js");
+            await createClient(url, key, { auth: { persistSession: false } }).from("tenants").update({ tier }).eq("id", tenantId);
+          }
+        } catch (e) {}
+      };
+
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          const session = event.data.object;
+          if (session.metadata && session.metadata.invoiceId) {
+            try {
+              await fdb.collection("invoices").doc(session.metadata.invoiceId).update({
+                status: "paid",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+            } catch (e) { console.warn("Invoice mark-paid failed:", (e as any)?.message); }
+          }
+          // SaaS subscription checkout → set tenant tier.
+          if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
+            await setTenantTier(session.metadata.tenantId, session.metadata.tier);
+          }
+          break;
+        }
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated': {
+          const sub = event.data.object;
+          const tenantId = sub.metadata?.tenantId;
+          const tier = sub.metadata?.tier || (sub.items?.data?.[0]?.price?.metadata?.tier);
+          if (tenantId && tier && sub.status === "active") await setTenantTier(tenantId, tier);
+          break;
+        }
+        case 'customer.subscription.deleted': {
+          const sub = event.data.object;
+          if (sub.metadata?.tenantId) await setTenantTier(sub.metadata.tenantId, "free");
+          break;
+        }
+        case 'invoice.payment_failed': {
+          console.warn("[BILLING] invoice.payment_failed", event.data.object?.id);
+          break;
+        }
+        default:
+          break;
+      }
+
       res.json({ received: true });
     } catch (err: any) {
       console.error("Stripe Webhook Error:", err.message);
       res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+  });
+
+  // Twilio inbound SMS webhook (two-way SMS). Registered BEFORE express.json + the JSON-only
+  // governance gate because Twilio posts application/x-www-form-urlencoded. Auth-excluded
+  // (it's /api/public/*); signature-verified when TWILIO_AUTH_TOKEN is set. Persists the
+  // inbound message best-effort and always replies with valid (empty) TwiML.
+  app.post("/api/public/sms/inbound", express.urlencoded({ extended: false }), async (req: any, res) => {
+    const xml = (s = "<Response></Response>") => res.type("text/xml").send(s);
+    try {
+      const { From, To, Body } = req.body || {};
+      if (process.env.TWILIO_AUTH_TOKEN) {
+        try {
+          const twilio = require("twilio");
+          const sig = req.headers["x-twilio-signature"];
+          const url = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`) + req.originalUrl;
+          if (!twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, sig, url, req.body || {})) {
+            return res.status(403).type("text/xml").send("<Response/>");
+          }
+        } catch (e) { /* twilio sdk unavailable — fall through */ }
+      }
+      try {
+        const admin = require("firebase-admin");
+        if (!admin.apps.length) {
+          let config = {};
+          if (fs.existsSync('./firebase-applet-config.json')) {
+            const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+            config = { projectId: appletConfig.projectId };
+          }
+          admin.initializeApp(config);
+        }
+        const write = admin.firestore().collection("inbound_messages").add({
+          from: String(From || "").slice(0, 40),
+          to: String(To || "").slice(0, 40),
+          body: String(Body || "").slice(0, 2000),
+          direction: "inbound",
+          status: "unread",
+          receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await Promise.race([write, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000))]);
+      } catch (e) { /* best-effort persistence; still ack to Twilio */ }
+      return xml();
+    } catch (e) {
+      return xml("<Response/>");
     }
   });
 
@@ -395,7 +587,16 @@ async function startServer() {
     if (threatLog.length > 200) threatLog.pop();
   };
 
-  app.get("/api/security/threats", (req, res) => {
+  // Threat log is recon data (attacker IPs, probed routes). Admin/owner only — and it is
+  // NO LONGER in the auth-excluded list, so verifyFirebaseToken runs first. In demo mode
+  // (REQUIRE_AUTH off) req.user is absent, so allow it through for the founder dashboard.
+  app.get("/api/security/threats", (req: any, res) => {
+    if (REQUIRE_AUTH) {
+      const role = req.user?.role || req.user?.app_role;
+      if (!req.user || (role !== "admin" && role !== "owner" && !req.user.is_platform_admin)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+    }
     res.json(threatLog);
   });
 
@@ -415,7 +616,7 @@ async function startServer() {
     ];
     if (blockedExtensions.some(ext => url.includes(ext))) {
       logThreat(req.ip || '', "Restricted Binary/File Requested", req.url);
-      return res.status(403).json({ error: "Enterprise Governance Violation: Restricted file type requested." });
+      return res.status(403).json({ error: "This request was blocked for security reasons (restricted file type)." });
     }
 
     // 2. Anti-Pentesting / Advanced Injection Detection (DAX, SQL, NoSQL, XSS, Path Traversal)
@@ -435,14 +636,14 @@ async function startServer() {
     if (allThreats.some(pattern => rawPayload.includes(pattern) || url.includes(pattern))) {
        logThreat(req.ip || '', "Injection/Pentest Payload", req.url);
        console.warn(`[ENTERPRISE SECURITY EVENT] Potential Injection or Pentest detected from IP ${req.ip} on route ${req.url}`);
-       return res.status(403).json({ error: "Governance & Compliance Violation: Malicious payload structure detected. Event logged." });
+       return res.status(403).json({ error: "This request was blocked for security reasons." });
     }
 
     // 3. Strict Request Origin & Lineage enforcement
     if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       const contentType = req.headers['content-type'];
       if (!contentType || !contentType.includes('application/json')) {
-         return res.status(415).json({ error: "Lineage Violation: Strict JSON application required for mutation endpoints." });
+         return res.status(415).json({ error: "Requests must use Content-Type: application/json." });
       }
     }
 
@@ -453,43 +654,86 @@ async function startServer() {
   // Firebase auth is restored in App.tsx (TODO Part A2), so the current mock-admin demo
   // keeps working. Flip REQUIRE_AUTH=true together with restoring onAuthStateChanged.
   const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
-  const verifyFirebaseToken = async (req: any, res: any, next: any) => {
+  const IS_PROD = process.env.NODE_ENV === 'production';
+  // Magic-link signing secret. NO hardcoded production fallback (the old literal was in the
+  // public repo → anyone could forge a 7-day client-portal token). Dev gets an ephemeral
+  // secret; prod must set JWT_SECRET or magic links are refused (handlers 503 below).
+  const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD ? "" : "cutty-dev-only-ephemeral-secret");
+  const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
+  const PLATFORM_FEE_PCT = Math.max(0, Number(process.env.PLATFORM_FEE_PCT || 0)); // e.g. 0.02 = 2% platform fee
+
+  // Fail-fast / loud-warn on insecure production config. We do NOT silently fall back to
+  // dev defaults in prod (forgeable magic-links, open API). JWT_SECRET is required whenever
+  // it isn't the dev default; magic-link signing throws below if it's unset in prod.
+  if (IS_PROD) {
+    if (!REQUIRE_AUTH) {
+      console.warn("\n[SECURITY] NODE_ENV=production but REQUIRE_AUTH!=='true' — the API is UNAUTHENTICATED. Set REQUIRE_AUTH=true (and VITE_REQUIRE_AUTH=true) before serving real clients.\n");
+    }
+    if (!process.env.JWT_SECRET) {
+      console.error("[SECURITY] JWT_SECRET is not set in production. Client-portal magic links will be REJECTED until it is configured.");
+    }
+    if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.STRIPE_SECRET_KEY) {
+      console.warn("[BILLING] Stripe keys not fully configured in production; payments/webhooks are disabled.");
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.warn("[DATA] SUPABASE_SERVICE_ROLE_KEY not set; tenant provisioning + AI credit metering are disabled until configured.");
+    }
+  }
+
+  // Lazily-built Supabase client (anon key) used ONLY to validate user JWTs server-side
+  // via auth.getUser(token). Identity lives in Supabase Auth; RLS scopes the data.
+  let _sbAuthClient: any = null;
+  const getSbAuthClient = () => {
+    if (_sbAuthClient) return _sbAuthClient;
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !key) return null;
+    const { createClient } = require("@supabase/supabase-js");
+    _sbAuthClient = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    return _sbAuthClient;
+  };
+
+  const verifySupabaseToken = async (req: any, res: any, next: any) => {
     // This middleware is mounted at "/api/", so Express strips that prefix from req.path
     // (req.path === "/design/process"). Use the FULL path for route matching, otherwise the
     // "/api/" checks below never match and auth is silently skipped on every route.
     const fullPath = (req.baseUrl || '') + req.path;
-    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
-    if (excludedRoutes.includes(fullPath) || fullPath.startsWith('/api/playground/') || !fullPath.startsWith('/api/')) {
+    // Single source of truth (src/lib/routeAuth.ts, unit-tested). Playground is NO LONGER
+    // bypassed (was open AI-cost abuse) and the threat log is NO LONGER excluded (admin-only).
+    if (!requiresAuth(fullPath)) {
         return next();
     }
-    const tokenHeader = req.headers['x-firebase-auth'];
-    if (!tokenHeader || !tokenHeader.startsWith('Bearer ')) {
-        if (!REQUIRE_AUTH) return next(); // demo/dev: enforcement disabled until A2 wires real auth
-        return res.status(401).json({ error: "Unauthorized: Missing or invalid x-firebase-auth token" });
+    // Accept the standard Authorization header; keep x-firebase-auth for back-compat.
+    const tokenHeader = req.headers['authorization'] || req.headers['x-firebase-auth'];
+    if (!tokenHeader || !String(tokenHeader).startsWith('Bearer ')) {
+        if (!REQUIRE_AUTH) return next(); // demo/dev: enforcement disabled
+        return res.status(401).json({ error: "Unauthorized: Missing or invalid bearer token" });
     }
     try {
-        const token = tokenHeader.split('Bearer ')[1];
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-          const fs = require("fs");
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-             config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
+        const token = String(tokenHeader).split('Bearer ')[1];
+        const sb = getSbAuthClient();
+        if (!sb) {
+          if (!REQUIRE_AUTH) return next();
+          return res.status(503).json({ error: "Auth not configured (SUPABASE_URL / SUPABASE_ANON_KEY)" });
         }
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        req.user = decodedToken;
+        const { data, error } = await sb.auth.getUser(token);
+        if (error || !data?.user) {
+          if (!REQUIRE_AUTH) return next();
+          return res.status(401).json({ error: "Unauthorized: Invalid token" });
+        }
+        // Normalize to the shape downstream handlers expect (uid for rate-limiting, etc.).
+        req.user = { uid: data.user.id, sub: data.user.id, email: data.user.email };
         next();
     } catch (e) {
-        console.error("Firebase auth middleware error:", e);
-        if (!REQUIRE_AUTH) return next(); // demo/dev: don't hard-fail on token verify until A2
+        console.error("Supabase auth middleware error:", e);
+        if (!REQUIRE_AUTH) return next(); // demo/dev: don't hard-fail on token verify
         return res.status(401).json({ error: "Unauthorized: Invalid token" });
     }
   };
 
-  app.use("/api/", verifyFirebaseToken);
+  app.use("/api/", verifySupabaseToken);
 
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -513,10 +757,11 @@ async function startServer() {
     limit: 100, // Max 100 requests per day per user/IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
     keyGenerator: (req) => {
-      // Use Firebase UID if present (via our verifyFirebaseToken middleware), else IP
-      return (req as any).user?.uid || req.ip;
+      // Use Firebase UID if present (via our verifyFirebaseToken middleware), else the
+      // IPv6-normalized IP (raw req.ip lets a /64 prefix rotate past the cap).
+      return (req as any).user?.uid || ipKeyGenerator((req as any).ip);
     },
     message: { error: "Daily AI generation limit reached (100). Please try again tomorrow." },
   });
@@ -538,6 +783,9 @@ async function startServer() {
   app.use("/api/jobs/", aiLimiter);
   app.use("/api/outbound/", aiLimiter);
   app.use("/api/scheduler/", aiLimiter);
+  app.use("/api/playground/", aiLimiter); // playground hits real Gemini — meter it like every AI route
+  app.use("/api/marketing/", aiLimiter);
+  app.use("/api/research/", aiLimiter);
   app.use("/api/stripe/", strictLimiter);
 
 
@@ -551,8 +799,11 @@ async function startServer() {
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https://*.googleapis.com", "https://*.gstatic.com", "https://maps.googleapis.com"],
         frameSrc: ["'self'", "https://js.stripe.com"],
-        // Important: we allow iframe from any origin in AI Studio
-        frameAncestors: ["*"] 
+        // Clickjacking guard: default to self only. Set FRAME_ANCESTORS (space-separated
+        // origins) to embed elsewhere, e.g. "https://aistudio.google.com". Never ship '*'.
+        frameAncestors: process.env.FRAME_ANCESTORS
+          ? process.env.FRAME_ANCESTORS.split(/\s+/).filter(Boolean)
+          : ["'self'"]
       }
     },
     crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
@@ -569,6 +820,256 @@ async function startServer() {
     },
     hidePoweredBy: true
   }));
+
+  // ===========================================================================
+  // IDENTITY · TENANCY · TIER GATING · AI CREDIT WALLET (production billing seam)
+  // All keyed off the verified token (req.user) — never the request body. The
+  // service-role Supabase client is used ONLY server-side for provisioning/metering
+  // (it bypasses RLS). Everything no-ops safely in demo mode (REQUIRE_AUTH off).
+  // ===========================================================================
+  const TIER_RANK: Record<string, number> = { free: 0, pro: 1, enterprise: 2 };
+  const AI_CREDITS: Record<string, number> = {
+    free: Number(process.env.AI_CREDITS_FREE || 50),
+    pro: Number(process.env.AI_CREDITS_PRO || 1000),
+    enterprise: Number(process.env.AI_CREDITS_ENTERPRISE || 10000),
+  };
+
+  let _serviceSupabase: any = null;
+  function getServiceSupabase() {
+    if (_serviceSupabase !== null) return _serviceSupabase || null;
+    const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) { _serviceSupabase = false; return null; }
+    try {
+      const { createClient } = require("@supabase/supabase-js");
+      _serviceSupabase = createClient(url, key, { auth: { persistSession: false } });
+      return _serviceSupabase;
+    } catch (e) { _serviceSupabase = false; return null; }
+  }
+
+  // Resolve the caller's tenant (+role) from their profile, once per request.
+  async function resolveTenant(req: any) {
+    if (req._tenant !== undefined) return req._tenant;
+    const uid = req.user?.uid;
+    const sb = getServiceSupabase();
+    if (!uid || !sb) { req._tenant = null; return null; }
+    try {
+      const { data: profile } = await sb.from("profiles").select("*").eq("firebase_uid", uid).maybeSingle();
+      if (!profile?.tenant_id) { req._tenant = null; return null; }
+      const { data: tenant } = await sb.from("tenants").select("*").eq("id", profile.tenant_id).maybeSingle();
+      req._tenant = tenant ? { ...tenant, role: profile.role, profile } : null;
+      return req._tenant;
+    } catch (e) { req._tenant = null; return null; }
+  }
+
+  // Tier gate: 403 TIER_REQUIRED when the tenant's tier rank is below `minTier`.
+  function requireTier(minTier: string) {
+    return async (req: any, res: any, next: any) => {
+      if (!REQUIRE_AUTH) return next(); // demo: ungated
+      const tenant = await resolveTenant(req);
+      const tier = tenant?.tier || "free";
+      if ((TIER_RANK[tier] ?? 0) < (TIER_RANK[minTier] ?? 0)) {
+        return res.status(403).json({ error: "TIER_REQUIRED", requiredTier: minTier, currentTier: tier });
+      }
+      next();
+    };
+  }
+
+  // AI credit wallet: 402 INSUFFICIENT_CREDITS when the monthly allotment is exhausted;
+  // charges 1 credit per successful (2xx) AI response. Calendar-month period on the
+  // tenants row (ai_credits_used/ai_credits_period — migration 0007). Fails OPEN if the
+  // service-role client or columns aren't configured yet (so demo/partial setups still run).
+  async function meterCredits(req: any, res: any, next: any) {
+    if (!REQUIRE_AUTH) return next();
+    const sb = getServiceSupabase();
+    const tenant = await resolveTenant(req);
+    if (!sb || !tenant) return next();
+    const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+    const limit = AI_CREDITS[tenant.tier || "free"] ?? AI_CREDITS.free;
+    const used = tenant.ai_credits_period === period ? (tenant.ai_credits_used || 0) : 0;
+    if (used >= limit) {
+      return res.status(402).json({ error: "INSUFFICIENT_CREDITS", limit, used, tier: tenant.tier || "free" });
+    }
+    const originalJson = res.json.bind(res);
+    res.json = (body: any) => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        sb.from("tenants").update({ ai_credits_used: used + 1, ai_credits_period: period }).eq("id", tenant.id).then(() => {}, () => {});
+      }
+      return originalJson(body);
+    };
+    next();
+  }
+
+  // Liveness + mode probe (auth-excluded). Used by SaaSAdminDashboard + deploy checks.
+  app.get("/api/health", (req, res) => {
+    res.json({
+      status: "ok",
+      aiMode: isMockMode ? "mock" : "live",
+      supabase: !!getServiceSupabase(),
+      requireAuth: REQUIRE_AUTH,
+      time: new Date().toISOString(),
+    });
+  });
+
+  // The caller's tenant profile + role. Demo mode returns the canonical demo tenant.
+  app.get("/api/tenants/me", async (req: any, res) => {
+    if (!REQUIRE_AUTH) {
+      return res.json({
+        id: "demo-tenant-1", name: "YardWorx Internal Testing", tier: "enterprise", role: "owner",
+        settings: {}, quotas: {}, stripeAccountId: null, demo: true,
+      });
+    }
+    const tenant = await resolveTenant(req);
+    if (!tenant) return res.status(404).json({ error: "NO_TENANT" });
+    res.json({
+      id: tenant.id, name: tenant.name, tier: tenant.tier || "free", role: tenant.role,
+      settings: tenant.settings || {}, quotas: tenant.quotas || {},
+      stripeAccountId: tenant.stripe_account_id || null,
+    });
+  });
+
+  // Provision a NEW tenant + owner profile for a signup (service-role; bypasses RLS).
+  // Replaces the old client-side write that collided every company into 'genesis-1'.
+  app.post("/api/tenants/provision", async (req: any, res) => {
+    try {
+      const { companyName, tier = "free", loadDemoData = false } = req.body || {};
+      if (!companyName || typeof companyName !== "string") return res.status(400).json({ error: "companyName required" });
+      const uid = req.user?.uid;
+      if (REQUIRE_AUTH && !uid) return res.status(401).json({ error: "Unauthorized" });
+      const sb = getServiceSupabase();
+      if (!sb) return res.status(503).json({ error: "Provisioning unavailable: SUPABASE_SERVICE_ROLE_KEY not configured", code: "PROVISION_UNAVAILABLE" });
+      const safeTier = ["free", "pro", "enterprise"].includes(tier) ? tier : "free";
+      const tenantId = crypto.randomUUID();
+      const email = req.user?.email || null;
+      const isPlatformAdmin = !!(email && process.env.PLATFORM_OWNER_EMAIL && email === process.env.PLATFORM_OWNER_EMAIL);
+
+      const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier });
+      if (tErr) throw tErr;
+      if (uid) {
+        const { error: pErr } = await sb.from("profiles").upsert(
+          { firebase_uid: uid, tenant_id: tenantId, role: "owner", email, agreements_accepted: true, is_platform_admin: isPlatformAdmin },
+          { onConflict: "firebase_uid" },
+        );
+        if (pErr) throw pErr;
+        try { await sb.from("business_settings").upsert({ firebase_uid: uid, tenant_id: tenantId, company_name: companyName, onboarding_complete: true }, { onConflict: "firebase_uid" }); } catch (e) {}
+      }
+      res.json({ tenantId, profile: { tenant_id: tenantId, role: "owner" }, demoDataRequested: !!loadDemoData });
+    } catch (e: any) {
+      console.error("Provision error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "Provision failed" });
+    }
+  });
+
+  // AI credit wallet status for the current period (powers the AiUsage screen).
+  app.get("/api/usage/credits", async (req: any, res) => {
+    if (!REQUIRE_AUTH) return res.json({ tier: "enterprise", used: 0, creditsRemaining: 999999, limit: 999999, unmetered: true });
+    const tenant = await resolveTenant(req);
+    const tier = tenant?.tier || "free";
+    const limit = AI_CREDITS[tier] ?? AI_CREDITS.free;
+    const period = new Date().toISOString().slice(0, 7);
+    const used = tenant?.ai_credits_period === period ? (tenant.ai_credits_used || 0) : 0;
+    res.json({ tier, used, creditsRemaining: Math.max(0, limit - used), limit, period });
+  });
+
+  // Tier gating (registered BEFORE metering so a 403 short-circuits before a credit is
+  // charged). Pricing model: Design Studio + Deep Research + Promo Video are pro+ features.
+  // No-op in demo mode (REQUIRE_AUTH off).
+  app.use("/api/design/", requireTier("pro"));
+  app.use("/api/research/", requireTier("pro"));
+  app.use("/api/marketing/", requireTier("pro"));
+
+  // Meter the heavy AI route groups on the credit wallet (no-op in demo / unconfigured).
+  app.use("/api/design/", meterCredits);
+  app.use("/api/agent/", meterCredits);
+  app.use("/api/research/", meterCredits);
+  app.use("/api/marketing/", meterCredits);
+  app.use("/api/brain/", meterCredits);
+  app.use("/api/playground/", meterCredits);
+
+  // ===========================================================================
+  // PUBLIC INTAKE — customer-facing online booking / instant-quote (table-stakes).
+  // Unauthenticated by design (auth-excluded in routeAuth) but hard rate-limited +
+  // injection-scanned + input-capped. Writes a NEW lead into the tenant's pipeline.
+  // ===========================================================================
+  const publicLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 30, // 30 submissions/hour per IP
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    keyGenerator: (req) => ipKeyGenerator((req as any).ip),
+    message: { error: "Too many requests. Please try again later." },
+  });
+  app.use("/api/public/", publicLimiter);
+
+  const initFirebaseAdmin = () => {
+    const admin = require("firebase-admin");
+    if (!admin.apps.length) {
+      let config = {};
+      if (fs.existsSync('./firebase-applet-config.json')) {
+        const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+        config = { projectId: appletConfig.projectId };
+      }
+      admin.initializeApp(config);
+    }
+    return admin;
+  };
+
+  // Public endpoints must never hang on a slow/credential-less Firestore (without ADC the
+  // admin SDK does a multi-second metadata lookup before failing). Race every admin call so
+  // the endpoint always responds fast and degrades to a safe default.
+  const withTimeout = (promise: Promise<any>, ms: number) =>
+    Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+
+  // Minimal public tenant info so the booking page can show the company name.
+  app.get("/api/public/tenant/:tenantId", async (req, res) => {
+    const id = String(req.params.tenantId || "").slice(0, 64);
+    if (!id) return res.status(400).json({ error: "tenantId required" });
+    try {
+      const admin = initFirebaseAdmin();
+      const snap: any = await withTimeout(admin.firestore().collection("tenants").doc(id).get(), 2500);
+      return res.json({ id, name: (snap.exists && snap.data()?.name) || "YardWorx" });
+    } catch (e: any) {
+      // No admin creds (demo) or slow Firestore → safe generic name so the page still renders.
+      return res.json({ id, name: "YardWorx", simulated: true });
+    }
+  });
+
+  // Customer submits a booking / quote request → creates a NEW lead in the pipeline.
+  app.post("/api/public/lead-intake", async (req, res) => {
+    try {
+      const { tenantId, name, email, phone, address, serviceInterest, message } = req.body || {};
+      if (!tenantId || typeof tenantId !== "string") return res.status(400).json({ error: "Missing tenant." });
+      if (!name || (!email && !phone)) return res.status(400).json({ error: "Please provide your name and an email or phone." });
+      const cap = (s: any, n: number) => String(s ?? "").trim().slice(0, n);
+      const lead = {
+        tenantId: cap(tenantId, 64),
+        name: cap(name, 120),
+        email: cap(email, 160),
+        phone: cap(phone, 40),
+        address: cap(address, 240),
+        serviceInterest: cap(serviceInterest, 120),
+        notes: cap(message, 2000),
+        source: "online_booking",
+        status: "NEW",
+      };
+      try {
+        const admin = initFirebaseAdmin();
+        await withTimeout(admin.firestore().collection("leads").add({
+          ...lead,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }), 3000);
+        return res.json({ success: true });
+      } catch (e: any) {
+        // No admin creds (demo / no Firebase) or slow write → acknowledge so the UX completes;
+        // lights up live with creds.
+        console.warn("[lead-intake] persistence unavailable, simulating:", e?.message);
+        return res.json({ success: true, simulated: true });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: "Could not submit your request. Please try again." });
+    }
+  });
 
   // ... (existing routes remain same)
 
@@ -676,6 +1177,44 @@ async function startServer() {
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message || "Failed weather reroute" });
+    }
+  });
+
+  // Live weather for the Dashboard "Weather Shield". Returns real data when
+  // OPENWEATHER_API_KEY is set; otherwise reports unavailable (no fake temps).
+  // Accepts ?lat=&lon= or ?q=City; falls back to DEFAULT_WEATHER_CITY.
+  app.get("/api/weather", async (req: any, res: any) => {
+    const key = process.env.OPENWEATHER_API_KEY;
+    if (!key) {
+      return res.json({ configured: false, temp: null, condition: "Weather unavailable" });
+    }
+    try {
+      const { lat, lon, q } = req.query;
+      const city = (q as string) || process.env.DEFAULT_WEATHER_CITY || "Austin,US";
+      const url =
+        lat && lon
+          ? `https://api.openweathermap.org/data/2.5/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&units=imperial&appid=${key}`
+          : `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=imperial&appid=${key}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error("weather upstream " + r.status);
+      const d: any = await r.json();
+      const main = d?.weather?.[0]?.main || "Clear";
+      const high = main === "Rain" || main === "Thunderstorm" || main === "Snow";
+      res.json({
+        configured: true,
+        temp: typeof d?.main?.temp === "number" ? Math.round(d.main.temp) : null,
+        condition: main,
+        description: d?.weather?.[0]?.description || main,
+        location: d?.name || (typeof city === "string" ? city : null),
+        windMph: d?.wind?.speed != null ? Math.round(d.wind.speed) : null,
+        delayRisk: high ? "HIGH" : "LOW",
+        forecast: high
+          ? `${main} expected — consider rescheduling outdoor crews.`
+          : `Clear conditions. Good window for treatments and aeration.`,
+      });
+    } catch (e: any) {
+      console.error("weather error", e?.message);
+      res.json({ configured: false, temp: null, condition: "Weather unavailable" });
     }
   });
 
@@ -1233,32 +1772,41 @@ async function startServer() {
   });
 
   // STRIPE PAYMENT INTEGRATION
-  app.post("/api/stripe/connect", async (req, res) => {
+  app.post("/api/stripe/connect", async (req: any, res) => {
     try {
-      const { tenantId } = req.body;
       if (!process.env.STRIPE_SECRET_KEY) {
         return res.json({ error: "Stripe key missing. Multi-tenant setup simulated." });
       }
+      // Tenant comes from the verified token, NOT req.body (was tenant-unsafe). In demo
+      // mode (no service-role / REQUIRE_AUTH off) we still create the account but can't persist.
+      const tenant = await resolveTenant(req);
+      const sb = getServiceSupabase();
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-      
-      // We create an Express connected account
+
+      // Express connected account with card + ACH (us_bank_account) for lower-fee invoices.
       const account = await stripe.accounts.create({
         type: "express",
         capabilities: {
           card_payments: { requested: true },
+          us_bank_account_ach_payments: { requested: true },
           transfers: { requested: true },
         },
         business_type: "company",
       });
-      
-      // Create account link for onboarding
+
+      // Persist the account id to the tenant server-side so "connected" is real (not the
+      // old client-side fake acct_demo_ write). Best-effort when service-role is present.
+      if (tenant && sb) {
+        try { await sb.from("tenants").update({ stripe_account_id: account.id }).eq("id", tenant.id); } catch (e) {}
+      }
+
       const accountLink = await stripe.accountLinks.create({
         account: account.id,
-        refresh_url: "http://localhost:3000/admin/settings",
-        return_url: "http://localhost:3000/admin/settings?stripe_connected=true",
+        refresh_url: `${BASE_URL}/admin/settings`,
+        return_url: `${BASE_URL}/admin/settings?stripe_connected=true`,
         type: "account_onboarding",
       });
-      
+
       res.json({ url: accountLink.url, stripeAccountId: account.id });
     } catch (error: any) {
       console.error("Stripe Connect Error:", error.message);
@@ -1278,9 +1826,12 @@ async function startServer() {
       
       let finalAmount = amount;
       let finalDescription = description || "SaaS Service";
-      
-      // SECURITY FIX: Server-side price validation
-      // Prevent client-side manipulation of payment amounts by fetching the source of truth from Firestore
+      let connectedAccount = null; // derived server-side from the invoice's tenant, never trusted from the client
+      const isDeposit = req.body?.type === "deposit";
+
+      // SECURITY: invoice payments MUST carry an invoiceId so the amount + the connected
+      // account are derived from the source of truth (Firestore) and the webhook can mark
+      // the invoice paid. Client-supplied amounts/accounts are never trusted for invoices.
       if (invoiceId) {
         try {
           const admin = require("firebase-admin");
@@ -1295,52 +1846,266 @@ async function startServer() {
           }
           const db = admin.firestore();
           const invSnap = await db.collection("invoices").doc(invoiceId).get();
-          if (invSnap.exists) {
-            const data = invSnap.data();
-            if (data && data.amount) {
-              finalAmount = data.amount;
-              finalDescription = `Invoice ${invoiceId}`;
-            }
+          if (!invSnap.exists) return res.status(404).json({ error: "Invoice not found." });
+          const data = invSnap.data() || {};
+          if (!data.amount) return res.status(400).json({ error: "Invoice has no amount." });
+          finalAmount = data.amount;
+          finalDescription = `Invoice ${invoiceId}`;
+          // Derive the connected (contractor) account from the invoice's tenant — not the body.
+          if (data.tenantId) {
+            try {
+              const tSnap = await db.collection("tenants").doc(String(data.tenantId)).get();
+              connectedAccount = tSnap.exists ? (tSnap.data()?.stripeAccountId || null) : null;
+            } catch (e) {}
           }
         } catch (e: any) {
           console.error("Firestore lookup failed for invoice price validation:", e.message);
-          // If security check fails, fail secure
           return res.status(500).json({ error: "Failed to securely validate invoice price." });
         }
-      } else {
-        console.warn("SECURITY WARNING: Stripe checkout processed a client-side amount without an invoiceId. This is vulnerable to price modification.");
+      } else if (!isDeposit) {
+        // No invoiceId and not an explicit fixed deposit → refuse rather than trust a client amount.
+        return res.status(400).json({ error: "invoiceId is required for invoice payments." });
       }
 
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-      
+      const unitAmount = Math.round(Number(finalAmount) * 100);
+      if (!unitAmount || unitAmount < 50) return res.status(400).json({ error: "Invalid payment amount." });
+
       const sessionOptions: any = {
-        payment_method_types: ["card"],
-        metadata: invoiceId ? { invoiceId } : undefined,
+        payment_method_types: ["card", "us_bank_account"], // card + ACH
+        metadata: invoiceId ? { invoiceId } : { type: "deposit" },
         line_items: [
           {
             price_data: {
               currency: "usd",
               product_data: { name: finalDescription },
-              unit_amount: Math.round(finalAmount * 100), // in cents, securely fetched if invoiceId provided
+              unit_amount: unitAmount,
             },
             quantity: 1,
           },
         ],
         mode: "payment",
-        success_url: successUrl || "http://localhost:3000?success=true",
-        cancel_url: cancelUrl || "http://localhost:3000?canceled=true",
+        success_url: successUrl || `${BASE_URL}?success=true`,
+        cancel_url: cancelUrl || `${BASE_URL}?canceled=true`,
       };
-      
-      const requestOptions = tenantStripeAccountId ? { stripeAccount: tenantStripeAccountId } : {};
+
+      // Platform application fee on connected-account payments (the platform's cut).
+      if (connectedAccount && PLATFORM_FEE_PCT > 0) {
+        sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
+      }
+
+      const requestOptions = connectedAccount ? { stripeAccount: connectedAccount } : {};
 
       const session = await stripe.checkout.sessions.create(sessionOptions, requestOptions);
-      res.json({ checkoutUrl: session.url });
+      res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
       // SECURITY: Sanitize logging of payment provider errors to prevent leaking sensitive variables
       const safeErrorMsg = error?.message || "Unknown Stripe Error";
       const safeErrorCode = error?.raw?.code || error?.code || "unknown_code";
       console.error("Stripe Error (Sanitized):", { code: safeErrorCode, msg: safeErrorMsg });
       res.status(500).json({ error: safeErrorMsg }); // Only return safe message to client
+    }
+  });
+
+  // SaaS self-billing: subscribe a tenant to a YardWorx plan (pro/enterprise). The
+  // webhook (customer.subscription.* / checkout.session.completed) writes tenant.tier,
+  // making tier enforcement self-funding. Requires Stripe Price IDs in env.
+  app.post("/api/stripe/subscribe", async (req: any, res) => {
+    try {
+      const { tier } = req.body || {};
+      if (!["pro", "enterprise"].includes(tier)) return res.status(400).json({ error: "tier must be 'pro' or 'enterprise'" });
+      if (!process.env.STRIPE_SECRET_KEY) return res.json({ error: "Stripe key missing. Subscription simulated.", simulated: true });
+      const priceId = tier === "enterprise" ? process.env.STRIPE_PRICE_ENTERPRISE : process.env.STRIPE_PRICE_PRO;
+      if (!priceId) return res.status(503).json({ error: `Stripe price for ${tier} not configured (STRIPE_PRICE_${tier.toUpperCase()})`, code: "PRICE_UNCONFIGURED" });
+
+      const tenant = await resolveTenant(req);
+      const tenantId = tenant?.id || req.body?.tenantId; // resolved tenant preferred; body only as demo fallback
+      const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        metadata: { tenantId: tenantId || "", tier },
+        subscription_data: { metadata: { tenantId: tenantId || "", tier } },
+        success_url: `${BASE_URL}/admin/settings?subscribed=${tier}`,
+        cancel_url: `${BASE_URL}/admin/settings?subscribe_canceled=true`,
+      });
+      res.json({ checkoutUrl: session.url, url: session.url });
+    } catch (error: any) {
+      console.error("Stripe Subscribe Error:", error?.message);
+      res.status(500).json({ error: error?.message || "Subscription failed" });
+    }
+  });
+
+  // Customer recurring / seasonal billing — the contractor bills THEIR customer on a
+  // schedule (mowing/maintenance). Subscription-mode Checkout on the contractor's connected
+  // account with the platform application_fee_percent. Lights up with Stripe keys + a
+  // connected account; degrades to a simulated response otherwise.
+  const RECURRING_INTERVALS: Record<string, { interval: string; interval_count: number }> = {
+    weekly: { interval: "week", interval_count: 1 },
+    biweekly: { interval: "week", interval_count: 2 },
+    monthly: { interval: "month", interval_count: 1 },
+    quarterly: { interval: "month", interval_count: 3 },
+    seasonal: { interval: "month", interval_count: 3 },
+    yearly: { interval: "year", interval_count: 1 },
+  };
+  app.post("/api/stripe/recurring/checkout", async (req: any, res) => {
+    try {
+      const { customerId, amount, description, interval = "monthly", successUrl, cancelUrl } = req.body || {};
+      const recur = RECURRING_INTERVALS[String(interval)];
+      if (!recur) return res.status(400).json({ error: `Invalid interval. Use one of: ${Object.keys(RECURRING_INTERVALS).join(", ")}` });
+      const amt = Math.round(Number(amount) * 100);
+      if (!amt || amt < 50) return res.status(400).json({ error: "A valid recurring amount is required." });
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.json({ simulated: true, message: "Stripe not configured — recurring plan simulated.", interval, amount: Number(amount) });
+      }
+      // Connected account = the contractor's tenant account (server-derived, never the body).
+      const tenant = await resolveTenant(req);
+      const connectedAccount = tenant?.stripe_account_id || null;
+      if (REQUIRE_AUTH && !connectedAccount) {
+        return res.status(503).json({ error: "Connect a Stripe account first (Settings → Stripe).", code: "NO_CONNECTED_ACCOUNT" });
+      }
+      const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: { name: description || "Recurring landscaping service" },
+            unit_amount: amt,
+            recurring: recur,
+          },
+          quantity: 1,
+        }],
+        metadata: { tenantId: tenant?.id || "", customerId: customerId || "", type: "recurring" },
+        subscription_data: {
+          metadata: { tenantId: tenant?.id || "", customerId: customerId || "", type: "recurring" },
+          ...(PLATFORM_FEE_PCT > 0 ? { application_fee_percent: Math.round(PLATFORM_FEE_PCT * 100) } : {}),
+        },
+        success_url: successUrl || `${BASE_URL}/admin/invoices?recurring=created`,
+        cancel_url: cancelUrl || `${BASE_URL}/admin/invoices?recurring=canceled`,
+      }, connectedAccount ? { stripeAccount: connectedAccount } : {});
+      res.json({ checkoutUrl: session.url, url: session.url });
+    } catch (error: any) {
+      console.error("Recurring billing error:", error?.message);
+      res.status(500).json({ error: error?.message || "Could not set up recurring billing." });
+    }
+  });
+
+  // ===========================================================================
+  // QUICKBOOKS ONLINE — one-way sync (the accounting moat). OAuth connect + a
+  // customers push. Tokens live in the service-role-only `integrations` table.
+  // Lights up when QBO_CLIENT_ID/SECRET/REDIRECT_URI are set; every path degrades
+  // to a clear 503/`configured:false` otherwise. NOTE: the live QBO REST calls are
+  // pending sandbox verification — the OAuth + mapping code is wired, not yet run
+  // against a real Intuit company.
+  // ===========================================================================
+  const qboConfig = () => {
+    const clientId = process.env.QBO_CLIENT_ID;
+    const clientSecret = process.env.QBO_CLIENT_SECRET;
+    const redirectUri = process.env.QBO_REDIRECT_URI || `${BASE_URL}/api/quickbooks/callback`;
+    const sandbox = (process.env.QBO_ENVIRONMENT || "sandbox") !== "production";
+    return {
+      configured: !!(clientId && clientSecret),
+      clientId, clientSecret, redirectUri, sandbox,
+      apiBase: sandbox ? "https://sandbox-quickbooks.api.intuit.com" : "https://quickbooks.api.intuit.com",
+      tokenUrl: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+      authUrl: "https://appcenter.intuit.com/connect/oauth2",
+    };
+  };
+
+  const qboGetIntegration = async (tenantId: string) => {
+    const sb = getServiceSupabase();
+    if (!sb || !tenantId) return null;
+    const { data } = await sb.from("integrations").select("*").eq("tenant_id", tenantId).eq("provider", "quickbooks").maybeSingle();
+    return data || null;
+  };
+
+  // Refresh the access token if expired; returns a usable access token or null.
+  const qboAccessToken = async (integ: any) => {
+    if (!integ) return null;
+    const cfg = qboConfig();
+    const notExpired = integ.expires_at && new Date(integ.expires_at).getTime() > Date.now() + 60000;
+    if (notExpired && integ.access_token) return integ.access_token;
+    if (!integ.refresh_token || !cfg.configured) return integ.access_token || null;
+    const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: integ.refresh_token });
+    const r = await fetch(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
+    if (!r.ok) return integ.access_token || null;
+    const tok = await r.json();
+    const sb = getServiceSupabase();
+    const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
+    if (sb) await sb.from("integrations").update({ access_token: tok.access_token, refresh_token: tok.refresh_token || integ.refresh_token, expires_at, updated_at: new Date().toISOString() }).eq("id", integ.id);
+    return tok.access_token;
+  };
+
+  app.get("/api/quickbooks/status", async (req: any, res) => {
+    const cfg = qboConfig();
+    const tenant = await resolveTenant(req);
+    const integ = tenant ? await qboGetIntegration(tenant.id) : null;
+    res.json({ configured: cfg.configured, connected: !!(integ && integ.access_token), realmId: integ?.realm_id || null });
+  });
+
+  app.get("/api/quickbooks/connect", async (req: any, res) => {
+    const cfg = qboConfig();
+    if (!cfg.configured) return res.status(503).json({ error: "QuickBooks is not configured (set QBO_CLIENT_ID / QBO_CLIENT_SECRET).", code: "QBO_UNCONFIGURED" });
+    const tenant = await resolveTenant(req);
+    const state = tenant?.id || req.query?.tenantId || "demo";
+    const url = `${cfg.authUrl}?client_id=${encodeURIComponent(cfg.clientId)}&response_type=code&scope=${encodeURIComponent("com.intuit.quickbooks.accounting")}&redirect_uri=${encodeURIComponent(cfg.redirectUri)}&state=${encodeURIComponent(state)}`;
+    res.json({ url });
+  });
+
+  // Intuit redirects here (auth-excluded). Exchanges the code and stores tokens for the tenant.
+  app.get("/api/quickbooks/callback", async (req: any, res) => {
+    const cfg = qboConfig();
+    const { code, state, realmId } = req.query || {};
+    if (!cfg.configured) return res.status(503).send("QuickBooks not configured.");
+    if (!code || !state) return res.status(400).send("Missing code/state.");
+    try {
+      const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+      const body = new URLSearchParams({ grant_type: "authorization_code", code: String(code), redirect_uri: cfg.redirectUri });
+      const r = await fetch(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
+      if (!r.ok) throw new Error(`Token exchange failed (${r.status})`);
+      const tok = await r.json();
+      const sb = getServiceSupabase();
+      if (!sb) throw new Error("SUPABASE_SERVICE_ROLE_KEY required to store the connection.");
+      const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
+      await sb.from("integrations").upsert({
+        tenant_id: String(state), provider: "quickbooks", realm_id: realmId ? String(realmId) : null,
+        access_token: tok.access_token, refresh_token: tok.refresh_token, expires_at, status: "connected", updated_at: new Date().toISOString(),
+      }, { onConflict: "tenant_id,provider" });
+      res.redirect(`${BASE_URL}/admin/settings?quickbooks=connected`);
+    } catch (e: any) {
+      console.error("QBO callback error:", e?.message);
+      res.redirect(`${BASE_URL}/admin/settings?quickbooks=error`);
+    }
+  });
+
+  // One-way push of the tenant's customers into QuickBooks.
+  app.post("/api/quickbooks/sync", async (req: any, res) => {
+    const cfg = qboConfig();
+    if (!cfg.configured) return res.status(503).json({ error: "QuickBooks is not configured.", code: "QBO_UNCONFIGURED" });
+    const tenant = await resolveTenant(req);
+    if (!tenant) return res.status(401).json({ error: "Unauthorized" });
+    const integ = await qboGetIntegration(tenant.id);
+    if (!integ || !integ.realm_id) return res.status(503).json({ error: "QuickBooks is not connected. Connect it in Settings first.", code: "QBO_NOT_CONNECTED" });
+    try {
+      const token = await qboAccessToken(integ);
+      if (!token) return res.status(503).json({ error: "QuickBooks token unavailable; reconnect in Settings.", code: "QBO_TOKEN" });
+      const sb = getServiceSupabase();
+      const { data: customers } = await sb.from("customers").select("*").eq("tenant_id", tenant.id).limit(200);
+      let synced = 0; const errors: string[] = [];
+      for (const c of customers || []) {
+        const displayName = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.company_name || c.email || "Customer";
+        const payload: any = { DisplayName: displayName, PrimaryEmailAddr: c.email ? { Address: c.email } : undefined, PrimaryPhone: c.phone ? { FreeFormNumber: c.phone } : undefined };
+        const r = await fetch(`${cfg.apiBase}/v3/company/${integ.realm_id}/customer`, {
+          method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload),
+        });
+        if (r.ok) synced++; else errors.push(`${displayName}: ${r.status}`);
+      }
+      res.json({ synced, total: (customers || []).length, errors: errors.slice(0, 10) });
+    } catch (e: any) {
+      console.error("QBO sync error:", e?.message);
+      res.status(500).json({ error: e?.message || "QuickBooks sync failed." });
     }
   });
 
@@ -1425,8 +2190,13 @@ async function startServer() {
         config: { systemInstruction, responseMimeType: "application/json" }
       });
 
-      const parsed = JSON.parse(response.text || '{}');
-      res.json(parsed);
+      let parsed: any;
+      try {
+        parsed = parseGeminiJson(response.text);
+      } catch {
+        parsed = null;
+      }
+      res.json(parsed || { intent: "UNKNOWN_OR_UNPARSEABLE", summary: "", data: {} });
     } catch (e: any) {
       console.error("Hands-free error:", e);
       res.status(500).json({ error: e.message });
@@ -1437,6 +2207,8 @@ async function startServer() {
     try {
       const { text } = req.body;
       if (!text) return res.status(400).json({ error: "No text provided" });
+      // Audio bytes can't be mocked — degrade cleanly so the client treats it as "voice off".
+      if (isMockMode) return aiUnavailable(res, "Text-to-speech requires GEMINI_API_KEY", "TTS_UNAVAILABLE");
 
       const model = ai.models.get({ model: "gemini-3.1-flash-tts-preview" });
       const response = await model.generateContent({
@@ -2460,6 +3232,7 @@ async function startServer() {
   // --- DEEP RESEARCH EXPERT ---
   app.post("/api/research/start", aiLimiter, async (req, res) => {
     try {
+      if (isMockMode) return aiUnavailable(res, "Deep research requires GEMINI_API_KEY", "RESEARCH_UNAVAILABLE");
       const { prompt } = req.body;
       const initialInteraction = await ai.interactions.create({
           agent: "deep-research-preview-04-2026",
@@ -2468,13 +3241,13 @@ async function startServer() {
       });
       res.json({ interactionId: initialInteraction.id });
     } catch(e: any) {
-      console.error(e);
-      res.status(500).json({ error: "Failed to start deep research" });
+      return handleAiError(res, e, "Failed to start deep research");
     }
   });
 
   app.post("/api/research/status", aiLimiter, async (req, res) => {
       try {
+          if (isMockMode) return res.json({ status: "completed", report: "Deep research requires GEMINI_API_KEY (mock mode)." });
           const { interactionId } = req.body;
           const interaction = await ai.interactions.get(interactionId);
           if (interaction.status === "completed") {
@@ -2492,8 +3265,7 @@ async function startServer() {
              res.json({ status: "pending" });
           }
       } catch(e: any) {
-          console.error(e);
-          res.status(500).json({ error: "Failed to poll research" });
+          return handleAiError(res, e, "Failed to poll research");
       }
   });
 
@@ -2512,26 +3284,26 @@ async function startServer() {
       });
       res.json({ operationName: operation.name });
     } catch(e: any) {
-      console.error(e);
-      res.status(500).json({ error: "Failed to generate video" });
+      return handleAiError(res, e, "Failed to generate video");
     }
   });
 
   app.post("/api/marketing/video-status", aiLimiter, async (req, res) => {
      try {
+         if (isMockMode) return aiUnavailable(res, "Promo video generation requires GEMINI_API_KEY", "VIDEO_UNAVAILABLE");
          const { operationName } = req.body;
          const op = new GenerateVideosOperation();
          op.name = operationName;
          const updated = await ai.operations.getVideosOperation({ operation: op });
          res.json({ done: updated.done });
      } catch(e) {
-         console.error(e);
-         res.status(500).json({ error: "Failed to poll video" });
+         return handleAiError(res, e, "Failed to poll video");
      }
   });
 
   app.post("/api/marketing/video-download", aiLimiter, async (req, res) => {
      try {
+         if (isMockMode) return aiUnavailable(res, "Promo video generation requires GEMINI_API_KEY", "VIDEO_UNAVAILABLE");
          const { operationName } = req.body;
          const op = new GenerateVideosOperation();
          op.name = operationName;
@@ -2550,14 +3322,16 @@ async function startServer() {
            res.status(500).send("No video body");
          }
      } catch(e) {
-         console.error(e);
-         res.status(500).json({ error: "Failed to download video" });
+         return handleAiError(res, e, "Failed to download video");
      }
   });
 
   app.post("/api/design/tiers", cacheApiResponse(300), async (req, res) => {
     try {
-      const { baselineResult, settings = {} } = req.body;
+      const { baselineResult, role, settings = {} } = req.body;
+      // Same financial air-gap as /design/process: prefer the verified token role.
+      const effectiveRole = (req.user && (req.user.role || req.user.app_role)) || role;
+      const isRestrictedRole = effectiveRole === "employee" || effectiveRole === "foreman";
 
       const semanticLearningPrompt = settings.semanticStyleLearning ? `
         - SEMANTIC STYLE LEARNING: The contractor has defined the following specific logistical installation rules. You MUST adhere to these rules when estimating materials and labor:
@@ -2616,7 +3390,23 @@ async function startServer() {
         },
       });
 
-      res.json(parseGeminiJson(response.text));
+      const designResult = parseGeminiJson(response.text) || {};
+      // Catalog-grounded pricing pass (parity with /design/process): replace AI-invented
+      // tier costs with the contractor's real catalog prices + recompute totals; zero out
+      // all financials for employee/foreman (defense-in-depth on top of the prompt).
+      try {
+        const catalog = flattenCatalog(settings);
+        const tiers = designResult.tiers || {};
+        for (const key of ["good", "better", "best"]) {
+          const t = tiers[key];
+          if (t && Array.isArray(t.estimatedMaterials)) {
+            const sum = groundMaterials(t.estimatedMaterials, catalog, isRestrictedRole);
+            t.totalCost = isRestrictedRole ? 0 : (sum || t.totalCost);
+            if (isRestrictedRole) t.approvalRequired = true;
+          }
+        }
+      } catch (e) { console.warn("Tiers pricing pass failed:", (e as any)?.message); }
+      res.json(designResult);
     } catch (error: any) {
       console.error("Design Tiers Error:", error);
       res.status(500).json({ error: error.message });
@@ -3299,7 +4089,7 @@ async function startServer() {
         contents: [{ role: "user", parts: [{ inlineData: { mimeType, data } }, { text: "Transcribe this audio precisely." }] }]
       });
       res.json({ text: response.text });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/analyze-media", async (req, res) => {
@@ -3310,7 +4100,7 @@ async function startServer() {
         contents: [{ role: "user", parts: [{ inlineData: { mimeType, data } }, { text: prompt || "Analyze this media and describe key information." }] }]
       });
       res.json({ text: response.text });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/generate-image", async (req, res) => {
@@ -3322,7 +4112,7 @@ async function startServer() {
         config: { numberOfImages: 1, aspectRatio: aspectRatio || "1:1", outputMimeType: "image/jpeg" }
       });
       res.json({ imageBase64: response.generatedImages[0].image.imageBytes });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/generate-video", async (req, res) => {
@@ -3338,7 +4128,7 @@ async function startServer() {
       }
       const response = await ai.models.generateVideos(params);
       res.json({ operationName: response.name });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/generate-music", async (req, res) => {
@@ -3349,16 +4139,19 @@ async function startServer() {
          contents: prompt
       });
       res.json({ text: "Music generation request succeeded. Response: " + (response.text || "Audio generated.") });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
-  // Vite middleware for development
+  // Vite middleware for development. Skipped when not listening (tests) — createViteServer
+  // is heavy and unnecessary for supertest.
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    if (startListening) {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
     
@@ -3412,8 +4205,9 @@ async function startServer() {
     try {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
-      
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
+      if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
+
+      const token = jwt.sign({ clientId, email }, JWT_SECRET, { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
@@ -3428,16 +4222,20 @@ async function startServer() {
     try {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
-      
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
+
+      const decoded = jwt.verify(token, JWT_SECRET);
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
     }
   });
 
-const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Meridian Green CRM running on http://localhost:${PORT}`);
+  // Test mode: return the configured app without opening a socket or the Live WebSocket.
+  if (!startListening) return app;
+
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`YardWorx running on http://localhost:${PORT}`);
   });
 
   // WebSocket Server for Live Ear
@@ -3534,18 +4332,26 @@ const server = app.listen(PORT, "0.0.0.0", () => {
             If the user shows you a receipt, say "I see a receipt, let me log that expense" and call log_expense.
             If the user shows you a lawn issue, analyze it visually and give advice.
 
+            BE PROACTIVE. The owner is often on a call or driving — when you hear an actionable
+            intent, CALL THE TOOL immediately (don't wait to be asked) and say what you did in one
+            short line. You can chain tools: e.g. load_client_data then schedule_job then create_invoice.
+
             DETECT INTENT and use tools:
-            - If they mention scheduling (e.g. "Let's put Mrs. Gable down for Tuesday"), call schedule_job.
-            - If they mention billing (e.g. "Send a bill for $400 for the irrigation work"), call create_invoice.
-            - If they mention logging an expense or receipt (e.g. "I spent $50 on gas"), call log_expense.
-            - If they talk about looking up a client, call load_client_data.
-            - If they talk about adding a note or gate code for a client, call add_client_note.
-            - If they mention taking or using inventory items (e.g. "I'm taking 3 units of mulch"), call log_inventory_usage. If they mention using it for a specific job/client, include the clientName.
-            - If they talk about tracking parts or checking stock, call check_inventory.
-            - If they say they are starting the route or heading out, call enter_field_mode.
-            - If they talk about an employee or crew member, call load_employee_data.
-            - If they talk about a new potential customer, call create_lead.
-            
+            - New customer or prospect mentioned ("got a call from a Jane on Oak St") -> create_contact (or create_lead).
+            - Looking someone up ("pull up Mrs. Gable") -> load_client_data.
+            - Scheduling ("put Mrs. Gable down for Tuesday") -> schedule_job.
+            - Billing ("send a bill for $400 for the irrigation work") -> create_invoice.
+            - A quote/estimate ("quote them $1,200 for the patio") -> create_quote.
+            - Expense or receipt ("I spent $50 on gas", or you SEE a receipt) -> log_expense.
+            - A note about a client -> add_client_note.
+            - A gate code / lockbox code for a client ("the gate code is 1234") -> set_gate_code.
+            - Taking/using inventory ("I'm taking 3 units of mulch") -> log_inventory_usage (include clientName if for a job).
+            - Checking stock / parts -> check_inventory.
+            - Asking for a review / "remind me to get a review from them" -> request_review.
+            - Redesign / planting / hardscape / "show them ideas" -> build_design_vision.
+            - Starting the route / heading out -> enter_field_mode.
+            - An employee or crew member -> load_employee_data.
+
             Speak like a helpful, Southern hospitality assistant. Keep it brief and encouraging.
             "I've got Mrs. Gable's history ready," "Adding that new project to the list," "Pulling up Crew Alpha's stats."
           `,
@@ -3706,6 +4512,62 @@ const server = app.listen(PORT, "0.0.0.0", () => {
                     required: ["firstName"],
                   },
                 },
+                {
+                  name: "create_contact",
+                  description:
+                    "Add a brand-new customer/contact to the client book. Use when a new person or business is mentioned for the first time.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      firstName: { type: Type.STRING },
+                      lastName: { type: Type.STRING },
+                      phone: { type: Type.STRING },
+                      email: { type: Type.STRING },
+                      address: { type: Type.STRING },
+                      notes: { type: Type.STRING },
+                    },
+                    required: ["firstName"],
+                  },
+                },
+                {
+                  name: "set_gate_code",
+                  description:
+                    "Save a gate / lockbox access code on a client's profile so the field crew sees it.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING },
+                      gateCode: { type: Type.STRING },
+                    },
+                    required: ["gateCode"],
+                  },
+                },
+                {
+                  name: "create_quote",
+                  description:
+                    "Draft a price quote/estimate for a client (a draft invoice they can approve).",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING },
+                      amount: { type: Type.NUMBER },
+                      serviceDescription: { type: Type.STRING },
+                    },
+                    required: ["amount"],
+                  },
+                },
+                {
+                  name: "request_review",
+                  description:
+                    "Queue a request to ask a client for an online review after a completed job.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING },
+                    },
+                    required: [],
+                  },
+                },
               ],
             },
           ],
@@ -3739,9 +4601,14 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       clientWs.close();
     }
   });
+
+  return app;
 }
 
-if (process.env.NODE_ENV === "production" && cluster.isPrimary) {
+// Don't auto-start when imported by tests (vitest sets VITEST) — tests call createApp({startListening:false}).
+if (process.env.VITEST) {
+  // no-op: the test harness constructs the app explicitly.
+} else if (process.env.NODE_ENV === "production" && cluster.isPrimary) {
   const numCPUs = os.cpus().length;
   console.log(`Primary supervisor ${process.pid} is running`);
   console.log(`Setting up ${numCPUs} highly-available workers across all available vCPUs...`);
@@ -3756,5 +4623,5 @@ if (process.env.NODE_ENV === "production" && cluster.isPrimary) {
     cluster.fork();
   });
 } else {
-  startServer();
+  createApp({ startListening: true });
 }

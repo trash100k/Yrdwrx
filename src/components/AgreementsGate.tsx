@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { auth, db } from "../lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { getCurrentUser, onAuthChange, supabase } from "../lib/supabase";
+import { getCurrentProfile, clearProfileCache } from "../lib/repos/profile";
 import { Shield, Brain, Database, FileText } from "lucide-react";
 import { safeStorage } from "../lib/storage";
 
@@ -31,20 +31,19 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
         return;
       }
       
-      const user = auth.currentUser;
-      
+      const user = getCurrentUser();
+
       if (user) {
-         // Check user doc
+         // Check profile row (Supabase)
          try {
-           const userRef = doc(db, "users", user.uid);
-           const snap = await getDoc(userRef);
-           if (!snap.exists() || !snap.data().agreementsAccepted) {
+           const profile = await getCurrentProfile(true);
+           if (!profile?.agreements_accepted) {
               setAgreed(false);
               setShowGate(true);
            } else {
               setAgreed(true);
            }
-           
+
            // DEBUG OVERRIDE for immediate viewing in Preview
            if (safeStorage.getItem("force_agreements_view") === "true") {
                setAgreed(false);
@@ -72,23 +71,25 @@ export function AgreementsGate({ children }: { children: React.ReactNode }) {
     }
     
     // Slight delay to wait for auth state initialization if needed, or rely on auth state listener
-    const unsub = auth.onAuthStateChanged((u) => {
+    const unsub = onAuthChange((u) => {
+        clearProfileCache();
         checkAgreements();
     });
-    
+
     return () => unsub();
   }, [location.pathname, clientId, isPortal]);
 
   const handleAgree = async () => {
     if (!agreements.tos || !agreements.privacy || !agreements.dataMap /* || !agreements.ai */) return;
     
-    const user = auth.currentUser;
+    const user = getCurrentUser();
     if (user) {
         try {
-            await setDoc(doc(db, "users", user.uid), {
-                agreementsAccepted: true,
-                agreementsAcceptedAt: new Date().toISOString()
-            }, { merge: true });
+            await supabase
+                .from("profiles")
+                .update({ agreements_accepted: true })
+                .eq("firebase_uid", user.uid);
+            clearProfileCache();
         } catch (err) {
             console.error("Failed to save agreement", err);
         }

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { compressImage } from "../lib/imageUtils";
+import { fetchApi } from "../lib/api";
 
 import React, { useEffect, useState } from "react";
 import {
@@ -127,7 +128,7 @@ export default function FieldModeInterface() {
     setIsFinishing(true);
     try {
       await updateDoc(doc(db, "jobs", activeJob.id), {
-        status: "completed",
+        status: "COMPLETED",
         completedAt: new Date().toISOString(),
         arrivalPhotoUrl: arrivalPhoto,
         departurePhotoUrl: departurePhoto,
@@ -160,7 +161,7 @@ export default function FieldModeInterface() {
     const q = query(
       collection(db, "jobs"),
       where("tenantId", "==", tenantId),
-      where("status", "in", ["scheduled", "in-progress"]),
+      where("status", "in", ["SCHEDULED", "IN_PROGRESS"]),
       orderBy("date", "asc"),
       limit(1),
     );
@@ -373,7 +374,7 @@ export default function FieldModeInterface() {
             <button
               onClick={handleInitiateCompletion}
               disabled={isFinishing || !activeJob}
-              className={`flex flex-col items-center justify-center p-5 sm:p-8 min-h-[120px] gap-2 rounded-3xl border-4 transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:grayscale ${isHighContrast ? "bg-black border-black text-white shadow-[6px_6px_0_0_#000]" : "bg-forest-600 border-forest-500 text-white shadow-[0_0_20px_rgba(5, 168, 69,0.4)]"}`}
+              className={`flex flex-col items-center justify-center p-5 sm:p-8 min-h-[120px] gap-2 rounded-3xl border-4 transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:grayscale ${isHighContrast ? "bg-black border-black text-white shadow-[6px_6px_0_0_#000]" : "bg-forest-600 border-forest-500 text-white shadow-[0_0_20px_rgba(5,168,69,0.4)]"}`}
             >
               {isFinishing ? (
                 <div
@@ -818,7 +819,7 @@ export default function FieldModeInterface() {
                   <button
                     onClick={handleFinishJob}
                     disabled={isFinishing}
-                    className={`px-8 py-4 text-xs md:text-[10px] font-black uppercase tracking-widest rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 flex items-center gap-2 ${isHighContrast ? "bg-black border-black text-white" : "bg-forest-600 border-forest-500 text-white shadow-[0_0_20px_rgba(5, 168, 69,0.4)]"}`}
+                    className={`px-8 py-4 text-xs md:text-[10px] font-black uppercase tracking-widest rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 flex items-center gap-2 ${isHighContrast ? "bg-black border-black text-white" : "bg-forest-600 border-forest-500 text-white shadow-[0_0_20px_rgba(5,168,69,0.4)]"}`}
                   >
                     {isFinishing && <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
                     Confirm Completion

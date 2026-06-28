@@ -43,16 +43,12 @@ import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 
-const performanceData = [
-  { service: "Mowing", count: 45, revenue: 2800 },
-  { service: "Irrigation", count: 12, revenue: 1500 },
-  { service: "Design", count: 4, revenue: 4500 },
-  { service: "Cleanup", count: 28, revenue: 2100 },
-  { service: "Pest", count: 15, revenue: 1200 },
-];
-
 export default function Reports() {
   const { tenant } = useTenant();
+  const [performanceData, setPerformanceData] = useState<
+    { service: string; count: number; revenue: number }[]
+  >([]);
+  const [isPerformanceLoading, setIsPerformanceLoading] = useState(false);
   const [maintenance, setMaintenance] = useState<
     {
       vehicleId?: string;
@@ -96,6 +92,7 @@ export default function Reports() {
   useEffect(() => {
     fetchPredictiveMaintenance();
     fetchInventoryForecast();
+    fetchRevenueBreakdown();
 
     const tenantId = tenant?.id || "genesis-1";
     const qLog = query(
@@ -140,6 +137,52 @@ export default function Reports() {
       handleFirestoreError(err, OperationType.GET, "reports/predictive");
     } finally {
       setIsMaintenanceLoading(false);
+    }
+  };
+
+  // Compute the revenue breakdown from REAL completed jobs grouped by service.
+  const fetchRevenueBreakdown = async () => {
+    setIsPerformanceLoading(true);
+    const tenantId = tenant?.id || "genesis-1";
+    try {
+      const jobsSnap = await getDocs(
+        query(collection(db, "jobs"), where("tenantId", "==", tenantId)),
+      );
+      const jobs = jobsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
+
+      const isCompleted = (status: any) =>
+        typeof status === "string" &&
+        ["completed", "complete", "done", "paid", "closed"].includes(
+          status.toLowerCase(),
+        );
+
+      const groups: Record<string, { count: number; revenue: number }> = {};
+      for (const job of jobs) {
+        if (!isCompleted(job.status)) continue;
+        const service =
+          job.serviceType ||
+          job.serviceName ||
+          job.service ||
+          job.type ||
+          job.title ||
+          "Other";
+        const revenue =
+          Number(job.amount ?? job.revenue ?? job.total ?? job.price ?? 0) || 0;
+        if (!groups[service]) groups[service] = { count: 0, revenue: 0 };
+        groups[service].count += 1;
+        groups[service].revenue += revenue;
+      }
+
+      const breakdown = Object.entries(groups)
+        .map(([service, { count, revenue }]) => ({ service, count, revenue }))
+        .sort((a, b) => b.revenue - a.revenue);
+
+      setPerformanceData(breakdown);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, "reports/revenue-breakdown");
+      setPerformanceData([]);
+    } finally {
+      setIsPerformanceLoading(false);
     }
   };
 
@@ -399,51 +442,67 @@ export default function Reports() {
                 />
               </div>
               <div className="h-[400px] relative z-10">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={performanceData}
-                    layout="vertical"
-                    margin={{ left: 40, right: 40 }}
-                  >
-                    <XAxis type="number" hide />
-                    <YAxis
-                      dataKey="service"
-                      type="category"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{
-                        fill: "rgba(255,255,255,0.2)",
-                        fontSize: 11,
-                        fontWeight: 900,
-                        letterSpacing: "0.1em",
-                      }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(255,255,255,0.02)" }}
-                      contentStyle={{
-                        backgroundColor: "#050505",
-                        borderRadius: "24px",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
-                        fontSize: "12px",
-                        color: "white",
-                      }}
-                      itemStyle={{ color: "#10b981", fontWeight: "bold" }}
-                    />
-                    <Bar dataKey="revenue" radius={[0, 20, 20, 0]} barSize={32}>
-                      {performanceData.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            index % 2 === 0
-                              ? "#10b981"
-                              : "rgba(255,255,255,0.05)"
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {isPerformanceLoading ? (
+                  <div className="h-full flex items-center justify-center micro-label text-white/10 animate-pulse italic font-black uppercase tracking-widest">
+                    Tallying completed jobs...
+                  </div>
+                ) : performanceData.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center gap-3">
+                    <BarChart3 className="text-white/10" size={40} />
+                    <p className="micro-label text-white/20 italic font-black uppercase tracking-widest">
+                      No completed jobs yet
+                    </p>
+                    <p className="text-xs text-white/30 font-bold max-w-xs leading-relaxed">
+                      Revenue breaks down by service once jobs are marked complete.
+                    </p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={performanceData}
+                      layout="vertical"
+                      margin={{ left: 40, right: 40 }}
+                    >
+                      <XAxis type="number" hide />
+                      <YAxis
+                        dataKey="service"
+                        type="category"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{
+                          fill: "rgba(255,255,255,0.2)",
+                          fontSize: 11,
+                          fontWeight: 900,
+                          letterSpacing: "0.1em",
+                        }}
+                      />
+                      <Tooltip
+                        cursor={{ fill: "rgba(255,255,255,0.02)" }}
+                        contentStyle={{
+                          backgroundColor: "#050505",
+                          borderRadius: "24px",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+                          fontSize: "12px",
+                          color: "white",
+                        }}
+                        itemStyle={{ color: "#10b981", fontWeight: "bold" }}
+                      />
+                      <Bar dataKey="revenue" radius={[0, 20, 20, 0]} barSize={32}>
+                        {performanceData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              index % 2 === 0
+                                ? "#10b981"
+                                : "rgba(255,255,255,0.05)"
+                            }
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </motion.div>

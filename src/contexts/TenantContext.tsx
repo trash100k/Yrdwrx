@@ -1,10 +1,11 @@
-import { safeStorage } from '../lib/storage';
 // @ts-nocheck
+import { safeStorage } from '../lib/storage';
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { auth, db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { doc, onSnapshot, getDoc, setDoc } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
+import { supabase, onAuthChange } from "../lib/supabase";
+import { getCurrentProfile, clearProfileCache } from "../lib/repos/profile";
+
+const REQUIRE_AUTH = import.meta.env.VITE_REQUIRE_AUTH === "true";
 
 interface TenantProfile {
   id: string;
@@ -61,37 +62,148 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-useEffect(() => {
-    // INTERNAL TESTING BYPASS
-    setUserRole("owner");
+  // Resolve the caller's tenant directly from Supabase (RLS-scoped) via their profile.
+  // The signup trigger guarantees a profile + tenant row exist for every user.
+  const loadTenant = async () => {
+    const profile = await getCurrentProfile(true);
+    if (!profile?.tenant_id) {
+      setTenant(null);
+      setUserRole(null);
+      return;
+    }
+    const { data: t, error: tErr } = await supabase
+      .from("tenants")
+      .select("*")
+      .eq("id", profile.tenant_id)
+      .maybeSingle();
+    if (tErr || !t) {
+      setError("Failed to load workspace.");
+      setTenant(null);
+      setUserRole(null);
+      return;
+    }
+    // Merge DB settings over sane defaults so the UI never hits an undefined feature flag.
+    const defaults = {
+      hoaProtocolEnabled: false,
+      satelliteVisionEnabled: false,
+      currency: "USD",
+      neighborhoodMask: [],
+      features: {
+        crewTracking: true,
+        inventoryManagement: true,
+        designStudio: true,
+        contracts: true,
+        routeOptimization: true,
+        crm: true,
+        scheduler: true,
+        reports: true,
+        invoices: true,
+        compliance: true,
+        cockpit_buttons: true,
+      },
+    };
+    const s = (t.settings as any) || {};
     setTenant({
-      id: "demo-tenant-1",
-      name: "YardWorx Internal Testing",
-      tier: "enterprise",
-      legal: {
-        aiDisclaimerAccepted: true,
-      },
-      quotas: {
-        aiRequestsMonthly: 10,
-        aiRequestLimit: 50000,
-      },
+      id: t.id,
+      name: t.name,
+      tier: t.tier || "free",
+      stripeAccountId: t.stripe_account_id || undefined,
+      legal: t.legal || { aiDisclaimerAccepted: false },
+      quotas: t.quotas || { aiRequestsMonthly: 0, aiRequestLimit: 0 },
       settings: {
-        hoaProtocolEnabled: true,
-        satelliteVisionEnabled: true,
-        currency: "USD",
-        neighborhoodMask: [],
-        features: {
-          crewTracking: true,
-          inventoryManagement: true,
-          agenticOutreach: true,
-        }
-      }
+        ...defaults,
+        ...s,
+        features: { ...defaults.features, ...(s.features || {}) },
+      },
     } as any);
-    setLoading(false);
+    setUserRole((profile.role as any) ?? null);
+  };
+
+  useEffect(() => {
+    // DEMO / INTERNAL TESTING BYPASS — keep the hardcoded enterprise tenant verbatim so
+    // the demo path is byte-for-byte identical to today when the flag is off.
+    if (!REQUIRE_AUTH) {
+      setUserRole("owner");
+      setTenant({
+        id: "demo-tenant-1",
+        name: "YardWorx Internal Testing",
+        tier: "enterprise",
+        legal: {
+          aiDisclaimerAccepted: true,
+        },
+        quotas: {
+          aiRequestsMonthly: 10,
+          aiRequestLimit: 50000,
+        },
+        settings: {
+          hoaProtocolEnabled: true,
+          satelliteVisionEnabled: true,
+          currency: "USD",
+          neighborhoodMask: [],
+          features: {
+            crewTracking: true,
+            inventoryManagement: true,
+            agenticOutreach: true,
+          }
+        }
+      } as any);
+      setLoading(false);
+      return;
+    }
+
+    // REAL AUTH — resolve the caller's tenant directly from Supabase on every auth change.
+    let active = true;
+
+    const unsubscribe = onAuthChange(async (currentUser) => {
+      if (!active) return;
+      setError(null);
+
+      if (!currentUser) {
+        clearProfileCache();
+        setTenant(null);
+        setUserRole(null);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        clearProfileCache();
+        await loadTenant();
+      } catch (e) {
+        if (active) {
+          setError("Failed to load workspace.");
+          setTenant(null);
+          setUserRole(null);
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
-  const switchTenant = (id: string) => {
+  // Single-tenant membership today (one profile -> one tenant), so this just
+  // re-resolves the caller's current workspace.
+  const switchTenant = async (_id: string) => {
+    if (!REQUIRE_AUTH) {
+      setLoading(true);
+      return;
+    }
     setLoading(true);
+    setError(null);
+    try {
+      clearProfileCache();
+      await loadTenant();
+    } catch (e) {
+      setError("Failed to switch workspace.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

@@ -104,6 +104,93 @@ interface OnboardingAnswers {
   customPrompt: string;
 }
 
+// Build a real 14-day revenue series + month-to-date totals from PAID invoices. Returns null
+// when there's no paid data yet, so EarningsWidget shows its (clearly-labeled) sample instead.
+function computeEarnings(invoices: any[]) {
+  const toDate = (t: any) => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
+  const paid = (invoices || []).filter((i) => String(i?.status || "").toLowerCase() === "paid");
+  if (!paid.length) return null;
+  const now = new Date();
+  const days: Date[] = [];
+  for (let k = 13; k >= 0; k--) { const d = new Date(now); d.setDate(now.getDate() - k); days.push(d); }
+  const byDay: Record<string, number> = {};
+  for (const inv of paid) {
+    const d = toDate(inv.paidAt || inv.updatedAt || inv.date || inv.createdAt);
+    if (!d || isNaN(d.getTime())) continue;
+    byDay[d.toDateString()] = (byDay[d.toDateString()] || 0) + (Number(inv.amount) || 0);
+  }
+  const revenueData = days.map((d) => ({
+    name: d.toLocaleDateString("en-US", { month: "short", day: "2-digit" }),
+    actual: Math.round(byDay[d.toDateString()] || 0),
+    projected: 0,
+  }));
+  const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const mtdInvoices = paid.filter((inv) => { const d = toDate(inv.paidAt || inv.updatedAt || inv.date || inv.createdAt); return d && d >= mStart; });
+  const earningsMTD = mtdInvoices.reduce((s, inv) => s + (Number(inv.amount) || 0), 0);
+  return { revenueData, totals: { earningsMTD, count: mtdInvoices.length } };
+}
+
+const usd0 = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(n) || 0);
+
+// Real top-of-funnel + billing stats for the Analytics tab, from the live collections.
+function computeAnalytics(invoices: any[], crews: any[], hotLeads: any[]) {
+  const toDate = (t: any) => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 7);
+  const inv = invoices || [];
+  const isStatus = (i: any, set: string[]) => set.includes(String(i?.status || "").toLowerCase());
+  const weekly = inv
+    .filter((i) => isStatus(i, ["paid"]))
+    .filter((i) => { const d = toDate(i.paidAt || i.updatedAt || i.date || i.createdAt); return d && d >= weekAgo; })
+    .reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const unpaid = inv.filter((i) => isStatus(i, ["sent", "overdue", "unpaid", "draft"]));
+  const missed = unpaid.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const onSite = (crews || []).filter((c) => String(c?.status || "").toUpperCase().includes("ON")).length;
+  return { weekly, missed, missedCount: unpaid.length, onSite, crewTotal: (crews || []).length, openLeads: (hotLeads || []).length };
+}
+
+// Real operational alerts from live data — overdue/unpaid billing + leads to follow up.
+function computeAlerts(invoices: any[], hotLeads: any[]) {
+  const toDate = (t: any) => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
+  const now = new Date();
+  const out: { type: string; label: string; text: string; level: string }[] = [];
+  const inv = invoices || [];
+  const overdue = inv.filter((i) => {
+    const s = String(i?.status || "").toLowerCase();
+    if (s === "overdue") return true;
+    if (s === "sent" || s === "unpaid") { const d = toDate(i.dueDate || i.due_date); return d && d < now; }
+    return false;
+  });
+  if (overdue.length) {
+    const sum = overdue.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    out.push({ type: "BILLING", label: "Overdue invoices", text: `${overdue.length} invoice${overdue.length === 1 ? "" : "s"} past due — ${usd0(sum)} outstanding.`, level: "high" });
+  }
+  const unpaid = inv.filter((i) => ["sent", "unpaid", "draft"].includes(String(i?.status || "").toLowerCase()));
+  if (!overdue.length && unpaid.length) {
+    out.push({ type: "BILLING", label: "Open invoices", text: `${unpaid.length} invoice${unpaid.length === 1 ? "" : "s"} awaiting payment.`, level: "medium" });
+  }
+  const leads = (hotLeads || []).length;
+  if (leads) out.push({ type: "SALES", label: "New leads", text: `${leads} lead${leads === 1 ? "" : "s"} awaiting follow-up.`, level: "medium" });
+  return out;
+}
+
+// Top revenue services from paid invoices (empty => widget shows its labeled sample).
+function computeTopServices(invoices: any[]) {
+  const paid = (invoices || []).filter((i) => String(i?.status || "").toLowerCase() === "paid");
+  const map: Record<string, number> = {};
+  for (const inv of paid) {
+    const label =
+      inv.service || inv.serviceType ||
+      (Array.isArray(inv.items) && inv.items[0] && (inv.items[0].name || inv.items[0].description)) ||
+      inv.description || "General Service";
+    map[label] = (map[label] || 0) + (Number(inv.amount) || 0);
+  }
+  const entries = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
+  return entries.map(([label, value]) => ({ label: String(label).slice(0, 40), value, share: Math.round((value / total) * 100) }));
+}
+
 export default function Dashboard() {
   const { tenant } = useTenant();
   const { isFieldMode, toggleFieldMode } = useFieldMode();
@@ -117,10 +204,11 @@ export default function Dashboard() {
   const [crews, setCrews] = useState<Crew[]>([]);
   const [hotLeads, setHotLeads] = useState<Lead[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
 
   useEffect(() => {
     const tenantId = tenant?.id || "genesis-1";
-    
+
     const unsubCrews = onSnapshot(query(collection(db, 'crews'), where("tenantId", "==", tenantId)), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Crew));
       setCrews(data);
@@ -133,13 +221,24 @@ export default function Dashboard() {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor));
       setVendors(data);
     });
+    const unsubInvoices = onSnapshot(query(collection(db, 'invoices'), where("tenantId", "==", tenantId)), (snapshot) => {
+      setInvoices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, () => {});
 
     return () => {
       unsubCrews();
       unsubLeads();
       unsubVendors();
+      unsubInvoices();
     };
   }, []);
+
+  // Real revenue series + MTD totals from paid invoices (null => no paid data yet, the
+  // EarningsWidget falls back to its labeled sample).
+  const earnings = computeEarnings(invoices);
+  const analytics = computeAnalytics(invoices, crews, hotLeads);
+  const topServices = computeTopServices(invoices);
+  const alerts = computeAlerts(invoices, hotLeads);
 
   
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1974,19 +2073,26 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3 pb-3 border-b border-white/10 molten-edge">
                            <TrendingUp className="text-forest-400" size={20} />
                            <h5 className="text-sm font-bold text-white uppercase tracking-wider">Top Services</h5>
-                           <span className="ml-auto text-[10px] bg-forest-500/20 text-forest-400 px-2 py-0.5 rounded-full font-bold">AI GENERATED</span>
+                           {topServices.length > 0 ? (
+                             <span className="ml-auto text-[10px] bg-forest-500/20 text-forest-400 px-2 py-0.5 rounded-full font-bold">LIVE</span>
+                           ) : (
+                             <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">SAMPLE</span>
+                           )}
                         </div>
                         <div className="space-y-3">
-                           {[
-                              { label: "Mowing & Edge", value: "$4,200", trend: "+12%" },
-                              { label: "Pine Straw Mulch", value: "$2,850", trend: "+8%" },
-                              { label: "Shrub Trimming", value: "$1,100", trend: "-2%" }
-                           ].map((item, i) => (
+                           {(topServices.length > 0
+                              ? topServices.map((s) => ({ label: s.label, value: usd0(s.value), trend: `${s.share}%` }))
+                              : [
+                                 { label: "Mowing & Edge", value: "$4,200", trend: "+12%" },
+                                 { label: "Pine Straw Mulch", value: "$2,850", trend: "+8%" },
+                                 { label: "Shrub Trimming", value: "$1,100", trend: "-2%" },
+                              ]
+                           ).map((item, i) => (
                              <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                <span className="text-sm font-medium text-white">{item.label}</span>
-                                <div className="text-right flex items-center gap-3">
+                                <span className="text-sm font-medium text-white truncate min-w-0 mr-3">{item.label}</span>
+                                <div className="text-right flex items-center gap-3 shrink-0">
                                    <span className="text-sm font-bold text-white">{item.value}</span>
-                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('+') ? 'text-forest-400' : 'text-red-400'}`}>{item.trend}</span>
+                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('-') ? 'text-red-400' : 'text-forest-400'}`}>{item.trend}</span>
                                 </div>
                              </div>
                            ))}
@@ -2050,7 +2156,7 @@ export default function Dashboard() {
                         {tenant?.settings?.neighborhoodMask?.[0] || "Local Area"} Forecast
                       </h4>
                     </div>
-                    {weather?.temp ? (
+                    {weather?.temp != null ? (
                       <div className="text-right">
                         <p className="text-2xl sm:text-3xl sm:text-4xl font-extrabold text-white">
                           {weather.temp}°F
@@ -2061,11 +2167,11 @@ export default function Dashboard() {
                       </div>
                     ) : (
                       <div className="text-right">
-                        <p className="text-2xl sm:text-3xl sm:text-4xl font-extrabold text-white">
-                          78°F
+                        <p className="text-2xl sm:text-3xl font-extrabold text-zinc-600">
+                          —
                         </p>
                         <p className="text-xs text-zinc-500 font-bold tracking-wider mt-1 uppercase">
-                          Clear
+                          {weather?.condition || "Weather unavailable"}
                         </p>
                       </div>
                     )}
@@ -2073,7 +2179,9 @@ export default function Dashboard() {
 
                   <div className="bg-zinc-900 border border-white/5 molten-edge p-4 rounded-xl text-xs text-zinc-400 leading-relaxed font-semibold">
                     {weather?.forecast ||
-                      "Clear microclimate active. Perfect window for targeted herbicide applications and grass aeration."}
+                      (weather?.configured === false
+                        ? "Add an OpenWeather API key to see live forecast guidance for your crews."
+                        : "Live forecast guidance will appear here.")}
                   </div>
 
                   <div className="flex items-center text-xs text-forest-400 gap-1.5 font-bold uppercase tracking-wider">
@@ -2116,6 +2224,14 @@ export default function Dashboard() {
                   </div>
 
                   <div className="space-y-4">
+                    {crews.length === 0 && (
+                      <div className="border border-dashed border-white/10 rounded-xl p-6 text-center">
+                        <p className="text-sm font-bold text-white/60">No crews yet</p>
+                        <p className="text-xs text-zinc-500 mt-1">
+                          Add a crew in Crew Suite to see live site progress here.
+                        </p>
+                      </div>
+                    )}
                     {crews.slice(0, 2).map((crew) => (
                       <div
                         key={crew.id}
@@ -2125,13 +2241,17 @@ export default function Dashboard() {
                           <span className="font-bold text-white text-sm">
                             {crew.name}
                           </span>
-                          <span className="text-xs text-forest-400 font-bold">
-                            {crew.progress}%
-                          </span>
+                          {(crew.progress ?? null) !== null && (
+                            <span className="text-xs text-forest-400 font-bold">
+                              {crew.progress}%
+                            </span>
+                          )}
                         </div>
-                        <p className="text-xs text-zinc-400 font-semibold">
-                          Location: {crew.job}
-                        </p>
+                        {(crew.job || crew.status) && (
+                          <p className="text-xs text-zinc-400 font-semibold">
+                            {crew.job ? `Location: ${crew.job}` : crew.status}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2328,14 +2448,14 @@ export default function Dashboard() {
               {activeWidgets.earnings && (
                 <div style={{ order: widgetOrder.indexOf("earnings") }} className="col-span-1 md:col-span-2 lg:col-span-1 h-full min-h-[300px]">
                   <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
+                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} data={earnings?.revenueData} totals={earnings?.totals} />
                   </Suspense>
                 </div>
               )}
               {activeWidgets.alerts && (
                 <div style={{ order: widgetOrder.indexOf("alerts") }} className="col-span-1 md:col-span-1 lg:col-span-1 h-full min-h-[300px]">
                   <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} />
+                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} alerts={alerts} />
                   </Suspense>
                 </div>
               )}
@@ -2376,7 +2496,7 @@ export default function Dashboard() {
       ) : (
         // DEEP INTEL / INFO FREAK VIEW (Tab 2: Analytics)
         <section className="space-y-12 animate-fadeIn">
-          {/* Main detailed high density stats */}
+          {/* Main detailed high density stats — live from invoices / crews / leads */}
           <div
             id="analytics-dense-stats"
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-8"
@@ -2384,29 +2504,29 @@ export default function Dashboard() {
             {[
               {
                 label: "Weekly Earnings",
-                value: "$24.8k",
-                change: "+12% MTD projection",
+                value: usd0(analytics.weekly),
+                change: "Paid in last 7 days",
                 trendColor: "text-forest-400",
                 icon: Zap,
               },
               {
                 label: "Crew Status",
-                value: "3 / 4 ON_SITE",
-                change: "Beta ready in transport",
+                value: `${analytics.onSite} / ${analytics.crewTotal} ON_SITE`,
+                change: "Live crew board",
                 trendColor: "text-celtic-400",
                 icon: Briefcase,
               },
               {
-                label: "System Efficiency",
-                value: "92.4%",
-                change: "Optimal output speed",
+                label: "Open Leads",
+                value: `${analytics.openLeads}`,
+                change: "In the pipeline",
                 trendColor: "text-forest-400",
                 icon: ShieldCheck,
               },
               {
-                label: "Missed Billing",
-                value: "$2,120",
-                change: "4 recoverable opportunities",
+                label: "Outstanding Billing",
+                value: usd0(analytics.missed),
+                change: `${analytics.missedCount} open invoice${analytics.missedCount === 1 ? "" : "s"}`,
                 trendColor: "text-amber-500",
                 icon: CloudRain,
               },
@@ -2436,12 +2556,12 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8 ">
                 {activeWidgets.earnings && (
                   <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
+                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} data={earnings?.revenueData} totals={earnings?.totals} />
                   </Suspense>
                 )}
                 {activeWidgets.alerts && (
                   <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} />
+                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} alerts={alerts} />
                   </Suspense>
                 )}
                 {activeWidgets.design && (

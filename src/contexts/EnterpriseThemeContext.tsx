@@ -150,7 +150,7 @@ export function EnterpriseThemeProvider({
       case "high-contrast":
         return "bg-zinc-950/90 border-2 border-white/20 shadow-none";
       case "glowing-ambient":
-        return "bg-forest-950/20 backdrop-blur-3xl border border-forest-500/20 shadow-[0_20px_50px_rgba(5, 168, 69,0.08)]";
+        return "bg-forest-950/20 backdrop-blur-3xl border border-forest-500/20 shadow-[0_20px_50px_rgba(5,168,69,0.08)]";
       case "classic-obsidian":
       default:
         return "bg-zinc-950/40 backdrop-blur-xl border border-white/10 shadow-2xl";
