@@ -571,15 +571,16 @@ reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status 
 - [x] **Inventory** (`src/pages/Inventory.tsx`) — `inventory` → `inventoryRepo`, `materialLogs` →
       `materialLogsRepo` (added to repos/index). DONE. NOTE: the inventory offline syncService path
       (Firestore-targeted) is bypassed — re-add an offline queue against Supabase later if needed.
-- [ ] **CrewSuite** (`src/pages/CrewSuite.tsx`) — `crews` → `crewsRepo` (+ `employees` table; add an
-      `employeesRepo` for `load_employee_data`).
-- [ ] **Reviews** (`src/pages/Reviews.tsx`) — `reviews` → `reviewsRepo`.
-- [ ] **FieldModeInterface** (`src/components/FieldModeInterface.tsx`) — active-job query + completion
-      write → `jobsRepo`; `inspection_forms` → `inspectionFormsRepo`. Map job `data.gateCode` → the
-      Gate Access panel (the agent's `set_gate_code` writes the customer's `data.gateCode`).
-- [ ] **Portfolio** (`src/pages/Portfolio.tsx`) — completed-jobs query → `jobsRepo` (filter
-      `status==='COMPLETED'` + departure photo).
-- [ ] **Dashboard** (`src/pages/Dashboard.tsx`) — widget data reads → repos.
+- [x] **CrewSuite** (`src/pages/CrewSuite.tsx`) — `crews` → `crewsRepo`. DONE. (TimeClock `timesheets`
+      still on Firestore; `employees` table / `employeesRepo` for `load_employee_data` still TODO.)
+- [x] **Reviews** (`src/pages/Reviews.tsx`) — `reviews` → `reviewsRepo`. DONE.
+- [x] **FieldModeInterface** (`src/components/FieldModeInterface.tsx`) — active-job + completion write
+      → `jobsRepo` (photos/notes/variance in job `data`); `inspection_forms` → `inspectionFormsRepo`;
+      gate code surfaced from the linked customer's `data.gateCode`. DONE.
+- [x] **Portfolio** (`src/pages/Portfolio.tsx`) — completed jobs → `jobsRepo` (status COMPLETED +
+      `data.departurePhotoUrl`). DONE.
+- [x] **Dashboard** (`src/pages/Dashboard.tsx`) — crews/leads/vendors/invoices reads + customer create
+      → repos. DONE.
 - [ ] **ClientPortal** (`src/pages/ClientPortal.tsx`) — customer + `customer_messages` reads → repos;
       replace the hardcoded mock proposal with the real `customer_design_visions` row.
 
