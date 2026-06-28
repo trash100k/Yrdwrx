@@ -43,8 +43,8 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 
 | Area | Status | ~Ready | Headline gap |
 |------|:------:|:------:|--------------|
-| Build / deploy | 🔴 | 0% | `npm run build` never bundles `server.ts` → `dist/server.cjs`; Cloud Run crash-loops |
-| Auth | 🔴 | 0% | **Every `/api/*` route is unauthenticated** (proven live — mount-path bug) |
+| Build / deploy | 🟢 | ~85% | ✅ server bundles to `dist/server.cjs`; **boots + serves SPA + API** (verified). Remaining: Docker-image smoke test, IPv6 rate-limiter, Vertex/ADC |
+| Auth | 🟠 | ~40% | ✅ mount-path **bypass fixed + enforced behind `REQUIRE_AUTH`** (verified 401s). Remaining: restore real `onAuthStateChanged`, flip the flag on |
 | Multi-tenancy | 🟠 | ~55% | **Supabase Postgres + RLS is LIVE** (project `bzpxudpmksnawmaanxal`, Firebase-UID keyed, cross-tenant isolation verified, 0 security advisories). Remaining: wire Third-Party Auth in dashboard + cut pages over from Firestore; client still hardcodes `demo-tenant-1` until then |
 | Billing | 🟠 | ~40% | Stripe Connect + checkout wired; no tier/quota enforcement; webhook not tenant-safe |
 | Design Studio | 🔴 | ~30% | Crashes in mock mode; mockup 500s; pricing AI-invented, not catalog-grounded |
@@ -63,13 +63,13 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > Today `cloudbuild.yaml` builds & deploys, then the container crash-loops: `npm start` runs
 > `node dist/server.cjs`, but `npm run build` only builds the frontend.
 
-- [ ] **Bundle the server.** `esbuild server.ts → dist/server.cjs` (esbuild is in devDeps, never
-  invoked). Add `"build:server": "esbuild server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:puppeteer --external:firebase-admin"`; wire `"build": "vite build && npm run build:server"`. Verify `Dockerfile:19,46`. Refs: `package.json:8-9`.
-- [ ] **Complete the Firebase client config.** `src/lib/firebase.ts:14` has only `projectId` → Auth
-  can't init. Add `apiKey`/`authDomain`/`storageBucket`/`messagingSenderId`/`appId` via
-  `import.meta.env.VITE_FIREBASE_*` (mirror in `vite.config.ts`). No hardcoded secrets.
-- [ ] **`.env.example` + startup validation.** Document every required var (see
-  [Appendix C](#appendix-c--secrets--env-vars)); warn loudly in `server.ts` on missing critical vars.
+- [x] **Bundle the server.** ✅ Added `build:server` (`esbuild … --packages=external --outfile=dist/server.cjs`)
+  + wired `build` to run it. Verified: `npm run build` emits `dist/` (frontend) **and** `dist/server.cjs`
+  (137 KB); the bundle **boots** under `NODE_ENV=production` and serves both `/` (SPA) and `/api/*`.
+- [x] **Complete the Firebase client config.** ✅ `src/lib/firebase.ts` now reads
+  `import.meta.env.VITE_FIREBASE_*` (apiKey/authDomain/storageBucket/messagingSenderId/appId), projectId fallback kept.
+- [x] **`.env.example`.** ✅ Created at repo root with Firebase/Supabase/Gemini/Stripe/Twilio/etc. + `REQUIRE_AUTH`.
+  _(Follow-up: add a loud startup warn in `server.ts` for missing critical vars.)_
 - [ ] **Real `JWT_SECRET`.** Remove the hardcoded dev fallback (`server.ts:3333`); require the env var in prod.
 - [ ] **Cloud Run IAM.** `firebase-admin` uses ADC + `projectId` only (`server.ts:435-444`); the
   service account needs Firestore + Auth Admin roles or token verification/DB writes fail silently.
@@ -80,10 +80,11 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 ### A2 — Auth + real multi-tenant isolation
 > The biggest risk. The server-side fix is ~1 line; the client side couples to onboarding/tenant.
 
-- [ ] **🔴 Fix the global auth bypass.** `app.use("/api/", verifyFirebaseToken)` (`server.ts:454`)
-  checks the **mount-stripped** `req.path` (`/design/process`), so `!req.path.startsWith('/api/')`
-  is always true → token never checked. _Proven: no-token & garbage-token → `200`._ Fix: branch on
-  `req.originalUrl` (or invert to default-deny + an excluded-routes allowlist).
+- [x] **🔴 Fix the global auth bypass.** ✅ `verifyFirebaseToken` now matches on the full path
+  (`req.baseUrl + req.path`), gated behind a new **`REQUIRE_AUTH`** env flag (default off so the mock
+  demo keeps working). _Verified:_ with `REQUIRE_AUTH=true`, no-token & garbage-token → **401**;
+  excluded routes still pass. **Remaining (A2):** restore real auth (below) + flip `REQUIRE_AUTH=true`
+  in prod — must land together (client only sends a token when `auth.currentUser` exists).
 - [ ] **Restore real auth.** Re-enable `onAuthStateChanged` in `src/App.tsx:101-124` (mock admin
   injected today); keep a clearly-flagged demo toggle, not the default.
 - [ ] **Make `useRole` real.** `src/hooks/useRole.ts:4-8` hard-returns `owner`/`hasPermission:()=>true`
@@ -265,6 +266,11 @@ greenfield. Cite the line when building so it's reuse, not aspiration.*
 - [ ] 🟠 **Campaigns/outreach** (`AutonomousCampaigns.tsx`, `AgenticOutreachDrawer.tsx`): approve/send is
   toast-only — **no persistence, no send log, no schedule, no unsubscribe/CAN-SPAM**.
 - [ ] 🟢 **Customer Map** (`CustomerMap.tsx`): not a real map (grid placeholder; needs Maps key + clustering).
+
+**Schema additions these imply (Supabase):**
+- [ ] Add `is_archived boolean` + `deleted_at timestamptz` to `customers` (soft-delete; not in schema yet).
+- [ ] Add a `tasks` table (CRM tasks have no persistence) + a `documents` table (or use Storage metadata).
+- [ ] Add `status='REJECTED'`/archive path for leads instead of hard delete.
 
 
 - [ ] **Finish PARTIAL features:** Contracts persistence (`Contracts.tsx` — UI only, no Firestore);

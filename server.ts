@@ -421,13 +421,22 @@ async function startServer() {
     next();
   });
 
+  // When true (production), missing/invalid tokens are rejected. Left false until real
+  // Firebase auth is restored in App.tsx (TODO Part A2), so the current mock-admin demo
+  // keeps working. Flip REQUIRE_AUTH=true together with restoring onAuthStateChanged.
+  const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
   const verifyFirebaseToken = async (req: any, res: any, next: any) => {
+    // This middleware is mounted at "/api/", so Express strips that prefix from req.path
+    // (req.path === "/design/process"). Use the FULL path for route matching, otherwise the
+    // "/api/" checks below never match and auth is silently skipped on every route.
+    const fullPath = (req.baseUrl || '') + req.path;
     const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
-    if (excludedRoutes.includes(req.path) || req.path.startsWith('/api/playground/') || !req.path.startsWith('/api/')) {
+    if (excludedRoutes.includes(fullPath) || fullPath.startsWith('/api/playground/') || !fullPath.startsWith('/api/')) {
         return next();
     }
     const tokenHeader = req.headers['x-firebase-auth'];
     if (!tokenHeader || !tokenHeader.startsWith('Bearer ')) {
+        if (!REQUIRE_AUTH) return next(); // demo/dev: enforcement disabled until A2 wires real auth
         return res.status(401).json({ error: "Unauthorized: Missing or invalid x-firebase-auth token" });
     }
     try {
@@ -447,6 +456,7 @@ async function startServer() {
         next();
     } catch (e) {
         console.error("Firebase auth middleware error:", e);
+        if (!REQUIRE_AUTH) return next(); // demo/dev: don't hard-fail on token verify until A2
         return res.status(401).json({ error: "Unauthorized: Invalid token" });
     }
   };
