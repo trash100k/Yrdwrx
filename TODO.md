@@ -13,9 +13,10 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-27 — expanded into the full ship-ready launch checklist (multi-tenant,
-> billing, security/endpoint-gating, Design Studio grounding, tests, market-fit) from four
-> investigations incl. a live pentest._
+> _Last updated: 2026-06-27 — re-prioritized from the deep US market study (`MARKET_RESEARCH.md`):
+> QuickBooks/payments/recurring billing are now launch table-stakes (A7); AI repositioned as on-site
+> closing; added the Gemini-native build-leverage map + the beachhead. Prior: full ship-ready
+> checklist from four investigations incl. a live pentest._
 
 ## How to use this file
 
@@ -27,15 +28,24 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 - Priority legend: 🔴 **blocker** (can't launch) · 🟠 **risky** (breaks/degrades in real prod or at
   scale) · 🟢 **feature/polish** (value-add & de-uglify).
 
+> **Backend architecture (decided + in progress): HYBRID.** Keep **Firebase Auth** (Google Sign-In +
+> Workspace consent) + **Cloud Run** (+ **Vertex AI Gemini via ADC**); move only **DATA → Supabase
+> Postgres + RLS**, bridged by **Supabase Third-Party Auth (Firebase)** so RLS keys on the Firebase
+> UID (`auth.jwt()->>'sub'`). **Live now:** the full Postgres schema + RLS is applied to project
+> `bzpxudpmksnawmaanxal` (org GaelWorx) — 23 tables, tenant-scoped policies in a hardened `private`
+> helper schema, **cross-tenant isolation verified live**, **0 security advisories**. Migrations:
+> `supabase/migrations/0001`–`0004`. Next: enable Supabase Third-Party Auth → Firebase in the
+> dashboard, then cut pages off Firestore via `src/lib/repos/*`.
+
 ---
 
 ## Launch-readiness snapshot
 
 | Area | Status | ~Ready | Headline gap |
 |------|:------:|:------:|--------------|
-| Build / deploy | 🔴 | 0% | `npm run build` never bundles `server.ts` → `dist/server.cjs`; Cloud Run crash-loops |
-| Auth | 🔴 | 0% | **Every `/api/*` route is unauthenticated** (proven live — mount-path bug) |
-| Multi-tenancy | 🔴 | ~10% | Rules are solid, but client hardcodes `demo-tenant-1`; onboarding collides all clients on `genesis-1` |
+| Build / deploy | 🟢 | ~85% | ✅ server bundles to `dist/server.cjs`; **boots + serves SPA + API** (verified). Remaining: Docker-image smoke test, IPv6 rate-limiter, Vertex/ADC |
+| Auth | 🟠 | ~40% | ✅ mount-path **bypass fixed + enforced behind `REQUIRE_AUTH`** (verified 401s). Remaining: restore real `onAuthStateChanged`, flip the flag on |
+| Multi-tenancy | 🟠 | ~55% | **Supabase Postgres + RLS is LIVE** (project `bzpxudpmksnawmaanxal`, Firebase-UID keyed, cross-tenant isolation verified, 0 security advisories). Remaining: wire Third-Party Auth in dashboard + cut pages over from Firestore; client still hardcodes `demo-tenant-1` until then |
 | Billing | 🟠 | ~40% | Stripe Connect + checkout wired; no tier/quota enforcement; webhook not tenant-safe |
 | Design Studio | 🔴 | ~30% | Crashes in mock mode; mockup 500s; pricing AI-invented, not catalog-grounded |
 | Live Ear (flagship) | 🟢 | ~60% | Streaming works; Live tools are stubs; no vision builder yet |
@@ -53,13 +63,13 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > Today `cloudbuild.yaml` builds & deploys, then the container crash-loops: `npm start` runs
 > `node dist/server.cjs`, but `npm run build` only builds the frontend.
 
-- [ ] **Bundle the server.** `esbuild server.ts → dist/server.cjs` (esbuild is in devDeps, never
-  invoked). Add `"build:server": "esbuild server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:puppeteer --external:firebase-admin"`; wire `"build": "vite build && npm run build:server"`. Verify `Dockerfile:19,46`. Refs: `package.json:8-9`.
-- [ ] **Complete the Firebase client config.** `src/lib/firebase.ts:14` has only `projectId` → Auth
-  can't init. Add `apiKey`/`authDomain`/`storageBucket`/`messagingSenderId`/`appId` via
-  `import.meta.env.VITE_FIREBASE_*` (mirror in `vite.config.ts`). No hardcoded secrets.
-- [ ] **`.env.example` + startup validation.** Document every required var (see
-  [Appendix C](#appendix-c--secrets--env-vars)); warn loudly in `server.ts` on missing critical vars.
+- [x] **Bundle the server.** ✅ Added `build:server` (`esbuild … --packages=external --outfile=dist/server.cjs`)
+  + wired `build` to run it. Verified: `npm run build` emits `dist/` (frontend) **and** `dist/server.cjs`
+  (137 KB); the bundle **boots** under `NODE_ENV=production` and serves both `/` (SPA) and `/api/*`.
+- [x] **Complete the Firebase client config.** ✅ `src/lib/firebase.ts` now reads
+  `import.meta.env.VITE_FIREBASE_*` (apiKey/authDomain/storageBucket/messagingSenderId/appId), projectId fallback kept.
+- [x] **`.env.example`.** ✅ Created at repo root with Firebase/Supabase/Gemini/Stripe/Twilio/etc. + `REQUIRE_AUTH`.
+  _(Follow-up: add a loud startup warn in `server.ts` for missing critical vars.)_
 - [ ] **Real `JWT_SECRET`.** Remove the hardcoded dev fallback (`server.ts:3333`); require the env var in prod.
 - [ ] **Cloud Run IAM.** `firebase-admin` uses ADC + `projectId` only (`server.ts:435-444`); the
   service account needs Firestore + Auth Admin roles or token verification/DB writes fail silently.
@@ -70,10 +80,11 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 ### A2 — Auth + real multi-tenant isolation
 > The biggest risk. The server-side fix is ~1 line; the client side couples to onboarding/tenant.
 
-- [ ] **🔴 Fix the global auth bypass.** `app.use("/api/", verifyFirebaseToken)` (`server.ts:454`)
-  checks the **mount-stripped** `req.path` (`/design/process`), so `!req.path.startsWith('/api/')`
-  is always true → token never checked. _Proven: no-token & garbage-token → `200`._ Fix: branch on
-  `req.originalUrl` (or invert to default-deny + an excluded-routes allowlist).
+- [x] **🔴 Fix the global auth bypass.** ✅ `verifyFirebaseToken` now matches on the full path
+  (`req.baseUrl + req.path`), gated behind a new **`REQUIRE_AUTH`** env flag (default off so the mock
+  demo keeps working). _Verified:_ with `REQUIRE_AUTH=true`, no-token & garbage-token → **401**;
+  excluded routes still pass. **Remaining (A2):** restore real auth (below) + flip `REQUIRE_AUTH=true`
+  in prod — must land together (client only sends a token when `auth.currentUser` exists).
 - [ ] **Restore real auth.** Re-enable `onAuthStateChanged` in `src/App.tsx:101-124` (mock admin
   injected today); keep a clearly-flagged demo toggle, not the default.
 - [ ] **Make `useRole` real.** `src/hooks/useRole.ts:4-8` hard-returns `owner`/`hasPermission:()=>true`
@@ -149,6 +160,24 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 - [ ] **Rewrite the README.** Replace the boilerplate with real features, architecture, env vars, the
   role matrix, and deploy steps (see [Appendix A](#appendix-a--feature-inventory)).
 
+### A7 — Market table-stakes for a credible launch 🔴 (from `MARKET_RESEARCH.md`)
+> The deep market study is blunt: these are the **entry bar**, shipped by every incumbent (Jobber,
+> LMN, SingleOps, Aspire) — not differentiators. Operator tool usage: accounting **77%**, invoicing
+> **72%**, estimating **61%**. Missing them = not credible, regardless of how good the AI is.
+
+- [ ] **QuickBooks sync.** The confirmed competitive **moat** (every incumbent ships it; "double
+  entry is a thing of the past"). Ship **one-way** first (Jobber-style: customers, invoices, payments,
+  items → QuickBooks Online), then two-way (SingleOps/LMN-style) as a stickiness follow-up. _Decide
+  one-way-now vs two-way at design time — it interacts with the Supabase migration._
+- [ ] **Online payments to the contractor's customers** — card + **ACH** on invoices (extends the
+  existing Stripe Connect wiring); branded invoice sent on job completion via SMS/email.
+- [ ] **Recurring / seasonal billing & contract auto-renew** — core to landscaper economics
+  (mowing/maintenance seasons). Pairs with making Contracts real (Part B).
+- [ ] **Online booking / instant-quote request** — beyond the magic-link portal; a customer-facing
+  intake that feeds the CRM pipeline.
+- [ ] **Crew time-tracking → payroll** — clock-in/out tied to jobs (`/api/workflows/payroll` drafts
+  an audit but there's no timeclock).
+
 ---
 
 ## Part A★ — Flagship: Live Ear live design vision 🟢
@@ -173,8 +202,74 @@ streams mic + camera to `/api/live` → `ai.live.connect`; this extends it (not 
 
 ---
 
+## Gemini-native capabilities → features (build leverage)
+*Why a lot of this ships cheap and **with confidence**: the capabilities below are baked into the
+Gemini models and **already wired + proven in `server.ts`** — extending them is pattern-reuse, not
+greenfield. Cite the line when building so it's reuse, not aspiration.*
+
+**Cheap + confident (reuse the proven pattern):**
+- **Google Search grounding** (`server.ts:1607` brain/query, `:3186` playground) → lead/customer/
+  property **enrichment**, local **market & competitor-pricing intel**, plant/horticulture facts, and
+  **state pesticide / EPA regulatory lookups**. Citations are the "confidence."
+- **Google Maps grounding** (`server.ts:3187`) → property context, geocoding, neighborhood/drive context.
+- **Structured output / `responseSchema`** (pervasive; `server.ts:2855`) → reliable extraction (intake,
+  receipts, quotes, invoices) and any model→DB write.
+- **Function calling / tools** (`server.ts:3448`) → Live Ear actions + agentic workflows.
+- **Vision + image-gen** (`/api/design/*`, OCR) → yard analysis, plant ID, before/after render.
+- **Thinking mode** (`server.ts:3191`) → complex multi-step estimates / plans.
+
+**Still real (non-AI) engineering — don't let "Gemini can do it" mask these:**
+- **QuickBooks** sync (deterministic API + reconciliation) — A7, the moat.
+- **Stripe** card/ACH payments + recurring/seasonal billing — A7.
+- **Aerial/satellite measurement** accuracy — needs an imagery provider (see Part D); **grounding ≠
+  measurement**.
+- **Supabase multi-tenant backend** (the migration) — infra, not AI.
+
+> **Guardrail:** grounding gives *factual* confidence + citations, but the model's **numbers**
+> (measurements, prices) are still on us — keep quotes **catalog-grounded / deterministic**, never
+> model-invented. (This is both the Design Studio fix in A4 and the market-trust point in Part D.)
+> Search/Maps grounding carry cost + latency + quota — **gate by tier** (ties to A5 quota work).
+
+---
+
 ## Part B — Fast-follow 🟠
 *Right after the first client; finishes the PARTIAL/STUB surface and the operability gaps.*
+
+### CRM completeness gaps (delete / reset / persistence) — from a live audit
+> Do these as part of cutting CRM over to Supabase repos (so persistence + the gaps land together).
+> 🔴 = broken/data-loss-risk · 🟠 = missing-but-expected.
+
+**Persistence holes (UI-only today — buttons with no handler / mock data):**
+- [x] ✅ **Tasks** (`CRMTasks.tsx`): full CRUD + persisted complete/reopen + due/priority/assignee via `tasksRepo`.
+- [x] ✅ **Jobs** (`CRMJobs.tsx`): create/edit/delete + status transitions + reschedule + reassign via `jobsRepo`.
+- [x] ✅ **Documents** (`CRMDocuments.tsx`): upload (Firebase Storage) + list + download + delete via `documentsRepo`.
+
+**Delete / restore safety:**
+- [ ] 🔴 **Customers hard-delete with no undo** (`CRM.tsx:410` single, `:257` bulk via `window.confirm`).
+  Add **soft-delete** (`is_archived` / `deleted_at` on the `customers` table — not present in schema yet)
+  + a Restore/Trash view. Same for **Leads reject = hard delete** (`LeadVerificationPanel.tsx:34`) → archive instead.
+- [ ] 🟠 **Restore / undo** missing everywhere; **Knowledge** soft-deletes (`CRM.tsx:1478`) but has **no
+  restore UI** and no edit.
+
+**Reset / bulk management:**
+- [ ] 🟠 **No "reset / clear demo data"** action (seed data can't be wiped from the UI) — needed before a real tenant goes live.
+- [ ] 🟠 **No reset pipeline** (stages hard-coded `Pipeline.tsx:11-16`; no customize/rename/reset/clear).
+- [ ] 🟠 **Bulk ops partial:** bulk delete + bulk tag exist (`CRM.tsx:248,270`); **missing** bulk
+  status-change, bulk reassign-owner, bulk tag-remove.
+- [ ] 🟠 **Merge duplicate customers** — none.
+- [ ] 🟠 **Custom fields** (`CRMCustomFields.tsx`): no inline value edit (delete + re-add only), no field
+  types, no rename, no reorder.
+- [ ] 🟠 **Campaigns/outreach** (`AutonomousCampaigns.tsx`, `AgenticOutreachDrawer.tsx`): approve/send is
+  toast-only — **no persistence, no send log, no schedule, no unsubscribe/CAN-SPAM**.
+- [ ] 🟢 **Customer Map** (`CustomerMap.tsx`): not a real map (grid placeholder; needs Maps key + clustering).
+
+**Schema additions these imply (Supabase):**
+- [x] ✅ Added `is_archived` + `deleted_at` to `customers`; new `tasks` + `documents` tables — applied to
+  the live project (`0005`), RLS-enabled + tenant policies, 0 advisories. Repo layer (`src/lib/repos/*`)
+  extended with `archive`/`restore`/`listArchived` + `customers`/`tasks`/`jobs`/`documents`/`leads` repos.
+- [x] ✅ **Custom fields** inline value edit + field types (text/number/date/yes-no), backward-compatible.
+- [ ] Add `status='REJECTED'`/archive path for leads instead of hard delete (in the CRM.tsx cutover pass).
+
 
 - [ ] **Finish PARTIAL features:** Contracts persistence (`Contracts.tsx` — UI only, no Firestore);
   RouteOptimizer optimize path (`/api/workflows/routing` — validate end-to-end); Agent workflow
@@ -203,29 +298,46 @@ streams mic + camera to `/api/live` → `ai.live.connect`; this extends it (not 
 
 ---
 
-## Part D — Market-fit / form-fit for landscapers
-*Why a landscaper buys this over Jobber / LMN / Service Autopilot / Yardbook, and what to sharpen.*
+## Part D — Market-fit / positioning (from `MARKET_RESEARCH.md`)
+*Verified against the US market study. Full report + citations in `MARKET_RESEARCH.md`.*
 
-- **The wedge — sell on the spot.** The killer loop is **photo → AI design vision → tiered quote →
-  e-sign → invoice → Stripe payment**, narrated live by Live Ear while standing in the customer's
-  yard. No incumbent closes a *designed, priced* job at the doorstep. This is the demo that sells.
-- **Trust through grounded pricing.** Quotes must come from the contractor's **own catalog + live
-  inventory** (A4), not AI guesses — landscapers won't trust (or send) hallucinated numbers.
-- **Field-first & offline.** Crews work in trucks with bad signal: the PWA + `syncService` offline
-  queue and mobile field mode are real differentiators — keep them first-class.
-- **Recurring seasonal revenue.** Mowing/maintenance is contract-based and seasonal — make Contracts
-  real (Part B) and add **seasonal recurring billing** (below); this is core to landscaper economics.
-- **Compliance as a moat.** EPA chemical-application logging with weather/safety checks + signatures
-  (`Compliance.tsx`, real today) is a genuine differentiator for chemical-applying companies.
-- **Tier the value.** free = single crew + core CRM/scheduling/invoicing; pro = Design Studio + Live
-  Ear + routing; enterprise = compliance, multi-crew, advanced reporting. Enforce via A5.
+**Competitive reality (don't fool ourselves):** the market is mature and commoditized. The AI bets
+are **contested** — Jobber Voice (Sept 2025) overlaps Live Ear; Aspire PropertyIntel / SatQuote /
+SiteRecon do AI estimating; ReimagineHome already does photo-to-design. So **don't position as "AI
+estimating" (aerial owns it) or "voice admin" (Jobber owns it).**
 
-**Named form-fit gaps to add as backlog (not in the code yet):**
-- [ ] **QuickBooks / accounting export** — the #1 integration ask for this segment; none exists.
-- [ ] **Seasonal recurring billing & contract auto-renew** (Stripe subscriptions per *their* customers).
-- [ ] **Crew time-tracking → payroll** — `/api/workflows/payroll` drafts an audit but there's no
-  timeclock; field crews need clock-in/out tied to jobs.
-- [ ] **Customer-facing booking / instant-quote request** beyond the magic-link portal.
+**The open lane — sell on the spot.** The one workflow incumbents *don't* own: **live, on-site,
+customer-facing visual selling**. They anchor on remote aerial measurement to *avoid* the site
+visit; our edge is the opposite — co-create a designed, priced, good/better/best proposal **in the
+driveway**, narrated by Live Ear, then e-sign → invoice → get paid. This is the demo that sells.
+
+> **Positioning statement:** *"Close the job in the driveway. YardWorx turns a phone photo and a
+> conversation into a designed, priced, good/better/best proposal your customer signs on the spot —
+> then syncs to QuickBooks and gets you paid."*
+
+**Recommended beachhead: small-to-mid residential design-build / install landscapers.** They live on
+visual selling + upsell (our strength), sit **below Aspire's revenue floor** (Aspire is revenue-tiered,
+$1M+, explicitly not for startups), and are under-served at the SMB price point. Avoid commercial
+maintenance (Aspire's turf; heavy on routing/scale we lack). _Secondary wedge:_ pesticide-applying
+**lawn-care** operators — the federal 30-day customer-furnishing rule for **restricted-use** products
+is still in force, and our Compliance module (EPA log + signature + audit + portal) can fulfill it.
+_(Don't over-specify recordkeeping schemas in marketing without state-level legal review.)_
+
+**Pricing & packaging (verified band $200–$650/mo):** undercut LMN's mandatory onboarding fee with
+**no setup fee + a free/low entry tier** to land; Pro ~$199–299/mo (AI selling suite + QuickBooks +
+payments); Enterprise above. Tier the value: free = core CRM/scheduling/invoicing; pro = Design
+Studio + Live Ear + routing; enterprise = compliance, multi-crew, reporting. Enforce via A5.
+
+**Durable strengths to keep first-class:** field-first PWA + offline `syncService`; catalog-grounded
+(non-hallucinated) pricing (A4) — the trust point; Compliance/EPA logging.
+
+**Strategic decision — aerial/satellite measurement.** Incumbents market remote takeoff as the speed
+win (SiteRecon: 24-hr proposals vs 3–4 days, doubled close rates). Photo-from-the-yard does **not**
+replace it. Decide: **build vs partner** (Nearmap / SatQuote-style integration, or Gemini Maps
+satellite tiles) to neutralize the gap. _Open question — see `MARKET_RESEARCH.md`._
+
+> Most table-stakes form-fit gaps (QuickBooks, payments, recurring billing, online booking,
+> time-tracking) were **promoted to launch blockers in [A7](#a7--market-table-stakes-for-a-credible-launch--from-market_researchmd)** — they're no longer "later" backlog.
 
 ---
 
