@@ -2,9 +2,12 @@
 
 **YardWorx** is a multi-tenant, AI-first field-service / landscaping operations SaaS — an
 "operational cockpit" sold to landscaping companies. Each tenant gets CRM, scheduling, crew
-tracking, inventory, invoicing, EPA/compliance logging, a customer portal, and an AI-driven
-**Design Studio** (photo → grounded, priced good/better/best proposal) plus the flagship
-**Live Ear** on-site voice assistant.
+tracking + a **time clock** (clock in/out → weekly hours), inventory, invoicing with **online
+card/ACH payments** and **recurring/seasonal billing**, **online booking / instant-quote**
+intake, **two-way SMS**, **QuickBooks Online** sync, EPA/compliance logging, a customer portal,
+and an AI-driven **Design Studio** (photo → grounded, priced good/better/best proposal) plus the
+flagship **Live Ear** on-site voice assistant. AI usage is metered by a per-tenant **credit
+wallet** and gated by subscription **tier**.
 
 > The product has been rebranded several times; you'll see **YardWorx**, **TerraMind Ops OS**,
 > **Cutty**, and **Meridian Green** in code and logs. They all mean this app. Current brand:
@@ -65,10 +68,19 @@ npm run test     # vitest run
 ## Environment variables
 
 Copy `.env.example` → `.env.local` (gitignored) and fill in. That file documents every var;
-the essentials: `VITE_FIREBASE_*` (client auth), `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`
-and server-side `SUPABASE_SERVICE_ROLE_KEY` (data), `GEMINI_API_KEY` (unset → mock mode),
-`STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`, `JWT_SECRET`, Twilio + Maps keys, and the auth
-flags `REQUIRE_AUTH` / `VITE_REQUIRE_AUTH`.
+the essentials:
+
+- **Auth/identity:** `VITE_FIREBASE_*` (client auth), and the paired flags `REQUIRE_AUTH` /
+  `VITE_REQUIRE_AUTH` (flip both together to enforce real auth).
+- **Data:** `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`, and server-side
+  `SUPABASE_SERVICE_ROLE_KEY` (tenant provisioning, AI metering, integration tokens).
+- **AI:** `GEMINI_API_KEY` (unset → mock mode); `AI_CREDITS_FREE/PRO/ENTERPRISE` (wallet sizes);
+  `GEMINI_CACHE_FILE` (optional disk cache path).
+- **Payments:** `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO` /
+  `STRIPE_PRICE_ENTERPRISE` (SaaS tiers), `PLATFORM_FEE_PCT` (platform application fee), `BASE_URL`.
+- **Integrations:** `QBO_CLIENT_ID/SECRET/REDIRECT_URI/ENVIRONMENT` (QuickBooks), `TWILIO_*`
+  (SMS, incl. the inbound webhook), `GOOGLE_MAPS_PLATFORM_KEY`.
+- **Security:** `JWT_SECRET` (required in prod — no fallback), `FRAME_ANCESTORS` (CSP allowlist).
 
 ## Build & deploy
 
@@ -109,6 +121,18 @@ do them. Each is roughly 1–2 minutes.
    webhook endpoint with `STRIPE_WEBHOOK_SECRET`, so the contractor can take card/ACH payments.
 7. **Enable Supabase PITR / backups.** Turn on point-in-time recovery (and a backup schedule)
    for the production project before real customer data lands.
+
+**Optional integrations (light up when configured):**
+
+8. **QuickBooks Online.** Create an app at developer.intuit.com, set `QBO_CLIENT_ID/SECRET`,
+   `QBO_REDIRECT_URI` (`<BASE_URL>/api/quickbooks/callback`) and `QBO_ENVIRONMENT`, then connect
+   from **Settings → QuickBooks**. (Live token exchange + entity mapping are wired but should be
+   verified against an Intuit sandbox company first.)
+9. **Two-way SMS.** Point your Twilio number's inbound webhook at
+   `<BASE_URL>/api/public/sms/inbound` (it verifies `TWILIO_AUTH_TOKEN`); outbound already uses
+   `/api/sms/send`.
+10. **Online booking.** Share each tenant's intake link (**Settings → Online Booking Link**,
+    `<BASE_URL>/book/<tenantId>`) — submissions land as new CRM leads.
 
 See `TODO.md` for the full backlog, `AGENT_RUNBOOK.md` for the autonomous operating brief, and
 `MARKET_RESEARCH.md` for product/GTM context.
