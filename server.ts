@@ -508,6 +508,50 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Twilio inbound SMS webhook (two-way SMS). Registered BEFORE express.json + the JSON-only
+  // governance gate because Twilio posts application/x-www-form-urlencoded. Auth-excluded
+  // (it's /api/public/*); signature-verified when TWILIO_AUTH_TOKEN is set. Persists the
+  // inbound message best-effort and always replies with valid (empty) TwiML.
+  app.post("/api/public/sms/inbound", express.urlencoded({ extended: false }), async (req: any, res) => {
+    const xml = (s = "<Response></Response>") => res.type("text/xml").send(s);
+    try {
+      const { From, To, Body } = req.body || {};
+      if (process.env.TWILIO_AUTH_TOKEN) {
+        try {
+          const twilio = require("twilio");
+          const sig = req.headers["x-twilio-signature"];
+          const url = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`) + req.originalUrl;
+          if (!twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, sig, url, req.body || {})) {
+            return res.status(403).type("text/xml").send("<Response/>");
+          }
+        } catch (e) { /* twilio sdk unavailable — fall through */ }
+      }
+      try {
+        const admin = require("firebase-admin");
+        if (!admin.apps.length) {
+          let config = {};
+          if (fs.existsSync('./firebase-applet-config.json')) {
+            const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+            config = { projectId: appletConfig.projectId };
+          }
+          admin.initializeApp(config);
+        }
+        const write = admin.firestore().collection("inbound_messages").add({
+          from: String(From || "").slice(0, 40),
+          to: String(To || "").slice(0, 40),
+          body: String(Body || "").slice(0, 2000),
+          direction: "inbound",
+          status: "unread",
+          receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await Promise.race([write, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000))]);
+      } catch (e) { /* best-effort persistence; still ack to Twilio */ }
+      return xml();
+    } catch (e) {
+      return xml("<Response/>");
+    }
+  });
+
   // Increased to 50mb to support large high-resolution base64 image uploads from phone cameras
   app.use(express.json({ limit: "50mb" }));
 

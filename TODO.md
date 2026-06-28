@@ -416,8 +416,11 @@ sweep, and a text/copy consistency scan). Newly-surfaced concrete work, prioriti
   only bills the SaaS tier, not the contractor billing *their* customers monthly. `Contracts` has
   an `mrr` field but no billing engine. Build scheduled invoices / Stripe subscriptions on the
   connected account with `application_fee_percent`.
-- [ ] 🔴 **Two-way SMS** — outbound only (`/api/sms/send`). Add a Twilio inbound webhook →
-  conversation thread (reuse the `messages` table from migration 0006).
+- [x] ✅ **Two-way SMS (inbound path)** — outbound (`/api/sms/send`) plus a new Twilio inbound
+  webhook `POST /api/public/sms/inbound` (form-encoded, registered before the JSON gate,
+  signature-verified when `TWILIO_AUTH_TOKEN` set, timeout-guarded), persisting to
+  `inbound_messages`. Tested. _Follow-up: per-tenant number routing (match `To`→tenant) + a
+  conversation-thread UI in CRM/ClientPortal (reuse the `messages`/`customer_messages` tables)._
 - [x] ✅ **Online booking / instant-quote public intake** — shipped: public page `/book/:tenantId`
   (`src/pages/BookingIntake.tsx`) → `POST /api/public/lead-intake` (auth-excluded, rate-limited 30/hr,
   injection-scanned, input-capped) creates a NEW lead in the tenant's pipeline; `GET /api/public/tenant/:id`
