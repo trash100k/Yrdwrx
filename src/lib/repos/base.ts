@@ -14,7 +14,26 @@ export interface RepoOptions {
   softDelete?: boolean;
 }
 
+// --- camelCase <-> snake_case key mapping ---------------------------------
+// Postgres columns are snake_case; the frontend (+ types.ts) is camelCase. We map
+// TOP-LEVEL keys only on the way out (read) and in (write), leaving nested values
+// (the freeform `data`/`customFields` jsonb, arrays like `tags`/`items`) untouched.
+const toCamelKey = (k: string) => k.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+const toSnakeKey = (k: string) => k.replace(/([A-Z])/g, (m) => "_" + m.toLowerCase());
+function mapKeys(input: any, fn: (k: string) => string): any {
+  if (Array.isArray(input)) return input.map((o) => mapKeys(o, fn));
+  if (input && typeof input === "object") {
+    const out: any = {};
+    for (const k of Object.keys(input)) out[fn(k)] = input[k]; // shallow: don't recurse into values
+    return out;
+  }
+  return input;
+}
+const camelize = (x: any) => mapKeys(x, toCamelKey);
+const snakeize = (x: any) => mapKeys(x, toSnakeKey);
+
 // Generic CRUD + realtime wrapper around a single Postgres table.
+// Reads return camelCase; writes accept camelCase and persist snake_case.
 export function makeRepo<T = any>(table: string, opts: RepoOptions = {}) {
   const order = opts.orderBy;
   const soft = !!opts.softDelete;
@@ -25,7 +44,7 @@ export function makeRepo<T = any>(table: string, opts: RepoOptions = {}) {
     if (order) q = q.order(order.column, { ascending: order.ascending ?? false });
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []) as T[];
+    return camelize(data ?? []) as T[];
   }
 
   // Archived ("Trash") rows — only meaningful for soft-delete tables.
@@ -34,7 +53,7 @@ export function makeRepo<T = any>(table: string, opts: RepoOptions = {}) {
     if (order) q = q.order(order.column, { ascending: order.ascending ?? false });
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []) as T[];
+    return camelize(data ?? []) as T[];
   }
 
   // Soft-delete: move to Trash instead of destroying.
@@ -57,20 +76,29 @@ export function makeRepo<T = any>(table: string, opts: RepoOptions = {}) {
   async function getById(id: string): Promise<T | null> {
     const { data, error } = await supabase.from(table).select("*").eq("id", id).maybeSingle();
     if (error) throw error;
-    return (data ?? null) as T | null;
+    return (data ? camelize(data) : null) as T | null;
   }
 
   async function create(row: Partial<T>): Promise<T> {
-    // Stamp the caller's tenant_id so RLS WITH CHECK passes (idempotent if already set).
-    const { data, error } = await supabase.from(table).insert(await attachTenant(row as any)).select().single();
+    // camelCase in -> snake_case to the DB; stamp tenant_id so RLS WITH CHECK passes.
+    const { data, error } = await supabase
+      .from(table)
+      .insert(await attachTenant(snakeize(row)))
+      .select()
+      .single();
     if (error) throw error;
-    return data as T;
+    return camelize(data) as T;
   }
 
   async function update(id: string, patch: Partial<T>): Promise<T> {
-    const { data, error } = await supabase.from(table).update(patch).eq("id", id).select().single();
+    const { data, error } = await supabase
+      .from(table)
+      .update(snakeize(patch))
+      .eq("id", id)
+      .select()
+      .single();
     if (error) throw error;
-    return data as T;
+    return camelize(data) as T;
   }
 
   async function remove(id: string): Promise<void> {

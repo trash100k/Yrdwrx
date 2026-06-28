@@ -230,6 +230,53 @@ greenfield. Cite the line when building so it's reuse, not aspiration.*
 > model-invented. (This is both the Design Studio fix in A4 and the market-trust point in Part D.)
 > Search/Maps grounding carry cost + latency + quota — **gate by tier** (ties to A5 quota work).
 
+### Gemini 3.x capability roadmap — what to leverage now (capability → YardWorx feature)
+*The app already touches a lot of the Gemini surface but uses a fraction of each. Models seen in
+`server.ts`: `gemini-2.0-flash`, `2.5-flash/pro`, `3.5-flash`, `3.1-pro-preview`, `3.1-flash-image`,
+`3.1-flash-live-preview`, `3.1-flash-tts`, `veo-3.1`, `lyria-3`, deep-research agent. Standardize new
+work on **`gemini-3.5-flash`** (cheap/fast default) + **`3.1-pro`** (hard reasoning).*
+
+**✅ Already wired (keep/extend):** text gen, **vision** (Design Studio, receipt/part OCR),
+**Search grounding** (`:1607`), **Maps grounding** (playground `:3187`), **structured output**
+(`responseSchema` `:2855`), **function calling** (Live tools `:3448`), **Live API** voice (`/api/live`),
+**image gen** (design mockup via `ai.interactions`), **Veo** video, **Lyria** music, **TTS**, **deep
+research** agent.
+
+**🟡 Under-utilized / not wired (the opportunity):**
+- [ ] **Thinking / reasoning mode** — only in the playground (`:3191`). Turn it on for the hard calls:
+  estimate math, route/schedule optimization, payroll/job-costing audits, compliance reasoning.
+- [ ] **Native image *editing*** ("nano-banana" `gemini-3.x-flash-image`) — Design Studio only does a
+  one-shot transform. Use real **iterative edits + multi-image** (before photo + product photos →
+  inpaint specific beds, swap plants, keep the rest of the yard). The headline on-site selling moment.
+- [ ] **Context caching** — we hand-roll a SHA disk cache; use **Gemini context caching** to cache the
+  tenant's catalog/pricing/brand once and reuse it across calls (cheaper, faster, consistent).
+- [ ] **Long context (1M+)** — stop truncating: feed the **whole customer history + catalog + notes**
+  into briefings, proposals, and Live Ear for genuinely personalized output.
+- [ ] **PDF / document understanding** — parse uploaded **contracts, vendor invoices, permits, spec
+  sheets** natively (not just images) → structured data into `documents`/`invoices`.
+- [ ] **Embeddings (`text-embedding`)** — replace the hand-rolled "brain"/knowledge with real
+  **semantic search + dedup** (customer dedup-merge, similar-job lookup, knowledge RAG, lead scoring).
+- [ ] **URL context tool** — point Gemini at a prospect's **website/Google listing** for instant
+  onboarding/enrichment (extends the SSRF-guarded scrape).
+- [ ] **Code execution tool** — deterministic math the model shouldn't eyeball: cubic-yards of mulch,
+  sq-ft of sod, dosing/mix rates, multi-tier price rollups.
+- [ ] **Maps grounding in production** (not just playground) — drive-time-aware scheduling, service-area
+  validation, "customers within X mi," property/lot context for estimates.
+- [ ] **Batch API** — overnight bulk jobs at lower cost: re-score the whole lead list, draft seasonal
+  campaigns for every customer, refresh predictive-maintenance suggestions.
+- [ ] **Structured output everywhere** — several routes still `parseGeminiJson` loosely; move them to
+  enforced `responseSchema` so AI→DB writes can't be malformed.
+- [ ] **Computer-use / agentic (later)** — auto-fill municipal permit portals, supplier reordering.
+
+**Roadmap (phased; gate the heavy ones by tier + the credit wallet A5):**
+1. **Now (cheap, high-impact):** thinking-mode on estimates/scheduling; structured-output hardening;
+   long-context briefings/proposals; code-execution for measurement math.
+2. **Next (the wow):** native iterative image-editing in Design Studio (multi-image inpaint) + context
+   caching of the tenant catalog; PDF understanding for contracts/vendor invoices.
+3. **Then (scale/intelligence):** embeddings-based semantic search + dedup + RAG knowledge; production
+   Maps grounding for routing/estimates; URL-context onboarding; Batch API for nightly bulk AI.
+4. **Later:** computer-use agents (permits/reordering). All metered ops ride the A5 credit wallet.
+
 ---
 
 ## Part B — Fast-follow 🟠

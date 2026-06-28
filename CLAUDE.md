@@ -201,6 +201,11 @@ its `_Last updated_` line. Don't start a parallel/competing list — this is the
 priorities (table-stakes, AI positioning, beachhead, pricing). Consult it for product/GTM context;
 `TODO.md` is the actionable backlog derived from it.
 
+`AGENT_RUNBOOK.md` (repo root) is the **operating brief for autonomous/looped sessions** — how to take
+YardWorx to first-client production unsupervised: the loop, the Definition of Done, the critical-path
+priority order, verification gates, commit/merge protocol, human-only blockers, and guardrails. If you
+are running in a loop or were told to work autonomously, **read it first** (then `TODO.md` + `MARKET_RESEARCH.md`).
+
 ## Working agreements for AI assistants
 
 - **Consult and maintain `TODO.md`** (the standing backlog, see above) when doing feature or
