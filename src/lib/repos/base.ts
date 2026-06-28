@@ -9,18 +9,49 @@ import { supabase } from "../supabase";
 
 export interface RepoOptions {
   orderBy?: { column: string; ascending?: boolean };
+  // When true, the table has `is_archived`/`deleted_at` columns; list() hides archived
+  // rows by default and archive()/restore()/listArchived() become meaningful.
+  softDelete?: boolean;
 }
 
 // Generic CRUD + realtime wrapper around a single Postgres table.
 export function makeRepo<T = any>(table: string, opts: RepoOptions = {}) {
   const order = opts.orderBy;
+  const soft = !!opts.softDelete;
 
   async function list(): Promise<T[]> {
     let q = supabase.from(table).select("*");
+    if (soft) q = q.eq("is_archived", false);
     if (order) q = q.order(order.column, { ascending: order.ascending ?? false });
     const { data, error } = await q;
     if (error) throw error;
     return (data ?? []) as T[];
+  }
+
+  // Archived ("Trash") rows — only meaningful for soft-delete tables.
+  async function listArchived(): Promise<T[]> {
+    let q = supabase.from(table).select("*").eq("is_archived", true);
+    if (order) q = q.order(order.column, { ascending: order.ascending ?? false });
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as T[];
+  }
+
+  // Soft-delete: move to Trash instead of destroying.
+  async function archive(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(table)
+      .update({ is_archived: true, deleted_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  }
+
+  async function restore(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(table)
+      .update({ is_archived: false, deleted_at: null })
+      .eq("id", id);
+    if (error) throw error;
   }
 
   async function getById(id: string): Promise<T | null> {
@@ -63,7 +94,7 @@ export function makeRepo<T = any>(table: string, opts: RepoOptions = {}) {
     };
   }
 
-  return { table, list, getById, create, update, remove, subscribe };
+  return { table, list, listArchived, getById, create, update, remove, archive, restore, subscribe };
 }
 
 // Stamp the caller's tenant_id onto a new row (RLS WITH CHECK requires it to match).

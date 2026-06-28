@@ -268,9 +268,11 @@ greenfield. Cite the line when building so it's reuse, not aspiration.*
 - [ ] 🟢 **Customer Map** (`CustomerMap.tsx`): not a real map (grid placeholder; needs Maps key + clustering).
 
 **Schema additions these imply (Supabase):**
-- [ ] Add `is_archived boolean` + `deleted_at timestamptz` to `customers` (soft-delete; not in schema yet).
-- [ ] Add a `tasks` table (CRM tasks have no persistence) + a `documents` table (or use Storage metadata).
-- [ ] Add `status='REJECTED'`/archive path for leads instead of hard delete.
+- [x] ✅ Added `is_archived` + `deleted_at` to `customers`; new `tasks` + `documents` tables — applied to
+  the live project (`0005`), RLS-enabled + tenant policies, 0 advisories. Repo layer (`src/lib/repos/*`)
+  extended with `archive`/`restore`/`listArchived` + `customers`/`tasks`/`jobs`/`documents`/`leads` repos.
+- [x] ✅ **Custom fields** inline value edit + field types (text/number/date/yes-no), backward-compatible.
+- [ ] Add `status='REJECTED'`/archive path for leads instead of hard delete (in the CRM.tsx cutover pass).
 
 
 - [ ] **Finish PARTIAL features:** Contracts persistence (`Contracts.tsx` — UI only, no Firestore);
