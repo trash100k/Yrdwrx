@@ -663,7 +663,22 @@ export async function createApp({ startListening = false } = {}) {
     }
   }
 
-  const verifyFirebaseToken = async (req: any, res: any, next: any) => {
+  // Lazily-built Supabase client (anon key) used ONLY to validate user JWTs server-side
+  // via auth.getUser(token). Identity lives in Supabase Auth; RLS scopes the data.
+  let _sbAuthClient: any = null;
+  const getSbAuthClient = () => {
+    if (_sbAuthClient) return _sbAuthClient;
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !key) return null;
+    const { createClient } = require("@supabase/supabase-js");
+    _sbAuthClient = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    return _sbAuthClient;
+  };
+
+  const verifySupabaseToken = async (req: any, res: any, next: any) => {
     // This middleware is mounted at "/api/", so Express strips that prefix from req.path
     // (req.path === "/design/process"). Use the FULL path for route matching, otherwise the
     // "/api/" checks below never match and auth is silently skipped on every route.
@@ -673,34 +688,35 @@ export async function createApp({ startListening = false } = {}) {
     if (!requiresAuth(fullPath)) {
         return next();
     }
-    const tokenHeader = req.headers['x-firebase-auth'];
-    if (!tokenHeader || !tokenHeader.startsWith('Bearer ')) {
-        if (!REQUIRE_AUTH) return next(); // demo/dev: enforcement disabled until A2 wires real auth
-        return res.status(401).json({ error: "Unauthorized: Missing or invalid x-firebase-auth token" });
+    // Accept the standard Authorization header; keep x-firebase-auth for back-compat.
+    const tokenHeader = req.headers['authorization'] || req.headers['x-firebase-auth'];
+    if (!tokenHeader || !String(tokenHeader).startsWith('Bearer ')) {
+        if (!REQUIRE_AUTH) return next(); // demo/dev: enforcement disabled
+        return res.status(401).json({ error: "Unauthorized: Missing or invalid bearer token" });
     }
     try {
-        const token = tokenHeader.split('Bearer ')[1];
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-          const fs = require("fs");
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-             config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
+        const token = String(tokenHeader).split('Bearer ')[1];
+        const sb = getSbAuthClient();
+        if (!sb) {
+          if (!REQUIRE_AUTH) return next();
+          return res.status(503).json({ error: "Auth not configured (SUPABASE_URL / SUPABASE_ANON_KEY)" });
         }
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        req.user = decodedToken;
+        const { data, error } = await sb.auth.getUser(token);
+        if (error || !data?.user) {
+          if (!REQUIRE_AUTH) return next();
+          return res.status(401).json({ error: "Unauthorized: Invalid token" });
+        }
+        // Normalize to the shape downstream handlers expect (uid for rate-limiting, etc.).
+        req.user = { uid: data.user.id, sub: data.user.id, email: data.user.email };
         next();
     } catch (e) {
-        console.error("Firebase auth middleware error:", e);
-        if (!REQUIRE_AUTH) return next(); // demo/dev: don't hard-fail on token verify until A2
+        console.error("Supabase auth middleware error:", e);
+        if (!REQUIRE_AUTH) return next(); // demo/dev: don't hard-fail on token verify
         return res.status(401).json({ error: "Unauthorized: Invalid token" });
     }
   };
 
-  app.use("/api/", verifyFirebaseToken);
+  app.use("/api/", verifySupabaseToken);
 
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,

@@ -1,6 +1,6 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
-import { auth } from "./firebase";
+import { getAccessToken } from "./supabase";
 
 export class ApiError extends Error {
   public status: number;
@@ -61,13 +61,15 @@ export class ApiClient {
       ...(customConfig.headers as Record<string, string>),
     };
     
-    if (auth.currentUser) {
-      try {
-        const token = await auth.currentUser.getIdToken();
+    try {
+      const token = await getAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        // Back-compat: some server routes still read the legacy header name.
         headers["x-firebase-auth"] = `Bearer ${token}`;
-      } catch (e) {
-        console.warn("Failed to get Firebase token", e);
       }
+    } catch (e) {
+      console.warn("Failed to get Supabase access token", e);
     }
 
     const config: RequestInit = {

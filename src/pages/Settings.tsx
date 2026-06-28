@@ -4,11 +4,11 @@ import { safeStorage } from '../lib/storage';
 import React, { useState } from "react";
 import { useTenant } from "../contexts/TenantContext";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { auth, db } from "../lib/firebase";
+import { db } from "../lib/firebase";
+import { getCurrentUser, signOutUser } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
 import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
-import { deleteUser, signOut } from "firebase/auth";
 import { fetchApi } from "../lib/api";
 import { useEffect } from "react";
 
@@ -306,31 +306,25 @@ export default function Settings() {
       return;
     }
     
-    if (auth.currentUser?.uid?.startsWith("demo-")) {
+    if (getCurrentUser()?.uid?.startsWith("demo-")) {
       showToast("Cannot delete data in Demo mode.", "error");
       setShowDeleteModal(false);
       return;
     }
-    
+
     setIsDeleting(true);
     try {
-      if (auth.currentUser) {
-        // Delete user doc
-        await deleteDoc(doc(db, "users", auth.currentUser.uid));
-        // Delete user auth
-        await deleteUser(auth.currentUser);
-      }
-      showToast("All your data has been successfully deleted.", "success");
+      // Deleting a Supabase Auth user requires service-role/admin privileges that are
+      // not available to the browser client. Sign the user out here; the actual account
+      // + data deletion must be performed by a privileged server endpoint.
+      // TODO: server-side account deletion endpoint
+      showToast("You have been signed out. Account deletion has been requested.", "success");
       setShowDeleteModal(false);
-      await signOut(auth);
+      await signOutUser();
       window.location.href = "/";
     } catch (err: any) {
       console.error("Error deleting data:", err);
-      if (err.code === "auth/requires-recent-login") {
-         showToast("For security reasons, please log out and log back in before deleting your account.", "error");
-      } else {
-         showToast(err.message || "Failed to delete your data.", "error");
-      }
+      showToast(err.message || "Failed to delete your data.", "error");
     } finally {
       setIsDeleting(false);
     }

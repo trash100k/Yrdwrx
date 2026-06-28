@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../lib/firebase";
+import { onAuthChange } from "../lib/supabase";
 import { getCurrentProfile, clearProfileCache } from "../lib/repos/profile";
 
 export type UserRole = "admin" | "employee" | "client" | "owner" | "foreman";
@@ -43,26 +42,22 @@ export function useRole() {
   useEffect(() => {
     let active = true;
 
-    const resolve = async () => {
-      setLoadingRole(true);
-      if (!auth.currentUser) {
+    const unsubscribe = onAuthChange(async (currentUser) => {
+      // Re-resolve identity whenever auth state changes.
+      clearProfileCache();
+      if (active) setLoadingRole(true);
+      if (!currentUser) {
         if (active) {
           setRole(null);
           setLoadingRole(false);
         }
         return;
       }
-      const profile = await getCurrentProfile();
+      const profile = await getCurrentProfile(true);
       if (active) {
         setRole((profile?.role as UserRole) ?? null);
         setLoadingRole(false);
       }
-    };
-
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      // Re-resolve identity whenever auth state changes.
-      clearProfileCache();
-      resolve();
     });
 
     return () => {

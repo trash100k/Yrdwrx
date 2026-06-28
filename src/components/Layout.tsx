@@ -163,7 +163,7 @@ const GrassSwordIcon = ({ className, size = 24 }: { className?: string; size?: n
 );
 
 import { syncService } from "../services/syncService";
-import { auth } from "../lib/firebase";
+import { getCurrentUser } from "../lib/supabase";
 import DisclaimerModal from "./DisclaimerModal";
 
 export default function Layout() {
@@ -228,7 +228,7 @@ export default function Layout() {
       if (/design-studio|field|live|route-optimizer/i.test(path)) return;
       try { if (window.sessionStorage.getItem("cutty-autoopened") === "1") return; } catch (e) {}
     }
-    const userKey = auth.currentUser?.email || "anonymous";
+    const userKey = getCurrentUser()?.email || "anonymous";
     const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
     const hasAcceptedDisclaimer =
       tenant?.legal?.aiDisclaimerAccepted === true ||
@@ -386,7 +386,7 @@ export default function Layout() {
       group: "BUSINESS",
       allowedRoles: ["owner", "admin"],
     },
-    ...(auth.currentUser?.email === "isaacsonzach13@gmail.com"
+    ...(getCurrentUser()?.email === "isaacsonzach13@gmail.com"
       ? [
           {
             id: "saas-admin",

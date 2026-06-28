@@ -19,7 +19,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
-import { auth } from "../lib/firebase";
+import { getCurrentUser } from "../lib/supabase";
 import { useTenant } from "../contexts/TenantContext";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -195,7 +195,7 @@ export default function BrainChat({
 
   useEffect(() => {
     if (isOpen && messages.length === 0) {
-      const userKey = auth.currentUser?.email || "anonymous";
+      const userKey = getCurrentUser()?.email || "anonymous";
       const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
       const hasAcceptedDisclaimer = tenant?.legal?.aiDisclaimerAccepted === true || tenant?.id.startsWith("demo-");
 
@@ -310,7 +310,7 @@ export default function BrainChat({
             }).catch(console.error);
          }
          
-         const userKey = auth.currentUser?.email || "anonymous";
+         const userKey = getCurrentUser()?.email || "anonymous";
          const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
          
          if (!hasSeen) {
@@ -368,7 +368,7 @@ export default function BrainChat({
         return;
       } else {
         setActiveWorkflow("idle");
-        const userKey = auth.currentUser?.email || "anonymous";
+        const userKey = getCurrentUser()?.email || "anonymous";
         safeStorage.setItem(`has-seen-walkthrough-${userKey}`, "true");
         setMessages((prev) => [
           ...prev,
@@ -405,7 +405,7 @@ export default function BrainChat({
       setActiveWorkflow("idle");
       window.dispatchEvent(new CustomEvent("configure-dashboard-widgets", { detail: { propertyType: propertyTypeStr, bottleneck: bottleneckStr, viewStyle: "easy" } }));
       
-      const userKey = auth.currentUser?.email || "anonymous";
+      const userKey = getCurrentUser()?.email || "anonymous";
       safeStorage.setItem(`has-seen-walkthrough-${userKey}`, "true");
 
       setMessages((prev) => [

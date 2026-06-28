@@ -4,7 +4,8 @@
 // local state in demo / offline, so the field flow never blocks.
 import React, { useEffect, useMemo, useState } from "react";
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, orderBy } from "firebase/firestore";
-import { db, auth } from "../lib/firebase";
+import { db } from "../lib/firebase";
+import { getCurrentUser } from "../lib/supabase";
 import { useTenant } from "../contexts/TenantContext";
 import { Clock, Play, Square } from "lucide-react";
 import { activeEntry, weekMinutes, formatDuration, minutesBetween } from "../lib/timesheets";
@@ -12,8 +13,8 @@ import { activeEntry, weekMinutes, formatDuration, minutesBetween } from "../lib
 export function TimeClock() {
   const { tenant } = useTenant();
   const tenantId = tenant?.id || "demo-tenant-1";
-  const userId = auth.currentUser?.uid || "demo-user";
-  const userName = auth.currentUser?.displayName || auth.currentUser?.email || "You";
+  const userId = getCurrentUser()?.uid || "demo-user";
+  const userName = getCurrentUser()?.displayName || getCurrentUser()?.email || "You";
 
   const [serverEntries, setServerEntries] = useState<any[]>([]);
   const [localEntries, setLocalEntries] = useState<any[]>([]);

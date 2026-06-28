@@ -1,14 +1,17 @@
 import React from "react";
 import { User, Settings, LogOut, Moon, Activity, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { auth } from "../lib/firebase";
-import { signOut } from "firebase/auth";
+import { getCurrentUser, signOutUser } from "../lib/supabase";
 
 export const UserProfileMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
 
+  const currentUser = getCurrentUser();
+  const displayName = currentUser?.displayName || "Supervisor";
+  const displayEmail = currentUser?.email || "supervisor@yardworx.com";
+
   const handleSignOut = async () => {
     onClose();
-    await signOut(auth);
+    await signOutUser();
   };
 
   return (
@@ -25,8 +28,8 @@ export const UserProfileMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
           >
             <div className="p-5 border-b border-white/5 bg-black/50">
               <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Signed in as</p>
-              <p className="font-bold text-white text-sm">Supervisor</p>
-              <p className="text-xs text-zinc-400 mt-1">supervisor@yardworx.com</p>
+              <p className="font-bold text-white text-sm">{displayName}</p>
+              <p className="text-xs text-zinc-400 mt-1">{displayEmail}</p>
             </div>
             
             <div className="p-2 space-y-1">

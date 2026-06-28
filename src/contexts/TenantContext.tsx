@@ -2,10 +2,8 @@
 import { safeStorage } from '../lib/storage';
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { auth, db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { doc, onSnapshot, getDoc, setDoc } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
-import { fetchApi } from "../lib/api";
+import { supabase, onAuthChange } from "../lib/supabase";
+import { getCurrentProfile, clearProfileCache } from "../lib/repos/profile";
 
 const REQUIRE_AUTH = import.meta.env.VITE_REQUIRE_AUTH === "true";
 
@@ -64,7 +62,64 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-useEffect(() => {
+  // Resolve the caller's tenant directly from Supabase (RLS-scoped) via their profile.
+  // The signup trigger guarantees a profile + tenant row exist for every user.
+  const loadTenant = async () => {
+    const profile = await getCurrentProfile(true);
+    if (!profile?.tenant_id) {
+      setTenant(null);
+      setUserRole(null);
+      return;
+    }
+    const { data: t, error: tErr } = await supabase
+      .from("tenants")
+      .select("*")
+      .eq("id", profile.tenant_id)
+      .maybeSingle();
+    if (tErr || !t) {
+      setError("Failed to load workspace.");
+      setTenant(null);
+      setUserRole(null);
+      return;
+    }
+    // Merge DB settings over sane defaults so the UI never hits an undefined feature flag.
+    const defaults = {
+      hoaProtocolEnabled: false,
+      satelliteVisionEnabled: false,
+      currency: "USD",
+      neighborhoodMask: [],
+      features: {
+        crewTracking: true,
+        inventoryManagement: true,
+        designStudio: true,
+        contracts: true,
+        routeOptimization: true,
+        crm: true,
+        scheduler: true,
+        reports: true,
+        invoices: true,
+        compliance: true,
+        cockpit_buttons: true,
+      },
+    };
+    const s = (t.settings as any) || {};
+    setTenant({
+      id: t.id,
+      name: t.name,
+      tier: t.tier || "free",
+      stripeAccountId: t.stripe_account_id || undefined,
+      legal: t.legal || { aiDisclaimerAccepted: false },
+      quotas: t.quotas || { aiRequestsMonthly: 0, aiRequestLimit: 0 },
+      settings: {
+        ...defaults,
+        ...s,
+        features: { ...defaults.features, ...(s.features || {}) },
+      },
+    } as any);
+    setUserRole((profile.role as any) ?? null);
+  };
+
+  useEffect(() => {
     // DEMO / INTERNAL TESTING BYPASS — keep the hardcoded enterprise tenant verbatim so
     // the demo path is byte-for-byte identical to today when the flag is off.
     if (!REQUIRE_AUTH) {
@@ -96,14 +151,15 @@ useEffect(() => {
       return;
     }
 
-    // REAL AUTH — resolve the caller's tenant from the server on every auth change.
+    // REAL AUTH — resolve the caller's tenant directly from Supabase on every auth change.
     let active = true;
 
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthChange(async (currentUser) => {
       if (!active) return;
       setError(null);
 
       if (!currentUser) {
+        clearProfileCache();
         setTenant(null);
         setUserRole(null);
         setLoading(false);
@@ -112,22 +168,8 @@ useEffect(() => {
 
       setLoading(true);
       try {
-        const res = await fetchApi("/api/tenants/me");
-        if (!active) return;
-
-        if (res.status === 404) {
-          // No tenant yet — the user still needs to onboard/provision.
-          setTenant(null);
-          setUserRole(null);
-        } else if (res.ok) {
-          const result = await res.json();
-          setTenant(result as any);
-          setUserRole(result.role ?? null);
-        } else {
-          setError("Failed to load workspace.");
-          setTenant(null);
-          setUserRole(null);
-        }
+        clearProfileCache();
+        await loadTenant();
       } catch (e) {
         if (active) {
           setError("Failed to load workspace.");
@@ -145,23 +187,18 @@ useEffect(() => {
     };
   }, []);
 
-  const switchTenant = async (id: string) => {
+  // Single-tenant membership today (one profile -> one tenant), so this just
+  // re-resolves the caller's current workspace.
+  const switchTenant = async (_id: string) => {
     if (!REQUIRE_AUTH) {
       setLoading(true);
       return;
     }
-    if (!auth.currentUser) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchApi(`/api/tenants/me?tenantId=${encodeURIComponent(id)}`);
-      if (res.ok) {
-        const result = await res.json();
-        setTenant(result as any);
-        setUserRole(result.role ?? null);
-      } else {
-        setError("Failed to switch workspace.");
-      }
+      clearProfileCache();
+      await loadTenant();
     } catch (e) {
       setError("Failed to switch workspace.");
     } finally {

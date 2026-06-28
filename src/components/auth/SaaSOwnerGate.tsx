@@ -1,8 +1,7 @@
 // @ts-nocheck
 import React, { useEffect, useState } from 'react';
 import { ShieldAlert, Loader2 } from 'lucide-react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { onAuthChange } from '../../lib/supabase';
 import { getCurrentProfile, clearProfileCache } from '../../lib/repos/profile';
 
 const REQUIRE_AUTH = import.meta.env.VITE_REQUIRE_AUTH === 'true';
@@ -22,9 +21,9 @@ export function SaaSOwnerGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    const resolve = async () => {
+    const resolve = async (user) => {
       setStatus('loading');
-      if (!auth.currentUser) {
+      if (!user) {
         if (active) {
           setEmail(null);
           setStatus('denied');
@@ -33,14 +32,14 @@ export function SaaSOwnerGate({ children }: { children: React.ReactNode }) {
       }
       const profile = await getCurrentProfile();
       if (active) {
-        setEmail(auth.currentUser?.email ?? null);
+        setEmail(user?.email ?? null);
         setStatus(profile?.is_platform_admin ? 'allowed' : 'denied');
       }
     };
 
-    const unsubscribe = onAuthStateChanged(auth, () => {
+    const unsubscribe = onAuthChange((user) => {
       clearProfileCache();
-      resolve();
+      resolve(user);
     });
 
     return () => {
