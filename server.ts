@@ -2274,7 +2274,11 @@ async function startServer() {
 
       // Ensure that employees and foreman are strictly constrained to safe botanical rules and local whitelists.
       // This acts as the air gap, preventing prompt injection or wild unfeasible suggestions.
-      const isRestrictedRole = role === "employee" || role === "foreman";
+      // Prefer the verified token's role over the client-supplied body role for the
+      // financial air-gap (employees/foremen must not receive costs). Falls back to the
+      // body role only when no verified user (e.g. demo mode with REQUIRE_AUTH off).
+      const effectiveRole = (req.user && (req.user.role || req.user.app_role)) || role;
+      const isRestrictedRole = effectiveRole === "employee" || effectiveRole === "foreman";
       
       let catalogText = `
             * Mulch: Double-Shredded Hardwood, Pine Bark, Black Dyed Mulch
@@ -3415,6 +3419,27 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 
   wss.on("connection", async (clientWs) => {
     console.log("Live Ear Client Connected");
+
+    // Mock mode (no GEMINI_API_KEY): the Live API isn't available, so stream a short
+    // simulated transcript + a sample tool action and keep the socket open — the Live
+    // Ear UI stays demoable in dev instead of the connection immediately closing.
+    if (isMockMode) {
+      const demo: any[] = [
+        { transcription: "Live Ear (demo mode) is listening…" },
+        { transcription: 'Heard: "Let\'s redo the front bed with some hydrangeas."' },
+        { action: { functionCalls: [{ id: "demo1", name: "load_client_data", args: { clientName: "current customer" } }] } },
+        { transcription: "Pulling up the customer and drafting a design vision…" },
+        { action: { functionCalls: [{ id: "demo2", name: "build_design_vision", args: { service: "Planting bed install" } }] } },
+      ];
+      let i = 0;
+      const timer = setInterval(() => {
+        if (clientWs.readyState !== 1 || i >= demo.length) { clearInterval(timer); return; }
+        clientWs.send(JSON.stringify(demo[i++]));
+      }, 1500);
+      clientWs.on("message", () => { /* ignore client audio/video in mock mode */ });
+      clientWs.on("close", () => clearInterval(timer));
+      return;
+    }
 
     try {
       const session = await ai.live.connect({

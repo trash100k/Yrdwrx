@@ -33,6 +33,15 @@ export default function LiveEar() {
   const [lastAction, setLastAction] = useState<Record<string, any> | null>(
     null,
   );
+  // Running log of detected actions (most recent first) for the customer-facing panel
+  const [actionLog, setActionLog] = useState<
+    { id: number; name: string; args: Record<string, any>; at: number }[]
+  >([]);
+  // "idle" | "connecting" | "listening" | "error" | "closed"
+  const [status, setStatus] = useState<
+    "idle" | "connecting" | "listening" | "error" | "closed"
+  >("idle");
+  const [statusMessage, setStatusMessage] = useState<string>("");
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
@@ -46,13 +55,25 @@ export default function LiveEar() {
 
   const stopLiveEar = () => {
     setIsActive(false);
-    wsRef.current?.close();
-    processorRef.current?.disconnect();
-    audioCtxRef.current?.close();
+    setIsConnecting(false);
+    setStatus((prev) => (prev === "error" || prev === "closed" ? prev : "idle"));
+    try {
+      wsRef.current?.close();
+    } catch {}
+    try {
+      processorRef.current?.disconnect();
+    } catch {}
+    try {
+      if (audioCtxRef.current && audioCtxRef.current.state !== "closed")
+        audioCtxRef.current.close();
+    } catch {}
   };
 
   const startLiveEar = async () => {
     setIsConnecting(true);
+    setStatus("connecting");
+    setStatusMessage("");
+    setTranscription("");
     try {
       const audioCtx = new AudioContext({ sampleRate: 16000 });
       audioCtxRef.current = audioCtx;
@@ -127,19 +148,38 @@ let stream;
       ws.onopen = () => {
         setIsConnecting(false);
         setIsActive(true);
+        setStatus("listening");
+        setStatusMessage("");
         source.connect(processor);
         processor.connect(audioCtx.destination);
       };
 
       ws.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
+        // Guard against malformed payloads — the server may be in mock mode.
+        let data: any;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          console.warn("LiveEar: ignoring non-JSON message", e);
+          return;
+        }
+        if (!data || typeof data !== "object") return;
 
-        if (data.audio) {
-          playAudioChunk(data.audio);
+        if (typeof data.audio === "string" && data.audio) {
+          try {
+            playAudioChunk(data.audio);
+          } catch (e) {
+            console.warn("LiveEar: failed to play audio chunk", e);
+          }
         }
 
-        if (data.transcription) {
+        if (typeof data.transcription === "string") {
           setTranscription(data.transcription);
+        }
+
+        if (data.interrupted) {
+          // Model was interrupted — flush any queued playback timeline.
+          nextStartTimeRef.current = audioCtxRef.current?.currentTime ?? 0;
         }
 
         if (data.action) {
@@ -149,15 +189,27 @@ let stream;
 
       ws.onerror = (err) => {
         console.error("WS Error:", err);
+        clearInterval(videoInterval);
+        setStatus("error");
+        setStatusMessage("Live Ear unavailable. Couldn't reach the assistant.");
         stopLiveEar();
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         clearInterval(videoInterval);
+        // A normal close after an active session just returns to idle; an
+        // unexpected close (e.g. server in mock mode dropping us) surfaces a
+        // gentle "unavailable" notice rather than failing silently.
+        if (!ev || ev.wasClean === false) {
+          setStatus("closed");
+          setStatusMessage("Live Ear disconnected. Tap the mic to reconnect.");
+        }
         stopLiveEar();
       };
     } catch (err: any) {
       console.error("Mic Access Error:", err);
+      setStatus("error");
+      setStatusMessage(err?.message || "Permission denied or mic unavailable.");
       showToast("Mic Access Error", err.message || "Permission denied or mic unavailable.", "error");
       setIsConnecting(false);
     }
@@ -189,12 +241,24 @@ let stream;
   const handleDetectedAction = (toolCall: Record<string, any>) => {
     if (
       !toolCall ||
-      !toolCall.functionCalls ||
+      !Array.isArray(toolCall.functionCalls) ||
       toolCall.functionCalls.length === 0
     )
       return;
     const call = toolCall.functionCalls[0];
+    if (!call || typeof call.name !== "string") return;
     setLastAction(call);
+    setActionLog((prev) =>
+      [
+        {
+          id: Date.now() + Math.random(),
+          name: call.name,
+          args: call.args || {},
+          at: Date.now(),
+        },
+        ...prev,
+      ].slice(0, 6),
+    );
 
     // YardWorx Guidance Logic
     if (call.name === "schedule_job") {
@@ -244,14 +308,93 @@ let stream;
     }, 5000);
   };
 
+  // Friendly, customer-readable label for a detected action.
+  const ACTION_LABELS: Record<string, string> = {
+    schedule_job: "Schedule job",
+    create_invoice: "Create invoice",
+    load_client_data: "Open client",
+    create_lead: "Add new lead",
+    add_client_note: "Add client note",
+    check_inventory: "Check inventory",
+    load_employee_data: "Find crew member",
+    enter_field_mode: "Enter field mode",
+    log_expense: "Log expense",
+    log_inventory_usage: "Log inventory usage",
+  };
+
+  const prettyActionName = (name: string) =>
+    ACTION_LABELS[name] ||
+    name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  // Pull out the human-meaningful args for at-a-glance reading.
+  const summarizeArgs = (args: Record<string, any>): string => {
+    if (!args || typeof args !== "object") return "";
+    const priority = [
+      "clientName",
+      "firstName",
+      "lastName",
+      "employeeName",
+      "itemName",
+      "amount",
+      "quantity",
+      "date",
+      "service",
+    ];
+    const parts: string[] = [];
+    for (const key of priority) {
+      const v = args[key];
+      if (v === undefined || v === null || v === "") continue;
+      parts.push(key === "amount" ? `$${v}` : String(v));
+      if (parts.length >= 2) break;
+    }
+    if (parts.length === 0) {
+      // Fall back to the first scalar value present.
+      for (const v of Object.values(args)) {
+        if (v !== undefined && v !== null && typeof v !== "object") {
+          parts.push(String(v));
+          break;
+        }
+      }
+    }
+    return parts.join(" · ");
+  };
+
+  const statusLabel =
+    status === "listening"
+      ? "Listening"
+      : status === "connecting"
+        ? "Connecting"
+        : status === "error"
+          ? "Unavailable"
+          : status === "closed"
+            ? "Disconnected"
+            : "Ready to help";
+
+  const statusDotClass =
+    status === "listening"
+      ? "bg-forest-400"
+      : status === "connecting"
+        ? "bg-amber-400"
+        : status === "error" || status === "closed"
+          ? "bg-red-400"
+          : "bg-zinc-500";
+
+  const showPanel =
+    isActive || isConnecting || status === "error" || status === "closed";
+
   return (
-    <div className="flex items-center gap-4 bg-zinc-900 border border-white/5 molten-edge p-2 rounded-3xl shadow-xl">
+    <div className="relative flex items-center gap-4 bg-zinc-900 border border-white/5 molten-edge p-2 rounded-3xl shadow-xl">
       <div className="pl-4 pr-3 hidden sm:block">
         <p className="text-[12px] font-bold uppercase text-zinc-300 tracking-wider leading-none mb-1.5">
           Voice Assistant
         </p>
-        <p className="text-[15px] font-bold text-white leading-none">
-          {isActive ? "Listening..." : "Ready to help"}
+        <p className="text-[15px] font-bold text-white leading-none flex items-center gap-2">
+          <span
+            className={`w-2 h-2 rounded-full ${statusDotClass} ${
+              status === "listening" ? "animate-pulse" : ""
+            }`}
+          />
+          {statusLabel}
         </p>
       </div>
       <button
@@ -280,43 +423,137 @@ let stream;
         )}
       </button>
 
-      {isActive && transcription && (
-        <motion.div
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="max-w-[200px] break-words pr-4"
-        >
-          <p className="text-xs md:text-[10px] font-black uppercase text-forest-400 tracking-widest leading-none mb-1">
-            Incoming Audio
-          </p>
-          <p className="text-xs md:text-[11px] font-black italic text-white/60 truncate leading-none lowercase tracking-normal md:tracking-tighter">
-            {transcription}
-          </p>
-        </motion.div>
-      )}
-
-      {/* Action Popover - Minimal */}
+      {/* Customer-facing live panel — vision transcript + detected actions */}
       <AnimatePresence>
-        {lastAction && (
+        {showPanel && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute top-full mt-4 right-0 bg-black/90 border border-forest-500/30 p-4 rounded-[24px] shadow-2xl min-w-[240px] backdrop-blur-3xl z-50 pointer-events-auto"
+            exit={{ opacity: 0, y: 12, scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 320, damping: 28 }}
+            className="absolute top-full right-0 mt-4 w-[340px] max-w-[88vw] bg-zinc-950/95 border border-forest-500/25 rounded-[24px] shadow-2xl backdrop-blur-3xl z-50 pointer-events-auto overflow-hidden"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-forest-500 rounded-xl flex items-center justify-center text-black">
-                <Target size={16} />
+            {/* Header / connection state */}
+            <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-3 border-b border-white/5">
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${statusDotClass} ${
+                    status === "listening" ? "animate-pulse" : ""
+                  }`}
+                />
+                <div>
+                  <p className="text-[9px] font-black uppercase text-forest-400 tracking-[0.2em] leading-none">
+                    Live Ear
+                  </p>
+                  <p className="text-[13px] font-bold text-white leading-tight mt-1">
+                    {statusLabel}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-[8px] font-black uppercase text-forest-400 tracking-[0.2em]">
-                  Performing Action
-                </p>
-                <p className="text-xs font-black italic text-white lowercase">
-                  {lastAction.name.replace(/_/g, " ")}
-                </p>
-              </div>
+              <button
+                onClick={stopLiveEar}
+                aria-label="Close Live Ear"
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                <X size={15} />
+              </button>
             </div>
+
+            {/* Error / closed state */}
+            {(status === "error" || status === "closed") && (
+              <div className="px-5 py-5 flex items-start gap-3">
+                <AlertCircle
+                  size={18}
+                  className="text-red-400 shrink-0 mt-0.5"
+                />
+                <div>
+                  <p className="text-[9px] font-black uppercase text-red-400 tracking-[0.2em] mb-1">
+                    Live Ear Unavailable
+                  </p>
+                  <p className="text-[13px] text-zinc-300 leading-snug">
+                    {statusMessage ||
+                      "The voice assistant couldn't connect. Tap the mic to try again."}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Connecting state */}
+            {status === "connecting" && (
+              <div className="px-5 py-5 flex items-center gap-3">
+                <Radio size={18} className="text-amber-400 animate-pulse" />
+                <p className="text-[13px] text-zinc-300">
+                  Connecting to the assistant…
+                </p>
+              </div>
+            )}
+
+            {/* Live transcription */}
+            {(status === "listening" || status === "connecting") && (
+              <div className="px-5 py-4">
+                <p className="text-[9px] font-black uppercase text-forest-400 tracking-[0.2em] mb-2 flex items-center gap-1.5">
+                  <Mic size={11} /> Live Transcript
+                </p>
+                <p className="text-[14px] text-white/90 leading-relaxed min-h-[1.5rem]">
+                  {transcription || (
+                    <span className="text-zinc-500 italic">
+                      Listening… speak naturally.
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {/* Detected actions */}
+            {actionLog.length > 0 && (
+              <div className="px-5 pb-4 pt-1 border-t border-white/5">
+                <p className="text-[9px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-2.5 flex items-center gap-1.5">
+                  <Sparkles size={11} className="text-forest-400" /> Detected
+                  Actions
+                </p>
+                <div className="flex flex-col gap-2">
+                  <AnimatePresence initial={false}>
+                    {actionLog.map((a, i) => {
+                      const summary = summarizeArgs(a.args);
+                      const isLatest = i === 0 && lastAction?.name === a.name;
+                      return (
+                        <motion.div
+                          key={a.id}
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0 }}
+                          className={`flex items-center gap-3 rounded-xl px-3 py-2 border ${
+                            isLatest
+                              ? "bg-forest-500/10 border-forest-500/40"
+                              : "bg-white/[0.02] border-white/5"
+                          }`}
+                        >
+                          <div
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                              isLatest
+                                ? "bg-forest-500 text-black"
+                                : "bg-white/5 text-forest-400"
+                            }`}
+                          >
+                            <Target size={14} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-bold text-white leading-tight truncate">
+                              {prettyActionName(a.name)}
+                            </p>
+                            {summary && (
+                              <p className="text-[11px] text-zinc-400 leading-tight truncate mt-0.5">
+                                {summary}
+                              </p>
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

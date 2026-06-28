@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import MarkupCanvas from "../components/MarkupCanvas";
 import BeforeAfterSlider from "../components/BeforeAfterSlider";
+import { designVisionsRepo } from "../lib/repos";
 import { db, auth } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
@@ -222,7 +223,9 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           settings: {
             ...tenant?.settings?.subFeatures,
             customInstallRules: tenant?.settings?.customInstallRules,
-            designCatalog: catalogItems
+            designCatalog: catalogItems,
+            serviceCatalog: tenant?.settings?.serviceCatalog,
+            inventory: catalogItems,
           },
         }),
       });
@@ -258,7 +261,9 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           settings: {
             ...tenant?.settings?.subFeatures,
             customInstallRules: tenant?.settings?.customInstallRules,
-            designCatalog: catalogItems
+            designCatalog: catalogItems,
+            serviceCatalog: tenant?.settings?.serviceCatalog,
+            inventory: catalogItems,
           },
         }),
       });
@@ -273,6 +278,52 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
       console.error("Design Tiers Error:", error);
     } finally {
       setIsGeneratingTiers(false);
+    }
+  };
+
+  const canSeeCosts = role !== "employee" && role !== "foreman";
+
+  // Running estimated total. When tiers exist and an explicit tier is selected,
+  // prefer the tier's totalCost; otherwise sum the active material list.
+  const activeMaterials =
+    result?.tiers && activeTier !== "standard"
+      ? result.tiers[activeTier]?.estimatedMaterials || []
+      : result?.estimatedMaterials || [];
+
+  const materialsTotal = activeMaterials.reduce(
+    (sum: number, m: any) => sum + (Number(m?.estimatedCost) || 0),
+    0,
+  );
+
+  const tierTotal =
+    result?.tiers && activeTier !== "standard"
+      ? Number(result.tiers[activeTier]?.totalCost) || 0
+      : 0;
+
+  const estimatedTotal = tierTotal || materialsTotal;
+
+  const formatCurrency = (n: number) =>
+    `$${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+  const [isSavingVision, setIsSavingVision] = useState(false);
+
+  const handleSaveToQuote = async () => {
+    if (!result) return;
+    setIsSavingVision(true);
+    try {
+      await designVisionsRepo.create({
+        customer_id: activeCustomer?.id ?? null,
+        summary: result.visionSummary,
+        proposal: result,
+        before_url: image,
+        after_url: mockupImage,
+      });
+      showToast("Design vision saved to quote.", "success");
+    } catch (err) {
+      console.error("Save vision error:", err);
+      showToast("Could not save vision. Check connection.", "error");
+    } finally {
+      setIsSavingVision(false);
     }
   };
 
@@ -597,7 +648,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                           <CloudLightning size={14} /> Design Vision
                         </p>
                         <p className="text-xs font-bold italic text-white leading-relaxed tracking-normal p-4 bg-white/5 rounded-xl border border-white/5 uppercase">
-                          {result.visionSummary}
+                          {result.visionSummary || "No vision summary generated."}
                         </p>
 
                         {result.botanicalViolations && result.botanicalViolations.length > 0 && !overriddenViolations && (
@@ -733,7 +784,12 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                             )}
 
                             <div className="space-y-2.5">
-                              {((result.tiers && activeTier !== "standard" ? result.tiers[activeTier]?.estimatedMaterials : result.estimatedMaterials) || []).map((material: any, idx: number) => (
+                              {activeMaterials.length === 0 && (
+                                <p className="text-[10px] text-white/30 uppercase tracking-widest font-black p-3.5 bg-white/5 rounded-xl">
+                                  No materials estimated yet.
+                                </p>
+                              )}
+                              {activeMaterials.map((material: any, idx: number) => (
                                 <div
                                   key={idx}
                                   className="flex items-center justify-between p-3.5 bg-white/5 border-l-2 border-forest-500/40 rounded-xl"
@@ -751,16 +807,16 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                       </p>
                                     )}
                                   </div>
-                                  {role !== "employee" && role !== "foreman" && (
+                                  {canSeeCosts && (
                                     <span className="text-sm font-black italic text-white font-mono">
-                                      ${material.estimatedCost}
+                                      {formatCurrency(material.estimatedCost)}
                                     </span>
                                   )}
                                 </div>
                               ))}
                             </div>
 
-                            {!result.tiers && role !== "employee" && role !== "foreman" && (
+                            {!result.tiers && canSeeCosts && (
                               <div className="mt-4 flex justify-end">
                                 <button 
                                   onClick={generateTiers}
@@ -781,28 +837,54 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                               </div>
                             )}
 
-                            {result.tiers && activeTier !== "standard" && result.tiers[activeTier].description && (
+                            {result.tiers && activeTier !== "standard" && result.tiers[activeTier]?.description && (
                               <div className="mt-4 p-4 bg-white/5 border border-white/5 rounded-2xl text-[11px] text-white/70 italic leading-relaxed">
                                 {result.tiers[activeTier].description}
                               </div>
                             )}
                           </div>
 
+                          {canSeeCosts && estimatedTotal > 0 && (
+                            <div className="mt-2 p-5 bg-gradient-to-br from-forest-500/15 to-forest-500/5 border-2 border-forest-500/30 rounded-2xl flex items-center justify-between shadow-[0_0_30px_rgba(5,168,69,0.12)]">
+                              <div>
+                                <p className="micro-label text-forest-400 uppercase tracking-widest font-black mb-1">
+                                  Estimated Total
+                                </p>
+                                <p className="text-[9px] text-white/40 uppercase tracking-widest font-black">
+                                  {result.tiers && activeTier !== "standard"
+                                    ? `${activeTier} package`
+                                    : `${activeMaterials.length} materials`}
+                                </p>
+                              </div>
+                              <span className="text-3xl font-black italic text-white font-mono leading-none">
+                                {formatCurrency(estimatedTotal)}
+                              </span>
+                            </div>
+                          )}
+
                           <div className="pt-6 border-t border-white/5">
                             <p className="micro-label text-forest-400 uppercase tracking-widest font-black mb-2 flex items-center justify-between">
                               <span>ROI Valuation</span>
-                              {result.tiers && activeTier !== "standard" && result.tiers[activeTier].totalCost && role !== "employee" && role !== "foreman" && (
-                                <span className="text-amber-400 font-mono">Total Est: ${result.tiers[activeTier].totalCost}</span>
+                              {canSeeCosts && tierTotal > 0 && (
+                                <span className="text-amber-400 font-mono">Total Est: {formatCurrency(tierTotal)}</span>
                               )}
                             </p>
                             <p className="text-xs font-black italic text-white uppercase tracking-normal md:tracking-tighter leading-snug">
-                              {result.strategicValue}
+                              {result.strategicValue || "Valuation pending material analysis."}
                             </p>
                           </div>
 
                           <div className="flex flex-col gap-3.5 pt-4">
-                            <button className="w-full bg-white text-black py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-xl hover:scale-[1.02] active:scale-95 duration-150 transition-all">
-                              Save to Quote
+                            <button
+                              onClick={handleSaveToQuote}
+                              disabled={isSavingVision}
+                              className="w-full bg-white text-black py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-xl hover:scale-[1.02] active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                            >
+                              {isSavingVision ? (
+                                <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> Saving Vision...</>
+                              ) : (
+                                <><Save size={14} /> Save to Quote</>
+                              )}
                             </button>
                             <button 
                               onClick={handleSaveToDrive}
