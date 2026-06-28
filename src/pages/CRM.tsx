@@ -73,6 +73,7 @@ import { CRMJobs } from "../components/CRMJobs";
 import { CRMCustomFields } from "../components/CRMCustomFields";
 import { CustomerPortalCard } from "../components/CustomerPortalCard";
 import { useToast } from "../contexts/ToastContext";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Customer, Insight } from "../types";
 import { LeadVerificationPanel } from "../components/LeadVerificationPanel";
@@ -129,6 +130,7 @@ const generatePropertyGrowthData = (baseValue = 450000) => {
 export default function CRM() {
   const { tenant, userRole } = useTenant();
   const { showToast } = useToast();
+  const { addLog } = useWorkspaceOutbox();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [knowledge, setKnowledge] = useState<Record<string, any>[]>([]);
   const [searchTerm, setSearchTerm] = useState("");

@@ -49,6 +49,7 @@ import { SubscriptionGuard } from "../components/SubscriptionGuard";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { HandsFreeDictator } from "../components/HandsFreeDictator";
 import { ResourceAssignmentModal } from "../components/ResourceAssignmentModal";
 import { ResourceTimeline } from "../components/ResourceTimeline";
@@ -57,6 +58,7 @@ import { TimeClock } from "../components/TimeClock";
 export default function CrewSuite() {
   const { tenant } = useTenant();
   const { showToast } = useToast();
+  const { addLog } = useWorkspaceOutbox();
   const [crews, setCrews] = useState<
     {
       id: string;

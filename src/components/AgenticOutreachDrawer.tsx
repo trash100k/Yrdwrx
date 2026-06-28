@@ -7,6 +7,7 @@ import {
   Mail,
   Sparkles,
   CheckCircle2,
+  Camera,
   Image,
   FileText,
   Check,

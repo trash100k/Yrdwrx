@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { compressImage } from "../lib/imageUtils";
+import { fetchApi } from "../lib/api";
 
 import React, { useEffect, useState } from "react";
 import {
@@ -127,7 +128,7 @@ export default function FieldModeInterface() {
     setIsFinishing(true);
     try {
       await updateDoc(doc(db, "jobs", activeJob.id), {
-        status: "completed",
+        status: "COMPLETED",
         completedAt: new Date().toISOString(),
         arrivalPhotoUrl: arrivalPhoto,
         departurePhotoUrl: departurePhoto,
@@ -160,7 +161,7 @@ export default function FieldModeInterface() {
     const q = query(
       collection(db, "jobs"),
       where("tenantId", "==", tenantId),
-      where("status", "in", ["scheduled", "in-progress"]),
+      where("status", "in", ["SCHEDULED", "IN_PROGRESS"]),
       orderBy("date", "asc"),
       limit(1),
     );

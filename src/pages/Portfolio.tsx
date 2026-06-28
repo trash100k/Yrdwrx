@@ -18,7 +18,7 @@ export default function Portfolio() {
     const q = query(
       collection(db, "jobs"),
       where("tenantId", "==", tenantId),
-      where("status", "==", "completed")
+      where("status", "==", "COMPLETED")
     );
 
     const unsub = onSnapshot(
