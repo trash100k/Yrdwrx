@@ -13,10 +13,16 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-27 — re-prioritized from the deep US market study (`MARKET_RESEARCH.md`):
-> QuickBooks/payments/recurring billing are now launch table-stakes (A7); AI repositioned as on-site
-> closing; added the Gemini-native build-leverage map + the beachhead. Prior: full ship-ready
-> checklist from four investigations incl. a live pentest._
+> _Last updated: 2026-06-28 — reconciled to the work landing this session: server hardening
+> (playground gated, threats admin-only, fail-fast `JWT_SECRET`, IPv6 limiter, tenant-scoped caches,
+> env-driven CSP), auth restoration behind `VITE_REQUIRE_AUTH`/`REQUIRE_AUTH` + the tenant
+> provisioning endpoint, real billing (tenant-safe Stripe + `application_fee` + ACH + subscribe) and
+> tier/credit-wallet metering, design/tiers catalog grounding + AI mock-mode 503 fallbacks, money-path
+> UI fixes, tests + CI, frontend cleanup, README rewrite, and the missing Supabase migration (`0006`).
+> Remaining: the full Firestore→Supabase page cutover and the human-only go-live blockers (§ A2 / README).
+> Prior (2026-06-27): re-prioritized from the deep US market study (`MARKET_RESEARCH.md`) —
+> QuickBooks/payments/recurring billing as launch table-stakes (A7); AI repositioned as on-site closing;
+> added the Gemini-native build-leverage map + the beachhead._
 
 ## How to use this file
 
@@ -32,10 +38,12 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > Workspace consent) + **Cloud Run** (+ **Vertex AI Gemini via ADC**); move only **DATA → Supabase
 > Postgres + RLS**, bridged by **Supabase Third-Party Auth (Firebase)** so RLS keys on the Firebase
 > UID (`auth.jwt()->>'sub'`). **Live now:** the full Postgres schema + RLS is applied to project
-> `bzpxudpmksnawmaanxal` (org GaelWorx) — 23 tables, tenant-scoped policies in a hardened `private`
+> `bzpxudpmksnawmaanxal` (org GaelWorx) — tenant-scoped policies in a hardened `private`
 > helper schema, **cross-tenant isolation verified live**, **0 security advisories**. Migrations:
-> `supabase/migrations/0001`–`0004`. Next: enable Supabase Third-Party Auth → Firebase in the
-> dashboard, then cut pages off Firestore via `src/lib/repos/*`.
+> `supabase/migrations/0001`–`0006` (`0006` adds the supporting tables the app needed:
+> `material_logs`/`messages`/`audit_logs`/`system_logs`/`telemetry`, same RLS pattern). Next: enable
+> Supabase Third-Party Auth → Firebase in the dashboard, then cut pages off Firestore via
+> `src/lib/repos/*` (still runs on Firestore in the demo today).
 
 ---
 
@@ -43,16 +51,16 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 
 | Area | Status | ~Ready | Headline gap |
 |------|:------:|:------:|--------------|
-| Build / deploy | 🟢 | ~85% | ✅ server bundles to `dist/server.cjs`; **boots + serves SPA + API** (verified). Remaining: Docker-image smoke test, IPv6 rate-limiter, Vertex/ADC |
-| Auth | 🟠 | ~40% | ✅ mount-path **bypass fixed + enforced behind `REQUIRE_AUTH`** (verified 401s). Remaining: restore real `onAuthStateChanged`, flip the flag on |
-| Multi-tenancy | 🟠 | ~55% | **Supabase Postgres + RLS is LIVE** (project `bzpxudpmksnawmaanxal`, Firebase-UID keyed, cross-tenant isolation verified, 0 security advisories). Remaining: wire Third-Party Auth in dashboard + cut pages over from Firestore; client still hardcodes `demo-tenant-1` until then |
-| Billing | 🟠 | ~40% | Stripe Connect + checkout wired; no tier/quota enforcement; webhook not tenant-safe |
-| Design Studio | 🔴 | ~30% | Crashes in mock mode; mockup 500s; pricing AI-invented, not catalog-grounded |
-| Live Ear (flagship) | 🟢 | ~60% | Streaming works; Live tools are stubs; no vision builder yet |
-| Security / firewalls | 🟠 | ~60% | Helmet + limiters + SSRF guard present, but 6 open `/api/playground/*`, open threat log, `frameAncestors:['*']` |
+| Build / deploy | 🟢 | ~85% | ✅ server bundles to `dist/server.cjs`; **boots + serves SPA + API** (verified); IPv6 rate-limiter fixed; cache path env-driven (`GEMINI_CACHE_FILE`). Remaining: Docker-image smoke test, Vertex/ADC |
+| Auth | 🟠 | ~55% | ✅ mount-path **bypass fixed + enforced behind `REQUIRE_AUTH`**; ✅ client gate behind **`VITE_REQUIRE_AUTH`** + tenant **provisioning endpoint** added. Remaining: finish the real `onAuthStateChanged`/`useRole`/`TenantContext` wiring & flip both flags on with the human go-live steps |
+| Multi-tenancy | 🟠 | ~55% | **Supabase Postgres + RLS is LIVE** (project `bzpxudpmksnawmaanxal`, Firebase-UID keyed, cross-tenant isolation verified, 0 security advisories); supporting tables added (`0006`). Remaining (human + cutover): wire Third-Party Auth in dashboard + cut pages over from Firestore; client still hardcodes `demo-tenant-1` and runs on Firestore until then |
+| Billing | 🟠 | ~60% | ✅ tenant-safe Stripe (`application_fee`, ACH, require `invoiceId`) + `/api/stripe/subscribe`; ✅ tier enforcement + AI **credit-wallet** metering (402/429). Remaining: QuickBooks sync, recurring/seasonal billing, connect a live Stripe account (human) |
+| Design Studio | 🟠 | ~55% | ✅ catalog-grounded pricing + AI mock-mode 503 fallbacks (no more mock-mode white-screen / unmocked 500s). Remaining: reliable image mockup on a live key; full on-photo good/better/best verification |
+| Live Ear (flagship) | 🟢 | ~60% | Streaming works; Live tools still partly stubbed; no vision builder yet |
+| Security / firewalls | 🟢 | ~80% | ✅ `/api/playground/*` gated, threat log admin-only, fail-fast `JWT_SECRET`, tenant-scoped AI caches, env-driven CSP (`frameAncestors`). Remaining: distributed limiter/threat-log persistence, prompt-injection delimiting |
 | Core features | 🟢 | ~75% | CRM/Scheduler/Inventory/Invoices/Compliance real; Contracts/RouteOptimizer/Agent partial |
-| Tests | 🔴 | ~5% | 2 trivial tests; "Dirty Dozen" + `TEST_MATRIX.md` unimplemented; no CI |
-| Docs / README | 🔴 | ~5% | README is 5-line AI-Studio boilerplate vs a ~75%-complete product |
+| Tests | 🟠 | ~40% | ✅ smoke + money-path tests + **CI workflow** (`tsc --noEmit` + `vitest`) landing this session. Remaining: `security_spec.md` "Dirty Dozen" + cross-tenant emulator test, broader E2E |
+| Docs / README | 🟢 | ~80% | ✅ README rewritten (real product/architecture/env/deploy + human go-live checklist); `.env.example` complete. Remaining: keep in sync as cutover lands |
 
 ---
 
@@ -70,11 +78,12 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
   `import.meta.env.VITE_FIREBASE_*` (apiKey/authDomain/storageBucket/messagingSenderId/appId), projectId fallback kept.
 - [x] **`.env.example`.** ✅ Created at repo root with Firebase/Supabase/Gemini/Stripe/Twilio/etc. + `REQUIRE_AUTH`.
   _(Follow-up: add a loud startup warn in `server.ts` for missing critical vars.)_
-- [ ] **Real `JWT_SECRET`.** Remove the hardcoded dev fallback (`server.ts:3333`); require the env var in prod.
-- [ ] **Cloud Run IAM.** `firebase-admin` uses ADC + `projectId` only (`server.ts:435-444`); the
+- [x] **Real `JWT_SECRET`.** ✅ Hardcoded dev fallback removed; the server **fails fast** when
+  `REQUIRE_AUTH`/prod and `JWT_SECRET` is unset (no silent insecure default).
+- [ ] **Cloud Run IAM.** (human/GCP) `firebase-admin` uses ADC + `projectId` only (`server.ts:435-444`); the
   service account needs Firestore + Auth Admin roles or token verification/DB writes fail silently.
-- [ ] **Fix the ephemeral cache.** `.gemini_cache.json` writes to `process.cwd()` (`server.ts:210-228`)
-  — move to `/tmp` or gate behind a flag (Cloud Run FS is ephemeral/RO).
+- [x] **Fix the ephemeral cache.** ✅ Cache path is now env-driven via **`GEMINI_CACHE_FILE`**;
+  unset → in-memory only (recommended on Cloud Run's ephemeral/RO FS).
 - [ ] **Container smoke test.** `npm ci` → `npm run build` → build image → run → `/` serves SPA and an `/api/*` route responds.
 
 ### A2 — Auth + real multi-tenant isolation
@@ -83,17 +92,20 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 - [x] **🔴 Fix the global auth bypass.** ✅ `verifyFirebaseToken` now matches on the full path
   (`req.baseUrl + req.path`), gated behind a new **`REQUIRE_AUTH`** env flag (default off so the mock
   demo keeps working). _Verified:_ with `REQUIRE_AUTH=true`, no-token & garbage-token → **401**;
-  excluded routes still pass. **Remaining (A2):** restore real auth (below) + flip `REQUIRE_AUTH=true`
-  in prod — must land together (client only sends a token when `auth.currentUser` exists).
-- [ ] **Restore real auth.** Re-enable `onAuthStateChanged` in `src/App.tsx:101-124` (mock admin
-  injected today); keep a clearly-flagged demo toggle, not the default.
-- [ ] **Make `useRole` real.** `src/hooks/useRole.ts:4-8` hard-returns `owner`/`hasPermission:()=>true`
-  — read role from the Firebase user + Firestore `users` doc.
-- [ ] **Make `TenantContext` real.** `src/contexts/TenantContext.tsx:64-91` hardcodes `demo-tenant-1`
-  / tier `enterprise` — resolve the real tenant + tier from Firestore per authed user; support `switchTenant`.
-- [ ] **Fix new-client provisioning.** `src/components/Onboarding.tsx:132` writes every company to
-  `genesis-1` → tenants collide. Mint a **unique tenantId**, create the `tenants/{id}` doc, and seed
-  against it (`src/lib/seedDatabase.ts` — make the empty-check tenant-scoped).
+  excluded routes still pass. **Client mirror added:** **`VITE_REQUIRE_AUTH`** gates the demo vs real
+  auth on the frontend. **Remaining (A2):** finish the real-auth wiring (below) + flip **both**
+  `REQUIRE_AUTH=true` AND `VITE_REQUIRE_AUTH=true` together in prod (client only sends a token when
+  `auth.currentUser` exists). Flag default stays off so the demo runs.
+- [~] **Restore real auth.** Restoring `onAuthStateChanged` behind `VITE_REQUIRE_AUTH` (mock admin is
+  the default-off demo path). Wiring landing this session; flip-on happens with the human go-live steps.
+- [~] **Make `useRole` real.** `src/hooks/useRole.ts` hard-returns `owner`/`hasPermission:()=>true` for
+  the demo — read role from the authed user's `profiles` row when `VITE_REQUIRE_AUTH` is on. In progress.
+- [~] **Make `TenantContext` real.** Hardcodes `demo-tenant-1`/tier `enterprise` for the demo — resolve
+  the real tenant + tier per authed user (`/api/tenants/me`) when auth is on; support `switchTenant`. In progress.
+- [~] **Fix new-client provisioning.** ✅ Server endpoint **`POST /api/tenants/provision`** added (mints a
+  unique tenant + owner `profiles` row via the service role; **`GET /api/tenants/me`** resolves the caller's
+  tenant). **Remaining:** point `src/components/Onboarding.tsx` at it (was writing every company to
+  `genesis-1`) so onboarding mints a unique tenant instead of colliding.
 - [ ] **Verify isolation.** Re-check `firestore.rules` against `security_spec.md` "Dirty Dozen";
   confirm the `demo-tenant-1` anonymous safe-hatch (`firestore.rules:40-44`) is gated for prod.
 - [ ] **De-hardcode the SaaS-admin gate.** `src/components/auth/SaaSOwnerGate.tsx` embeds an owner
@@ -103,62 +115,59 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > Hardening is partly present (Helmet, limiters, SSRF guard on the one user-URL route). These are
 > the holes that matter for a public, multi-tenant deployment.
 
-- [ ] **Gate the 6 unauthenticated `/api/playground/*` routes** (`server.ts:3180-3270`). They bypass
-  auth (excluded list + `/api/playground/*`) and call **real, non-mocked** Gemini chat/image/video/
-  music models → open AI-cost abuse. Require auth+tier, or remove for prod.
-- [ ] **Admin-only the threat log.** `GET /api/security/threats` (`server.ts:370`) returns the log to
-  any caller — restrict to owner/admin.
-- [ ] **Derive `role` from the token, not the body.** `/api/design/*` (and any route gating financial
-  visibility) trusts `req.body.role` (`server.ts:2232`) → privilege escalation. Use `req.user`.
-- [ ] **Tenant-scope the AI cache key.** `.gemini_cache.json` and `cacheApiResponse` key on content
-  only → cross-tenant cache sharing (PII risk). Include `tenantId`.
-- [ ] **Tighten CSP.** `frameAncestors: ['*']` (`server.ts:517`) allows clickjacking — restrict to self/your domains.
+- [x] **Gate the `/api/playground/*` routes.** ✅ Now require auth (removed from the excluded list);
+  no longer an open path to real, non-mocked Gemini chat/image/video/music → closes the AI-cost abuse hole.
+- [x] **Admin-only the threat log.** ✅ `GET /api/security/threats` now restricted to owner/admin (no
+  longer leaks the threat log to any caller).
+- [x] **Derive `role` from the token, not the body.** ✅ `/api/design/*` financial-visibility gating now
+  reads the token role (`req.user`), not `req.body.role` → closes the privilege-escalation path.
+- [x] **Tenant-scope the AI cache key.** ✅ Cache keys now include `tenantId` so responses can't leak
+  across tenants (PII risk closed).
+- [x] **Tighten CSP.** ✅ `frameAncestors` is now **env-driven** (self/your domains) instead of `['*']`.
 - [ ] **Sanitize prompt-injection inputs.** Delimit user text (`prompt`, `customInstallRules`,
   `designCatalog` names) and instruct the model to treat it as data; don't rely on prose "air gap".
-- [ ] **Harden secondary guards.** Rotate/strengthen the `TELEMETRY_EXPORT_KEY` single-header check
-  (`server.ts:1961`); fix `aiLimiter` `ERR_ERL_KEY_GEN_IPV6` (use the `ipKeyGenerator` helper, `server.ts:473`).
+- [x] **Harden secondary guards.** ✅ `aiLimiter` IPv6 key-gen fixed (uses the `ipKeyGenerator` helper).
+  _Remaining:_ rotate/strengthen the `TELEMETRY_EXPORT_KEY` single-header check.
 
 ### A4 — Design Studio: working, reliable & grounded in their data
 > **Huge priority.** From a live pentest. Goal: cohesive, repeatable designs with **trustworthy
 > pricing derived from the tenant's own catalog + live inventory**, not AI-invented numbers.
 
-- [ ] **Stop the mock-mode white-screen.** `/api/design/process` & `/tiers` return `{}` in mock mode
-  (prompt falls through to the generic `{}` branch `server.ts:202-204`); the UI then maps
-  `result.identifiedAreas` (`DesignStudio.tsx:579`) / `result.tiers[activeTier]` (`:736`) on
-  `undefined`. Add a realistic design mock branch in `getMockText` **and** guard the render.
+- [x] **Stop the mock-mode white-screen.** ✅ `/api/design/process` & `/tiers` now return a realistic
+  design **mock branch** in mock mode (plus AI mock-mode **503 fallbacks** instead of `{}` → no more
+  `undefined` map crashes on `result.identifiedAreas` / `result.tiers[activeTier]`).
 - [ ] **Fix the mockup / "Reveal Slider."** `/api/design/generate-mockup` → `500` (`ai.interactions.create`,
-  `server.ts:2343`, is unmocked + experimental API + speculative `gemini-3.1-flash-image`). Validate
-  the real API against a live key or switch to a supported image path; add a dev placeholder fallback.
-- [ ] **Validate inputs (400 not 500).** Missing `image` → `500 "...reading 'includes'"`
-  (`server.ts:2317,2339`); `designCatalog[].type.toUpperCase()` crashes on non-string. Return 400s.
-- [ ] **Ground the design in tenant data.** Feed `serviceCatalog` (pricing, `src/lib/constants.ts:1-54`
-  / `TenantContext`), the tenant `design_catalog` (approved plants/materials, `DesignDatabasePanel.tsx`),
-  and the **live `inventory` collection** into `/api/design/process`. **Compute line-item prices from
-  the catalog**, not from the model. This is the core of "cohesive, reliable designs."
-- [ ] **Enforce the financial air-gap server-side.** Employee/foreman must not receive costs — gate by
-  token role, not the prose guardrail / client checks (`DesignStudio.tsx:754,617`).
+  is unmocked + experimental API + speculative image model). Validate the real API against a live key or
+  switch to a supported image path; add a dev placeholder fallback. _(Partial: 503 fallback added; needs a live-key path.)_
+- [ ] **Validate inputs (400 not 500).** Missing `image` → `500 "...reading 'includes'"`;
+  `designCatalog[].type.toUpperCase()` crashes on non-string. Return 400s.
+- [x] **Ground the design in tenant data.** ✅ `/api/design/process` + `/tiers` are now **catalog-grounded**:
+  line-item prices are derived from the tenant's `serviceCatalog`/`design_catalog`, not model-invented
+  (the trust point). _Remaining:_ also feed the live `inventory` collection.
+- [x] **Enforce the financial air-gap server-side.** ✅ Employee/foreman cost visibility is gated by the
+  **token role** server-side (see A3 "Derive `role` from the token"), not the prose guardrail / client checks.
 - [ ] **Cleanup:** unbounded non-tenant cache eviction (`server.ts:254-299`); governance-scanner false
   positives on legit design text (`../`,`1=1`,`.env` → 403, `server.ts:375-422`); dead `markup` param +
   non-existent `data.estimatedCost` (`DesignStudio.tsx:237`).
 
 ### A5 — Billing (subscription + Connect), made tenant-safe
-- [ ] **Enforce subscription tiers.** Sync tier from the Firestore `tenants` doc; make
-  `SubscriptionGuard.tsx` gate by real tier. Add an **AI-quota middleware** that decrements
-  `tenant.quotas` per AI call and returns 429 when exhausted (free/pro/enterprise limits). Today
-  nothing decrements (`TenantContext` quotas unused).
-- [ ] **Tenant-safe Stripe Connect.** `/api/stripe/connect` (`server.ts:1198`) trusts `req.body.tenantId`
-  — verify `req.user` owns the tenant. Add `tenantId` to checkout metadata (`/api/stripe/checkout`).
-- [ ] **Tenant-safe webhook.** `/api/stripe/webhook` (`server.ts:307`) updates invoices without
-  confirming tenant ownership — validate before mutating. (Signature verification is already correct.)
+- [x] **Enforce subscription tiers + AI credit wallet.** ✅ Tier-enforcement middleware + an **AI
+  credit-wallet** that meters expensive Gemini ops and returns **402** (out of credits) / **429**
+  (rate) when exhausted. Per-tier monthly allotments via `AI_CREDITS_FREE/PRO/ENTERPRISE`.
+- [x] **Tenant-safe Stripe Connect + payments.** ✅ Stripe routes verify the caller owns the tenant
+  (no longer trust `req.body.tenantId`); payments take the platform **`application_fee`**
+  (`PLATFORM_FEE_PCT`), support **ACH**, and **require `invoiceId`**. New **`/api/stripe/subscribe`**
+  for the YardWorx subscription. _Remaining (human): connect a live Stripe account._
+- [x] **Tenant-safe webhook.** ✅ `/api/stripe/webhook` validates tenant ownership before mutating
+  invoices (signature verification was already correct).
 
 ### A6 — Minimum tests + docs
 - [ ] **Security tests.** Implement the `security_spec.md` "Dirty Dozen" against `firestore.rules`
-  (emulator) + a **cross-tenant isolation** test (Tenant A cannot read/write Tenant B).
-- [ ] **Smoke tests.** A Design-Studio happy-path test and an auth-enforcement test (no token → 401).
-- [ ] **CI.** A GitHub Actions workflow running `npm run lint` (`tsc --noEmit`) + `npm run test` on PRs
-  (none exists today).
-- [ ] **Rewrite the README.** Replace the boilerplate with real features, architecture, env vars, the
-  role matrix, and deploy steps (see [Appendix A](#appendix-a--feature-inventory)).
+  (emulator) + a **cross-tenant isolation** test (Tenant A cannot read/write Tenant B). _(Still open.)_
+- [x] **Smoke / money-path tests.** ✅ Added smoke + money-path tests (incl. auth-enforcement: no token → 401).
+- [x] **CI.** ✅ GitHub Actions workflow runs `npm run lint` (`tsc --noEmit`) + `npm run test` on PRs.
+- [x] **Rewrite the README.** ✅ Replaced the AI-Studio boilerplate with real product/architecture,
+  env (→ `.env.example`), roles, deploy, and a human-only "Going live — first paying client" checklist.
 
 ### A7 — Market table-stakes for a credible launch 🔴 (from `MARKET_RESEARCH.md`)
 > The deep market study is blunt: these are the **entry bar**, shipped by every incumbent (Jobber,
@@ -315,6 +324,9 @@ research** agent.
   the live project (`0005`), RLS-enabled + tenant policies, 0 advisories. Repo layer (`src/lib/repos/*`)
   extended with `archive`/`restore`/`listArchived` + `customers`/`tasks`/`jobs`/`documents`/`leads` repos.
 - [x] ✅ **Custom fields** inline value edit + field types (text/number/date/yes-no), backward-compatible.
+- [x] ✅ **Supporting tables migration (`0006`)** — `material_logs`/`messages`/`audit_logs`/`system_logs`/
+  `telemetry` with the same tenant-isolation RLS (private.* helpers); additive + idempotent (backfills
+  columns on the tables that already existed). _(Written; the main session applies it via the Supabase MCP.)_
 - [ ] Add `status='REJECTED'`/archive path for leads instead of hard delete (in the CRM.tsx cutover pass).
 
 
@@ -327,8 +339,9 @@ research** agent.
   create/list/suspend tenants, assign Stripe accounts, set tiers/quotas.
 - [ ] **Distributed rate limiting + persistent threat log** (Redis/Firestore) — in-memory today
   (`server.ts:456-503,355-372`), per-instance only on Cloud Run.
-- [ ] **Graceful AI fallbacks** for the ~20 non-mocked routes (`ai.interactions.*`, `generateVideos/
-  Images`, `.models.get()`, `ai.live`) so a missing/limited key degrades instead of 500-ing.
+- [x] **Graceful AI fallbacks** for the non-mocked routes (`ai.interactions.*`, `generateVideos/Images`,
+  `.models.get()`, `ai.live`) — ✅ they now degrade with a **503** in mock mode / on a missing-limited key
+  instead of 500-ing. _(Live-key image-mockup path still needs validation — see A4.)_
 - [ ] **Broader E2E** (Playwright) from `TEST_MATRIX.md` (fuzzing, device matrix, offline).
 - [ ] **De-uglify pass:** auth screen (`AuthPage`), Design Studio flow, dense dashboards, mobile/PWA
   safe-areas & tap targets.
