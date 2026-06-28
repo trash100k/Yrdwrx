@@ -17,6 +17,40 @@ import { WorkflowBuilderSection } from "../components/WorkflowBuilderSection";
 import { TeamManagement } from "../components/TeamManagement";
 import { Link } from "react-router-dom";
 
+// Shareable public booking link (online booking / instant-quote intake). Operators put this
+// on their website / Google profile; submissions land as NEW leads in the pipeline.
+function BookingLinkSection({ tenantId }: { tenantId?: string }) {
+  const [copied, setCopied] = useState(false);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const link = tenantId ? `${origin}/book/${tenantId}` : "";
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
+  };
+  return (
+    <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-4">
+      <div className="space-y-1">
+        <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Lead Capture</span>
+        <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">Online Booking Link</h3>
+        <p className="text-sm text-zinc-400">Share this on your website, Google profile, or texts. Requests come in as new leads.</p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <input
+          readOnly
+          value={link || "Sign in to a tenant to generate your link"}
+          className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/80 font-mono truncate"
+        />
+        <button
+          onClick={copy}
+          disabled={!link}
+          className="shrink-0 px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all"
+        >
+          {copied ? "Copied!" : "Copy Link"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function Settings() {
   const { tenant } = useTenant();
   const { showToast } = useToast();
@@ -356,6 +390,8 @@ export default function Settings() {
       </section>
 
       <ServicePricingCatalog />
+
+      <BookingLinkSection tenantId={tenant?.id} />
 
       <StripeConnectSection />
       

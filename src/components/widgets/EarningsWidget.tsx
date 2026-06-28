@@ -2,7 +2,7 @@
 import React from 'react';
 import { AreaChart, Area, Tooltip, ResponsiveContainer } from "recharts";
 
-const revenueData = [
+const SAMPLE_DATA = [
   { name: "May 04", actual: 4200, projected: 4000 },
   { name: "May 05", actual: 3800, projected: 4100 },
   { name: "May 06", actual: 5100, projected: 4200 },
@@ -19,7 +19,13 @@ const revenueData = [
   { name: "May 17", actual: 14200, projected: 10000 },
 ];
 
-export default function EarningsWidget({ isReel, flexOrder }: { isReel: boolean, flexOrder?: number }) {
+const usd = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(n) || 0);
+
+export default function EarningsWidget({ isReel, flexOrder, data, totals }: { isReel: boolean, flexOrder?: number, data?: any[], totals?: { earningsMTD: number, count: number } }) {
+  const hasReal = Array.isArray(data) && data.length > 0;
+  const revenueData = hasReal ? data : SAMPLE_DATA;
+  const avgInvoice = totals && totals.count ? totals.earningsMTD / totals.count : 0;
   return (
     <div
       style={flexOrder !== undefined ? { order: flexOrder } : undefined}
@@ -38,9 +44,15 @@ export default function EarningsWidget({ isReel, flexOrder }: { isReel: boolean,
             Active Inflow Progress
           </h4>
         </div>
-        <div className="text-xs text-amber-400/80 font-bold bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-xl uppercase tracking-widest">
-          Sample
-        </div>
+        {hasReal ? (
+          <div className="text-xs text-forest-400 font-bold bg-forest-500/10 border border-forest-500/20 px-4 py-2 rounded-xl uppercase tracking-widest">
+            Live · Paid Invoices
+          </div>
+        ) : (
+          <div className="text-xs text-amber-400/80 font-bold bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-xl uppercase tracking-widest">
+            Sample
+          </div>
+        )}
       </div>
 
       <div className="h-44 sm:h-52">
@@ -82,19 +94,19 @@ export default function EarningsWidget({ isReel, flexOrder }: { isReel: boolean,
           <p className="text-xs md:text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
             Earnings MTD
           </p>
-          <p className="text-lg font-bold text-white mt-1">$142,500</p>
+          <p className="text-lg font-bold text-white mt-1">{hasReal ? usd(totals?.earningsMTD || 0) : "$142,500"}</p>
         </div>
         <div>
           <p className="text-xs md:text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-            Projected MTD
+            {hasReal ? "Invoices Paid" : "Projected MTD"}
           </p>
-          <p className="text-lg font-bold text-forest-400 mt-1">$155,000</p>
+          <p className="text-lg font-bold text-forest-400 mt-1">{hasReal ? (totals?.count ?? 0) : "$155,000"}</p>
         </div>
         <div>
           <p className="text-xs md:text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-            Efficiency Margin
+            {hasReal ? "Avg Invoice" : "Efficiency Margin"}
           </p>
-          <p className="text-lg font-bold text-white mt-1">94.2%</p>
+          <p className="text-lg font-bold text-white mt-1">{hasReal ? usd(avgInvoice) : "94.2%"}</p>
         </div>
       </div>
     </div>

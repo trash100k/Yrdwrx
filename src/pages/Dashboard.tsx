@@ -104,6 +104,32 @@ interface OnboardingAnswers {
   customPrompt: string;
 }
 
+// Build a real 14-day revenue series + month-to-date totals from PAID invoices. Returns null
+// when there's no paid data yet, so EarningsWidget shows its (clearly-labeled) sample instead.
+function computeEarnings(invoices: any[]) {
+  const toDate = (t: any) => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
+  const paid = (invoices || []).filter((i) => String(i?.status || "").toLowerCase() === "paid");
+  if (!paid.length) return null;
+  const now = new Date();
+  const days: Date[] = [];
+  for (let k = 13; k >= 0; k--) { const d = new Date(now); d.setDate(now.getDate() - k); days.push(d); }
+  const byDay: Record<string, number> = {};
+  for (const inv of paid) {
+    const d = toDate(inv.paidAt || inv.updatedAt || inv.date || inv.createdAt);
+    if (!d || isNaN(d.getTime())) continue;
+    byDay[d.toDateString()] = (byDay[d.toDateString()] || 0) + (Number(inv.amount) || 0);
+  }
+  const revenueData = days.map((d) => ({
+    name: d.toLocaleDateString("en-US", { month: "short", day: "2-digit" }),
+    actual: Math.round(byDay[d.toDateString()] || 0),
+    projected: 0,
+  }));
+  const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const mtdInvoices = paid.filter((inv) => { const d = toDate(inv.paidAt || inv.updatedAt || inv.date || inv.createdAt); return d && d >= mStart; });
+  const earningsMTD = mtdInvoices.reduce((s, inv) => s + (Number(inv.amount) || 0), 0);
+  return { revenueData, totals: { earningsMTD, count: mtdInvoices.length } };
+}
+
 export default function Dashboard() {
   const { tenant } = useTenant();
   const { isFieldMode, toggleFieldMode } = useFieldMode();
@@ -117,10 +143,11 @@ export default function Dashboard() {
   const [crews, setCrews] = useState<Crew[]>([]);
   const [hotLeads, setHotLeads] = useState<Lead[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
 
   useEffect(() => {
     const tenantId = tenant?.id || "genesis-1";
-    
+
     const unsubCrews = onSnapshot(query(collection(db, 'crews'), where("tenantId", "==", tenantId)), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Crew));
       setCrews(data);
@@ -133,13 +160,21 @@ export default function Dashboard() {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor));
       setVendors(data);
     });
+    const unsubInvoices = onSnapshot(query(collection(db, 'invoices'), where("tenantId", "==", tenantId)), (snapshot) => {
+      setInvoices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, () => {});
 
     return () => {
       unsubCrews();
       unsubLeads();
       unsubVendors();
+      unsubInvoices();
     };
   }, []);
+
+  // Real revenue series + MTD totals from paid invoices (null => no paid data yet, the
+  // EarningsWidget falls back to its labeled sample).
+  const earnings = computeEarnings(invoices);
 
   
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -2340,7 +2375,7 @@ export default function Dashboard() {
               {activeWidgets.earnings && (
                 <div style={{ order: widgetOrder.indexOf("earnings") }} className="col-span-1 md:col-span-2 lg:col-span-1 h-full min-h-[300px]">
                   <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
+                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} data={earnings?.revenueData} totals={earnings?.totals} />
                   </Suspense>
                 </div>
               )}
@@ -2451,7 +2486,7 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8 ">
                 {activeWidgets.earnings && (
                   <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} />
+                    <EarningsWidget isReel={false} flexOrder={widgetOrder.indexOf("earnings")} data={earnings?.revenueData} totals={earnings?.totals} />
                   </Suspense>
                 )}
                 {activeWidgets.alerts && (
