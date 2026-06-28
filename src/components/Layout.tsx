@@ -219,8 +219,15 @@ export default function Layout() {
     }
   });
 
-  // Auto-open brain chat for new users
+  // Auto-open brain chat for new users — but NEVER interrupt a focused workspace (Design
+  // Studio, Field Mode, Live Ear, Route Optimizer), and only once per browser session so it
+  // doesn't re-pop on every navigation/reload.
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname;
+      if (/design-studio|field|live|route-optimizer/i.test(path)) return;
+      try { if (window.sessionStorage.getItem("cutty-autoopened") === "1") return; } catch (e) {}
+    }
     const userKey = auth.currentUser?.email || "anonymous";
     const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
     const hasAcceptedDisclaimer =
@@ -228,7 +235,10 @@ export default function Layout() {
       tenant?.id.startsWith("demo-");
 
     if (!hasSeen || !hasAcceptedDisclaimer) {
-      const timer = setTimeout(() => setIsBrainOpen(true), 2000);
+      const timer = setTimeout(() => {
+        try { window.sessionStorage.setItem("cutty-autoopened", "1"); } catch (e) {}
+        setIsBrainOpen(true);
+      }, 2500);
       return () => clearTimeout(timer);
     }
   }, [tenant]);

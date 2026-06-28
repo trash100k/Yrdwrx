@@ -20,7 +20,10 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   );
 }
 
-export const supabase = createClient(SUPABASE_URL ?? "", SUPABASE_ANON_KEY ?? "", {
+// Use a syntactically-valid placeholder when env is missing so createClient never THROWS at
+// module load ("supabaseUrl is required"), which would blank the entire app. Requests against
+// the placeholder fail gracefully at call time instead of taking the whole SPA down.
+export const supabase = createClient(SUPABASE_URL || "https://placeholder.supabase.co", SUPABASE_ANON_KEY || "placeholder-anon-key", {
   // Forward the current Firebase ID token to Supabase (Third-Party Auth).
   // NOTE: in demo / internal-testing mode (VITE_REQUIRE_AUTH !== 'true') the app never
   // signs the user into Firebase, so `auth.currentUser` is null and this callback returns

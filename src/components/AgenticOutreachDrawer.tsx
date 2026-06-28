@@ -453,7 +453,7 @@ export default function AgenticOutreachDrawer({
                       onClick={() => handleTogglePhotoAccess(false)}
                       className={`py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                         !isPhotoDenied
-                          ? "bg-forest-500 text-black shadow-[0_10px_20px_rgba(5, 168, 69,0.15)]"
+                          ? "bg-forest-500 text-black shadow-[0_10px_20px_rgba(5,168,69,0.15)]"
                           : "bg-zinc-950 border border-white/10 text-zinc-400 hover:text-white"
                       }`}
                     >

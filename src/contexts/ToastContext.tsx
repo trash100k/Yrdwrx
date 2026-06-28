@@ -29,7 +29,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-8 left-1/2 -translate-x-1/2 z-50 max-w-lg bg-forest-950 border border-forest-500/30 text-forest-100 px-6 py-4 rounded-3xl shadow-[0_0_40px_rgba(5, 168, 69,0.3)] text-sm font-bold flex items-center gap-4"
+            className="fixed top-8 left-1/2 -translate-x-1/2 z-50 max-w-lg bg-forest-950 border border-forest-500/30 text-forest-100 px-6 py-4 rounded-3xl shadow-[0_0_40px_rgba(5,168,69,0.3)] text-sm font-bold flex items-center gap-4"
           >
             <Sparkles className="text-forest-400 shrink-0" size={18} />
             <span>{notification}</span>

@@ -1305,7 +1305,7 @@ export default function Inventory() {
                               ? "Existing Item Found"
                               : "Neural Asset Identified"}
                           </p>
-                          <span className="bg-forest-500/20 text-forest-400 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 ring-forest-500/50 flex items-center gap-1 shadow-[0_0_15px_rgba(5, 168, 69,0.3)]">
+                          <span className="bg-forest-500/20 text-forest-400 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 ring-forest-500/50 flex items-center gap-1 shadow-[0_0_15px_rgba(5,168,69,0.3)]">
                             <TrendingUp size={10} /> AI Extracted
                           </span>
                         </div>

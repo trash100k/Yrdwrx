@@ -56,7 +56,7 @@
 .font-sans-space { font-family: "Space Grotesk", sans-serif !important;
 } /* Enterprise Theme Modes */
 .enterprise-high-contrast { --glass-bg: rgba(9, 9, 11, 0.95); --glass-border: rgba(255, 255, 255, 0.25);
-} .enterprise-ambient { --glass-bg: rgba(6, 78, 59, 0.15); --glass-border: rgba(5, 168, 69, 0.25);
+} .enterprise-ambient { --glass-bg: rgba(6, 78, 59, 0.15); --glass-border: rgba(5,168,69, 0.25);
 } /* Align and Grid guides */
 .show-layout-guidelines .glass-card { outline: 1.5px dashed rgba(232, 93, 4, 0.4) !important; outline-offset: 3px;
 } .show-layout-guidelines input, .show-layout-guidelines button { position: relative;
@@ -75,7 +75,7 @@
 } .performance-shield-active { background: black !important;
 } .performance-shield-active canvas { image-rendering: pixelated; /* Reduce GPU load for maps if possible, though subtle */
 } .field-mode-active .glass-card, .performance-shield-active .glass-card { background: #0a0a0a !important; border-color: #333 !important; box-shadow: none !important;
-} .atmosphere { position: fixed; inset: 0; z-index: -1; background: radial-gradient(circle at 10% 10%, rgba(5, 168, 69, 0.08) 0%, transparent 40%), radial-gradient(circle at 90% 90%, rgba(232, 93, 4, 0.06) 0%, transparent 40%), radial-gradient(circle at 50% 50%, rgba(20, 20, 20, 1) 0%, #000000 100%);
+} .atmosphere { position: fixed; inset: 0; z-index: -1; background: radial-gradient(circle at 10% 10%, rgba(5,168,69, 0.08) 0%, transparent 40%), radial-gradient(circle at 90% 90%, rgba(232, 93, 4, 0.06) 0%, transparent 40%), radial-gradient(circle at 50% 50%, rgba(20, 20, 20, 1) 0%, #000000 100%);
 } /* Subtle cinematic noise overlay */
 .atmosphere::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0.03; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"); pointer-events: none;
 } .field-mode-active .atmosphere { background: #000 !important;
@@ -141,7 +141,7 @@ body.theme-light .tactical-dock {
 }
 
 body.theme-light .atmosphere {
-  background: radial-gradient(circle at 10% 10%, rgba(5, 168, 69, 0.08) 0%, transparent 40%), radial-gradient(circle at 90% 90%, rgba(232, 93, 4, 0.06) 0%, transparent 40%), #f8f9fa !important;
+  background: radial-gradient(circle at 10% 10%, rgba(5,168,69, 0.08) 0%, transparent 40%), radial-gradient(circle at 90% 90%, rgba(232, 93, 4, 0.06) 0%, transparent 40%), #f8f9fa !important;
 }
 body.theme-light .atmosphere::after {
   opacity: 0.01;
@@ -149,10 +149,10 @@ body.theme-light .atmosphere::after {
 
 body.theme-light .text-forest-400 { color: #038a37 !important; }
 body.theme-light .text-forest-500 { color: #046d2e !important; }
-body.theme-light .bg-forest-500\/10 { background-color: rgba(5, 168, 69, 0.1) !important; }
-body.theme-light .bg-forest-500\/20 { background-color: rgba(5, 168, 69, 0.2) !important; }
-body.theme-light .border-forest-500\/20 { border-color: rgba(5, 168, 69, 0.3) !important; }
-body.theme-light .border-forest-500\/30 { border-color: rgba(5, 168, 69, 0.4) !important; }
+body.theme-light .bg-forest-500\/10 { background-color: rgba(5,168,69, 0.1) !important; }
+body.theme-light .bg-forest-500\/20 { background-color: rgba(5,168,69, 0.2) !important; }
+body.theme-light .border-forest-500\/20 { border-color: rgba(5,168,69, 0.3) !important; }
+body.theme-light .border-forest-500\/30 { border-color: rgba(5,168,69, 0.4) !important; }
 
 body.theme-light .hover\:text-white:hover { color: #000000 !important; }
 body.theme-light .hover\:bg-white\/5:hover { background-color: rgba(0, 0, 0, 0.04) !important; }
