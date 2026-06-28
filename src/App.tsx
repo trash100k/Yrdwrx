@@ -505,7 +505,7 @@ function AuthPage({
     dataMap: false,
     ai: false,
   });
-  const [activeTab, setActiveTab] = useState<"email" | "magic">("email");
+  const [activeTab, setActiveTab] = useState<"email" | "magic">("magic");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -513,8 +513,10 @@ function AuthPage({
   const [isSignUp, setIsSignUp] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
 
-  const allAgreed =
-    agreements.tos && agreements.privacy && agreements.dataMap /* && agreements.ai */;
+  // Agreements are captured once, in plain language, during onboarding (which sets
+  // agreements_accepted). The sign-in screen no longer gates on checkboxes — that blocked
+  // returning users every login and overwhelmed first-time contractors.
+  const allAgreed = true;
 
   /* Email & password via Supabase Auth. Signup metadata (company/display name) is read
      by the handle_new_user DB trigger to provision the tenant + owner profile. */
@@ -611,8 +613,8 @@ function AuthPage({
         <h1 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black italic tracking-normal md:tracking-tighter leading-none mb-3 sf-text-gradient uppercase">
           YardWorx
         </h1>{" "}
-        <p className="text-zinc-400 mb-8 font-semibold text-sm tracking-wide uppercase">
-          Operational Cockpit Portal
+        <p className="text-zinc-400 mb-8 font-semibold text-sm tracking-wide">
+          Run your whole business from your phone.
         </p>{" "}
         {(
           <>
@@ -651,7 +653,7 @@ function AuthPage({
                 className={`flex-1 py-3 text-xs uppercase tracking-wider font-bold rounded-xl transition-all ${activeTab === "email" ? "bg-white text-black shadow-md" : "text-zinc-400 hover:text-zinc-200"}`}
               >
                 {" "}
-                Email & Password{" "}
+                Password{" "}
               </button>{" "}
               <button
                 type="button"
@@ -662,7 +664,7 @@ function AuthPage({
                 className={`flex-1 py-3 text-xs uppercase tracking-wider font-bold rounded-xl transition-all ${activeTab === "magic" ? "bg-white text-black shadow-md" : "text-zinc-400 hover:text-zinc-200"}`}
               >
                 {" "}
-                Magic Link{" "}
+                Email Link · No Password{" "}
               </button>{" "}
             </div>{" "}
             {error && (
@@ -679,81 +681,12 @@ function AuthPage({
             )}{" "}
             <div className="space-y-6">
               <div className="space-y-3 bg-black/20 p-4 rounded-2xl border border-white/5 mb-6 text-left">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
-                  Required Agreements
-                </h3>
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={agreements.tos}
-                    onChange={(e) =>
-                      setAgreements((prev) => ({
-                        ...prev,
-                        tos: e.target.checked,
-                      }))
-                    }
-                    className="w-4 h-4 mt-0.5 accent-forest-500 rounded bg-white/5 border-white/20"
-                  />
-                  <div>
-                    <p className="text-xs md:text-[10px] font-bold text-white uppercase">
-                      <a
-                        href="/terms"
-                        target="_blank"
-                        className="hover:underline"
-                      >
-                        Terms of Service
-                      </a>
-                    </p>
-                  </div>
-                </label>
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={agreements.privacy}
-                    onChange={(e) =>
-                      setAgreements((prev) => ({
-                        ...prev,
-                        privacy: e.target.checked,
-                      }))
-                    }
-                    className="w-4 h-4 mt-0.5 accent-forest-500 rounded bg-white/5 border-white/20"
-                  />
-                  <div>
-                    <p className="text-xs md:text-[10px] font-bold text-white uppercase">
-                      <a
-                        href="/privacy"
-                        target="_blank"
-                        className="hover:underline"
-                      >
-                        Privacy Policy
-                      </a>
-                    </p>
-                  </div>
-                </label>
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={agreements.dataMap}
-                    onChange={(e) =>
-                      setAgreements((prev) => ({
-                        ...prev,
-                        dataMap: e.target.checked,
-                      }))
-                    }
-                    className="w-4 h-4 mt-0.5 accent-forest-500 rounded bg-white/5 border-white/20"
-                  />
-                  <div>
-                    <p className="text-xs md:text-[10px] font-bold text-white uppercase">
-                      <a
-                        href="/data-map"
-                        target="_blank"
-                        className="hover:underline"
-                      >
-                        Data Processing Map
-                      </a>
-                    </p>
-                  </div>
-                </label>
+                <p className="text-[11px] text-zinc-400 leading-relaxed normal-case">
+                  By continuing you agree to our{" "}
+                  <a href="/terms" target="_blank" className="text-forest-400 hover:underline">Terms</a>{" "}
+                  and{" "}
+                  <a href="/privacy" target="_blank" className="text-forest-400 hover:underline">Privacy Policy</a>.
+                </p>
                 {/* <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"

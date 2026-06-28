@@ -966,11 +966,15 @@ export async function createApp({ startListening = false } = {}) {
         const { data: prof } = await sb.from("profiles").select("tenant_id").eq("firebase_uid", uid).maybeSingle();
         tenantId = prof?.tenant_id || null;
       }
+      // Finishing onboarding implies the agreements were accepted (the form gates on them),
+      // so record the AI disclaimer on the tenant too — that stops the in-app walkthrough from
+      // re-asking it (and from re-popping every session).
+      const legal = { aiDisclaimerAccepted: true, acceptedAt: new Date().toISOString() };
       if (tenantId) {
-        await sb.from("tenants").update({ name: companyName, tier: safeTier, settings: tenantSettings }).eq("id", tenantId);
+        await sb.from("tenants").update({ name: companyName, tier: safeTier, settings: tenantSettings, legal }).eq("id", tenantId);
       } else {
         tenantId = crypto.randomUUID();
-        const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier, settings: tenantSettings });
+        const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier, settings: tenantSettings, legal });
         if (tErr) throw tErr;
       }
       if (uid) {
@@ -989,22 +993,40 @@ export async function createApp({ startListening = false } = {}) {
           const { data: existing } = await sb.from("customers").select("id").eq("tenant_id", tenantId).limit(1);
           if (!existing || existing.length === 0) {
             const { data: custs } = await sb.from("customers").insert([
-              { tenant_id: tenantId, first_name: "Maria", last_name: "Gable", email: "maria@example.com", phone: "555-0101", address: "12 Oak St", status: "active", is_hoa: false },
-              { tenant_id: tenantId, first_name: "Tom", last_name: "Rivera", email: "tom@example.com", phone: "555-0102", address: "44 Pine Ave", status: "lead" },
-              { tenant_id: tenantId, company_name: "Cedar Ridge HOA", email: "board@cedarridge.org", phone: "555-0103", address: "Cedar Ridge", status: "active", is_hoa: true },
+              { tenant_id: tenantId, first_name: "Gable", last_name: "Jenkins", email: "gable.jenkins@example.com", phone: "601-555-0123", address: "12 Poplar Springs Dr", status: "active", priority: true, is_hoa: true, ai_score: 94, ai_score_label: "Growth Potential", ai_score_reasoning: "Wants holly swap and irrigation check.", notes: "Specific trimming patterns along the driveway approach.", segment: "Platinum", data: { hoaRules: ["No mowing before 9 AM", "Electric equipment only", "Badge ID required"], propertyDetails: { size: "4.5 acres", grassType: "Bermuda", hasIrrigation: true } } },
+              { tenant_id: tenantId, first_name: "Marcus", last_name: "Pohl", email: "marcus.pohl@example.com", phone: "601-555-9922", address: "442 Pine Grove Rd", status: "active", is_hoa: false, ai_score: 42, ai_score_label: "Maintenance", ai_score_reasoning: "Standard bi-weekly cuts; small lot.", notes: "Gate code 4420. Dog in the back yard sometimes.", segment: "Base", data: { propertyDetails: { size: "0.25 acres", grassType: "Fescue", hasPets: true }, gateCode: "4420" } },
+              { tenant_id: tenantId, company_name: "Cedar Ridge HOA", email: "board@cedarridge.org", phone: "601-555-0103", address: "Cedar Ridge Community", status: "lead", is_hoa: true, ai_score: 82, ai_score_label: "New Lead", notes: "Requested a quote for noise-compliant electric clearing." },
             ]).select();
             const c0 = custs?.[0]?.id || null;
+            const c1 = custs?.[1]?.id || null;
             await sb.from("jobs").insert([
-              { tenant_id: tenantId, customer_id: c0, title: "Weekly Mowing", status: "SCHEDULED", date: new Date(Date.now() + 86400000).toISOString(), address: "12 Oak St", data: { client: "Maria Gable" } },
-              { tenant_id: tenantId, customer_id: c0, title: "Spring Cleanup", status: "COMPLETED", date: new Date(Date.now() - 7 * 86400000).toISOString(), address: "12 Oak St", data: { client: "Maria Gable", snapshotNotes: "Beds mulched, hedges trimmed." } },
+              { tenant_id: tenantId, customer_id: c0, title: "HOA Weekly Mow & Edge", status: "SCHEDULED", date: new Date(Date.now() + 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { client: "Gable Jenkins" } },
+              { tenant_id: tenantId, customer_id: c1, title: "Bi-Weekly Maintenance", status: "IN_PROGRESS", date: new Date().toISOString(), address: "442 Pine Grove Rd", progress: 40, data: { client: "Marcus Pohl" } },
+              { tenant_id: tenantId, customer_id: c0, title: "Spring Cleanup", status: "COMPLETED", date: new Date(Date.now() - 7 * 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { client: "Gable Jenkins", snapshotNotes: "Beds mulched, hollies trimmed, irrigation checked." } },
+            ]);
+            await sb.from("crews").insert([
+              { tenant_id: tenantId, name: "Alpha Crew", status: "ON_SITE", leader: "Davis", equip: "Zero-Turn #4", phone: "601-555-0101", job: "Arbor Lakes HOA", progress: 65 },
+              { tenant_id: tenantId, name: "Beta Crew", status: "TRANSPORT", leader: "Miller", equip: "F-250 + trailer", phone: "601-555-0102", job: "Schmidt Residence", progress: 10 },
+            ]);
+            await sb.from("leads").insert([
+              { tenant_id: tenantId, name: "Regency Senior Care", address: "120 Poplar Springs Dr", prop_size: "4.5 acres", match_reason: "High upsell potential for turf irrigation.", score: 95 },
+              { tenant_id: tenantId, name: "Governor Hills HOA Office", address: "492 Hills Ct", prop_size: "2.8 acres", match_reason: "Needs a noise-compliant electric clearing quote.", score: 82 },
+            ]);
+            await sb.from("vendors").insert([
+              { tenant_id: tenantId, name: "Local Supply & Mulch", category: "Materials", status: "ACTIVE", contact: "Bob H.", next_delivery: "Mon 8:00 AM" },
+              { tenant_id: tenantId, name: "Southern Agronomics", category: "Chemicals", status: "ACTIVE", contact: "Sarah J.", next_delivery: "Wed 10:30 AM" },
             ]);
             await sb.from("inventory").insert([
-              { tenant_id: tenantId, name: "Hardwood Mulch", quantity: 40, unit: "bags", category: "Bulk", min_threshold: 10 },
-              { tenant_id: tenantId, name: "Fertilizer 24-0-6", quantity: 12, unit: "bags", category: "Consumables", min_threshold: 5 },
-              { tenant_id: tenantId, name: "Trimmer Line", quantity: 8, unit: "spools", category: "Hardware", min_threshold: 4 },
-              { tenant_id: tenantId, name: "Mower Fuel", quantity: 20, unit: "gallons", category: "Fuel", min_threshold: 10 },
+              { tenant_id: tenantId, name: "Double-Shredded Hardwood Mulch", category: "Mulch/Soil", quantity: 80, min_threshold: 15, unit: "yards", sku: "MUL-HW-DS" },
+              { tenant_id: tenantId, name: "Limelight Hydrangea (3-Gallon)", category: "Shrubs", quantity: 45, min_threshold: 15, unit: "pots", sku: "HYD-LIM-3G" },
+              { tenant_id: tenantId, name: "Muhly Grass (1-Gallon)", category: "Grasses", quantity: 120, min_threshold: 30, unit: "pots", sku: "MUH-GR-1G" },
+              { tenant_id: tenantId, name: "Fertilizer 24-0-6", category: "Consumables", quantity: 12, min_threshold: 5, unit: "bags", sku: "FERT-2406" },
+              { tenant_id: tenantId, name: "Mower Fuel", category: "Fuel", quantity: 20, min_threshold: 10, unit: "gallons", sku: "FUEL-87" },
             ]);
-            if (c0) await sb.from("invoices").insert([{ tenant_id: tenantId, customer_id: c0, amount: 280, status: "sent", items: [{ description: "Spring Cleanup", quantity: 1, rate: 280 }], data: { client: "Maria Gable" } }]);
+            if (c0) await sb.from("invoices").insert([
+              { tenant_id: tenantId, customer_id: c0, amount: 280, status: "sent", items: [{ description: "Spring Cleanup", quantity: 1, rate: 280 }], data: { client: "Gable Jenkins" } },
+              { tenant_id: tenantId, customer_id: c1, amount: 150, status: "paid", items: [{ description: "Bi-Weekly Maintenance", quantity: 1, rate: 150 }], data: { client: "Marcus Pohl" } },
+            ]);
             demoDataLoaded = true;
           }
         } catch (e: any) {

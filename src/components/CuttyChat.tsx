@@ -19,7 +19,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
-import { getCurrentUser } from "../lib/supabase";
+import { getCurrentUser, supabase } from "../lib/supabase";
 import { useTenant } from "../contexts/TenantContext";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -367,11 +367,11 @@ export default function BrainChat({
         currentQuery.includes("ok")
       ) {
          if (tenant && !tenant.id.startsWith("demo-")) {
-            const ref = doc(db, "tenants", tenant.id);
-            updateDoc(ref, {
-              "legal.aiDisclaimerAccepted": true,
-              "legal.acceptedAt": new Date().toISOString()
-            }).catch(console.error);
+            supabase
+              .from("tenants")
+              .update({ legal: { aiDisclaimerAccepted: true, acceptedAt: new Date().toISOString() } })
+              .eq("id", tenant.id)
+              .then(() => {}, (err) => console.error(err));
          }
          
          const userKey = getCurrentUser()?.email || "anonymous";
