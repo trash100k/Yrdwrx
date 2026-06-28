@@ -69,3 +69,4 @@ export const knowledgeRepo = makeRepo("knowledge", { orderBy: { column: "created
 export const designCatalogRepo = makeRepo("design_catalog", { orderBy: { column: "created_at" } });
 export const contractsRepo = makeRepo("contracts", { orderBy: { column: "created_at" } });
 export const inspectionFormsRepo = makeRepo("inspection_forms", { orderBy: { column: "created_at" } });
+export const designVisionsRepo = makeRepo("customer_design_visions", { orderBy: { column: "created_at" } });
