@@ -2,18 +2,8 @@
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 import React, { useState, useEffect, useRef } from "react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  addDoc,
-  serverTimestamp,
-  doc,
-  updateDoc,
-  deleteDoc,
-} from "firebase/firestore";
-import { auth, db, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
+import { auth, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
+import { customersRepo, knowledgeRepo } from "../lib/repos";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import {
   Search,
@@ -105,6 +95,36 @@ function stableIndexFromId(id: string | undefined, n: number): number {
   }
   return Math.abs(h) % n;
 }
+
+// Repos return camelCase columns; some UI/logic fields live in the `data`/`customFields`
+// jsonb (serviceInterest, budget, leadScore) or use a different casing (isHOA vs isHoa).
+// adaptCustomer flattens jsonb + fixes casing for READS (spread jsonb first so real
+// columns win, then add the isHOA alias).
+const adaptCustomer = (r: any) => ({
+  ...(r?.data || {}),
+  ...(r?.customFields || {}),
+  ...r,
+  isHOA: r?.isHoa ?? r?.isHOA,
+});
+
+// Map UI customer fields to columns for WRITES; tuck non-column fields into `data`.
+// RLS + DB defaults handle tenant_id / created_at / updated_at, so those are dropped.
+const toRow = (c: any) => ({
+  firstName: c.firstName,
+  lastName: c.lastName,
+  companyName: c.companyName,
+  email: c.email,
+  phone: c.phone,
+  address: c.address,
+  propertySize: c.propertySize,
+  status: c.status,
+  segment: c.segment,
+  tags: c.tags,
+  notes: c.notes,
+  isHoa: c.isHOA ?? c.isHoa,
+  priority: c.priority,
+  data: { serviceInterest: c.serviceInterest, budget: c.budget, ...(c.data || {}) },
+});
 
 const customerSchema = z.object({
   firstName: z.string().min(2),
@@ -212,9 +232,8 @@ export default function CRM() {
       const data = await res.json();
       setEnrichedData(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
-          semanticEnrichment: data,
-          updatedAt: serverTimestamp(),
+        await customersRepo.update(customer.id, {
+          data: { ...(customer.data || {}), semanticEnrichment: data },
         });
       }
     } catch (err) {
@@ -243,9 +262,8 @@ export default function CRM() {
       const data = await res.json();
       setPropertyInsights(data);
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
-          semanticInsights: data,
-          updatedAt: serverTimestamp(),
+        await customersRepo.update(customer.id, {
+          data: { ...(customer.data || {}), semanticInsights: data },
         });
       }
     } catch (err) {
@@ -284,7 +302,7 @@ export default function CRM() {
     try {
       // In a real app we might batch this
       for (const id of selectedClients) {
-        await deleteDoc(doc(db, "customers", id));
+        await customersRepo.remove(id);
       }
       showToast(`${selectedClients.length} clients deleted successfully`, "success");
       setSelectedClients([]);
@@ -309,7 +327,7 @@ export default function CRM() {
         if (client) {
           const currentTags = client.tags || [];
           const newTags = Array.from(new Set([...currentTags, ...tagList]));
-          await updateDoc(doc(db, "customers", id), { tags: newTags });
+          await customersRepo.update(id, { tags: newTags });
         }
       }
       showToast(`${selectedClients.length} clients tagged successfully`, "success");
@@ -437,7 +455,7 @@ export default function CRM() {
     if (!window.confirm(`Are you sure you want to delete ${selectedCustomer.firstName} ${selectedCustomer.lastName}? This action cannot be undone.`)) return;
     
     try {
-      await deleteDoc(doc(db, "customers", selectedCustomer.id));
+      await customersRepo.remove(selectedCustomer.id);
       showToast("Client deleted successfully", "success");
       setSelectedCustomer(null);
     } catch (error) {
@@ -512,11 +530,15 @@ export default function CRM() {
         return;
       }
       
-      await updateDoc(doc(db, "customers", editCustomer.id), {
-        ...validated.data,
-        updatedAt: serverTimestamp(),
+      await customersRepo.update(editCustomer.id, {
+        firstName: validated.data.firstName,
+        lastName: validated.data.lastName,
+        email: validated.data.email,
+        phone: validated.data.phone,
+        address: validated.data.address,
+        notes: validated.data.notes,
       });
-      
+
       showToast("Client profile updated securely.", "success");
       setShowEditModal(false);
       setSelectedCustomer({ ...selectedCustomer, ...validated.data } as Customer);
@@ -532,43 +554,15 @@ export default function CRM() {
     // Only attempt Firestore connection if we have a real Firebase auth session
     // This prevents "Permission Denied" errors if Anonymous Auth is disabled in console
 
-    let unsubCust = () => {};
-    let unsubKnow = () => {};
+    // Supabase repos scope to the caller's tenant via RLS; subscribe() fires immediately
+    // and on realtime changes, returning an unsubscribe fn (the onSnapshot equivalent).
+    const unsubCust = customersRepo.subscribe((rows) => {
+      setCustomers((rows || []).map(adaptCustomer));
+    });
 
-    const tenantId = tenant?.id || "genesis-1";
-
-    const qCust = query(collection(db, "customers"), where("tenantId", "==", tenantId));
-    unsubCust = onSnapshot(
-      qCust,
-      (snapshot) => {
-        const docs = snapshot.docs.map(
-          (doc) => ({ id: doc.id, ...doc.data() }) as any,
-        );
-        setCustomers(docs);
-      },
-      (error) => {
-        // Only log if it's not a standard permission error while in demo mode
-        if (error.code !== "permission-denied") {
-          handleFirestoreError(error, OperationType.LIST, "customers");
-        } else {
-          // Fallback to mock data silently if permissions are denied
-          /* setCustomers(mockCustomers) removed for strict data model */
-        }
-      },
-    );
-
-    const qKnow = query(collection(db, "knowledge"), where("tenantId", "==", tenantId));
-    unsubKnow = onSnapshot(
-      qKnow,
-      (snapshot) => {
-        setKnowledge(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as any),
-        );
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "knowledge");
-      },
-    );
+    const unsubKnow = knowledgeRepo.subscribe((rows) => {
+      setKnowledge(rows || []);
+    });
 
     return () => {
       unsubCust();
@@ -636,11 +630,7 @@ export default function CRM() {
   const handleUpdateNotes = async (id: string, notes: string) => {
     setIsSavingNotes(true);
     try {
-      const docRef = doc(db, "customers", id);
-      await updateDoc(docRef, {
-        notes,
-        updatedAt: serverTimestamp(),
-      });
+      await customersRepo.update(id, { notes });
       await logSystemEvent("CUSTOMER_NOTES_UPDATED", { customerId: id });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `customers/${id}`);
@@ -661,10 +651,12 @@ export default function CRM() {
       
       if (!res.ok) throw new Error(data.error || 'Failed to generate link');
 
-      const docRef = doc(db, "customers", customer.id);
-      await updateDoc(docRef, {
-        magicLinkSentAt: new Date().toISOString(),
-        magicLinkSentCount: (customer.magicLinkSentCount || 0) + 1,
+      await customersRepo.update(customer.id, {
+        data: {
+          ...(customer.data || {}),
+          magicLinkSentAt: new Date().toISOString(),
+          magicLinkSentCount: (customer.magicLinkSentCount || 0) + 1,
+        },
       });
       setCustomers(
         customers.map((c) =>
@@ -715,12 +707,11 @@ export default function CRM() {
 
       // Store the score and reasoning in Firestore for analytics/persistence
       if (customer.id) {
-        await updateDoc(doc(db, "customers", customer.id), {
+        await customersRepo.update(customer.id, {
           aiScore: data.aiScore,
           aiScoreLabel: data.aiScoreLabel,
           aiScoreReasoning: data.aiScoreReasoning,
-          semanticBriefing: data,
-          updatedAt: serverTimestamp(),
+          data: { ...(customer.data || {}), semanticBriefing: data },
         });
         await logSystemEvent("AI_BRIEFER_SCORE_UPDATED", {
           customerId: customer.id,
@@ -783,21 +774,16 @@ export default function CRM() {
         return;
       }
 
-      const path = "customers";
-      const addPromise = addDoc(collection(db, path), {
-        ...validated.data,
-        status: "lead",
-        tenantId: tenant?.id || "genesis-1",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }).then(async (docRef) => {
-        await logSystemEvent("CUSTOMER_CREATED", {
-          customerId: docRef.id,
-          name: `${newCustomer.firstName} ${newCustomer.lastName}`,
-          tenantId: tenant?.id,
+      const addPromise = customersRepo
+        .create(toRow({ ...validated.data, status: "lead" }))
+        .then(async (row) => {
+          await logSystemEvent("CUSTOMER_CREATED", {
+            customerId: row?.id,
+            name: `${newCustomer.firstName} ${newCustomer.lastName}`,
+            tenantId: tenant?.id,
+          });
+          return row;
         });
-        return docRef;
-      });
 
       await Promise.race([
         addPromise,
@@ -861,7 +847,11 @@ export default function CRM() {
           });
 
           for (const item of imports) {
-            await addDoc(collection(db, "customers"), item);
+            await customersRepo.create({
+              ...toRow(item),
+              aiScore: item.aiScore,
+              aiScoreLabel: item.aiScoreLabel,
+            });
           }
 
           showToast(`Successfully imported ${imports.length} past customers`, "success");
@@ -930,9 +920,9 @@ export default function CRM() {
       }
       
       for (const item of imports) {
-        await addDoc(collection(db, "customers"), item);
+        await customersRepo.create(toRow(item));
       }
-      
+
       showToast(`Imported ${imports.length} contacts from Google Workspace`, "success");
       await logSystemEvent("WORKSPACE_CONTACTS_IMPORTED", { count: imports.length });
     } catch (error) {
@@ -1511,10 +1501,10 @@ export default function CRM() {
                               if (window.confirm("Delete this note?")) {
                                 try {
                                   if (navigator.onLine) {
-                                    await updateDoc(
-                                      doc(db, "knowledge", node.id),
-                                      { isArchived: true, deletedAt: serverTimestamp() }
-                                    );
+                                    await knowledgeRepo.update(node.id, {
+                                      isArchived: true,
+                                      deletedAt: new Date().toISOString(),
+                                    });
                                   }
                                   await logSystemEvent(
                                     "KNOWLEDGE_NODE_DELETED",
@@ -1619,7 +1609,7 @@ export default function CRM() {
                             onChange={async (e) => {
                               const newStatus = e.target.value;
                               try {
-                                await updateDoc(doc(db, "customers", selectedCustomer.id!), { status: newStatus });
+                                await customersRepo.update(selectedCustomer.id!, { status: newStatus });
                                 setSelectedCustomer({...selectedCustomer, status: newStatus});
                                 showToast(`Disposition updated to ${newStatus}`, "success");
                               } catch(err) {
