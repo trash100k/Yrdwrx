@@ -328,6 +328,33 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     }
   };
 
+  // Read back this client's previously-saved visions so they aren't write-only.
+  const [savedVisions, setSavedVisions] = useState<any[]>([]);
+  useEffect(() => {
+    if (!activeCustomer?.id) {
+      setSavedVisions([]);
+      return;
+    }
+    let active = true;
+    designVisionsRepo
+      .list()
+      .then((rows: any[]) => {
+        if (active) setSavedVisions((rows || []).filter((r) => r.customerId === activeCustomer.id));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [activeCustomer?.id, isSavingVision]);
+
+  const reopenVision = (v: any) => {
+    if (!v) return;
+    setResult(v.proposal || null);
+    setImage(v.beforeUrl || null);
+    setMockupImage(v.afterUrl || null);
+    showToast("Loaded saved vision.", "success");
+  };
+
   const [isSavingDrive, setIsSavingDrive] = useState(false);
 
   const handleSaveToDrive = async () => {
@@ -380,6 +407,26 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
               ? `Architecting transformation for ${activeCustomer.firstName} ${activeCustomer.lastName}'s property at ${activeCustomer.address}.`
               : "Upload a photo of the yard, mark what you want changed, and let YardWorx help you design."}
           </p>
+
+          {activeCustomer?.id && savedVisions.length > 0 && (
+            <div className="mt-4 max-w-xl">
+              <p className="text-[10px] font-black uppercase tracking-widest text-forest-400 mb-2">
+                Saved visions for this client — tap to reopen
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {savedVisions.slice(0, 6).map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => reopenVision(v)}
+                    title={v.summary || "Saved vision"}
+                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:border-forest-500/40 hover:bg-forest-500/10 text-xs font-bold text-white/80 transition-all max-w-[240px] truncate"
+                  >
+                    {(v.summary || "Vision").slice(0, 44)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {(role === "admin" || role === "owner") && (
             <div className="flex bg-black p-1 rounded-2xl border-2 border-white/10 mt-8 w-fit">
