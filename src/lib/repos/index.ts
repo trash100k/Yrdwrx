@@ -1,25 +1,15 @@
 // @ts-nocheck
 // Domain repositories — the Supabase data-access seam pages migrate onto.
-// RLS scopes everything to the caller's tenant, so no tenantId filter is needed;
-// new rows get tenant_id stamped via attachTenant().
-import { makeRepo, attachTenant } from "./base";
+// RLS scopes everything to the caller's tenant; makeRepo().create() auto-stamps tenant_id.
+import { makeRepo } from "./base";
 import { supabase } from "../supabase";
-import { auth } from "../firebase";
 
 export { getCurrentProfile, clearProfileCache } from "./profile";
+export { documentsRepo } from "./documents";
 
 // --- Customers (soft-delete enabled) ---
 export const customersRepo = {
   ...makeRepo("customers", { orderBy: { column: "created_at" }, softDelete: true }),
-  async create(row: any) {
-    const { data, error } = await supabase
-      .from("customers")
-      .insert(await attachTenant(row))
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  },
   // Name OR phone lookup (used by Live Ear / on-site flows).
   async findByNameOrPhone(query: string) {
     const q = (query || "").trim();
@@ -40,15 +30,6 @@ export const customersRepo = {
 // --- Tasks ---
 export const tasksRepo = {
   ...makeRepo("tasks", { orderBy: { column: "due_date", ascending: true } }),
-  async create(row: any) {
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert(await attachTenant(row))
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  },
   async complete(id: string) {
     const { error } = await supabase
       .from("tasks")
@@ -57,10 +38,7 @@ export const tasksRepo = {
     if (error) throw error;
   },
   async reopen(id: string) {
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: "pending", completed_at: null })
-      .eq("id", id);
+    const { error } = await supabase.from("tasks").update({ status: "pending", completed_at: null }).eq("id", id);
     if (error) throw error;
   },
 };
@@ -68,15 +46,6 @@ export const tasksRepo = {
 // --- Jobs ---
 export const jobsRepo = {
   ...makeRepo("jobs", { orderBy: { column: "date", ascending: true } }),
-  async create(row: any) {
-    const { data, error } = await supabase
-      .from("jobs")
-      .insert(await attachTenant(row))
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  },
   async forCustomer(customerId: string) {
     const { data, error } = await supabase
       .from("jobs")
@@ -88,18 +57,15 @@ export const jobsRepo = {
   },
 };
 
-// --- Leads (reject = archive, not destroy) ---
-export const leadsRepo = {
-  ...makeRepo("leads", { orderBy: { column: "created_at" } }),
-  async create(row: any) {
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(await attachTenant(row))
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  },
-};
-
-export { documentsRepo } from "./documents";
+// --- Other domains (generic CRUD + realtime; create auto-stamps tenant) ---
+export const leadsRepo = makeRepo("leads", { orderBy: { column: "created_at" } });
+export const invoicesRepo = makeRepo("invoices", { orderBy: { column: "created_at" } });
+export const expensesRepo = makeRepo("expenses", { orderBy: { column: "created_at" } });
+export const reviewsRepo = makeRepo("reviews", { orderBy: { column: "created_at" } });
+export const inventoryRepo = makeRepo("inventory", { orderBy: { column: "created_at" } });
+export const crewsRepo = makeRepo("crews", { orderBy: { column: "created_at" } });
+export const vendorsRepo = makeRepo("vendors", { orderBy: { column: "created_at" } });
+export const knowledgeRepo = makeRepo("knowledge", { orderBy: { column: "created_at" } });
+export const designCatalogRepo = makeRepo("design_catalog", { orderBy: { column: "created_at" } });
+export const contractsRepo = makeRepo("contracts", { orderBy: { column: "created_at" } });
+export const inspectionFormsRepo = makeRepo("inspection_forms", { orderBy: { column: "created_at" } });

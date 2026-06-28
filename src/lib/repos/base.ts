@@ -61,7 +61,8 @@ export function makeRepo<T = any>(table: string, opts: RepoOptions = {}) {
   }
 
   async function create(row: Partial<T>): Promise<T> {
-    const { data, error } = await supabase.from(table).insert(row).select().single();
+    // Stamp the caller's tenant_id so RLS WITH CHECK passes (idempotent if already set).
+    const { data, error } = await supabase.from(table).insert(await attachTenant(row as any)).select().single();
     if (error) throw error;
     return data as T;
   }
