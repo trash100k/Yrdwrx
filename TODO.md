@@ -234,6 +234,39 @@ greenfield. Cite the line when building so it's reuse, not aspiration.*
 ## Part B — Fast-follow 🟠
 *Right after the first client; finishes the PARTIAL/STUB surface and the operability gaps.*
 
+### CRM completeness gaps (delete / reset / persistence) — from a live audit
+> Do these as part of cutting CRM over to Supabase repos (so persistence + the gaps land together).
+> 🔴 = broken/data-loss-risk · 🟠 = missing-but-expected.
+
+**Persistence holes (UI-only today — buttons with no handler / mock data):**
+- [ ] 🔴 **Tasks** (`CRMTasks.tsx`): "New Task" button has **no handler**; complete-toggle updates **local
+  state only** (not saved). No create / edit / delete / assign / due-date. Needs a Postgres `tasks` table + full CRUD.
+- [ ] 🔴 **Jobs** (`CRMJobs.tsx`): "+ New Job" + "View Details" have **no handlers**; **mock data**, no
+  persistence. No create / edit / delete / status-change / reschedule / reassign. (Jobs exist as a real
+  collection elsewhere — wire CRMJobs to it.)
+- [ ] 🔴 **Documents** (`CRMDocuments.tsx`): Upload / download / preview / delete buttons have **no
+  handlers**; mock data. Needs Storage upload + delete + list.
+
+**Delete / restore safety:**
+- [ ] 🔴 **Customers hard-delete with no undo** (`CRM.tsx:410` single, `:257` bulk via `window.confirm`).
+  Add **soft-delete** (`is_archived` / `deleted_at` on the `customers` table — not present in schema yet)
+  + a Restore/Trash view. Same for **Leads reject = hard delete** (`LeadVerificationPanel.tsx:34`) → archive instead.
+- [ ] 🟠 **Restore / undo** missing everywhere; **Knowledge** soft-deletes (`CRM.tsx:1478`) but has **no
+  restore UI** and no edit.
+
+**Reset / bulk management:**
+- [ ] 🟠 **No "reset / clear demo data"** action (seed data can't be wiped from the UI) — needed before a real tenant goes live.
+- [ ] 🟠 **No reset pipeline** (stages hard-coded `Pipeline.tsx:11-16`; no customize/rename/reset/clear).
+- [ ] 🟠 **Bulk ops partial:** bulk delete + bulk tag exist (`CRM.tsx:248,270`); **missing** bulk
+  status-change, bulk reassign-owner, bulk tag-remove.
+- [ ] 🟠 **Merge duplicate customers** — none.
+- [ ] 🟠 **Custom fields** (`CRMCustomFields.tsx`): no inline value edit (delete + re-add only), no field
+  types, no rename, no reorder.
+- [ ] 🟠 **Campaigns/outreach** (`AutonomousCampaigns.tsx`, `AgenticOutreachDrawer.tsx`): approve/send is
+  toast-only — **no persistence, no send log, no schedule, no unsubscribe/CAN-SPAM**.
+- [ ] 🟢 **Customer Map** (`CustomerMap.tsx`): not a real map (grid placeholder; needs Maps key + clustering).
+
+
 - [ ] **Finish PARTIAL features:** Contracts persistence (`Contracts.tsx` — UI only, no Firestore);
   RouteOptimizer optimize path (`/api/workflows/routing` — validate end-to-end); Agent workflow
   execution + AgentLabs (Deep Research / Video) — UI present, orchestration mocked; InventoryForecast
