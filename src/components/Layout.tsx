@@ -201,6 +201,7 @@ export default function Layout() {
 
   const [hiddenMobileNav, setHiddenMobileNav] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const gChordRef = useRef(0); // timestamp of the last "g" press for chord nav
   const { scrollY } = useScroll({ container: scrollRef });
 
   useMotionValueEvent(scrollY, "change", (latest) => {
@@ -276,14 +277,36 @@ export default function Layout() {
         setIsBrainOpen(prev => !prev);
       }
       
-      // Global navigation shortcuts
-       if (e.key.toLowerCase() === "c" && !e.metaKey && !e.ctrlKey && e.target instanceof HTMLElement && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
-           // Basic navigation shortcut example: If someone types "gc", we handled the "g" part via a state context typically, but for simplicity:
+      // "G then <key>" chord navigation (e.g. G then C -> CRM).
+      const typing =
+        e.target instanceof HTMLElement &&
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          (e.target as HTMLElement).isContentEditable);
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !typing) {
+        const k = e.key.toLowerCase();
+        if (k === "g") {
+          gChordRef.current = Date.now();
+          return;
+        }
+        if (Date.now() - gChordRef.current < 1200) {
+          const dest: Record<string, string> = {
+            d: "",
+            c: "/crm",
+            s: "/scheduler",
+            i: "/invoices",
+            r: "/routing",
+          };
+          if (k in dest) {
+            gChordRef.current = 0;
+            navigate(`${rolePrefix}${dest[k]}`);
+          }
+        }
       }
     };
     document.addEventListener("keydown", handleGlobalShortcuts);
     return () => document.removeEventListener("keydown", handleGlobalShortcuts);
-  }, []);
+  }, [rolePrefix, navigate]);
 
   const toggleGroup = (group: string) => {
     setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));

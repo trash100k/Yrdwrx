@@ -1163,6 +1163,44 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Live weather for the Dashboard "Weather Shield". Returns real data when
+  // OPENWEATHER_API_KEY is set; otherwise reports unavailable (no fake temps).
+  // Accepts ?lat=&lon= or ?q=City; falls back to DEFAULT_WEATHER_CITY.
+  app.get("/api/weather", async (req: any, res: any) => {
+    const key = process.env.OPENWEATHER_API_KEY;
+    if (!key) {
+      return res.json({ configured: false, temp: null, condition: "Weather unavailable" });
+    }
+    try {
+      const { lat, lon, q } = req.query;
+      const city = (q as string) || process.env.DEFAULT_WEATHER_CITY || "Austin,US";
+      const url =
+        lat && lon
+          ? `https://api.openweathermap.org/data/2.5/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&units=imperial&appid=${key}`
+          : `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=imperial&appid=${key}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error("weather upstream " + r.status);
+      const d: any = await r.json();
+      const main = d?.weather?.[0]?.main || "Clear";
+      const high = main === "Rain" || main === "Thunderstorm" || main === "Snow";
+      res.json({
+        configured: true,
+        temp: typeof d?.main?.temp === "number" ? Math.round(d.main.temp) : null,
+        condition: main,
+        description: d?.weather?.[0]?.description || main,
+        location: d?.name || (typeof city === "string" ? city : null),
+        windMph: d?.wind?.speed != null ? Math.round(d.wind.speed) : null,
+        delayRisk: high ? "HIGH" : "LOW",
+        forecast: high
+          ? `${main} expected — consider rescheduling outdoor crews.`
+          : `Clear conditions. Good window for treatments and aeration.`,
+      });
+    } catch (e: any) {
+      console.error("weather error", e?.message);
+      res.json({ configured: false, temp: null, condition: "Weather unavailable" });
+    }
+  });
+
   // WORKFLOW ZERO-TOUCH REORDER
   app.post("/api/workflows/reorder", async (req, res) => {
     try {

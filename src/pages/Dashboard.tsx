@@ -2156,7 +2156,7 @@ export default function Dashboard() {
                         {tenant?.settings?.neighborhoodMask?.[0] || "Local Area"} Forecast
                       </h4>
                     </div>
-                    {weather?.temp ? (
+                    {weather?.temp != null ? (
                       <div className="text-right">
                         <p className="text-2xl sm:text-3xl sm:text-4xl font-extrabold text-white">
                           {weather.temp}°F
@@ -2167,11 +2167,11 @@ export default function Dashboard() {
                       </div>
                     ) : (
                       <div className="text-right">
-                        <p className="text-2xl sm:text-3xl sm:text-4xl font-extrabold text-white">
-                          78°F
+                        <p className="text-2xl sm:text-3xl font-extrabold text-zinc-600">
+                          —
                         </p>
                         <p className="text-xs text-zinc-500 font-bold tracking-wider mt-1 uppercase">
-                          Clear
+                          {weather?.condition || "Weather unavailable"}
                         </p>
                       </div>
                     )}
@@ -2179,7 +2179,9 @@ export default function Dashboard() {
 
                   <div className="bg-zinc-900 border border-white/5 molten-edge p-4 rounded-xl text-xs text-zinc-400 leading-relaxed font-semibold">
                     {weather?.forecast ||
-                      "Clear microclimate active. Perfect window for targeted herbicide applications and grass aeration."}
+                      (weather?.configured === false
+                        ? "Add an OpenWeather API key to see live forecast guidance for your crews."
+                        : "Live forecast guidance will appear here.")}
                   </div>
 
                   <div className="flex items-center text-xs text-forest-400 gap-1.5 font-bold uppercase tracking-wider">

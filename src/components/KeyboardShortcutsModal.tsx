@@ -20,12 +20,15 @@ export const KeyboardShortcutsModal = ({ isOpen, onClose }: { isOpen: boolean; o
   }, [isOpen, onClose]);
 
   const shortcuts = [
-    { key: "Cmd + K", label: "Global Command Search" },
-    { key: "?", label: "Show Keyboard Shortcuts" },
+    { key: "Cmd + K", label: "Command palette" },
+    { key: "Cmd + B", label: "Ask YardPilot (AI)" },
+    { key: "?", label: "Show keyboard shortcuts" },
+    { key: "G then D", label: "Go to Dashboard" },
     { key: "G then C", label: "Go to CRM" },
     { key: "G then S", label: "Go to Scheduler" },
+    { key: "G then I", label: "Go to Invoices" },
+    { key: "G then R", label: "Go to Route Optimizer" },
     { key: "Esc", label: "Close active modal / menu" },
-    { key: "Cmd + B", label: "Ask YardPilot (AI Brain)" },
   ];
 
   return (

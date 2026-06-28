@@ -48,8 +48,13 @@ export interface ScanResult {
 
 export interface WeatherInfo {
   condition: string;
-  temp: number;
+  temp: number | null;
   forecast?: string;
+  configured?: boolean;
+  description?: string;
+  location?: string | null;
+  windMph?: number | null;
+  delayRisk?: "HIGH" | "LOW";
 }
 
 export interface Customer {

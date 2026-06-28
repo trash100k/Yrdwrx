@@ -522,66 +522,6 @@ export default function BrainChat({
         return;
     }
 
-    if (currentQuery.includes("campaign") || currentQuery.includes("outreach")) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "Initializing generative outreach campaign. Sourcing leads in a 20 mile radius and compiling personalized offers. The sequence will begin shortly.",
-          },
-        ]);
-        return;
-    }
-
-    if (currentQuery.includes("verify system alignment") || currentQuery.includes("compliance protocol")) {
-      setIsLoading(true);
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "System check complete. Operational parameters are strictly aligned. Data vectors remain fully isolated. Active restrictions: [No unverified agent loops], [No PII spillage]. You are clear to proceed.",
-          },
-        ]);
-        setIsLoading(false);
-      }, 4000);
-      return;
-    }
-
-    if (currentQuery.includes("draft a secure client estimate") || currentQuery.includes("draft estimate")) {
-      setIsLoading(true);
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "Accessing internal pricing matrix. I've drafted a standard landscaping estimate based on your historical averages for a 1/2 acre property. Please verify the numbers before sending to the client.",
-          },
-        ]);
-        setIsLoading(false);
-      }, 3500);
-      return;
-    }
-
-    if (currentQuery.includes("summarize the crm database securely") || currentQuery.includes("audit crm")) {
-      setIsLoading(true);
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            sender: "agent",
-            text: "Sanitizing identifiable headers... Your CRM holds 214 total clients. Analysis indicates a 14% drop in active recurring services this quarter. I've highlighted the unassigned accounts in your dashboard.",
-          },
-        ]);
-        setIsLoading(false);
-      }, 4500);
-      return;
-    }
-
     // Real agentic action? Route it through the shared executor so the text agent DOES
     // things (create contact / job / invoice / expense / etc.), not just answer questions.
     const intent = detectAgentIntent(userMessage.text);
@@ -757,32 +697,25 @@ export default function BrainChat({
                     </p>
                   </div>
                   <div className="flex flex-wrap justify-center gap-3">
+                    {/* Honest example prompts — they pre-fill the composer; you edit + send,
+                        and the agent actually performs the action. */}
                     <button
-                      onClick={() => {
-                        setQuery("Verify system alignment and compliance protocol");
-                        setTimeout(() => handleQuery(), 100);
-                      }}
+                      onClick={() => setQuery("Add a lead named ")}
                       className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black transition-all"
                     >
-                      Security Check
+                      Add a lead
                     </button>
                     <button
-                      onClick={() => {
-                        setQuery("Draft a secure client estimate");
-                        setTimeout(() => handleQuery(), 100);
-                      }}
+                      onClick={() => setQuery("Schedule a mowing for ")}
                       className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black transition-all"
                     >
-                      Draft Estimate
+                      Schedule a job
                     </button>
                     <button
-                      onClick={() => {
-                        setQuery("Summarize the CRM database securely");
-                        setTimeout(() => handleQuery(), 100);
-                      }}
+                      onClick={() => setQuery("Draft an invoice for  for $")}
                       className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white hover:text-black transition-all"
                     >
-                      Audit CRM
+                      Draft an invoice
                     </button>
                   </div>
                 </div>
