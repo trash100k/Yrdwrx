@@ -240,13 +240,9 @@ greenfield. Cite the line when building so it's reuse, not aspiration.*
 > 🔴 = broken/data-loss-risk · 🟠 = missing-but-expected.
 
 **Persistence holes (UI-only today — buttons with no handler / mock data):**
-- [ ] 🔴 **Tasks** (`CRMTasks.tsx`): "New Task" button has **no handler**; complete-toggle updates **local
-  state only** (not saved). No create / edit / delete / assign / due-date. Needs a Postgres `tasks` table + full CRUD.
-- [ ] 🔴 **Jobs** (`CRMJobs.tsx`): "+ New Job" + "View Details" have **no handlers**; **mock data**, no
-  persistence. No create / edit / delete / status-change / reschedule / reassign. (Jobs exist as a real
-  collection elsewhere — wire CRMJobs to it.)
-- [ ] 🔴 **Documents** (`CRMDocuments.tsx`): Upload / download / preview / delete buttons have **no
-  handlers**; mock data. Needs Storage upload + delete + list.
+- [x] ✅ **Tasks** (`CRMTasks.tsx`): full CRUD + persisted complete/reopen + due/priority/assignee via `tasksRepo`.
+- [x] ✅ **Jobs** (`CRMJobs.tsx`): create/edit/delete + status transitions + reschedule + reassign via `jobsRepo`.
+- [x] ✅ **Documents** (`CRMDocuments.tsx`): upload (Firebase Storage) + list + download + delete via `documentsRepo`.
 
 **Delete / restore safety:**
 - [ ] 🔴 **Customers hard-delete with no undo** (`CRM.tsx:410` single, `:257` bulk via `window.confirm`).
