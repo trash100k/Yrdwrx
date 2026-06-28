@@ -13,7 +13,14 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-28 (later) — **architecture decision changed to FULL SUPABASE AUTH** (see
+> _Last updated: 2026-06-28 (later still) — **first-run experience hardened by mobile simulation.**
+> Caught + fixed a production boot crash (Firebase init threw `auth/invalid-api-key` at module load
+> when running Supabase-only → blank screen); made the guided walkthrough **tappable** (quick-reply
+> chips so a tech-illiterate contractor never types during onboarding); fixed the onboarding progress
+> bar (3 segments for a 4-step flow); and **hardened `/api/tenants/provision`** against invited-member
+> role escalation. Verified the full new-user DB-build chain (signup trigger → onboarding gate →
+> provision → idempotent rich seed) end-to-end. See **Part F → First-run** below. Previously:_
+> _2026-06-28 (later) — **architecture decision changed to FULL SUPABASE AUTH** (see
 > the backend note above). Landed: the Firebase→Supabase Auth migration (client + server + signup
 > provisioning trigger), the **unified agent action executor** (Live Ear voice + copilot text both
 > perform real RLS-scoped mutations: create contact/job/invoice/quote/expense, gate codes, inventory
@@ -586,6 +593,31 @@ reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status 
       / no localStorage-only authz; real jobs/invoices/designs/messages; fabricated proposal removed.
       `magic-link/generate` now owner-authed + tenant-scoped. **Requires `SUPABASE_SERVICE_ROLE_KEY`**
       on the server to run. (Stripe checkout + invoice-paid webhook also moved to Supabase.)
+
+### First-run experience (new-user onboarding + walkthrough) — verified by mobile sim
+> Simulated the new-user journey headless on a 390×844 viewport in the tech-illiterate-contractor
+> mindset. The chain is: signup → `handle_new_user` trigger (fresh tenant + owner profile,
+> `agreements_accepted=false`, `legal.aiDisclaimerAccepted=false`) → App.tsx gate shows `Onboarding.tsx`
+> → `POST /api/tenants/provision` (sets agreements + disclaimer, idempotently seeds rich starter data)
+> → Dashboard → `Layout` auto-opens the `CuttyChat` walkthrough after 2.5s → tour prompt → property
+> type → bottleneck → dashboard personalization → guided `CuttyGuide` tour.
+- [x] **Boot crash fixed.** `src/lib/firebase.ts` called `initializeAuth()` with an empty apiKey →
+      `auth/invalid-api-key` thrown at module load → blank app in Supabase-only mode. Now Firestore
+      (projectId-only) always inits so legacy `collection(db,…)` calls don't throw at render;
+      auth/storage/analytics guarded behind a real apiKey; exports keep their non-null type contract.
+- [x] **Walkthrough is tappable.** Added big quick-reply chips for every guided stage
+      (disclaimer / tour prompt / property type / bottleneck) in `CuttyChat.tsx` — no typing required.
+      `handleQuery` takes an `overrideText` so chips drive the state machine; keyboard/voice still work.
+- [x] **Onboarding progress bar** fixed (`[1,2,3]` → `[1,2,3,4]` for the 4-step flow).
+- [x] **Provision hardened** against invited-member role escalation: preserves an existing profile's
+      role (only brand-new self-serve signups default to `owner`); a non-owner can only record their
+      own disclaimer acceptance, not clobber tenant fields or seed demo data.
+- [x] **DB seed verified rich + idempotent:** 3 customers (HOA rules + gate codes in `data`), 3 jobs
+      (SCHEDULED/IN_PROGRESS/COMPLETED), 2 crews, 2 leads, 2 vendors, 5 inventory items, 2 invoices.
+- [ ] **Invited-employee onboarding UX** — an invited employee currently sees the *owner* business-setup
+      form (now harmless server-side, but wrong UX). Route non-owners to a lighter agreements-only step.
+- [ ] **Live-key tour pass** — re-run the sim against a real Gemini/Supabase key to confirm the tour
+      tooltips render the step copy (sim showed the spotlight; a stray demo toast overlapped it).
 
 ### Auth follow-ups (post-switch)
 - [ ] **"Connect Google" buttons** still call Firebase `signInWithPopup` for Calendar/Gmail scopes
