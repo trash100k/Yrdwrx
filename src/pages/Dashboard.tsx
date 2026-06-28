@@ -150,6 +150,31 @@ function computeAnalytics(invoices: any[], crews: any[], hotLeads: any[]) {
   return { weekly, missed, missedCount: unpaid.length, onSite, crewTotal: (crews || []).length, openLeads: (hotLeads || []).length };
 }
 
+// Real operational alerts from live data — overdue/unpaid billing + leads to follow up.
+function computeAlerts(invoices: any[], hotLeads: any[]) {
+  const toDate = (t: any) => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
+  const now = new Date();
+  const out: { type: string; label: string; text: string; level: string }[] = [];
+  const inv = invoices || [];
+  const overdue = inv.filter((i) => {
+    const s = String(i?.status || "").toLowerCase();
+    if (s === "overdue") return true;
+    if (s === "sent" || s === "unpaid") { const d = toDate(i.dueDate || i.due_date); return d && d < now; }
+    return false;
+  });
+  if (overdue.length) {
+    const sum = overdue.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    out.push({ type: "BILLING", label: "Overdue invoices", text: `${overdue.length} invoice${overdue.length === 1 ? "" : "s"} past due — ${usd0(sum)} outstanding.`, level: "high" });
+  }
+  const unpaid = inv.filter((i) => ["sent", "unpaid", "draft"].includes(String(i?.status || "").toLowerCase()));
+  if (!overdue.length && unpaid.length) {
+    out.push({ type: "BILLING", label: "Open invoices", text: `${unpaid.length} invoice${unpaid.length === 1 ? "" : "s"} awaiting payment.`, level: "medium" });
+  }
+  const leads = (hotLeads || []).length;
+  if (leads) out.push({ type: "SALES", label: "New leads", text: `${leads} lead${leads === 1 ? "" : "s"} awaiting follow-up.`, level: "medium" });
+  return out;
+}
+
 // Top revenue services from paid invoices (empty => widget shows its labeled sample).
 function computeTopServices(invoices: any[]) {
   const paid = (invoices || []).filter((i) => String(i?.status || "").toLowerCase() === "paid");
@@ -213,6 +238,7 @@ export default function Dashboard() {
   const earnings = computeEarnings(invoices);
   const analytics = computeAnalytics(invoices, crews, hotLeads);
   const topServices = computeTopServices(invoices);
+  const alerts = computeAlerts(invoices, hotLeads);
 
   
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -2427,7 +2453,7 @@ export default function Dashboard() {
               {activeWidgets.alerts && (
                 <div style={{ order: widgetOrder.indexOf("alerts") }} className="col-span-1 md:col-span-1 lg:col-span-1 h-full min-h-[300px]">
                   <Suspense fallback={<div className="h-full min-h-[300px] rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} />
+                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} alerts={alerts} />
                   </Suspense>
                 </div>
               )}
@@ -2533,7 +2559,7 @@ export default function Dashboard() {
                 )}
                 {activeWidgets.alerts && (
                   <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border border-white/5" />}>
-                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} />
+                    <AlertsWidget isReel={false} flexOrder={widgetOrder.indexOf("alerts")} alerts={alerts} />
                   </Suspense>
                 )}
                 {activeWidgets.design && (

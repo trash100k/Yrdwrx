@@ -448,8 +448,9 @@ sweep, and a text/copy consistency scan). Newly-surfaced concrete work, prioriti
   `EarningsWidget` (14-day paid series + MTD totals, "Live" badge w/ labeled "Sample" fallback),
   **Top Services** (top paid-invoice services + revenue share, LIVE/SAMPLE badge), and the **Analytics
   stat cards** (Weekly Earnings, Crew Status, Open Leads, Outstanding Billing — all computed from
-  invoices/crews/leads) are now real. _Remaining: `AlertsWidget` still sample (needs a real alerting
-  engine — weather/fuel/HOA signals)._
+  invoices/crews/leads) are now real. `AlertsWidget` now shows REAL action items (overdue/open
+  invoices + leads awaiting follow-up) with an "All clear" empty state — no Dashboard widget renders
+  fabricated data anymore. _Optional later: add weather/equipment signals to the alert feed._
 - [ ] 🟠 **`crews` widget has no empty state** (`Dashboard.tsx:2087`) — new tenant sees an empty box.
 - [ ] 🟢 `EarningsWidget.tsx:28` conflicting `md:w-full md:w-[450px]`; `WidgetConfigurator.tsx:91`
   malformed `shadow-[...]` (spaces → silently no-ops); `Tabs.tsx:13` `w-max` overflows mobile w/ no
