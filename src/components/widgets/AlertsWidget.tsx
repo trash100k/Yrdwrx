@@ -10,7 +10,7 @@ export default function AlertsWidget({ isReel, flexOrder }: { isReel: boolean, f
       style={flexOrder !== undefined ? { order: flexOrder } : undefined}
       className={
         isReel
-          ? "relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6 flex flex-col justify-between w-[85vw] md:w-full md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
+          ? "relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6 flex flex-col justify-between w-[85vw] md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
           : "bg-zinc-950 border border-white/5 molten-edge rounded-2xl sm:rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6 flex flex-col justify-between"
       }
     >
@@ -18,9 +18,12 @@ export default function AlertsWidget({ isReel, flexOrder }: { isReel: boolean, f
         <span className="text-xs md:text-[10px] font-bold text-amber-500 tracking-widest uppercase">
           System Compliance Pulse
         </span>
-        <h4 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">
-          Compliance Logs
-        </h4>
+        <div className="flex items-center gap-2">
+          <h4 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">
+            Compliance Logs
+          </h4>
+          <span className="text-[9px] text-amber-400/80 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md uppercase tracking-widest">Sample</span>
+        </div>
       </div>
 
       <div className="space-y-4 my-2 flex-1 overflow-y-auto max-h-[200px] pr-1 custom-scrollbar">

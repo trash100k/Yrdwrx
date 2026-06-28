@@ -13,7 +13,8 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-28 — reconciled to the work landing this session: server hardening
+> _Last updated: 2026-06-28 — added **Part E** (audit findings: landscaper feature gaps, widget/UI
+> health, text/copy) and kicked off the quick-wins batch. Earlier this session: server hardening
 > (playground gated, threats admin-only, fail-fast `JWT_SECRET`, IPv6 limiter, tenant-scoped caches,
 > env-driven CSP), auth restoration behind `VITE_REQUIRE_AUTH`/`REQUIRE_AUTH` + the tenant
 > provisioning endpoint, real billing (tenant-safe Stripe + `application_fee` + ACH + subscribe) and
@@ -398,6 +399,68 @@ satellite tiles) to neutralize the gap. _Open question — see `MARKET_RESEARCH.
 
 > Most table-stakes form-fit gaps (QuickBooks, payments, recurring billing, online booking,
 > time-tracking) were **promoted to launch blockers in [A7](#a7--market-table-stakes-for-a-credible-launch--from-market_researchmd)** — they're no longer "later" backlog.
+
+---
+
+## Part E — Audit findings (2026-06-28): features · widgets · text
+
+From a three-part audit (landscaper feature gaps vs `MARKET_RESEARCH.md`, a widget/UI health
+sweep, and a text/copy consistency scan). Newly-surfaced concrete work, prioritized.
+
+### E1 — Landscaper feature gaps (what a real operator still can't do)
+*Ties to A7; this is the verified status after this session's billing/payment work.*
+
+- [ ] 🔴 **QuickBooks Online sync** — the moat; **entirely missing** (no `/api/quickbooks`, no UI).
+  Ship one-way first (customers/invoices/payments/items → QBO).
+- [ ] 🔴 **Customer recurring / seasonal billing + contract auto-renew** — `/api/stripe/subscribe`
+  only bills the SaaS tier, not the contractor billing *their* customers monthly. `Contracts` has
+  an `mrr` field but no billing engine. Build scheduled invoices / Stripe subscriptions on the
+  connected account with `application_fee_percent`.
+- [ ] 🔴 **Two-way SMS** — outbound only (`/api/sms/send`). Add a Twilio inbound webhook →
+  conversation thread (reuse the `messages` table from migration 0006).
+- [ ] 🟠 **Online booking / instant-quote public intake** — no customer-facing form that creates a
+  CRM lead (only the internal `LeadSubmissionModal` + magic-link portal).
+- [ ] 🟠 **Crew time-tracking → payroll** — no clock-in/out timesheets (payroll is an AI draft via
+  `/api/workflows/payroll`; `CrewSuite` has geofence only). Add a `timesheets` table + clock UI.
+- [ ] 🟠 **Estimate e-signature → auto-convert to job + invoice** — Design Studio quotes are real +
+  catalog-grounded and `Compliance` captures signatures, but the "client signs the estimate →
+  job+invoice created" loop doesn't exist.
+- [ ] 🟠 **Route optimization on real data** — `RouteOptimizer` uses **sample** stops; wire to real
+  job/customer geocodes (`/api/workflows/routing`).
+- [ ] 🟢 **Reviews → Google Business Profile** ingest/post-back; **Inventory POs/reordering** persistence
+  (AI suggests; nothing is saved/sent).
+- [ ] 🟢 **Aerial/satellite property measurement** — strategic build-vs-partner gap (see Part D).
+
+### E2 — Widget / UI health (from the widget audit)
+- [ ] 🔴 **`LiveInventoryFeed.tsx:95-150` renders NaN with real data** — reads `item.quantity`/
+  `minQuantity`/`unit` but real docs have `stock` (typed at `:16`); low-stock condition is always
+  false. Map the real `stock`/threshold/unit fields.
+- [ ] 🔴 **`pb-safe` is undefined → no safe-area padding** (`Layout.tsx:796`, `ConsentBanner.tsx:31`).
+  With `viewport-fit=cover`, the fixed bottom nav is occluded by the phone home indicator. Define
+  `.pb-safe { padding-bottom: env(safe-area-inset-bottom); }` in `src/index.css`.
+- [ ] 🟠 **Hardcoded numbers labeled "Live Audit Syncing" / "AI GENERATED"** — `EarningsWidget`,
+  `AlertsWidget`, Dashboard "Top Services" (`Dashboard.tsx:1980`), Analytics stat cards (`:2384-2435`).
+  Wire to real data or relabel honestly as samples.
+- [ ] 🟠 **`crews` widget has no empty state** (`Dashboard.tsx:2087`) — new tenant sees an empty box.
+- [ ] 🟢 `EarningsWidget.tsx:28` conflicting `md:w-full md:w-[450px]`; `WidgetConfigurator.tsx:91`
+  malformed `shadow-[...]` (spaces → silently no-ops); `Tabs.tsx:13` `w-max` overflows mobile w/ no
+  scroll; `StockDepletionChart.tsx` is fully hardcoded; icon-only buttons missing `aria-label`
+  (widget hide buttons, `WidgetConfigurator`, `Modal`/`Drawer` close, `DailyBriefing`).
+
+### E3 — Text / copy (from the text scan)
+- [ ] 🟠 **Brand drift in user-facing strings** — leftover **"Meridian"** (`Layout.tsx` ×4, `App.tsx`,
+  server `"Meridian Green CRM"` log), `package.json` still `react-example`. Decide whether **"Cutty"**
+  (assistant persona, `CuttyGuideContext`/`CuttyChat`/`LiveEar`) stays or becomes YardWorx. Sweep.
+- [ ] 🟠 **Scary/jargon copy shown to users** — security 403 bodies (`"Governance & Compliance
+  Violation…"`, `"Lineage Violation"`), `"Neural Design Vision"`. Soften user-facing wording.
+- [ ] 🟢 **i18n is shallow** — `useTranslate` + `aiOmnilingual` translate chat/messages, not UI chrome
+  (hardcoded English). **Formatting ad-hoc** — mix of `toLocaleString` vs raw concat; some raw ISO
+  dates surface to users. Centralize currency/date formatting.
+- [x] ✅ Text overflow is mostly guarded (97 `truncate`/`line-clamp`/`min-w-0` across 30 files).
+
+> **Quick-wins batch (in progress):** E2 `LiveInventoryFeed` NaN, `pb-safe`, hardcoded-widget
+> relabel + `crews` empty state, `WidgetConfigurator`/`EarningsWidget`/`Tabs` fixes; E3 403-copy
+> softening + Meridian→YardWorx sweep.
 
 ---
 

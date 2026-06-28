@@ -128,7 +128,7 @@ export default function Settings() {
       icon: Activity,
       description: "Business intelligence and metric dashboards.",
       subSettings: [
-        { id: "liveEarAlwaysOn", label: "Meridian Ear (Always-On)", desc: "Enable ambient voice tracking for hands-free management." },
+        { id: "liveEarAlwaysOn", label: "Live Ear (Always-On)", desc: "Enable ambient voice tracking for hands-free management." },
         { id: "visionAnalysis", label: "AI Vision Analysis", desc: "Enable computer vision to spot diseases / measure lots." }
       ]
     },

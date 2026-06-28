@@ -1974,7 +1974,7 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3 pb-3 border-b border-white/10 molten-edge">
                            <TrendingUp className="text-forest-400" size={20} />
                            <h5 className="text-sm font-bold text-white uppercase tracking-wider">Top Services</h5>
-                           <span className="ml-auto text-[10px] bg-forest-500/20 text-forest-400 px-2 py-0.5 rounded-full font-bold">AI GENERATED</span>
+                           <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">SAMPLE</span>
                         </div>
                         <div className="space-y-3">
                            {[
@@ -2116,6 +2116,14 @@ export default function Dashboard() {
                   </div>
 
                   <div className="space-y-4">
+                    {crews.length === 0 && (
+                      <div className="border border-dashed border-white/10 rounded-xl p-6 text-center">
+                        <p className="text-sm font-bold text-white/60">No crews yet</p>
+                        <p className="text-xs text-zinc-500 mt-1">
+                          Add a crew in Crew Suite to see live site progress here.
+                        </p>
+                      </div>
+                    )}
                     {crews.slice(0, 2).map((crew) => (
                       <div
                         key={crew.id}
@@ -2125,13 +2133,17 @@ export default function Dashboard() {
                           <span className="font-bold text-white text-sm">
                             {crew.name}
                           </span>
-                          <span className="text-xs text-forest-400 font-bold">
-                            {crew.progress}%
-                          </span>
+                          {(crew.progress ?? null) !== null && (
+                            <span className="text-xs text-forest-400 font-bold">
+                              {crew.progress}%
+                            </span>
+                          )}
                         </div>
-                        <p className="text-xs text-zinc-400 font-semibold">
-                          Location: {crew.job}
-                        </p>
+                        {(crew.job || crew.status) && (
+                          <p className="text-xs text-zinc-400 font-semibold">
+                            {crew.job ? `Location: ${crew.job}` : crew.status}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2376,6 +2388,9 @@ export default function Dashboard() {
       ) : (
         // DEEP INTEL / INFO FREAK VIEW (Tab 2: Analytics)
         <section className="space-y-12 animate-fadeIn">
+          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 w-max">
+            Sample analytics — illustrative figures pending live reporting
+          </div>
           {/* Main detailed high density stats */}
           <div
             id="analytics-dense-stats"

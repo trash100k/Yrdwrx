@@ -25,7 +25,7 @@ export default function EarningsWidget({ isReel, flexOrder }: { isReel: boolean,
       style={flexOrder !== undefined ? { order: flexOrder } : undefined}
       className={
         isReel
-          ? "relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-2xl space-y-8 flex flex-col justify-between w-[85vw] md:w-full md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
+          ? "relative bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-5 sm:p-8 shadow-2xl space-y-8 flex flex-col justify-between w-[85vw] md:w-[450px] max-w-full shrink-0 snap-start h-[500px]"
           : "bg-zinc-950 border border-white/5 molten-edge rounded-2xl sm:rounded-2xl p-5 sm:p-8 col-span-1 lg:col-span-2 shadow-2xl space-y-8 flex flex-col justify-between"
       }
     >
@@ -38,8 +38,8 @@ export default function EarningsWidget({ isReel, flexOrder }: { isReel: boolean,
             Active Inflow Progress
           </h4>
         </div>
-        <div className="text-xs text-zinc-500 font-bold bg-zinc-900 border border-white/5 molten-edge px-4 py-2 rounded-xl">
-          Live Audit Syncing
+        <div className="text-xs text-amber-400/80 font-bold bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-xl uppercase tracking-widest">
+          Sample
         </div>
       </div>
 

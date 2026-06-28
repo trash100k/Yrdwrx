@@ -555,7 +555,7 @@ export async function createApp({ startListening = false } = {}) {
     ];
     if (blockedExtensions.some(ext => url.includes(ext))) {
       logThreat(req.ip || '', "Restricted Binary/File Requested", req.url);
-      return res.status(403).json({ error: "Enterprise Governance Violation: Restricted file type requested." });
+      return res.status(403).json({ error: "This request was blocked for security reasons (restricted file type)." });
     }
 
     // 2. Anti-Pentesting / Advanced Injection Detection (DAX, SQL, NoSQL, XSS, Path Traversal)
@@ -575,14 +575,14 @@ export async function createApp({ startListening = false } = {}) {
     if (allThreats.some(pattern => rawPayload.includes(pattern) || url.includes(pattern))) {
        logThreat(req.ip || '', "Injection/Pentest Payload", req.url);
        console.warn(`[ENTERPRISE SECURITY EVENT] Potential Injection or Pentest detected from IP ${req.ip} on route ${req.url}`);
-       return res.status(403).json({ error: "Governance & Compliance Violation: Malicious payload structure detected. Event logged." });
+       return res.status(403).json({ error: "This request was blocked for security reasons." });
     }
 
     // 3. Strict Request Origin & Lineage enforcement
     if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       const contentType = req.headers['content-type'];
       if (!contentType || !contentType.includes('application/json')) {
-         return res.status(415).json({ error: "Lineage Violation: Strict JSON application required for mutation endpoints." });
+         return res.status(415).json({ error: "Requests must use Content-Type: application/json." });
       }
     }
 
@@ -3857,7 +3857,7 @@ export async function createApp({ startListening = false } = {}) {
   if (!startListening) return app;
 
   const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Meridian Green CRM running on http://localhost:${PORT}`);
+    console.log(`YardWorx running on http://localhost:${PORT}`);
   });
 
   // WebSocket Server for Live Ear

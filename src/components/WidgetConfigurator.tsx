@@ -88,7 +88,7 @@ export default function WidgetConfigurator({
       </div>
 
       {easyModeWidget && (
-        <div className="mb-4 bg-forest-500/10 border-2 border-forest-500/30 rounded-xl p-4 flex items-center justify-between transition-colors shadow-[0_0_15px_rgba(5, 168, 69,0.1)]">
+        <div className="mb-4 bg-forest-500/10 border-2 border-forest-500/30 rounded-xl p-4 flex items-center justify-between transition-colors shadow-[0_0_15px_rgba(5,168,69,0.1)]">
            <div className="flex items-center gap-4">
              <div className="p-2 rounded-lg bg-forest-500 text-white shadow-lg">
                 <easyModeWidget.icon size={18} />
