@@ -1,8 +1,7 @@
 // @ts-nocheck
 
 import { useState, useEffect } from "react";
-import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../lib/firebase";
+import { getCurrentUser } from "../lib/supabase";
 import { fetchApi } from "../lib/api";
 import { clearProfileCache } from "../lib/repos/profile";
 import { motion, AnimatePresence } from "motion/react";
@@ -133,7 +132,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       // caller's owner profile, and business settings via the service role — uniqueness
       // is enforced there, so there is no more shared 'genesis-1' fallback or client-side
       // tenant/settings seeding.
-      if (auth.currentUser) {
+      if (getCurrentUser()) {
         try {
           const res = await fetchApi("/api/tenants/provision", {
             method: "POST",
@@ -142,6 +141,12 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
               companyName: formData.companyName,
               tier: "free",
               loadDemoData: formData.loadDemoData,
+              settings: {
+                serviceArea: formData.serviceArea,
+                services: formData.services,
+                ownerName: formData.ownerName,
+                ownerPhone: formData.ownerPhone,
+              },
             }),
           });
 
@@ -150,13 +155,15 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             return;
           }
 
-          // Force the app to re-resolve identity/tenant against the freshly created records.
+          // Force the app to re-resolve identity/tenant against the freshly updated records.
           clearProfileCache();
           onComplete();
         } catch (e) {
           console.error("Failed to provision tenant", e);
           setError("We couldn't finish setting up your workspace. Please try again.");
         }
+      } else {
+        setError("Your session expired. Please sign in again to finish setup.");
       }
     }
   };
@@ -231,9 +238,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <div 
                     onClick={() => handleDictation("companyName")}
                     className={`absolute right-6 top-1/2 -translate-y-1/2 cursor-pointer transition-colors ${
-                      isListening === "companyName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
+                      activeDictationField ==="companyName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
                     }`} 
-                    title={isListening === "companyName" ? "Listening..." : "Use Voice Dictation"}
+                    title={activeDictationField ==="companyName" ? "Listening..." : "Use Voice Dictation"}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                   </div>
@@ -255,9 +262,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <div 
                     onClick={() => handleDictation("ownerName" as any)}
                     className={`absolute right-6 top-1/2 -translate-y-1/2 cursor-pointer transition-colors ${
-                      isListening === "ownerName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
+                      activeDictationField ==="ownerName" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
                     }`} 
-                    title={isListening === "ownerName" ? "Listening..." : "Use Voice Dictation"}
+                    title={activeDictationField ==="ownerName" ? "Listening..." : "Use Voice Dictation"}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                   </div>
@@ -281,9 +288,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <div 
                     onClick={() => handleDictation("ownerPhone")}
                     className={`absolute right-6 top-1/2 -translate-y-1/2 cursor-pointer transition-colors ${
-                      isListening === "ownerPhone" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
+                      activeDictationField ==="ownerPhone" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
                     }`} 
-                    title={isListening === "ownerPhone" ? "Listening..." : "Use Voice Dictation"}
+                    title={activeDictationField ==="ownerPhone" ? "Listening..." : "Use Voice Dictation"}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                   </div>{" "}
@@ -346,9 +353,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                     <div 
                       onClick={() => handleDictation("serviceArea")}
                       className={`cursor-pointer transition-colors ${
-                        isListening === "serviceArea" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
+                        activeDictationField ==="serviceArea" ? "text-red-500 animate-pulse" : "text-white/20 hover:text-forest-400"
                       }`} 
-                      title={isListening === "serviceArea" ? "Listening..." : "Use Voice Dictation"}
+                      title={activeDictationField ==="serviceArea" ? "Listening..." : "Use Voice Dictation"}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                     </div>

@@ -938,32 +938,81 @@ export async function createApp({ startListening = false } = {}) {
     });
   });
 
-  // Provision a NEW tenant + owner profile for a signup (service-role; bypasses RLS).
-  // Replaces the old client-side write that collided every company into 'genesis-1'.
+  // Finish onboarding (service-role; bypasses RLS). IDEMPOTENT: the signup trigger already
+  // created a tenant + owner profile, so we REUSE that tenant (update its name/settings) and
+  // flip the profile's agreements_accepted -> true (which is what gates the app). Only creates
+  // a tenant if one somehow doesn't exist yet. Optionally seeds starter "practice" data.
   app.post("/api/tenants/provision", async (req: any, res) => {
     try {
-      const { companyName, tier = "free", loadDemoData = false } = req.body || {};
+      const { companyName, tier = "free", loadDemoData = false, settings = {} } = req.body || {};
       if (!companyName || typeof companyName !== "string") return res.status(400).json({ error: "companyName required" });
       const uid = req.user?.uid;
       if (REQUIRE_AUTH && !uid) return res.status(401).json({ error: "Unauthorized" });
       const sb = getServiceSupabase();
       if (!sb) return res.status(503).json({ error: "Provisioning unavailable: SUPABASE_SERVICE_ROLE_KEY not configured", code: "PROVISION_UNAVAILABLE" });
       const safeTier = ["free", "pro", "enterprise"].includes(tier) ? tier : "free";
-      const tenantId = crypto.randomUUID();
       const email = req.user?.email || null;
       const isPlatformAdmin = !!(email && process.env.PLATFORM_OWNER_EMAIL && email === process.env.PLATFORM_OWNER_EMAIL);
+      const tenantSettings = {
+        serviceArea: settings.serviceArea || null,
+        services: Array.isArray(settings.services) ? settings.services : [],
+        ownerName: settings.ownerName || null,
+        ownerPhone: settings.ownerPhone || null,
+      };
 
-      const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier });
-      if (tErr) throw tErr;
+      // Reuse the tenant the signup trigger created, if present.
+      let tenantId: string | null = null;
+      if (uid) {
+        const { data: prof } = await sb.from("profiles").select("tenant_id").eq("firebase_uid", uid).maybeSingle();
+        tenantId = prof?.tenant_id || null;
+      }
+      if (tenantId) {
+        await sb.from("tenants").update({ name: companyName, tier: safeTier, settings: tenantSettings }).eq("id", tenantId);
+      } else {
+        tenantId = crypto.randomUUID();
+        const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier, settings: tenantSettings });
+        if (tErr) throw tErr;
+      }
       if (uid) {
         const { error: pErr } = await sb.from("profiles").upsert(
-          { firebase_uid: uid, tenant_id: tenantId, role: "owner", email, agreements_accepted: true, is_platform_admin: isPlatformAdmin },
+          { firebase_uid: uid, tenant_id: tenantId, role: "owner", email, display_name: settings.ownerName || undefined, agreements_accepted: true, is_platform_admin: isPlatformAdmin },
           { onConflict: "firebase_uid" },
         );
         if (pErr) throw pErr;
-        try { await sb.from("business_settings").upsert({ firebase_uid: uid, tenant_id: tenantId, company_name: companyName, onboarding_complete: true }, { onConflict: "firebase_uid" }); } catch (e) {}
+        try { await sb.from("business_settings").upsert({ firebase_uid: uid, tenant_id: tenantId, company_name: companyName, onboarding_complete: true, data: tenantSettings }, { onConflict: "firebase_uid" }); } catch (e) {}
       }
-      res.json({ tenantId, profile: { tenant_id: tenantId, role: "owner" }, demoDataRequested: !!loadDemoData });
+
+      // Optional starter dataset so a brand-new owner can see how YardWorx works immediately.
+      let demoDataLoaded = false;
+      if (loadDemoData && tenantId) {
+        try {
+          const { data: existing } = await sb.from("customers").select("id").eq("tenant_id", tenantId).limit(1);
+          if (!existing || existing.length === 0) {
+            const { data: custs } = await sb.from("customers").insert([
+              { tenant_id: tenantId, first_name: "Maria", last_name: "Gable", email: "maria@example.com", phone: "555-0101", address: "12 Oak St", status: "active", is_hoa: false },
+              { tenant_id: tenantId, first_name: "Tom", last_name: "Rivera", email: "tom@example.com", phone: "555-0102", address: "44 Pine Ave", status: "lead" },
+              { tenant_id: tenantId, company_name: "Cedar Ridge HOA", email: "board@cedarridge.org", phone: "555-0103", address: "Cedar Ridge", status: "active", is_hoa: true },
+            ]).select();
+            const c0 = custs?.[0]?.id || null;
+            await sb.from("jobs").insert([
+              { tenant_id: tenantId, customer_id: c0, title: "Weekly Mowing", status: "SCHEDULED", date: new Date(Date.now() + 86400000).toISOString(), address: "12 Oak St", data: { client: "Maria Gable" } },
+              { tenant_id: tenantId, customer_id: c0, title: "Spring Cleanup", status: "COMPLETED", date: new Date(Date.now() - 7 * 86400000).toISOString(), address: "12 Oak St", data: { client: "Maria Gable", snapshotNotes: "Beds mulched, hedges trimmed." } },
+            ]);
+            await sb.from("inventory").insert([
+              { tenant_id: tenantId, name: "Hardwood Mulch", quantity: 40, unit: "bags", category: "Bulk", min_threshold: 10 },
+              { tenant_id: tenantId, name: "Fertilizer 24-0-6", quantity: 12, unit: "bags", category: "Consumables", min_threshold: 5 },
+              { tenant_id: tenantId, name: "Trimmer Line", quantity: 8, unit: "spools", category: "Hardware", min_threshold: 4 },
+              { tenant_id: tenantId, name: "Mower Fuel", quantity: 20, unit: "gallons", category: "Fuel", min_threshold: 10 },
+            ]);
+            if (c0) await sb.from("invoices").insert([{ tenant_id: tenantId, customer_id: c0, amount: 280, status: "sent", items: [{ description: "Spring Cleanup", quantity: 1, rate: 280 }], data: { client: "Maria Gable" } }]);
+            demoDataLoaded = true;
+          }
+        } catch (e: any) {
+          console.warn("Demo seed failed:", e?.message);
+        }
+      }
+
+      res.json({ tenantId, profile: { tenant_id: tenantId, role: "owner" }, demoDataLoaded });
     } catch (e: any) {
       console.error("Provision error:", e?.message || e);
       res.status(500).json({ error: e?.message || "Provision failed" });
