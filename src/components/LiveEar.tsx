@@ -18,6 +18,12 @@ import { motion, AnimatePresence } from "motion/react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { useToast } from "../contexts/ToastContext";
+import {
+  customersRepo,
+  jobsRepo,
+  invoicesRepo,
+  leadsRepo,
+} from "../lib/repos";
 
 import { useFieldMode } from "../contexts/FieldModeContext";
 
@@ -33,6 +39,13 @@ export default function LiveEar() {
   const [lastAction, setLastAction] = useState<Record<string, any> | null>(
     null,
   );
+  // Loaded customer (from load_client_data) — carried across follow-up actions.
+  const [loadedCustomer, setLoadedCustomer] = useState<Record<
+    string,
+    any
+  > | null>(null);
+  // Human-readable result of the most recently executed action.
+  const [lastResult, setLastResult] = useState<string>("");
   // Running log of detected actions (most recent first) for the customer-facing panel
   const [actionLog, setActionLog] = useState<
     { id: number; name: string; args: Record<string, any>; at: number }[]
@@ -238,6 +251,110 @@ let stream;
     nextStartTimeRef.current = startTime + buffer.duration;
   };
 
+  // Actually run the detected voice tool-call against the data layer.
+  // Each branch is independently guarded so a single failure never crashes the panel.
+  const executeAction = async (call: Record<string, any>) => {
+    const name = call?.name;
+    const args = call?.args || {};
+    try {
+      switch (name) {
+        case "load_client_data": {
+          const query = args.clientName || args.name || "";
+          const matches = await customersRepo.findByNameOrPhone(query);
+          if (matches && matches.length > 0) {
+            const c = matches[0];
+            setLoadedCustomer(c);
+            const full = `${c.first_name || ""} ${c.last_name || ""}`.trim();
+            setLastResult(`Customer found: ${full || query}`);
+          } else {
+            setLoadedCustomer(null);
+            setLastResult("No match — create lead?");
+          }
+          break;
+        }
+        case "create_lead": {
+          const leadName =
+            [args.firstName, args.lastName].filter(Boolean).join(" ") ||
+            args.name ||
+            "New Lead";
+          await leadsRepo.create({ name: leadName, notes: args.notes });
+          setLastResult(`Lead created: ${leadName}`);
+          showToast("Lead created", leadName, "success");
+          break;
+        }
+        case "schedule_job": {
+          const jobRow: Record<string, any> = {
+            title: args.serviceType || "Service",
+            status: "SCHEDULED",
+            date: args.date || null,
+          };
+          if (loadedCustomer?.id) jobRow.customer_id = loadedCustomer.id;
+          await jobsRepo.create(jobRow);
+          setLastResult(`Job scheduled: ${jobRow.title}`);
+          showToast("Job scheduled", jobRow.title, "success");
+          break;
+        }
+        case "create_invoice": {
+          const amount = Number(args.amount) || 0;
+          await invoicesRepo.create({
+            amount,
+            status: "DRAFT",
+            data: { serviceDescription: args.serviceDescription },
+          });
+          setLastResult(`Invoice drafted: $${amount}`);
+          showToast("Invoice created", `Draft for $${amount}`, "success");
+          break;
+        }
+        case "add_client_note": {
+          if (loadedCustomer?.id) {
+            const note = args.note || "";
+            const merged =
+              (loadedCustomer.notes ? loadedCustomer.notes + "\n" : "") + note;
+            const updated = await customersRepo.update(loadedCustomer.id, {
+              notes: merged,
+            });
+            setLoadedCustomer(updated || { ...loadedCustomer, notes: merged });
+            setLastResult("Note added to client");
+            showToast("Note added", note, "success");
+          } else {
+            setLastResult("No client loaded — say the client name first");
+            showToast(
+              "No client loaded",
+              "Load a client before adding a note.",
+              "info",
+            );
+          }
+          break;
+        }
+        case "build_design_vision":
+        case "enter_field_mode": {
+          setLastResult("Opening Design Studio…");
+          showToast("Opening Design Studio…", "", "info");
+          if (loadedCustomer) {
+            navigate("/design-studio", { state: { customer: loadedCustomer } });
+          } else {
+            navigate("/design-studio");
+          }
+          break;
+        }
+        default: {
+          // Unknown — already logged to the actions panel; nothing to execute.
+          break;
+        }
+      }
+    } catch (err: any) {
+      console.error("LiveEar: action execution failed", name, err);
+      setLastResult(`Action failed: ${prettyActionName(name)}`);
+      try {
+        showToast(
+          "Action failed",
+          err?.message || `Couldn't run ${prettyActionName(name)}`,
+          "error",
+        );
+      } catch {}
+    }
+  };
+
   const handleDetectedAction = (toolCall: Record<string, any>) => {
     if (
       !toolCall ||
@@ -259,6 +376,9 @@ let stream;
         ...prev,
       ].slice(0, 6),
     );
+
+    // Actually execute the detected tool-call against the data layer.
+    void executeAction(call);
 
     // YardWorx Guidance Logic
     if (call.name === "schedule_job") {
@@ -500,6 +620,45 @@ let stream;
                       Listening… speak naturally.
                     </span>
                   )}
+                </p>
+              </div>
+            )}
+
+            {/* Loaded customer card */}
+            {loadedCustomer && (
+              <div className="px-5 pb-4 pt-1 border-t border-white/5">
+                <p className="text-[9px] font-black uppercase text-forest-400 tracking-[0.2em] mb-2 flex items-center gap-1.5">
+                  <Database size={11} /> Customer Found
+                </p>
+                <div className="rounded-xl bg-forest-500/5 border border-forest-500/25 px-3 py-2.5">
+                  <p className="text-[14px] font-bold text-white leading-tight truncate">
+                    {`${loadedCustomer.first_name || ""} ${
+                      loadedCustomer.last_name || ""
+                    }`.trim() || "Unnamed"}
+                  </p>
+                  {loadedCustomer.phone && (
+                    <p className="text-[12px] text-zinc-300 leading-tight mt-1 truncate">
+                      {loadedCustomer.phone}
+                    </p>
+                  )}
+                  {loadedCustomer.address && (
+                    <p className="text-[11px] text-zinc-400 leading-tight mt-0.5 truncate">
+                      {loadedCustomer.address}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Last action result */}
+            {lastResult && (
+              <div className="px-5 pb-3 pt-1 border-t border-white/5">
+                <p className="text-[11px] text-zinc-300 leading-snug flex items-center gap-1.5">
+                  <Sparkles size={11} className="text-forest-400 shrink-0" />
+                  <span className="font-semibold text-white/90">
+                    Last action:
+                  </span>{" "}
+                  {lastResult}
                 </p>
               </div>
             )}

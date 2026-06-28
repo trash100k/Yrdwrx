@@ -2371,7 +2371,35 @@ async function startServer() {
         },
       });
 
-      res.json(parseGeminiJson(response.text));
+      const designResult = parseGeminiJson(response.text) || {};
+      // Catalog-grounded pricing: when the contractor's serviceCatalog is provided, override
+      // the model's invented per-line costs with the contractor's REAL prices wherever a
+      // material/service name matches. This is the trust point — quotes use their numbers.
+      try {
+        const catalog: Array<{ name: string; price: number }> = [];
+        const sc = settings?.serviceCatalog;
+        if (Array.isArray(sc)) {
+          for (const group of sc) {
+            for (const svc of (group?.services || [])) {
+              if (svc?.name && typeof svc.price === "number") catalog.push({ name: String(svc.name).toLowerCase(), price: svc.price });
+            }
+          }
+        }
+        if (catalog.length && Array.isArray(designResult.estimatedMaterials) && !isRestrictedRole) {
+          for (const mat of designResult.estimatedMaterials) {
+            const itemName = String(mat?.item || "").toLowerCase();
+            if (!itemName) continue;
+            const hit = catalog.find((c) => itemName.includes(c.name) || c.name.includes(itemName));
+            if (hit) { mat.estimatedCost = hit.price; mat.priceSource = "catalog"; }
+          }
+        }
+        // Strip costs entirely for restricted roles (defense in depth on top of the prompt).
+        if (isRestrictedRole && Array.isArray(designResult.estimatedMaterials)) {
+          for (const mat of designResult.estimatedMaterials) mat.estimatedCost = 0;
+        }
+      } catch (e) { console.warn("Catalog pricing pass failed:", (e as any)?.message); }
+
+      res.json(designResult);
     } catch (error: any) {
       console.error("Design Process Error:", error);
       res.status(500).json({ error: error.message });
@@ -3524,6 +3552,17 @@ const server = app.listen(PORT, "0.0.0.0", () => {
           tools: [
             {
               functionDeclarations: [
+                {
+                  name: "build_design_vision",
+                  description: "Open the Design Studio to build a live design vision (photo + AI render + tiered quote) for the customer being discussed. Use when the rep talks about redesigning, planting, hardscaping, or showing the customer ideas.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING, description: "The customer this vision is for" },
+                      focus: { type: Type.STRING, description: "What to redesign, e.g. 'front foundation bed'" },
+                    },
+                  },
+                },
                 {
                   name: "schedule_job",
                   description: "Schedule a landscaping job for a client.",
