@@ -7,8 +7,8 @@ import React, { useState, useEffect, Suspense, lazy } from "react";
 import QuickActionMacros from "../components/QuickActionMacros";
 import { motion, AnimatePresence } from "motion/react";
 import WidgetConfigurator from "../components/WidgetConfigurator";
-import { collection, onSnapshot, query, where, addDoc, doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { db, handleFirestoreError, auth } from "../lib/firebase";
+import { crewsRepo, leadsRepo, vendorsRepo, invoicesRepo, customersRepo } from "../lib/repos";
+import { auth } from "../lib/firebase";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
   CloudRain,
@@ -207,23 +207,14 @@ export default function Dashboard() {
   const [invoices, setInvoices] = useState<any[]>([]);
 
   useEffect(() => {
-    const tenantId = tenant?.id || "genesis-1";
+    // RLS scopes every read to the caller's tenant — no tenantId filter needed.
+    // Generic read adapter: surface jsonb `data` fields onto the row (top-level cols win).
+    const adaptRow = (r: any) => ({ ...(r?.data || {}), ...r });
 
-    const unsubCrews = onSnapshot(query(collection(db, 'crews'), where("tenantId", "==", tenantId)), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Crew));
-      setCrews(data);
-    });
-    const unsubLeads = onSnapshot(query(collection(db, 'leads'), where("tenantId", "==", tenantId)), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
-      setHotLeads(data);
-    });
-    const unsubVendors = onSnapshot(query(collection(db, 'vendors'), where("tenantId", "==", tenantId)), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor));
-      setVendors(data);
-    });
-    const unsubInvoices = onSnapshot(query(collection(db, 'invoices'), where("tenantId", "==", tenantId)), (snapshot) => {
-      setInvoices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, () => {});
+    const unsubCrews = crewsRepo.subscribe(rows => setCrews((rows || []).map(adaptRow)));
+    const unsubLeads = leadsRepo.subscribe(rows => setHotLeads((rows || []).map(adaptRow)));
+    const unsubVendors = vendorsRepo.subscribe(rows => setVendors((rows || []).map(adaptRow)));
+    const unsubInvoices = invoicesRepo.subscribe(rows => setInvoices((rows || []).map(adaptRow)));
 
     return () => {
       unsubCrews();
@@ -460,20 +451,21 @@ export default function Dashboard() {
       const firstName = parts[0] || "";
       const lastName = parts.slice(1).join(" ") || "Customer";
 
-      const promise = addDoc(collection(db, "customers"), {
+      const promise = customersRepo.create({
         firstName,
         lastName,
         phone: newClientPhone || "601-555-1212",
         address: newClientAddress || (tenant?.settings?.neighborhoodMask?.[0] || "Local Area"),
         status: "lead",
-        tenantId: tenant?.id || "genesis-1",
         aiScore: 75,
         aiScoreLabel: "New Intake",
-        createdAt: new Date().toISOString(),
-        propertyDetails: {
-          size: "0.5 acres",
-          grassType: "Centipede",
-          features: ["Intake registered via dashboard"],
+        // Non-column fields tucked into the freeform jsonb (passes through untouched).
+        data: {
+          propertyDetails: {
+            size: "0.5 acres",
+            grassType: "Centipede",
+            features: ["Intake registered via dashboard"],
+          },
         },
       });
 

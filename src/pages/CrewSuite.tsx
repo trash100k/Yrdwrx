@@ -2,21 +2,8 @@
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 import React, { useState, useEffect } from "react";
+import { crewsRepo } from "../lib/repos";
 import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  updateDoc,
-  addDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-} from "firebase/firestore";
-import {
-  db,
-  handleFirestoreError,
-  OperationType,
   logSystemEvent,
   auth
 } from "../lib/firebase";
@@ -55,6 +42,30 @@ import { executeAgentAction } from "../lib/agentActions";
 import { ResourceAssignmentModal } from "../components/ResourceAssignmentModal";
 import { ResourceTimeline } from "../components/ResourceTimeline";
 import { TimeClock } from "../components/TimeClock";
+
+// READ adapter: flatten the jsonb `data` bag first, then let real columns win, so
+// data-only fields (currentJob/efficiency/incidents/assignedResources) surface
+// alongside top-level columns without shadowing them.
+const adaptCrew = (r: any) => ({ ...(r?.data || {}), ...r });
+
+// WRITE mapper: real columns top-level; everything without a column is merged into
+// the `data` jsonb (which passes through the repo untouched).
+const toCrewRow = (c: any) => ({
+  name: c.name,
+  status: c.status,
+  leader: c.leader,
+  equip: c.equip,
+  phone: c.phone,
+  job: c.job,
+  progress: c.progress,
+  data: {
+    currentJob: c.currentJob,
+    efficiency: c.efficiency,
+    incidents: c.incidents,
+    assignedResources: c.assignedResources,
+    ...(c.data || {}),
+  },
+});
 
 export default function CrewSuite() {
   const { tenant } = useTenant();
@@ -122,20 +133,11 @@ export default function CrewSuite() {
   }, []);
 
   useEffect(() => {
-    const tenantId = tenant?.id || "genesis-1";
-    const q = query(collection(db, "crews"), where("tenantId", "==", tenantId));
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const docs = snapshot.docs.map(
-          (doc) => ({ id: doc.id, ...doc.data() }) as any,
-        );
-        setCrews(docs);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "crews");
-      },
-    );
+    // Supabase repo scopes to the caller's tenant via RLS; subscribe() fires
+    // immediately and on realtime changes, returning an unsubscribe fn.
+    const unsub = crewsRepo.subscribe((rows) => {
+      setCrews((rows || []).map(adaptCrew));
+    });
 
     return () => unsub();
   }, []);
@@ -151,7 +153,6 @@ export default function CrewSuite() {
       return;
     }
     try {
-      const tenantId = tenant?.id || "genesis-1";
       const crewData = {
         name: newCrew.name,
         leader: newCrew.leader,
@@ -163,11 +164,10 @@ export default function CrewSuite() {
         progress: Number(newCrew.progress) || 0,
         efficiency: 95,
         incidents: 0,
-        tenantId,
-        createdAt: serverTimestamp(),
       };
-      
-      await addDoc(collection(db, "crews"), crewData);
+
+      // create() auto-stamps tenant_id; toCrewRow routes non-column fields into `data`.
+      await crewsRepo.create(toCrewRow(crewData));
       setIsRecruitOpen(false);
       setNewCrew({ name: "", leader: "", phone: "", equip: "", status: "ON_SITE", job: "", progress: 0 });
       showToast({
@@ -197,20 +197,22 @@ export default function CrewSuite() {
       return;
     }
     try {
-      const crewRef = doc(db, "crews", editingCrew.id);
-      const updatedData = {
+      const resolvedJob = editingCrew.job || editingCrew.currentJob || "Idle / Depoted";
+      // Real columns top-level; data-only `currentJob` merged into the crew's existing
+      // `data` (toCrewRow spreads editingCrew.data last so other jsonb fields persist).
+      const updatedData = toCrewRow({
+        ...editingCrew,
         name: editingCrew.name,
         leader: editingCrew.leader,
         phone: editingCrew.phone || "601-555-0100",
         equip: editingCrew.equip || "Hand tools only",
         status: editingCrew.status,
-        job: editingCrew.job || editingCrew.currentJob || "Idle / Depoted",
-        currentJob: editingCrew.job || editingCrew.currentJob || "Idle / Depoted",
+        job: resolvedJob,
+        currentJob: resolvedJob,
         progress: Number(editingCrew.progress) || 0,
-        updatedAt: serverTimestamp(),
-      };
-      
-      await updateDoc(crewRef, updatedData);
+      });
+
+      await crewsRepo.update(editingCrew.id, updatedData);
       setIsEditOpen(false);
       setEditingCrew(null);
       showToast({
@@ -233,8 +235,7 @@ export default function CrewSuite() {
       return;
     }
     try {
-      const crewRef = doc(db, "crews", crewId);
-      await deleteDoc(crewRef);
+      await crewsRepo.remove(crewId);
       setIsEditOpen(false);
       setEditingCrew(null);
       showToast({

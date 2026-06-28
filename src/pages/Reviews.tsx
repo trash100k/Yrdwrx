@@ -1,19 +1,8 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import { useState, useEffect } from "react";
+import { reviewsRepo } from "../lib/repos";
 import {
-  collection,
-  onSnapshot,
-  query,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-  orderBy,
-  where,
-} from "firebase/firestore";
-import {
-  db,
   handleFirestoreError,
   OperationType,
   logSystemEvent,
@@ -55,30 +44,23 @@ export default function Reviews() {
       source?: string;
       createdAt?: string;
       autoReplyDraft?: string;
+      data?: any;
     }[]
   >([]);
   const [activeTab, setActiveTab] = useState("All");
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Surface non-column Firestore-era fields (customerName, platform, source,
+  // autoReplyDraft, summary, isReplied, repliedAt, priority) that now live in the
+  // `data` jsonb. Top-level columns win over data keys of the same name.
+  const adaptReview = (r: any): any => ({ ...(r?.data || {}), ...r });
 
   useEffect(() => {
-    const tenantId = tenant?.id || "genesis-1";
-    const q = query(
-      collection(db, "reviews"),
-      where("tenantId", "==", tenantId),
-      orderBy("createdAt", "desc"),
-    );
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs.map(
-          (d) => ({ id: d.id, ...d.data() }) as any,
-        );
-        setReviews(data);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "reviews");
-      },
-    );
+    const unsubscribe = reviewsRepo.subscribe((rows) => {
+      setReviews((rows || []).map(adaptReview));
+      setLoading(false);
+    });
     return () => unsubscribe();
   }, [tenant]);
 
@@ -91,6 +73,7 @@ export default function Reviews() {
     priority?: boolean;
     aiDraft?: string;
     action?: string;
+    data?: any;
   }) => {
     setIsProcessing(review.id);
     const tenantId = tenant?.id || "genesis-1";
@@ -103,12 +86,15 @@ export default function Reviews() {
       const data = await res.json();
 
       if (navigator.onLine) {
-        await updateDoc(doc(db, "reviews", review.id), {
+        // `sentiment` is a real column; autoReplyDraft/summary have no columns ->
+        // merge into the `data` jsonb (preserving existing data keys).
+        await reviewsRepo.update(review.id, {
           sentiment: data.sentiment,
-          autoReplyDraft: data.autoReplyDraft,
-          summary: data.summary,
-          tenantId,
-          updatedAt: serverTimestamp(),
+          data: {
+            ...(review.data || {}),
+            autoReplyDraft: data.autoReplyDraft,
+            summary: data.summary,
+          },
         });
       } else {
         await syncService.queueAction(
@@ -116,9 +102,11 @@ export default function Reviews() {
           "reviews",
           {
             sentiment: data.sentiment,
-            autoReplyDraft: data.autoReplyDraft,
-            summary: data.summary,
-            updatedAt: new Date().toISOString(),
+            data: {
+              ...(review.data || {}),
+              autoReplyDraft: data.autoReplyDraft,
+              summary: data.summary,
+            },
           },
           tenantId,
           review.id,
@@ -145,24 +133,29 @@ export default function Reviews() {
     priority?: boolean;
     aiDraft?: string;
     action?: string;
+    data?: any;
   }) => {
     const tenantId = tenant?.id || "genesis-1";
     try {
       if (navigator.onLine) {
-        await updateDoc(doc(db, "reviews", review.id), {
-          isReplied: true,
-          repliedAt: serverTimestamp(),
-          tenantId,
-          updatedAt: serverTimestamp(),
+        // isReplied/repliedAt have no columns -> merge into the `data` jsonb.
+        await reviewsRepo.update(review.id, {
+          data: {
+            ...(review.data || {}),
+            isReplied: true,
+            repliedAt: new Date().toISOString(),
+          },
         });
       } else {
         await syncService.queueAction(
           "UPDATE",
           "reviews",
           {
-            isReplied: true,
-            repliedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            data: {
+              ...(review.data || {}),
+              isReplied: true,
+              repliedAt: new Date().toISOString(),
+            },
           },
           tenantId,
           review.id,
@@ -326,8 +319,12 @@ export default function Reviews() {
                       <div className="flex justify-end gap-4 mt-6">
                         <button
                           onClick={async () => {
-                            await updateDoc(doc(db, "reviews", review.id), {
-                              autoReplyDraft: null,
+                            // autoReplyDraft has no column -> merge into `data` jsonb.
+                            await reviewsRepo.update(review.id, {
+                              data: {
+                                ...(review.data || {}),
+                                autoReplyDraft: null,
+                              },
                             });
                           }}
                           className="px-6 py-3 micro-label font-black uppercase text-zinc-500 hover:text-white transition-colors"

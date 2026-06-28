@@ -19,17 +19,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { useFieldMode } from "../contexts/FieldModeContext";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  limit,
-  orderBy,
-  updateDoc,
-  doc,
-} from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { jobsRepo, inspectionFormsRepo, customersRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import JobMap from "./JobMap";
@@ -66,11 +56,8 @@ export default function FieldModeInterface() {
 
   useEffect(() => {
     if (!tenant) return;
-    const q = query(collection(db, `tenants/${tenant.id}/inspection_forms`));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setInspectionForms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
+    const unsub = inspectionFormsRepo.subscribe((rows) => setInspectionForms(rows || []));
+    return () => unsub();
   }, [tenant]);
 
   const [isHighContrast, setIsHighContrast] = useLocalStorage(
@@ -127,14 +114,17 @@ export default function FieldModeInterface() {
     if (!activeJob || !arrivalPhoto || !departurePhoto) return;
     setIsFinishing(true);
     try {
-      await updateDoc(doc(db, "jobs", activeJob.id), {
+      await jobsRepo.update(activeJob.id, {
         status: "COMPLETED",
-        completedAt: new Date().toISOString(),
-        arrivalPhotoUrl: arrivalPhoto,
-        departurePhotoUrl: departurePhoto,
-        snapshotNotes: snapshotResult?.notes || "",
-        varianceFound: snapshotResult?.varianceFound || false,
-        inspectionResponses: formResponses,
+        data: {
+          ...(activeJob.data || {}),
+          completedAt: new Date().toISOString(),
+          arrivalPhotoUrl: arrivalPhoto,
+          departurePhotoUrl: departurePhoto,
+          snapshotNotes: snapshotResult?.notes || "",
+          varianceFound: snapshotResult?.varianceFound || false,
+          inspectionResponses: formResponses,
+        },
       });
       logAction("Field Mode", "Job Completed", `Completed Job ID: ${activeJob.id} (${activeJob.title || "Unknown Job"})`);
       showToast("Job marked as completed.");
@@ -157,33 +147,24 @@ export default function FieldModeInterface() {
   };
 
   useEffect(() => {
-    const tenantId = tenant?.id || "genesis-1";
-    const q = query(
-      collection(db, "jobs"),
-      where("tenantId", "==", tenantId),
-      where("status", "in", ["SCHEDULED", "IN_PROGRESS"]),
-      orderBy("date", "asc"),
-      limit(1),
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const data = snapshot.docs[0].data();
-          setActiveJob({ id: snapshot.docs[0].id, ...data });
-        } else {
-          setActiveJob(null);
-        }
-        setIsLoading(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "jobs");
-        setIsLoading(false);
-      },
-    );
-
-    return () => unsubscribe();
+    // jobs has no columns for photos/notes/gate code — those live in the job's `data` jsonb.
+    const adaptJob = (r) => ({ ...(r?.data || {}), ...r });
+    // RLS scopes to tenant — no tenantId filter needed.
+    const unsub = jobsRepo.subscribe((rows) => {
+      const open = (rows || []).map(adaptJob)
+        .filter(j => j.status === "SCHEDULED" || j.status === "IN_PROGRESS")
+        .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+      const job = open[0] || null;
+      setActiveJob(job);
+      setIsLoading(false);
+      // Surface the client's gate code (the agent's set_gate_code writes it to the customer's data.gateCode).
+      if (job?.customerId) {
+        customersRepo.getById(job.customerId).then((c) => {
+          if (c) setActiveJob((prev) => (prev && prev.id === job.id) ? { ...prev, gateCode: prev.gateCode || c?.data?.gateCode || c?.gateCode || null } : prev);
+        }).catch(() => {});
+      }
+    });
+    return () => unsub();
   }, [tenant]);
 
   if (isLoading) {
