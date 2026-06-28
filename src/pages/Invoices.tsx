@@ -41,6 +41,7 @@ import {
   Eye,
   Zap,
   Printer,
+  Repeat,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
@@ -388,6 +389,32 @@ export default function Invoices() {
     }
   };
 
+  // Set up recurring/seasonal billing for this invoice's customer (Stripe subscription on the
+  // connected account). Opens Stripe Checkout, or confirms a simulated plan without keys.
+  const handleMakeRecurring = async (inv: any) => {
+    const interval = (typeof window !== "undefined" && window.prompt
+      ? window.prompt("Billing interval: weekly, biweekly, monthly, quarterly, seasonal, or yearly", "monthly")
+      : "monthly");
+    if (!interval) return;
+    try {
+      const res = await fetchApi("/api/stripe/recurring/checkout", {
+        method: "POST",
+        body: JSON.stringify({
+          customerId: inv.customerId || inv.clientId || inv.client,
+          amount: inv.amount,
+          description: `Recurring service — ${inv.client || "Customer"}`,
+          interval: String(interval).toLowerCase().trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data?.error || "Could not set up recurring billing.", "error"); return; }
+      if (data?.url || data?.checkoutUrl) { window.location.href = data.url || data.checkoutUrl; return; }
+      showToast(data?.simulated ? `Recurring plan ready (${data.interval}). Connect Stripe to go live.` : "Recurring billing set up.", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Could not set up recurring billing.", "error");
+    }
+  };
+
   const filteredInvoices = useMemo(() => {
     let result = invoices.filter(inv => !inv.isArchived);
     if (quarterFilter === "All") return result;
@@ -583,6 +610,14 @@ export default function Invoices() {
                       ) : (
                         <Download size={18} aria-hidden="true" />
                       )}
+                    </button>
+                    <button
+                      onClick={() => handleMakeRecurring(inv)}
+                      className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-md transition-all"
+                      aria-label={`Set up recurring billing for ${inv.client}`}
+                      title="Set up recurring / seasonal billing"
+                    >
+                      <Repeat size={18} aria-hidden="true" />
                     </button>
                     <button
                       onClick={async () => {

@@ -181,8 +181,10 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
   one-way-now vs two-way at design time — it interacts with the Supabase migration._
 - [ ] **Online payments to the contractor's customers** — card + **ACH** on invoices (extends the
   existing Stripe Connect wiring); branded invoice sent on job completion via SMS/email.
-- [ ] **Recurring / seasonal billing & contract auto-renew** — core to landscaper economics
-  (mowing/maintenance seasons). Pairs with making Contracts real (Part B).
+- [x] ✅ **Recurring / seasonal billing** — `POST /api/stripe/recurring/checkout` creates a
+  subscription-mode Stripe Checkout on the contractor's connected account (weekly→yearly intervals)
+  with the platform `application_fee_percent`; tenant-safe, simulated without keys. UI: a "Recurring"
+  action per invoice in `Invoices.tsx`. Tested. _Follow-up: contract auto-renew + manage/cancel UI._
 - [ ] **Online booking / instant-quote request** — beyond the magic-link portal; a customer-facing
   intake that feeds the CRM pipeline.
 - [ ] **Crew time-tracking → payroll** — clock-in/out tied to jobs (`/api/workflows/payroll` drafts

@@ -1865,6 +1865,61 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Customer recurring / seasonal billing — the contractor bills THEIR customer on a
+  // schedule (mowing/maintenance). Subscription-mode Checkout on the contractor's connected
+  // account with the platform application_fee_percent. Lights up with Stripe keys + a
+  // connected account; degrades to a simulated response otherwise.
+  const RECURRING_INTERVALS: Record<string, { interval: string; interval_count: number }> = {
+    weekly: { interval: "week", interval_count: 1 },
+    biweekly: { interval: "week", interval_count: 2 },
+    monthly: { interval: "month", interval_count: 1 },
+    quarterly: { interval: "month", interval_count: 3 },
+    seasonal: { interval: "month", interval_count: 3 },
+    yearly: { interval: "year", interval_count: 1 },
+  };
+  app.post("/api/stripe/recurring/checkout", async (req: any, res) => {
+    try {
+      const { customerId, amount, description, interval = "monthly", successUrl, cancelUrl } = req.body || {};
+      const recur = RECURRING_INTERVALS[String(interval)];
+      if (!recur) return res.status(400).json({ error: `Invalid interval. Use one of: ${Object.keys(RECURRING_INTERVALS).join(", ")}` });
+      const amt = Math.round(Number(amount) * 100);
+      if (!amt || amt < 50) return res.status(400).json({ error: "A valid recurring amount is required." });
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.json({ simulated: true, message: "Stripe not configured — recurring plan simulated.", interval, amount: Number(amount) });
+      }
+      // Connected account = the contractor's tenant account (server-derived, never the body).
+      const tenant = await resolveTenant(req);
+      const connectedAccount = tenant?.stripe_account_id || null;
+      if (REQUIRE_AUTH && !connectedAccount) {
+        return res.status(503).json({ error: "Connect a Stripe account first (Settings → Stripe).", code: "NO_CONNECTED_ACCOUNT" });
+      }
+      const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: { name: description || "Recurring landscaping service" },
+            unit_amount: amt,
+            recurring: recur,
+          },
+          quantity: 1,
+        }],
+        metadata: { tenantId: tenant?.id || "", customerId: customerId || "", type: "recurring" },
+        subscription_data: {
+          metadata: { tenantId: tenant?.id || "", customerId: customerId || "", type: "recurring" },
+          ...(PLATFORM_FEE_PCT > 0 ? { application_fee_percent: Math.round(PLATFORM_FEE_PCT * 100) } : {}),
+        },
+        success_url: successUrl || `${BASE_URL}/admin/invoices?recurring=created`,
+        cancel_url: cancelUrl || `${BASE_URL}/admin/invoices?recurring=canceled`,
+      }, connectedAccount ? { stripeAccount: connectedAccount } : {});
+      res.json({ checkoutUrl: session.url, url: session.url });
+    } catch (error: any) {
+      console.error("Recurring billing error:", error?.message);
+      res.status(500).json({ error: error?.message || "Could not set up recurring billing." });
+    }
+  });
+
   // API Routes
   app.post("/api/knowledge/ingest", async (req, res) => {
     try {
