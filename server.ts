@@ -484,12 +484,22 @@ export async function createApp({ startListening = false } = {}) {
         case 'checkout.session.completed': {
           const session = event.data.object;
           if (session.metadata && session.metadata.invoiceId) {
+            // Mark paid in Supabase (system of record). Best-effort Firestore mirror too.
+            try {
+              const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+              const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+              if (url && key) {
+                const { createClient } = require("@supabase/supabase-js");
+                await createClient(url, key, { auth: { persistSession: false } })
+                  .from("invoices").update({ status: "paid" }).eq("id", session.metadata.invoiceId);
+              }
+            } catch (e) { console.warn("Supabase invoice mark-paid failed:", (e as any)?.message); }
             try {
               await fdb.collection("invoices").doc(session.metadata.invoiceId).update({
                 status: "paid",
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
               });
-            } catch (e) { console.warn("Invoice mark-paid failed:", (e as any)?.message); }
+            } catch (e) { /* Firestore mirror is best-effort post-cutover */ }
           }
           // SaaS subscription checkout → set tenant tier.
           if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
@@ -1833,33 +1843,22 @@ export async function createApp({ startListening = false } = {}) {
       // account are derived from the source of truth (Firestore) and the webhook can mark
       // the invoice paid. Client-supplied amounts/accounts are never trusted for invoices.
       if (invoiceId) {
+        // Invoices live in Supabase (system of record). Derive the authoritative amount +
+        // the connected account from there — never trust client-supplied values.
         try {
-          const admin = require("firebase-admin");
-          if (!admin.apps.length) {
-             const fs = require("fs");
-             let config = {};
-             if (fs.existsSync('./firebase-applet-config.json')) {
-                const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-                config = { projectId: appletConfig.projectId };
-             }
-             admin.initializeApp(config);
-          }
-          const db = admin.firestore();
-          const invSnap = await db.collection("invoices").doc(invoiceId).get();
-          if (!invSnap.exists) return res.status(404).json({ error: "Invoice not found." });
-          const data = invSnap.data() || {};
-          if (!data.amount) return res.status(400).json({ error: "Invoice has no amount." });
-          finalAmount = data.amount;
+          const sb = getServiceSupabase();
+          if (!sb) return res.status(503).json({ error: "Billing not configured (service role)." });
+          const { data: inv } = await sb.from("invoices").select("amount,tenant_id").eq("id", invoiceId).maybeSingle();
+          if (!inv) return res.status(404).json({ error: "Invoice not found." });
+          if (!inv.amount) return res.status(400).json({ error: "Invoice has no amount." });
+          finalAmount = inv.amount;
           finalDescription = `Invoice ${invoiceId}`;
-          // Derive the connected (contractor) account from the invoice's tenant — not the body.
-          if (data.tenantId) {
-            try {
-              const tSnap = await db.collection("tenants").doc(String(data.tenantId)).get();
-              connectedAccount = tSnap.exists ? (tSnap.data()?.stripeAccountId || null) : null;
-            } catch (e) {}
+          if (inv.tenant_id) {
+            const { data: t } = await sb.from("tenants").select("stripe_account_id").eq("id", inv.tenant_id).maybeSingle();
+            connectedAccount = t?.stripe_account_id || null;
           }
         } catch (e: any) {
-          console.error("Firestore lookup failed for invoice price validation:", e.message);
+          console.error("Supabase lookup failed for invoice price validation:", e.message);
           return res.status(500).json({ error: "Failed to securely validate invoice price." });
         }
       } else if (!isDeposit) {
@@ -4201,19 +4200,39 @@ export async function createApp({ startListening = false } = {}) {
   });
 
   // Magic Links API
-  app.post("/api/auth/magic-link/generate", (req, res) => {
+  // OWNER-ONLY minting: this route requires auth (it's NOT in AUTH_EXCLUDED). We derive the
+  // tenant from the signed-in owner and verify the client belongs to it, then sign a scoped
+  // capability token {clientId, tenantId, scope:"portal"}. Nobody can mint a link for another
+  // tenant's customer, and the token itself carries the scope the portal endpoints enforce.
+  app.post("/api/auth/magic-link/generate", async (req, res) => {
     try {
-      const { clientId, email } = req.body;
+      const { clientId } = req.body;
+      const email = req.body?.email;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
       if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
 
-      const token = jwt.sign({ clientId, email }, JWT_SECRET, { expiresIn: '7d' });
-      // In a real app, send an email here using SendGrid or Mailgun
-      // We will just return the link so the frontend can show it or simulate sending
-      const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
-      
+      let tenantId: string | null = null;
+      const tenant = await resolveTenant(req);
+      if (tenant?.id) {
+        const sb = getServiceSupabase();
+        if (sb) {
+          const { data: cust } = await sb.from("customers").select("id,tenant_id").eq("id", clientId).maybeSingle();
+          if (!cust || cust.tenant_id !== tenant.id) {
+            return res.status(403).json({ error: "Client not found in your workspace" });
+          }
+        }
+        tenantId = tenant.id;
+      } else if (REQUIRE_AUTH) {
+        return res.status(401).json({ error: "Unauthorized" });
+      } else {
+        // Demo mode (no real auth): scope to whatever tenant the demo passes, if any.
+        tenantId = req.body?.tenantId || null;
+      }
+
+      const token = jwt.sign({ clientId, tenantId, email, scope: "portal" }, JWT_SECRET, { expiresIn: "7d" });
+      const magicLink = req.protocol + "://" + req.get("host") + "/portal/auth/" + token;
       res.json({ success: true, token, magicLink });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -4224,10 +4243,131 @@ export async function createApp({ startListening = false } = {}) {
       if (!token) return res.status(400).json({ error: "Token required" });
       if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
 
-      const decoded = jwt.verify(token, JWT_SECRET);
-      res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      res.json({ valid: true, clientId: decoded.clientId, tenantId: decoded.tenantId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
+    }
+  });
+
+  // Verify the portal capability token off the request (header or query). Returns the decoded
+  // {clientId, tenantId, scope} or null. The token is the credential — never trust a clientId
+  // from the body/query; every portal query is scoped to THIS token's clientId.
+  const verifyPortalToken = (req: any) => {
+    const auth = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "");
+    const token = req.headers["x-portal-token"] || auth || req.query?.token;
+    if (!token || !JWT_SECRET) return null;
+    try {
+      const d: any = jwt.verify(token, JWT_SECRET);
+      if (d.scope !== "portal" || !d.clientId) return null;
+      return d;
+    } catch {
+      return null;
+    }
+  };
+
+  // Client portal data — scoped strictly to the token's client. Service-role read (RLS bypass)
+  // but the server enforces the scope, and only whitelisted fields are returned.
+  app.get("/api/portal/data", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal data unavailable (service role not configured)" });
+    try {
+      const clientId = tok.clientId;
+      const [custR, jobsR, invR, msgR, dvR] = await Promise.all([
+        sb.from("customers").select("id,first_name,last_name,company_name,address,email,phone,tenant_id").eq("id", clientId).maybeSingle(),
+        sb.from("jobs").select("id,title,status,date,address,data").eq("customer_id", clientId).order("date", { ascending: false }).limit(50),
+        sb.from("invoices").select("id,amount,status,date,due_date,items,data,is_archived").eq("customer_id", clientId).order("created_at", { ascending: false }).limit(50),
+        sb.from("customer_messages").select("id,sender,text,created_at").eq("customer_id", clientId).order("created_at", { ascending: true }).limit(200),
+        sb.from("customer_design_visions").select("id,summary,before_url,after_url,proposal,created_at").eq("customer_id", clientId).order("created_at", { ascending: false }).limit(10),
+      ]);
+      const cust = custR.data;
+      if (!cust) return res.status(404).json({ error: "Client not found" });
+      if (tok.tenantId && cust.tenant_id && cust.tenant_id !== tok.tenantId) {
+        return res.status(403).json({ error: "Scope mismatch" });
+      }
+      let tenantName = "Your Service Provider", stripeAccountId: string | null = null;
+      try {
+        const { data: t } = await sb.from("tenants").select("name,stripe_account_id").eq("id", cust.tenant_id).maybeSingle();
+        if (t) { tenantName = t.name || tenantName; stripeAccountId = t.stripe_account_id || null; }
+      } catch {}
+      res.json({
+        customer: { id: cust.id, firstName: cust.first_name, lastName: cust.last_name, companyName: cust.company_name, address: cust.address, email: cust.email, phone: cust.phone },
+        tenantName,
+        tenantId: cust.tenant_id,
+        stripeAccountId,
+        jobs: (jobsR.data || []).map((j: any) => ({ id: j.id, title: j.title, status: j.status, date: j.date, address: j.address, notes: j.data?.snapshotNotes || null, departurePhotoUrl: j.data?.departurePhotoUrl || null, completedAt: j.data?.completedAt || null })),
+        invoices: (invR.data || []).filter((i: any) => !i.is_archived).map((i: any) => ({ id: i.id, amount: i.amount, status: i.status, date: i.date, dueDate: i.due_date, items: i.items, client: i.data?.client || null })),
+        messages: msgR.data || [],
+        designs: (dvR.data || []).map((d: any) => ({ id: d.id, summary: d.summary, beforeUrl: d.before_url, afterUrl: d.after_url, proposal: d.proposal, createdAt: d.created_at })),
+      });
+    } catch (e: any) {
+      console.error("portal data error", e?.message);
+      res.status(500).json({ error: "Failed to load portal data" });
+    }
+  });
+
+  // Client -> business message, scoped to the token's client.
+  app.post("/api/portal/message", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal unavailable" });
+    const text = (req.body?.text || "").toString().slice(0, 2000).trim();
+    if (!text) return res.status(400).json({ error: "Message required" });
+    try {
+      const { data: cust } = await sb.from("customers").select("tenant_id").eq("id", tok.clientId).maybeSingle();
+      if (!cust) return res.status(404).json({ error: "Client not found" });
+      await sb.from("customer_messages").insert({ tenant_id: cust.tenant_id, customer_id: tok.clientId, sender: "client", text });
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("portal message error", e?.message);
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  // Client pays one of THEIR invoices. Token-scoped: the invoice must belong to the token's
+  // client; amount + connected account come from Supabase, never the client.
+  app.post("/api/portal/checkout", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const { invoiceId, successUrl, cancelUrl } = req.body || {};
+    if (!invoiceId) return res.status(400).json({ error: "invoiceId required" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Billing not configured" });
+    try {
+      const { data: inv } = await sb.from("invoices").select("amount,tenant_id,customer_id").eq("id", invoiceId).maybeSingle();
+      if (!inv) return res.status(404).json({ error: "Invoice not found" });
+      if (inv.customer_id !== tok.clientId) return res.status(403).json({ error: "Not your invoice" });
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.json({ error: "Stripe key missing. Payment simulated.", simulatedUrl: successUrl || `${BASE_URL}?success=mock` });
+      }
+      let connectedAccount: string | null = null;
+      if (inv.tenant_id) {
+        const { data: t } = await sb.from("tenants").select("stripe_account_id").eq("id", inv.tenant_id).maybeSingle();
+        connectedAccount = t?.stripe_account_id || null;
+      }
+      const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+      const unitAmount = Math.round(Number(inv.amount) * 100);
+      if (!unitAmount || unitAmount < 50) return res.status(400).json({ error: "Invalid amount" });
+      const sessionOptions: any = {
+        payment_method_types: ["card", "us_bank_account"],
+        metadata: { invoiceId },
+        line_items: [{ price_data: { currency: "usd", product_data: { name: `Invoice ${invoiceId}` }, unit_amount: unitAmount }, quantity: 1 }],
+        mode: "payment",
+        success_url: successUrl || `${BASE_URL}?success=true`,
+        cancel_url: cancelUrl || `${BASE_URL}?canceled=true`,
+      };
+      if (connectedAccount && PLATFORM_FEE_PCT > 0) {
+        sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
+      }
+      const requestOptions = connectedAccount ? { stripeAccount: connectedAccount } : {};
+      const session = await stripe.checkout.sessions.create(sessionOptions, requestOptions);
+      res.json({ checkoutUrl: session.url, url: session.url });
+    } catch (e: any) {
+      console.error("portal checkout error", e?.message);
+      res.status(500).json({ error: "Payment failed to start" });
     }
   });
 

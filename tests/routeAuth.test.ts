@@ -6,9 +6,14 @@ import { describe, it, expect } from 'vitest';
 import { isExcludedApiPath, requiresAuth } from '../src/lib/routeAuth';
 
 describe('routeAuth.isExcludedApiPath', () => {
-  it('excludes the magic-link generate/validate routes', () => {
-    expect(isExcludedApiPath('/api/auth/magic-link/generate')).toBe(true);
+  it('excludes magic-link VALIDATE but NOT generate (minting now requires owner auth)', () => {
     expect(isExcludedApiPath('/api/auth/magic-link/validate')).toBe(true);
+    expect(isExcludedApiPath('/api/auth/magic-link/generate')).toBe(false);
+  });
+
+  it('excludes the client-portal namespace (handlers verify the magic-link token)', () => {
+    expect(isExcludedApiPath('/api/portal/data')).toBe(true);
+    expect(isExcludedApiPath('/api/portal/message')).toBe(true);
   });
 
   it('excludes the stripe webhook (raw-body, signature-verified)', () => {
@@ -53,10 +58,15 @@ describe('routeAuth.requiresAuth', () => {
     expect(requiresAuth('/api/playground/chat')).toBe(true);
   });
 
+  it('requires auth for magic-link GENERATE (owner-only minting)', () => {
+    expect(requiresAuth('/api/auth/magic-link/generate')).toBe(true);
+  });
+
   it('does NOT require auth for excluded routes', () => {
     expect(requiresAuth('/api/stripe/webhook')).toBe(false);
     expect(requiresAuth('/api/health')).toBe(false);
-    expect(requiresAuth('/api/auth/magic-link/generate')).toBe(false);
+    expect(requiresAuth('/api/auth/magic-link/validate')).toBe(false);
+    expect(requiresAuth('/api/portal/data')).toBe(false);
   });
 
   it('does NOT require auth for non-/api paths', () => {
