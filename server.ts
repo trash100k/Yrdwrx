@@ -6,7 +6,7 @@ import fs from "fs";
 import crypto from "crypto";
 import cluster from "cluster";
 import os from "os";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { createServer as createViteServer } from "vite";
 import puppeteer from "puppeteer";
 import { GoogleGenAI, Modality, Type, LiveServerMessage, GenerateVideosOperation } from "@google/genai";
@@ -15,8 +15,61 @@ import { Readable } from "stream";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import { validateSafeUrl } from "./src/lib/securityUtils.js";
+import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 
 dotenv.config();
+
+// Thrown by AI surfaces that cannot be meaningfully mocked (audio/video/image bytes,
+// long-running agents) when no GEMINI_API_KEY is present. Handlers map this to a clean
+// 503 so a missing key DEGRADES uniformly instead of throwing an opaque 500.
+class AiUnavailableError extends Error {
+  code: string;
+  constructor(message: string, code = "AI_UNAVAILABLE") {
+    super(message);
+    this.name = "AiUnavailableError";
+    this.code = code;
+  }
+}
+// Standard 503 responder for the above (keeps the ~20 unmockable AI routes consistent).
+function aiUnavailable(res: any, message: string, code = "AI_UNAVAILABLE") {
+  return res.status(503).json({ error: message, code });
+}
+// Map a caught AI error to a clean response: 503 for unmockable surfaces (missing key),
+// 500 otherwise. Use in catch blocks of routes that call media/agent AI surfaces.
+function handleAiError(res: any, e: any, context = "AI request failed") {
+  if (e instanceof AiUnavailableError) {
+    return res.status(503).json({ error: e.message, code: e.code });
+  }
+  console.error(context + ":", e?.message || e);
+  return res.status(500).json({ error: e?.message || context });
+}
+
+// --- Catalog-grounded pricing (the trust point: quotes use the contractor's real numbers,
+// never the model's invented ones; restricted roles get a hard $0 financial air-gap) -------
+function flattenCatalog(settings: any): Array<{ name: string; price: number }> {
+  const out: Array<{ name: string; price: number }> = [];
+  const sc = settings?.serviceCatalog;
+  if (Array.isArray(sc)) {
+    for (const group of sc) for (const svc of (group?.services || [])) {
+      if (svc?.name && typeof svc.price === "number") out.push({ name: String(svc.name).toLowerCase(), price: svc.price });
+    }
+  }
+  return out;
+}
+function groundMaterials(materials: any[], catalog: Array<{ name: string; price: number }>, isRestrictedRole: boolean): number {
+  let total = 0;
+  if (!Array.isArray(materials)) return 0;
+  for (const mat of materials) {
+    if (isRestrictedRole) { mat.estimatedCost = 0; continue; }
+    const itemName = String(mat?.item || "").toLowerCase();
+    if (itemName && catalog.length) {
+      const hit = catalog.find((c) => itemName.includes(c.name) || c.name.includes(itemName));
+      if (hit) { mat.estimatedCost = hit.price; mat.priceSource = "catalog"; }
+    }
+    total += Number(mat?.estimatedCost) || 0;
+  }
+  return total;
+}
 
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
@@ -52,6 +105,20 @@ if (isMockMode) {
   ai.models.generateContent = async (request) => {
     return { text: getMockText(request) };
   };
+  // Root-cause fix for mock-mode 500s: only generateContent was stubbed above, so every
+  // OTHER AI surface (get/generateImages/generateVideos/interactions/operations/live)
+  // hit the real SDK with a bogus key and threw. Stub them consistently:
+  //  - ai.models.get(...).generateContent → route through the mocked generateContent
+  //  - media/agent surfaces that can't be mocked → throw AiUnavailableError (→ 503)
+  // @ts-ignore
+  ai.models.get = (..._args: any[]) => ({ generateContent: ai.models.generateContent });
+  // @ts-ignore
+  ai.models.generateImages = async () => { throw new AiUnavailableError("Image generation requires GEMINI_API_KEY", "MEDIA_UNAVAILABLE"); };
+  // @ts-ignore
+  ai.models.generateVideos = async () => { throw new AiUnavailableError("Video generation requires GEMINI_API_KEY", "VIDEO_UNAVAILABLE"); };
+  // NOTE: ai.interactions / ai.operations / ai.live are getter-only on the SDK and cannot
+  // be reassigned, so the routes that use them guard on isMockMode directly (research/*,
+  // marketing/video-status|download, design/generate-mockup, and the /api/live WS handler).
 }
 
 function getMockText(request: any): string {
@@ -234,11 +301,15 @@ function getMockText(request: any): string {
   return "I'm a mock AI response since the system is running without a GEMINI_API_KEY.";
 }
 
-// ==== PERSISTENT FILE-BASED CACHE FOR GEMINI ====
-const CACHE_FILE = path.join(process.cwd(), ".gemini_cache.json");
+// ==== GEMINI RESPONSE CACHE ====
+// Disk persistence is OPT-IN via GEMINI_CACHE_FILE. On Cloud Run the FS is ephemeral,
+// per-instance, and the container runs as non-root, so a cwd write is wasted work that
+// can also EROFS-fail in the hot path. Default: in-memory only (fast, safe). Set
+// GEMINI_CACHE_FILE=/some/writable/path to persist locally.
+const CACHE_FILE = process.env.GEMINI_CACHE_FILE || "";
 let geminiCache: Record<string, string> = {};
 
-if (fs.existsSync(CACHE_FILE)) {
+if (CACHE_FILE && fs.existsSync(CACHE_FILE)) {
   try {
     geminiCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
     console.log(`[Cache Loaded] Loaded ${Object.keys(geminiCache).length} cached Gemini responses.`);
@@ -247,12 +318,17 @@ if (fs.existsSync(CACHE_FILE)) {
   }
 }
 
+let _cacheWriteTimer: any = null;
 function saveGeminiCache() {
-  try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(geminiCache, null, 2));
-  } catch (err) {
-    console.error("Failed to write gemini cache:", err);
-  }
+  if (!CACHE_FILE) return; // in-memory only
+  // Debounced async write — never block the generateContent hot path on disk IO.
+  if (_cacheWriteTimer) return;
+  _cacheWriteTimer = setTimeout(() => {
+    _cacheWriteTimer = null;
+    fs.writeFile(CACHE_FILE, JSON.stringify(geminiCache), (err) => {
+      if (err) console.error("Failed to write gemini cache:", err);
+    });
+  }, 2000);
 }
 
 const originalGenerateContent = ai.models.generateContent.bind(ai.models);
@@ -278,6 +354,10 @@ ai.models.generateContent = async (request: any) => {
 };
 // =================================================
 
+// Stripe webhook idempotency (per-worker; a shared store is a scale follow-up). Guards
+// against duplicate deliveries double-applying invoice-paid / tier changes.
+const processedStripeEvents = new Set<string>();
+
 // ==== In-Memory API Cache Middlewares ====
 const apiCacheStore = new Map<string, { expires: number; data: any }>();
 
@@ -299,9 +379,12 @@ function cacheApiResponse(durationSeconds: number) {
       );
     }
 
+    // Tenant-scope the cache key so two tenants issuing an identical body (common for
+    // templated CRM/design prompts) never receive each other's cached result (PII bleed).
+    const cacheTenant = req.user?.tenantId || req.user?.tenant_id || req.user?.uid || "anon";
     const key = crypto
       .createHash("sha256")
-      .update(req.originalUrl + "_" + JSON.stringify(req.body || {}))
+      .update(cacheTenant + "|" + req.originalUrl + "_" + JSON.stringify(req.body || {}))
       .digest("hex");
 
     const cached = apiCacheStore.get(key);
@@ -326,7 +409,9 @@ function cacheApiResponse(durationSeconds: number) {
   };
 }
 
-async function startServer() {
+// Exported so tests (supertest) can build the configured app WITHOUT binding a port.
+// Default: do NOT listen (test-safe). The process entrypoint passes startListening:true.
+export async function createApp({ startListening = false } = {}) {
   const app = express();
   app.set('trust proxy', 1);
   const PORT = 3000;
@@ -346,30 +431,76 @@ async function startServer() {
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
       const event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
 
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        
-        // Find invoice or update status securely using admin
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-            const fs = require("fs");
-            let config = {};
-            if (fs.existsSync('./firebase-applet-config.json')) {
-               const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-               config = { projectId: appletConfig.projectId };
-            }
-            admin.initializeApp(config);
-        }
-        
-        // Use session.metadata.invoiceId if we passed it in checkout
-        if (session.metadata && session.metadata.invoiceId) {
-           await admin.firestore().collection("invoices").doc(session.metadata.invoiceId).update({
-             status: "paid",
-             updatedAt: admin.firestore.FieldValue.serverTimestamp()
-           });
-        }
+      // Idempotency: ack duplicates without re-applying.
+      if (processedStripeEvents.has(event.id)) return res.json({ received: true, duplicate: true });
+      processedStripeEvents.add(event.id);
+      if (processedStripeEvents.size > 5000) processedStripeEvents.clear();
+
+      const admin = require("firebase-admin");
+      if (!admin.apps.length) {
+          const fs = require("fs");
+          let config = {};
+          if (fs.existsSync('./firebase-applet-config.json')) {
+             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+             config = { projectId: appletConfig.projectId };
+          }
+          admin.initializeApp(config);
       }
-      
+      const fdb = admin.firestore();
+
+      // Map a Stripe subscription's price/metadata to a tenant tier.
+      const setTenantTier = async (tenantId: string, tier: string) => {
+        if (!tenantId || !tier) return;
+        try { await fdb.collection("tenants").doc(String(tenantId)).update({ tier }); } catch (e) {}
+        // Also reflect into Supabase (system of record) when service-role is configured.
+        try {
+          const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          if (url && key) {
+            const { createClient } = require("@supabase/supabase-js");
+            await createClient(url, key, { auth: { persistSession: false } }).from("tenants").update({ tier }).eq("id", tenantId);
+          }
+        } catch (e) {}
+      };
+
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          const session = event.data.object;
+          if (session.metadata && session.metadata.invoiceId) {
+            try {
+              await fdb.collection("invoices").doc(session.metadata.invoiceId).update({
+                status: "paid",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+            } catch (e) { console.warn("Invoice mark-paid failed:", (e as any)?.message); }
+          }
+          // SaaS subscription checkout → set tenant tier.
+          if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
+            await setTenantTier(session.metadata.tenantId, session.metadata.tier);
+          }
+          break;
+        }
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated': {
+          const sub = event.data.object;
+          const tenantId = sub.metadata?.tenantId;
+          const tier = sub.metadata?.tier || (sub.items?.data?.[0]?.price?.metadata?.tier);
+          if (tenantId && tier && sub.status === "active") await setTenantTier(tenantId, tier);
+          break;
+        }
+        case 'customer.subscription.deleted': {
+          const sub = event.data.object;
+          if (sub.metadata?.tenantId) await setTenantTier(sub.metadata.tenantId, "free");
+          break;
+        }
+        case 'invoice.payment_failed': {
+          console.warn("[BILLING] invoice.payment_failed", event.data.object?.id);
+          break;
+        }
+        default:
+          break;
+      }
+
       res.json({ received: true });
     } catch (err: any) {
       console.error("Stripe Webhook Error:", err.message);
@@ -395,7 +526,16 @@ async function startServer() {
     if (threatLog.length > 200) threatLog.pop();
   };
 
-  app.get("/api/security/threats", (req, res) => {
+  // Threat log is recon data (attacker IPs, probed routes). Admin/owner only — and it is
+  // NO LONGER in the auth-excluded list, so verifyFirebaseToken runs first. In demo mode
+  // (REQUIRE_AUTH off) req.user is absent, so allow it through for the founder dashboard.
+  app.get("/api/security/threats", (req: any, res) => {
+    if (REQUIRE_AUTH) {
+      const role = req.user?.role || req.user?.app_role;
+      if (!req.user || (role !== "admin" && role !== "owner" && !req.user.is_platform_admin)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+    }
     res.json(threatLog);
   });
 
@@ -453,13 +593,40 @@ async function startServer() {
   // Firebase auth is restored in App.tsx (TODO Part A2), so the current mock-admin demo
   // keeps working. Flip REQUIRE_AUTH=true together with restoring onAuthStateChanged.
   const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
+  const IS_PROD = process.env.NODE_ENV === 'production';
+  // Magic-link signing secret. NO hardcoded production fallback (the old literal was in the
+  // public repo → anyone could forge a 7-day client-portal token). Dev gets an ephemeral
+  // secret; prod must set JWT_SECRET or magic links are refused (handlers 503 below).
+  const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD ? "" : "cutty-dev-only-ephemeral-secret");
+  const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
+  const PLATFORM_FEE_PCT = Math.max(0, Number(process.env.PLATFORM_FEE_PCT || 0)); // e.g. 0.02 = 2% platform fee
+
+  // Fail-fast / loud-warn on insecure production config. We do NOT silently fall back to
+  // dev defaults in prod (forgeable magic-links, open API). JWT_SECRET is required whenever
+  // it isn't the dev default; magic-link signing throws below if it's unset in prod.
+  if (IS_PROD) {
+    if (!REQUIRE_AUTH) {
+      console.warn("\n[SECURITY] NODE_ENV=production but REQUIRE_AUTH!=='true' — the API is UNAUTHENTICATED. Set REQUIRE_AUTH=true (and VITE_REQUIRE_AUTH=true) before serving real clients.\n");
+    }
+    if (!process.env.JWT_SECRET) {
+      console.error("[SECURITY] JWT_SECRET is not set in production. Client-portal magic links will be REJECTED until it is configured.");
+    }
+    if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.STRIPE_SECRET_KEY) {
+      console.warn("[BILLING] Stripe keys not fully configured in production; payments/webhooks are disabled.");
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.warn("[DATA] SUPABASE_SERVICE_ROLE_KEY not set; tenant provisioning + AI credit metering are disabled until configured.");
+    }
+  }
+
   const verifyFirebaseToken = async (req: any, res: any, next: any) => {
     // This middleware is mounted at "/api/", so Express strips that prefix from req.path
     // (req.path === "/design/process"). Use the FULL path for route matching, otherwise the
     // "/api/" checks below never match and auth is silently skipped on every route.
     const fullPath = (req.baseUrl || '') + req.path;
-    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
-    if (excludedRoutes.includes(fullPath) || fullPath.startsWith('/api/playground/') || !fullPath.startsWith('/api/')) {
+    // Single source of truth (src/lib/routeAuth.ts, unit-tested). Playground is NO LONGER
+    // bypassed (was open AI-cost abuse) and the threat log is NO LONGER excluded (admin-only).
+    if (!requiresAuth(fullPath)) {
         return next();
     }
     const tokenHeader = req.headers['x-firebase-auth'];
@@ -513,10 +680,11 @@ async function startServer() {
     limit: 100, // Max 100 requests per day per user/IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false, ip: false },
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
     keyGenerator: (req) => {
-      // Use Firebase UID if present (via our verifyFirebaseToken middleware), else IP
-      return (req as any).user?.uid || req.ip;
+      // Use Firebase UID if present (via our verifyFirebaseToken middleware), else the
+      // IPv6-normalized IP (raw req.ip lets a /64 prefix rotate past the cap).
+      return (req as any).user?.uid || ipKeyGenerator((req as any).ip);
     },
     message: { error: "Daily AI generation limit reached (100). Please try again tomorrow." },
   });
@@ -538,6 +706,9 @@ async function startServer() {
   app.use("/api/jobs/", aiLimiter);
   app.use("/api/outbound/", aiLimiter);
   app.use("/api/scheduler/", aiLimiter);
+  app.use("/api/playground/", aiLimiter); // playground hits real Gemini — meter it like every AI route
+  app.use("/api/marketing/", aiLimiter);
+  app.use("/api/research/", aiLimiter);
   app.use("/api/stripe/", strictLimiter);
 
 
@@ -551,8 +722,11 @@ async function startServer() {
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https://*.googleapis.com", "https://*.gstatic.com", "https://maps.googleapis.com"],
         frameSrc: ["'self'", "https://js.stripe.com"],
-        // Important: we allow iframe from any origin in AI Studio
-        frameAncestors: ["*"] 
+        // Clickjacking guard: default to self only. Set FRAME_ANCESTORS (space-separated
+        // origins) to embed elsewhere, e.g. "https://aistudio.google.com". Never ship '*'.
+        frameAncestors: process.env.FRAME_ANCESTORS
+          ? process.env.FRAME_ANCESTORS.split(/\s+/).filter(Boolean)
+          : ["'self'"]
       }
     },
     crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
@@ -569,6 +743,171 @@ async function startServer() {
     },
     hidePoweredBy: true
   }));
+
+  // ===========================================================================
+  // IDENTITY · TENANCY · TIER GATING · AI CREDIT WALLET (production billing seam)
+  // All keyed off the verified token (req.user) — never the request body. The
+  // service-role Supabase client is used ONLY server-side for provisioning/metering
+  // (it bypasses RLS). Everything no-ops safely in demo mode (REQUIRE_AUTH off).
+  // ===========================================================================
+  const TIER_RANK: Record<string, number> = { free: 0, pro: 1, enterprise: 2 };
+  const AI_CREDITS: Record<string, number> = {
+    free: Number(process.env.AI_CREDITS_FREE || 50),
+    pro: Number(process.env.AI_CREDITS_PRO || 1000),
+    enterprise: Number(process.env.AI_CREDITS_ENTERPRISE || 10000),
+  };
+
+  let _serviceSupabase: any = null;
+  function getServiceSupabase() {
+    if (_serviceSupabase !== null) return _serviceSupabase || null;
+    const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) { _serviceSupabase = false; return null; }
+    try {
+      const { createClient } = require("@supabase/supabase-js");
+      _serviceSupabase = createClient(url, key, { auth: { persistSession: false } });
+      return _serviceSupabase;
+    } catch (e) { _serviceSupabase = false; return null; }
+  }
+
+  // Resolve the caller's tenant (+role) from their profile, once per request.
+  async function resolveTenant(req: any) {
+    if (req._tenant !== undefined) return req._tenant;
+    const uid = req.user?.uid;
+    const sb = getServiceSupabase();
+    if (!uid || !sb) { req._tenant = null; return null; }
+    try {
+      const { data: profile } = await sb.from("profiles").select("*").eq("firebase_uid", uid).maybeSingle();
+      if (!profile?.tenant_id) { req._tenant = null; return null; }
+      const { data: tenant } = await sb.from("tenants").select("*").eq("id", profile.tenant_id).maybeSingle();
+      req._tenant = tenant ? { ...tenant, role: profile.role, profile } : null;
+      return req._tenant;
+    } catch (e) { req._tenant = null; return null; }
+  }
+
+  // Tier gate: 403 TIER_REQUIRED when the tenant's tier rank is below `minTier`.
+  function requireTier(minTier: string) {
+    return async (req: any, res: any, next: any) => {
+      if (!REQUIRE_AUTH) return next(); // demo: ungated
+      const tenant = await resolveTenant(req);
+      const tier = tenant?.tier || "free";
+      if ((TIER_RANK[tier] ?? 0) < (TIER_RANK[minTier] ?? 0)) {
+        return res.status(403).json({ error: "TIER_REQUIRED", requiredTier: minTier, currentTier: tier });
+      }
+      next();
+    };
+  }
+
+  // AI credit wallet: 402 INSUFFICIENT_CREDITS when the monthly allotment is exhausted;
+  // charges 1 credit per successful (2xx) AI response. Calendar-month period on the
+  // tenants row (ai_credits_used/ai_credits_period — migration 0007). Fails OPEN if the
+  // service-role client or columns aren't configured yet (so demo/partial setups still run).
+  async function meterCredits(req: any, res: any, next: any) {
+    if (!REQUIRE_AUTH) return next();
+    const sb = getServiceSupabase();
+    const tenant = await resolveTenant(req);
+    if (!sb || !tenant) return next();
+    const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+    const limit = AI_CREDITS[tenant.tier || "free"] ?? AI_CREDITS.free;
+    const used = tenant.ai_credits_period === period ? (tenant.ai_credits_used || 0) : 0;
+    if (used >= limit) {
+      return res.status(402).json({ error: "INSUFFICIENT_CREDITS", limit, used, tier: tenant.tier || "free" });
+    }
+    const originalJson = res.json.bind(res);
+    res.json = (body: any) => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        sb.from("tenants").update({ ai_credits_used: used + 1, ai_credits_period: period }).eq("id", tenant.id).then(() => {}, () => {});
+      }
+      return originalJson(body);
+    };
+    next();
+  }
+
+  // Liveness + mode probe (auth-excluded). Used by SaaSAdminDashboard + deploy checks.
+  app.get("/api/health", (req, res) => {
+    res.json({
+      status: "ok",
+      aiMode: isMockMode ? "mock" : "live",
+      supabase: !!getServiceSupabase(),
+      requireAuth: REQUIRE_AUTH,
+      time: new Date().toISOString(),
+    });
+  });
+
+  // The caller's tenant profile + role. Demo mode returns the canonical demo tenant.
+  app.get("/api/tenants/me", async (req: any, res) => {
+    if (!REQUIRE_AUTH) {
+      return res.json({
+        id: "demo-tenant-1", name: "YardWorx Internal Testing", tier: "enterprise", role: "owner",
+        settings: {}, quotas: {}, stripeAccountId: null, demo: true,
+      });
+    }
+    const tenant = await resolveTenant(req);
+    if (!tenant) return res.status(404).json({ error: "NO_TENANT" });
+    res.json({
+      id: tenant.id, name: tenant.name, tier: tenant.tier || "free", role: tenant.role,
+      settings: tenant.settings || {}, quotas: tenant.quotas || {},
+      stripeAccountId: tenant.stripe_account_id || null,
+    });
+  });
+
+  // Provision a NEW tenant + owner profile for a signup (service-role; bypasses RLS).
+  // Replaces the old client-side write that collided every company into 'genesis-1'.
+  app.post("/api/tenants/provision", async (req: any, res) => {
+    try {
+      const { companyName, tier = "free", loadDemoData = false } = req.body || {};
+      if (!companyName || typeof companyName !== "string") return res.status(400).json({ error: "companyName required" });
+      const uid = req.user?.uid;
+      if (REQUIRE_AUTH && !uid) return res.status(401).json({ error: "Unauthorized" });
+      const sb = getServiceSupabase();
+      if (!sb) return res.status(503).json({ error: "Provisioning unavailable: SUPABASE_SERVICE_ROLE_KEY not configured", code: "PROVISION_UNAVAILABLE" });
+      const safeTier = ["free", "pro", "enterprise"].includes(tier) ? tier : "free";
+      const tenantId = crypto.randomUUID();
+      const email = req.user?.email || null;
+      const isPlatformAdmin = !!(email && process.env.PLATFORM_OWNER_EMAIL && email === process.env.PLATFORM_OWNER_EMAIL);
+
+      const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier });
+      if (tErr) throw tErr;
+      if (uid) {
+        const { error: pErr } = await sb.from("profiles").upsert(
+          { firebase_uid: uid, tenant_id: tenantId, role: "owner", email, agreements_accepted: true, is_platform_admin: isPlatformAdmin },
+          { onConflict: "firebase_uid" },
+        );
+        if (pErr) throw pErr;
+        try { await sb.from("business_settings").upsert({ firebase_uid: uid, tenant_id: tenantId, company_name: companyName, onboarding_complete: true }, { onConflict: "firebase_uid" }); } catch (e) {}
+      }
+      res.json({ tenantId, profile: { tenant_id: tenantId, role: "owner" }, demoDataRequested: !!loadDemoData });
+    } catch (e: any) {
+      console.error("Provision error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "Provision failed" });
+    }
+  });
+
+  // AI credit wallet status for the current period (powers the AiUsage screen).
+  app.get("/api/usage/credits", async (req: any, res) => {
+    if (!REQUIRE_AUTH) return res.json({ tier: "enterprise", used: 0, creditsRemaining: 999999, limit: 999999, unmetered: true });
+    const tenant = await resolveTenant(req);
+    const tier = tenant?.tier || "free";
+    const limit = AI_CREDITS[tier] ?? AI_CREDITS.free;
+    const period = new Date().toISOString().slice(0, 7);
+    const used = tenant?.ai_credits_period === period ? (tenant.ai_credits_used || 0) : 0;
+    res.json({ tier, used, creditsRemaining: Math.max(0, limit - used), limit, period });
+  });
+
+  // Tier gating (registered BEFORE metering so a 403 short-circuits before a credit is
+  // charged). Pricing model: Design Studio + Deep Research + Promo Video are pro+ features.
+  // No-op in demo mode (REQUIRE_AUTH off).
+  app.use("/api/design/", requireTier("pro"));
+  app.use("/api/research/", requireTier("pro"));
+  app.use("/api/marketing/", requireTier("pro"));
+
+  // Meter the heavy AI route groups on the credit wallet (no-op in demo / unconfigured).
+  app.use("/api/design/", meterCredits);
+  app.use("/api/agent/", meterCredits);
+  app.use("/api/research/", meterCredits);
+  app.use("/api/marketing/", meterCredits);
+  app.use("/api/brain/", meterCredits);
+  app.use("/api/playground/", meterCredits);
 
   // ... (existing routes remain same)
 
@@ -1233,32 +1572,41 @@ async function startServer() {
   });
 
   // STRIPE PAYMENT INTEGRATION
-  app.post("/api/stripe/connect", async (req, res) => {
+  app.post("/api/stripe/connect", async (req: any, res) => {
     try {
-      const { tenantId } = req.body;
       if (!process.env.STRIPE_SECRET_KEY) {
         return res.json({ error: "Stripe key missing. Multi-tenant setup simulated." });
       }
+      // Tenant comes from the verified token, NOT req.body (was tenant-unsafe). In demo
+      // mode (no service-role / REQUIRE_AUTH off) we still create the account but can't persist.
+      const tenant = await resolveTenant(req);
+      const sb = getServiceSupabase();
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-      
-      // We create an Express connected account
+
+      // Express connected account with card + ACH (us_bank_account) for lower-fee invoices.
       const account = await stripe.accounts.create({
         type: "express",
         capabilities: {
           card_payments: { requested: true },
+          us_bank_account_ach_payments: { requested: true },
           transfers: { requested: true },
         },
         business_type: "company",
       });
-      
-      // Create account link for onboarding
+
+      // Persist the account id to the tenant server-side so "connected" is real (not the
+      // old client-side fake acct_demo_ write). Best-effort when service-role is present.
+      if (tenant && sb) {
+        try { await sb.from("tenants").update({ stripe_account_id: account.id }).eq("id", tenant.id); } catch (e) {}
+      }
+
       const accountLink = await stripe.accountLinks.create({
         account: account.id,
-        refresh_url: "http://localhost:3000/admin/settings",
-        return_url: "http://localhost:3000/admin/settings?stripe_connected=true",
+        refresh_url: `${BASE_URL}/admin/settings`,
+        return_url: `${BASE_URL}/admin/settings?stripe_connected=true`,
         type: "account_onboarding",
       });
-      
+
       res.json({ url: accountLink.url, stripeAccountId: account.id });
     } catch (error: any) {
       console.error("Stripe Connect Error:", error.message);
@@ -1278,9 +1626,12 @@ async function startServer() {
       
       let finalAmount = amount;
       let finalDescription = description || "SaaS Service";
-      
-      // SECURITY FIX: Server-side price validation
-      // Prevent client-side manipulation of payment amounts by fetching the source of truth from Firestore
+      let connectedAccount = null; // derived server-side from the invoice's tenant, never trusted from the client
+      const isDeposit = req.body?.type === "deposit";
+
+      // SECURITY: invoice payments MUST carry an invoiceId so the amount + the connected
+      // account are derived from the source of truth (Firestore) and the webhook can mark
+      // the invoice paid. Client-supplied amounts/accounts are never trusted for invoices.
       if (invoiceId) {
         try {
           const admin = require("firebase-admin");
@@ -1295,52 +1646,93 @@ async function startServer() {
           }
           const db = admin.firestore();
           const invSnap = await db.collection("invoices").doc(invoiceId).get();
-          if (invSnap.exists) {
-            const data = invSnap.data();
-            if (data && data.amount) {
-              finalAmount = data.amount;
-              finalDescription = `Invoice ${invoiceId}`;
-            }
+          if (!invSnap.exists) return res.status(404).json({ error: "Invoice not found." });
+          const data = invSnap.data() || {};
+          if (!data.amount) return res.status(400).json({ error: "Invoice has no amount." });
+          finalAmount = data.amount;
+          finalDescription = `Invoice ${invoiceId}`;
+          // Derive the connected (contractor) account from the invoice's tenant — not the body.
+          if (data.tenantId) {
+            try {
+              const tSnap = await db.collection("tenants").doc(String(data.tenantId)).get();
+              connectedAccount = tSnap.exists ? (tSnap.data()?.stripeAccountId || null) : null;
+            } catch (e) {}
           }
         } catch (e: any) {
           console.error("Firestore lookup failed for invoice price validation:", e.message);
-          // If security check fails, fail secure
           return res.status(500).json({ error: "Failed to securely validate invoice price." });
         }
-      } else {
-        console.warn("SECURITY WARNING: Stripe checkout processed a client-side amount without an invoiceId. This is vulnerable to price modification.");
+      } else if (!isDeposit) {
+        // No invoiceId and not an explicit fixed deposit → refuse rather than trust a client amount.
+        return res.status(400).json({ error: "invoiceId is required for invoice payments." });
       }
 
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-      
+      const unitAmount = Math.round(Number(finalAmount) * 100);
+      if (!unitAmount || unitAmount < 50) return res.status(400).json({ error: "Invalid payment amount." });
+
       const sessionOptions: any = {
-        payment_method_types: ["card"],
-        metadata: invoiceId ? { invoiceId } : undefined,
+        payment_method_types: ["card", "us_bank_account"], // card + ACH
+        metadata: invoiceId ? { invoiceId } : { type: "deposit" },
         line_items: [
           {
             price_data: {
               currency: "usd",
               product_data: { name: finalDescription },
-              unit_amount: Math.round(finalAmount * 100), // in cents, securely fetched if invoiceId provided
+              unit_amount: unitAmount,
             },
             quantity: 1,
           },
         ],
         mode: "payment",
-        success_url: successUrl || "http://localhost:3000?success=true",
-        cancel_url: cancelUrl || "http://localhost:3000?canceled=true",
+        success_url: successUrl || `${BASE_URL}?success=true`,
+        cancel_url: cancelUrl || `${BASE_URL}?canceled=true`,
       };
-      
-      const requestOptions = tenantStripeAccountId ? { stripeAccount: tenantStripeAccountId } : {};
+
+      // Platform application fee on connected-account payments (the platform's cut).
+      if (connectedAccount && PLATFORM_FEE_PCT > 0) {
+        sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
+      }
+
+      const requestOptions = connectedAccount ? { stripeAccount: connectedAccount } : {};
 
       const session = await stripe.checkout.sessions.create(sessionOptions, requestOptions);
-      res.json({ checkoutUrl: session.url });
+      res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
       // SECURITY: Sanitize logging of payment provider errors to prevent leaking sensitive variables
       const safeErrorMsg = error?.message || "Unknown Stripe Error";
       const safeErrorCode = error?.raw?.code || error?.code || "unknown_code";
       console.error("Stripe Error (Sanitized):", { code: safeErrorCode, msg: safeErrorMsg });
       res.status(500).json({ error: safeErrorMsg }); // Only return safe message to client
+    }
+  });
+
+  // SaaS self-billing: subscribe a tenant to a YardWorx plan (pro/enterprise). The
+  // webhook (customer.subscription.* / checkout.session.completed) writes tenant.tier,
+  // making tier enforcement self-funding. Requires Stripe Price IDs in env.
+  app.post("/api/stripe/subscribe", async (req: any, res) => {
+    try {
+      const { tier } = req.body || {};
+      if (!["pro", "enterprise"].includes(tier)) return res.status(400).json({ error: "tier must be 'pro' or 'enterprise'" });
+      if (!process.env.STRIPE_SECRET_KEY) return res.json({ error: "Stripe key missing. Subscription simulated.", simulated: true });
+      const priceId = tier === "enterprise" ? process.env.STRIPE_PRICE_ENTERPRISE : process.env.STRIPE_PRICE_PRO;
+      if (!priceId) return res.status(503).json({ error: `Stripe price for ${tier} not configured (STRIPE_PRICE_${tier.toUpperCase()})`, code: "PRICE_UNCONFIGURED" });
+
+      const tenant = await resolveTenant(req);
+      const tenantId = tenant?.id || req.body?.tenantId; // resolved tenant preferred; body only as demo fallback
+      const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        metadata: { tenantId: tenantId || "", tier },
+        subscription_data: { metadata: { tenantId: tenantId || "", tier } },
+        success_url: `${BASE_URL}/admin/settings?subscribed=${tier}`,
+        cancel_url: `${BASE_URL}/admin/settings?subscribe_canceled=true`,
+      });
+      res.json({ checkoutUrl: session.url, url: session.url });
+    } catch (error: any) {
+      console.error("Stripe Subscribe Error:", error?.message);
+      res.status(500).json({ error: error?.message || "Subscription failed" });
     }
   });
 
@@ -1437,6 +1829,8 @@ async function startServer() {
     try {
       const { text } = req.body;
       if (!text) return res.status(400).json({ error: "No text provided" });
+      // Audio bytes can't be mocked — degrade cleanly so the client treats it as "voice off".
+      if (isMockMode) return aiUnavailable(res, "Text-to-speech requires GEMINI_API_KEY", "TTS_UNAVAILABLE");
 
       const model = ai.models.get({ model: "gemini-3.1-flash-tts-preview" });
       const response = await model.generateContent({
@@ -2460,6 +2854,7 @@ async function startServer() {
   // --- DEEP RESEARCH EXPERT ---
   app.post("/api/research/start", aiLimiter, async (req, res) => {
     try {
+      if (isMockMode) return aiUnavailable(res, "Deep research requires GEMINI_API_KEY", "RESEARCH_UNAVAILABLE");
       const { prompt } = req.body;
       const initialInteraction = await ai.interactions.create({
           agent: "deep-research-preview-04-2026",
@@ -2468,13 +2863,13 @@ async function startServer() {
       });
       res.json({ interactionId: initialInteraction.id });
     } catch(e: any) {
-      console.error(e);
-      res.status(500).json({ error: "Failed to start deep research" });
+      return handleAiError(res, e, "Failed to start deep research");
     }
   });
 
   app.post("/api/research/status", aiLimiter, async (req, res) => {
       try {
+          if (isMockMode) return res.json({ status: "completed", report: "Deep research requires GEMINI_API_KEY (mock mode)." });
           const { interactionId } = req.body;
           const interaction = await ai.interactions.get(interactionId);
           if (interaction.status === "completed") {
@@ -2492,8 +2887,7 @@ async function startServer() {
              res.json({ status: "pending" });
           }
       } catch(e: any) {
-          console.error(e);
-          res.status(500).json({ error: "Failed to poll research" });
+          return handleAiError(res, e, "Failed to poll research");
       }
   });
 
@@ -2512,26 +2906,26 @@ async function startServer() {
       });
       res.json({ operationName: operation.name });
     } catch(e: any) {
-      console.error(e);
-      res.status(500).json({ error: "Failed to generate video" });
+      return handleAiError(res, e, "Failed to generate video");
     }
   });
 
   app.post("/api/marketing/video-status", aiLimiter, async (req, res) => {
      try {
+         if (isMockMode) return aiUnavailable(res, "Promo video generation requires GEMINI_API_KEY", "VIDEO_UNAVAILABLE");
          const { operationName } = req.body;
          const op = new GenerateVideosOperation();
          op.name = operationName;
          const updated = await ai.operations.getVideosOperation({ operation: op });
          res.json({ done: updated.done });
      } catch(e) {
-         console.error(e);
-         res.status(500).json({ error: "Failed to poll video" });
+         return handleAiError(res, e, "Failed to poll video");
      }
   });
 
   app.post("/api/marketing/video-download", aiLimiter, async (req, res) => {
      try {
+         if (isMockMode) return aiUnavailable(res, "Promo video generation requires GEMINI_API_KEY", "VIDEO_UNAVAILABLE");
          const { operationName } = req.body;
          const op = new GenerateVideosOperation();
          op.name = operationName;
@@ -2550,14 +2944,16 @@ async function startServer() {
            res.status(500).send("No video body");
          }
      } catch(e) {
-         console.error(e);
-         res.status(500).json({ error: "Failed to download video" });
+         return handleAiError(res, e, "Failed to download video");
      }
   });
 
   app.post("/api/design/tiers", cacheApiResponse(300), async (req, res) => {
     try {
-      const { baselineResult, settings = {} } = req.body;
+      const { baselineResult, role, settings = {} } = req.body;
+      // Same financial air-gap as /design/process: prefer the verified token role.
+      const effectiveRole = (req.user && (req.user.role || req.user.app_role)) || role;
+      const isRestrictedRole = effectiveRole === "employee" || effectiveRole === "foreman";
 
       const semanticLearningPrompt = settings.semanticStyleLearning ? `
         - SEMANTIC STYLE LEARNING: The contractor has defined the following specific logistical installation rules. You MUST adhere to these rules when estimating materials and labor:
@@ -2616,7 +3012,23 @@ async function startServer() {
         },
       });
 
-      res.json(parseGeminiJson(response.text));
+      const designResult = parseGeminiJson(response.text) || {};
+      // Catalog-grounded pricing pass (parity with /design/process): replace AI-invented
+      // tier costs with the contractor's real catalog prices + recompute totals; zero out
+      // all financials for employee/foreman (defense-in-depth on top of the prompt).
+      try {
+        const catalog = flattenCatalog(settings);
+        const tiers = designResult.tiers || {};
+        for (const key of ["good", "better", "best"]) {
+          const t = tiers[key];
+          if (t && Array.isArray(t.estimatedMaterials)) {
+            const sum = groundMaterials(t.estimatedMaterials, catalog, isRestrictedRole);
+            t.totalCost = isRestrictedRole ? 0 : (sum || t.totalCost);
+            if (isRestrictedRole) t.approvalRequired = true;
+          }
+        }
+      } catch (e) { console.warn("Tiers pricing pass failed:", (e as any)?.message); }
+      res.json(designResult);
     } catch (error: any) {
       console.error("Design Tiers Error:", error);
       res.status(500).json({ error: error.message });
@@ -3299,7 +3711,7 @@ async function startServer() {
         contents: [{ role: "user", parts: [{ inlineData: { mimeType, data } }, { text: "Transcribe this audio precisely." }] }]
       });
       res.json({ text: response.text });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/analyze-media", async (req, res) => {
@@ -3310,7 +3722,7 @@ async function startServer() {
         contents: [{ role: "user", parts: [{ inlineData: { mimeType, data } }, { text: prompt || "Analyze this media and describe key information." }] }]
       });
       res.json({ text: response.text });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/generate-image", async (req, res) => {
@@ -3322,7 +3734,7 @@ async function startServer() {
         config: { numberOfImages: 1, aspectRatio: aspectRatio || "1:1", outputMimeType: "image/jpeg" }
       });
       res.json({ imageBase64: response.generatedImages[0].image.imageBytes });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/generate-video", async (req, res) => {
@@ -3338,7 +3750,7 @@ async function startServer() {
       }
       const response = await ai.models.generateVideos(params);
       res.json({ operationName: response.name });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
   app.post("/api/playground/generate-music", async (req, res) => {
@@ -3349,16 +3761,19 @@ async function startServer() {
          contents: prompt
       });
       res.json({ text: "Music generation request succeeded. Response: " + (response.text || "Audio generated.") });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { return handleAiError(res, e); }
   });
 
-  // Vite middleware for development
+  // Vite middleware for development. Skipped when not listening (tests) — createViteServer
+  // is heavy and unnecessary for supertest.
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    if (startListening) {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
     
@@ -3412,8 +3827,9 @@ async function startServer() {
     try {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
-      
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
+      if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
+
+      const token = jwt.sign({ clientId, email }, JWT_SECRET, { expiresIn: '7d' });
       // In a real app, send an email here using SendGrid or Mailgun
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
@@ -3428,15 +3844,19 @@ async function startServer() {
     try {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
-      
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
+
+      const decoded = jwt.verify(token, JWT_SECRET);
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
     }
   });
 
-const server = app.listen(PORT, "0.0.0.0", () => {
+  // Test mode: return the configured app without opening a socket or the Live WebSocket.
+  if (!startListening) return app;
+
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Meridian Green CRM running on http://localhost:${PORT}`);
   });
 
@@ -3739,9 +4159,14 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       clientWs.close();
     }
   });
+
+  return app;
 }
 
-if (process.env.NODE_ENV === "production" && cluster.isPrimary) {
+// Don't auto-start when imported by tests (vitest sets VITEST) — tests call createApp({startListening:false}).
+if (process.env.VITEST) {
+  // no-op: the test harness constructs the app explicitly.
+} else if (process.env.NODE_ENV === "production" && cluster.isPrimary) {
   const numCPUs = os.cpus().length;
   console.log(`Primary supervisor ${process.pid} is running`);
   console.log(`Setting up ${numCPUs} highly-available workers across all available vCPUs...`);
@@ -3756,5 +4181,5 @@ if (process.env.NODE_ENV === "production" && cluster.isPrimary) {
     cluster.fork();
   });
 } else {
-  startServer();
+  createApp({ startListening: true });
 }
