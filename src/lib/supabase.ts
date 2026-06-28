@@ -22,6 +22,10 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 export const supabase = createClient(SUPABASE_URL ?? "", SUPABASE_ANON_KEY ?? "", {
   // Forward the current Firebase ID token to Supabase (Third-Party Auth).
+  // NOTE: in demo / internal-testing mode (VITE_REQUIRE_AUTH !== 'true') the app never
+  // signs the user into Firebase, so `auth.currentUser` is null and this callback returns
+  // null. That makes the Supabase repos (e.g. lib/repos/*) inert by design — demo pages
+  // read/write Firestore instead. Real Supabase access only kicks in once auth is required.
   accessToken: async () => {
     try {
       return (await auth.currentUser?.getIdToken()) ?? null;

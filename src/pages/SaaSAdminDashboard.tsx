@@ -4,6 +4,8 @@ import { Shield, Activity, Database, AlertOctagon, Lock } from 'lucide-react';
 
 export default function SaaSAdminDashboard() {
   const [threats, setThreats] = useState<any[]>([]);
+  const [health, setHealth] = useState<{ status?: string; aiMode?: string; supabase?: boolean } | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
 
   useEffect(() => {
     // Poll the backend memory log every 5 seconds
@@ -19,10 +21,34 @@ export default function SaaSAdminDashboard() {
       }
     };
 
+    const fetchHealth = async () => {
+      try {
+        const res = await fetchApi('/api/health');
+        if (res.ok) {
+          const data = await res.json();
+          setHealth(data);
+        } else {
+          setHealth(null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch API health", err);
+        setHealth(null);
+      } finally {
+        setHealthLoading(false);
+      }
+    };
+
     fetchThreats();
+    fetchHealth();
     const int = setInterval(fetchThreats, 5000);
-    return () => clearInterval(int);
+    const healthInt = setInterval(fetchHealth, 15000);
+    return () => {
+      clearInterval(int);
+      clearInterval(healthInt);
+    };
   }, []);
+
+  const apiOk = health?.status === 'ok';
 
   return (
     <div className="max-w-6xl mx-auto space-y-12 pb-24 animate-in fade-in zoom-in duration-500">
@@ -52,9 +78,10 @@ export default function SaaSAdminDashboard() {
                 <p className="text-xs text-white/40 font-semibold">Active Environments</p>
               </div>
            </div>
-           <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white/90">
-             1
+           <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white/40">
+             &mdash;
            </div>
+           <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-2">No count source wired</p>
         </div>
 
         <div className="bg-zinc-950 border border-white/5 molten-edge p-6 rounded-2xl">
@@ -64,12 +91,26 @@ export default function SaaSAdminDashboard() {
               </div>
               <div>
                 <h3 className="text-lg font-black uppercase tracking-widest text-white">Express API</h3>
-                <p className="text-xs text-white/40 font-semibold">Global Request Rate</p>
+                <p className="text-xs text-white/40 font-semibold">Live Health Probe</p>
               </div>
            </div>
-           <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white/90">
-             Stable
-           </div>
+           {healthLoading ? (
+             <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white/30 animate-pulse">
+               &middot;&middot;&middot;
+             </div>
+           ) : (
+             <div className={`text-5xl font-black italic tracking-normal md:tracking-tighter ${apiOk ? 'text-forest-400' : 'text-red-500'}`}>
+               {apiOk ? 'OK' : 'Down'}
+             </div>
+           )}
+           {!healthLoading && apiOk && (
+             <div className="flex items-center gap-2 mt-3">
+               <span className="text-[10px] font-black uppercase tracking-widest text-white/40">AI Mode</span>
+               <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${health?.aiMode === 'live' ? 'text-forest-400 border-forest-500/30 bg-forest-500/5' : 'text-amber-400 border-amber-500/30 bg-amber-500/5'}`}>
+                 {health?.aiMode || 'unknown'}
+               </span>
+             </div>
+           )}
         </div>
 
         <div className="bg-red-500/5 text-red-500 border border-red-500/20 p-6 rounded-2xl relative overflow-hidden">

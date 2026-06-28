@@ -4,8 +4,10 @@ import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Truck, Map as MapIcon, Route, Play, Settings, CheckCircle2, Navigation2 } from "lucide-react";
 import { APIProvider, Map, AdvancedMarker } from "@vis.gl/react-google-maps";
+import { useToast } from "../contexts/ToastContext";
 
 export default function RouteOptimizer() {
+  const { showToast } = useToast();
   const [optimizing, setOptimizing] = useState(false);
   const [complete, setComplete] = useState(false);
   const [routeData, setRouteData] = useState<any>(null);
@@ -18,14 +20,17 @@ export default function RouteOptimizer() {
       .catch((err) => console.error("Failed to load maps config", err));
   }, []);
 
-  // Simulated initial waypoints representing scheduled jobs
+  // Sample waypoints used only to demonstrate the optimizer map. Real scheduled-job
+  // coordinates are not yet wired into this screen, so these are clearly-labelled
+  // sample stops rather than fabricated "live" jobs.
   const [waypoints] = useState([
-    { lat: 32.3643, lng: -88.7037, id: "W1" }, // Meridian HQ (Origin)
-    { lat: 32.4100, lng: -88.6800, id: "W2" }, // Job 1
-    { lat: 32.3200, lng: -88.7200, id: "W3" }, // Job 2
-    { lat: 32.3800, lng: -88.6500, id: "W4" }, // Job 3
-    { lat: 32.3500, lng: -88.6900, id: "W5" }  // Return HQ (Destination)
+    { lat: 32.3643, lng: -88.7037, id: "W1" }, // Sample HQ (Origin)
+    { lat: 32.4100, lng: -88.6800, id: "W2" }, // Sample stop
+    { lat: 32.3200, lng: -88.7200, id: "W3" }, // Sample stop
+    { lat: 32.3800, lng: -88.6500, id: "W4" }, // Sample stop
+    { lat: 32.3500, lng: -88.6900, id: "W5" }  // Sample HQ (Destination)
   ]);
+  const isSampleData = true;
 
   const startOptimization = async () => {
     setOptimizing(true);
@@ -45,7 +50,7 @@ export default function RouteOptimizer() {
       setComplete(true);
     } catch (err: any) {
       console.error(err);
-      alert(`Optimization Error: ${err.message}`);
+      showToast(`Optimization error: ${err.message}`, "error");
     } finally {
       setOptimizing(false);
     }
@@ -75,6 +80,11 @@ export default function RouteOptimizer() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-zinc-900 border border-white/5 molten-edge rounded-3xl overflow-hidden h-[600px] relative">
+          {isSampleData && (
+            <div className="absolute top-4 left-4 z-20 px-3 py-1.5 bg-black/70 backdrop-blur border border-amber-500/30 text-amber-400 rounded-full text-[10px] font-black uppercase tracking-widest">
+              Sample Stops
+            </div>
+          )}
           {mapsApiKey ? (
             <APIProvider apiKey={mapsApiKey}>
               <Map
@@ -109,7 +119,7 @@ export default function RouteOptimizer() {
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center flex-col z-10">
               <span className="w-12 h-12 border-4 border-forest-500/30 border-t-forest-500 rounded-full animate-spin" />
               <div className="mt-4 text-forest-400 font-black tracking-widest uppercase">Computing optimal path...</div>
-              <div className="mt-2 font-mono text-xs text-forest-400/50">Processing 24 stops via Routes API</div>
+              <div className="mt-2 font-mono text-xs text-forest-400/50">Processing {waypoints.length} stops via Routes API</div>
             </div>
           )}
         </div>

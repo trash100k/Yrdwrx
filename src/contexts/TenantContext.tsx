@@ -1,10 +1,13 @@
-import { safeStorage } from '../lib/storage';
 // @ts-nocheck
+import { safeStorage } from '../lib/storage';
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { auth, db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { doc, onSnapshot, getDoc, setDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
+import { fetchApi } from "../lib/api";
+
+const REQUIRE_AUTH = import.meta.env.VITE_REQUIRE_AUTH === "true";
 
 interface TenantProfile {
   id: string;
@@ -62,36 +65,108 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
 useEffect(() => {
-    // INTERNAL TESTING BYPASS
-    setUserRole("owner");
-    setTenant({
-      id: "demo-tenant-1",
-      name: "YardWorx Internal Testing",
-      tier: "enterprise",
-      legal: {
-        aiDisclaimerAccepted: true,
-      },
-      quotas: {
-        aiRequestsMonthly: 10,
-        aiRequestLimit: 50000,
-      },
-      settings: {
-        hoaProtocolEnabled: true,
-        satelliteVisionEnabled: true,
-        currency: "USD",
-        neighborhoodMask: [],
-        features: {
-          crewTracking: true,
-          inventoryManagement: true,
-          agenticOutreach: true,
+    // DEMO / INTERNAL TESTING BYPASS — keep the hardcoded enterprise tenant verbatim so
+    // the demo path is byte-for-byte identical to today when the flag is off.
+    if (!REQUIRE_AUTH) {
+      setUserRole("owner");
+      setTenant({
+        id: "demo-tenant-1",
+        name: "YardWorx Internal Testing",
+        tier: "enterprise",
+        legal: {
+          aiDisclaimerAccepted: true,
+        },
+        quotas: {
+          aiRequestsMonthly: 10,
+          aiRequestLimit: 50000,
+        },
+        settings: {
+          hoaProtocolEnabled: true,
+          satelliteVisionEnabled: true,
+          currency: "USD",
+          neighborhoodMask: [],
+          features: {
+            crewTracking: true,
+            inventoryManagement: true,
+            agenticOutreach: true,
+          }
         }
+      } as any);
+      setLoading(false);
+      return;
+    }
+
+    // REAL AUTH — resolve the caller's tenant from the server on every auth change.
+    let active = true;
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!active) return;
+      setError(null);
+
+      if (!currentUser) {
+        setTenant(null);
+        setUserRole(null);
+        setLoading(false);
+        return;
       }
-    } as any);
-    setLoading(false);
+
+      setLoading(true);
+      try {
+        const res = await fetchApi("/api/tenants/me");
+        if (!active) return;
+
+        if (res.status === 404) {
+          // No tenant yet — the user still needs to onboard/provision.
+          setTenant(null);
+          setUserRole(null);
+        } else if (res.ok) {
+          const result = await res.json();
+          setTenant(result as any);
+          setUserRole(result.role ?? null);
+        } else {
+          setError("Failed to load workspace.");
+          setTenant(null);
+          setUserRole(null);
+        }
+      } catch (e) {
+        if (active) {
+          setError("Failed to load workspace.");
+          setTenant(null);
+          setUserRole(null);
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
-  const switchTenant = (id: string) => {
+  const switchTenant = async (id: string) => {
+    if (!REQUIRE_AUTH) {
+      setLoading(true);
+      return;
+    }
+    if (!auth.currentUser) return;
     setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchApi(`/api/tenants/me?tenantId=${encodeURIComponent(id)}`);
+      if (res.ok) {
+        const result = await res.json();
+        setTenant(result as any);
+        setUserRole(result.role ?? null);
+      } else {
+        setError("Failed to switch workspace.");
+      }
+    } catch (e) {
+      setError("Failed to switch workspace.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

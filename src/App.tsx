@@ -16,6 +16,9 @@ import { setUserId } from "firebase/analytics";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { motion } from "motion/react";
 import { auth, db, analytics } from "./lib/firebase";
+import { getCurrentProfile, clearProfileCache } from "./lib/repos/profile";
+
+const REQUIRE_AUTH = import.meta.env.VITE_REQUIRE_AUTH === "true";
 
 // Components & Contexts
 import Onboarding from "./components/Onboarding";
@@ -99,28 +102,63 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(false);
   const [isDemo, setIsDemo] = useState(false);
 useEffect(() => {
-    // INTERNAL TESTING BYPASS
-    const mockAdmin = {
-        uid: "admin-user-001",
-        email: "admin@yardworx.io",
-        displayName: "Internal Admin",
-        emailVerified: true
-    } as any;
+    // DEMO / INTERNAL TESTING BYPASS — when auth is NOT required, inject the mock admin
+    // exactly as before so the demo path is unchanged.
+    if (!REQUIRE_AUTH) {
+      const mockAdmin = {
+          uid: "admin-user-001",
+          email: "admin@yardworx.io",
+          displayName: "Internal Admin",
+          emailVerified: true
+      } as any;
 
-    setUser(mockAdmin);
-    setOnboarded(true);
-    setLoading(false);
-    setIsDemo(true);
+      setUser(mockAdmin);
+      setOnboarded(true);
+      setLoading(false);
+      setIsDemo(true);
+      return;
+    }
 
-    // Disable real auth listener during bypass
-    // const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-    //   setUser(currentUser);
-    //   if (currentUser) {
-    //     setUserId(analytics, currentUser.uid);
-    //   }
-    //   setLoading(false);
-    // });
-    // return () => unsubscribe();
+    // REAL AUTH — subscribe to Firebase auth state and resolve onboarding from the
+    // user's Supabase profile (tenant_id + agreements_accepted).
+    let active = true;
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!active) return;
+      setUser(currentUser);
+
+      if (!currentUser) {
+        // Signed out — drop any cached identity and reset onboarding state.
+        clearProfileCache();
+        setOnboarded(false);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        if (analytics) setUserId(analytics, currentUser.uid);
+      } catch {
+        /* analytics is optional / may be unavailable */
+      }
+
+      try {
+        clearProfileCache();
+        const profile = await getCurrentProfile();
+        if (!active) return;
+        setOnboarded(
+          !!(profile && profile.tenant_id && profile.agreements_accepted),
+        );
+      } catch (e) {
+        if (active) setOnboarded(false);
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
   const enterDemoMode = async (setAuthError: (err: string | null) => void) => {
     setIsDemo(true);

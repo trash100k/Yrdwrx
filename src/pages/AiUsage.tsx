@@ -1,9 +1,49 @@
-import React, { useState } from "react";
-import { Brain, ArrowLeft, Heart, Scale, Sparkles } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Brain, ArrowLeft, Heart, Scale, Sparkles, Zap, Gauge, CalendarClock } from "lucide-react";
 import { Link } from "react-router-dom";
+import { fetchApi } from "../lib/api";
 
 export default function AiUsage() {
   const [viewMode, setViewMode] = useState<"summary" | "verbatim" | "both">("both");
+
+  const [credits, setCredits] = useState<{
+    creditsRemaining?: number;
+    used?: number;
+    periodEnd?: string | number | null;
+    tier?: string;
+  } | null>(null);
+  const [creditsLoading, setCreditsLoading] = useState(true);
+  const [creditsError, setCreditsError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetchApi("/api/usage/credits")
+      .then((res) => {
+        if (!res.ok) throw new Error("usage fetch failed");
+        return res.json();
+      })
+      .then((data) => {
+        if (active) setCredits(data);
+      })
+      .catch((err) => {
+        console.error("Failed to load AI usage credits", err);
+        if (active) setCreditsError(true);
+      })
+      .finally(() => {
+        if (active) setCreditsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const fmtNum = (n: any) =>
+    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
+  const fmtDate = (d: any) => {
+    if (!d) return "—";
+    const parsed = new Date(d);
+    return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString();
+  };
 
   const summaryCards = [
     {
@@ -107,6 +147,76 @@ export default function AiUsage() {
             </button>
           </div>
         </header>
+
+        {/* Live AI usage / credits (real data from /api/usage/credits) */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2 pb-2 border-b border-white/5 molten-edge">
+            <Zap size={16} className="text-forest-400" />
+            <h2 className="text-xs font-black uppercase tracking-widest text-forest-400">
+              Your AI Usage This Period
+            </h2>
+          </div>
+
+          {creditsLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="bg-white/5 border border-white/5 rounded-3xl p-6 h-32 animate-pulse"
+                />
+              ))}
+            </div>
+          ) : creditsError ? (
+            <div className="bg-white/5 border border-white/5 rounded-3xl p-6 text-center">
+              <p className="text-xs text-white/40 font-bold uppercase tracking-widest">
+                Usage data is unavailable right now.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white/5 border border-white/5 hover:border-forest-500/20 rounded-3xl p-6 transition-all space-y-3">
+                <div className="flex items-center gap-2 text-forest-400">
+                  <Gauge size={18} />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-white/40">
+                    Credits Remaining
+                  </span>
+                </div>
+                <p className="text-4xl font-black italic tracking-tighter text-white">
+                  {fmtNum(credits?.creditsRemaining)}
+                </p>
+              </div>
+
+              <div className="bg-white/5 border border-white/5 hover:border-forest-500/20 rounded-3xl p-6 transition-all space-y-3">
+                <div className="flex items-center gap-2 text-celtic-400">
+                  <Zap size={18} />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-white/40">
+                    Used This Period
+                  </span>
+                </div>
+                <p className="text-4xl font-black italic tracking-tighter text-white">
+                  {fmtNum(credits?.used)}
+                </p>
+              </div>
+
+              <div className="bg-white/5 border border-white/5 hover:border-forest-500/20 rounded-3xl p-6 transition-all space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <CalendarClock size={18} />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/40">
+                      Plan
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-forest-500/30 bg-forest-500/5 text-forest-400">
+                    {credits?.tier || "—"}
+                  </span>
+                </div>
+                <p className="text-sm font-black italic uppercase tracking-tight text-white/80">
+                  Renews {fmtDate(credits?.periodEnd)}
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* Visual Intro explaining the "Good People" pledge */}
         <div className="bg-forest-500/5 border border-forest-500/10 rounded-3xl p-6 flex flex-col md:flex-row items-start gap-4">

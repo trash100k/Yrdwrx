@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
+import { fetchApi } from "../lib/api";
+import { clearProfileCache } from "../lib/repos/profile";
 import { motion, AnimatePresence } from "motion/react";
 import { MagicSetupNode } from "./MagicSetupNode";
 import {
@@ -127,50 +129,34 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     if (step < 4) {
       setStep(step + 1);
     } else {
-      /* Save to Firebase */ if (auth.currentUser) {
-        const userDoc = await import("firebase/firestore").then(m => m.getDoc(m.doc(db, "users", auth.currentUser!.uid)));
-        const tenantId = userDoc.exists() ? (userDoc.data().activeTenantId || "genesis-1") : "genesis-1";
-
-        const formDataWithTenant = { ...formData, tenantId };
-
-        await setDoc(doc(db, "tenants", tenantId), {
-            name: formData.companyName,
-            ownerName: formData.ownerName || "Business Owner", // Handled if empty
-            ownerPhone: formData.ownerPhone,
-            services: formData.services,
-            serviceAreaPoints: formData.serviceArea.split(',').map(s => s.trim()),
-            tier: "free",
-            settings: {
-                hoaProtocolEnabled: true,
-                satelliteVisionEnabled: true,
-                currency: "USD",
-                neighborhoodMask: formData.serviceArea.split(',').map(s => s.trim()),
-                voiceEnabled: true,
-                chemicalLogEnabled: true
-            }
-        }, { merge: true });
-
-        await setDoc(doc(db, "users", auth.currentUser.uid), {
-           agreementsAccepted: true,
-           agreementsAcceptedAt: new Date().toISOString()
-        }, { merge: true });
-
-        await setDoc(doc(db, "settings", auth.currentUser.uid), {
-          ...formDataWithTenant,
-          onboardingComplete: true,
-          updatedAt: new Date().toISOString(),
-        });
-        
+      // Provision a UNIQUE tenant server-side. The server creates the tenant, the
+      // caller's owner profile, and business settings via the service role — uniqueness
+      // is enforced there, so there is no more shared 'genesis-1' fallback or client-side
+      // tenant/settings seeding.
+      if (auth.currentUser) {
         try {
-          if (formData.loadDemoData) {
-            const { seedDatabaseIfEmpty } = await import("../lib/seedDatabase");
-            await seedDatabaseIfEmpty(formDataWithTenant);
-          }
-        } catch (e) {
-          console.error("Failed to execute DB initialization", e);
-        }
+          const res = await fetchApi("/api/tenants/provision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              companyName: formData.companyName,
+              tier: "free",
+              loadDemoData: formData.loadDemoData,
+            }),
+          });
 
-        onComplete();
+          if (!res.ok) {
+            setError("We couldn't finish setting up your workspace. Please try again.");
+            return;
+          }
+
+          // Force the app to re-resolve identity/tenant against the freshly created records.
+          clearProfileCache();
+          onComplete();
+        } catch (e) {
+          console.error("Failed to provision tenant", e);
+          setError("We couldn't finish setting up your workspace. Please try again.");
+        }
       }
     }
   };
