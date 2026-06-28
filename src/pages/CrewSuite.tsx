@@ -52,6 +52,7 @@ import { useToast } from "../contexts/ToastContext";
 import { HandsFreeDictator } from "../components/HandsFreeDictator";
 import { ResourceAssignmentModal } from "../components/ResourceAssignmentModal";
 import { ResourceTimeline } from "../components/ResourceTimeline";
+import { TimeClock } from "../components/TimeClock";
 
 export default function CrewSuite() {
   const { tenant } = useTenant();
@@ -568,6 +569,10 @@ export default function CrewSuite() {
       ) : (
         <ResourceTimeline />
       )}
+
+      <div className="mt-10 max-w-md">
+        <TimeClock />
+      </div>
 
       <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-10 mt-10 rounded-2xl relative overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-12 gap-6 relative z-10">

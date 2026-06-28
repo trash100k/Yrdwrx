@@ -423,8 +423,11 @@ sweep, and a text/copy consistency scan). Newly-surfaced concrete work, prioriti
   injection-scanned, input-capped) creates a NEW lead in the tenant's pipeline; `GET /api/public/tenant/:id`
   shows the company name. Degrades to a simulated success without Firebase creds. _Follow-up: surface the
   shareable booking link in Settings; land the lead in Supabase `leads` once the data cutover happens._
-- [ ] 🟠 **Crew time-tracking → payroll** — no clock-in/out timesheets (payroll is an AI draft via
-  `/api/workflows/payroll`; `CrewSuite` has geofence only). Add a `timesheets` table + clock UI.
+- [x] ✅ **Crew time-tracking (clock in/out + weekly hours)** — shipped: `TimeClock` component in
+  CrewSuite (live elapsed timer, week-hours rollup), pure helpers in `src/lib/timesheets.ts`
+  (unit-tested), persisted to Firestore + the new Supabase `timesheets` table (migration 0008, RLS,
+  advisors=0). Optimistic local state keeps it usable offline/in demo. _Follow-up: feed timesheets
+  into the `/api/workflows/payroll` draft so payroll is computed from real hours._
 - [ ] 🟠 **Estimate e-signature → auto-convert to job + invoice** — Design Studio quotes are real +
   catalog-grounded and `Compliance` captures signatures, but the "client signs the estimate →
   job+invoice created" loop doesn't exist.
