@@ -3,24 +3,15 @@ import { compressImage } from "../lib/imageUtils";
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import {
-  collection,
-  onSnapshot,
-  query,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-  deleteDoc,
-  orderBy,
-  limit,
-  where,
-} from "firebase/firestore";
-import {
-  db,
   handleFirestoreError,
   OperationType,
   logSystemEvent,
 } from "../lib/firebase";
+import {
+  inventoryRepo,
+  materialLogsRepo,
+  expensesRepo,
+} from "../lib/repos";
 import { ingestKnowledge } from "../services/brainService";
 import {
   Package,
@@ -55,13 +46,18 @@ import BarcodeScanner from "../components/BarcodeScanner";
 import { useTenant } from "../contexts/TenantContext";
 import { useAuditLog } from "../hooks/useAuditLog";
 import { InventoryItem } from "../types";
-import { syncService } from "../services/syncService";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import InventoryForecast from "../components/InventoryForecast";
 import { TrendingDown } from "lucide-react";
 
 import { StockDepletionChart } from "../components/StockDepletionChart";
 import { useToast } from "../contexts/ToastContext";
+
+// Read adapters: merge any custom fields stored in the jsonb `data` column up to
+// the top level, and keep a Firestore-compatible `timestamp` on logs (Supabase
+// orders/stores by `created_at`).
+const adaptItem = (r: any) => ({ ...(r?.data || {}), ...r });
+const adaptLog = (r: any) => ({ ...r, timestamp: r?.createdAt });
 
 export default function Inventory() {
   const { tenant } = useTenant();
@@ -141,12 +137,14 @@ export default function Inventory() {
             if (args.clientName) {
               // Queue an expense/invoice line item for this client
               try {
-                await addDoc(collection(db, "expenses"), {
+                await expensesRepo.create({
                   amount: Number(itemToLog.unitCost || 0) * args.quantity,
-                  vendor: "Inventory Usage",
-                  description: `${args.quantity}x ${itemToLog.name} for ${args.clientName}`,
+                  merchant: "Inventory Usage",
+                  category: "Materials",
                   date: new Date().toISOString(),
-                  tenantId: tenant?.id || "genesis-1",
+                  data: {
+                    description: `${args.quantity}x ${itemToLog.name} for ${args.clientName}`,
+                  },
                 });
                 showToast(
                   `Logged ${args.quantity}x ${itemToLog.name} usage for ${args.clientName} billing.`,
@@ -176,38 +174,14 @@ export default function Inventory() {
   }, [items, tenant, showToast]);
 
   useEffect(() => {
-    const tenantId = tenant?.id || "genesis-1";
-    const q = query(
-      collection(db, "inventory"),
-      where("tenantId", "==", tenantId),
-    );
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs.map(
-          (d) => ({ id: d.id, ...d.data() }) as any,
-        );
-        setItems(data.length > 0 ? data : []);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "inventory");
-      },
+    // inventory + material logs are scoped to the tenant by Supabase RLS.
+    const unsubscribe = inventoryRepo.subscribe((rows) =>
+      setItems((rows || []).map(adaptItem)),
     );
 
-    const lQ = query(
-      collection(db, "materialLogs"),
-      where("tenantId", "==", tenantId),
-      orderBy("timestamp", "desc"),
-      limit(10),
-    );
-    const unsubLogs = onSnapshot(
-      lQ,
-      (snapshot) => {
-        setLogs(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as any));
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "materialLogs");
-      },
+    // materialLogsRepo already returns newest-first (ordered by created_at desc).
+    const unsubLogs = materialLogsRepo.subscribe((rows) =>
+      setLogs((rows || []).slice(0, 10).map(adaptLog)),
     );
 
     return () => {
@@ -281,44 +255,20 @@ export default function Inventory() {
           ? Number(item.quantity) + qty
           : Number(item.quantity) - qty;
 
-      if (navigator.onLine) {
-        await updateDoc(doc(db, "inventory", item.id), {
-          quantity: newQty,
-          tenantId,
-          lastScannedAt: serverTimestamp(),
-        });
+      await inventoryRepo.update(item.id, {
+        quantity: newQty,
+        lastScannedAt: new Date().toISOString(),
+      });
 
-        await addDoc(collection(db, "materialLogs"), {
-          itemId: item.id,
-          itemName: item.name,
-          quantity: qty,
-          type,
-          tenantId,
-          timestamp: serverTimestamp(),
-        });
-        
-        logAction("Inventory", type === "in" ? "Stock Added" : "Stock Consumed", `${type === "in" ? "Added" : "Consumed"} ${qty} units of ${item.name}`);
-      } else {
-        await syncService.queueAction(
-          "UPDATE",
-          "inventory",
-          { quantity: newQty, lastScannedAt: new Date().toISOString() },
-          tenantId,
-          item.id,
-        );
-        await syncService.queueAction(
-          "CREATE",
-          "materialLogs",
-          {
-            itemId: item.id,
-            itemName: item.name,
-            quantity: qty,
-            type,
-            timestamp: new Date().toISOString(),
-          },
-          tenantId,
-        );
-      }
+      await materialLogsRepo.create({
+        itemId: item.id,
+        itemName: item.name,
+        quantity: qty,
+        type,
+        unit: item.unit,
+      });
+
+      logAction("Inventory", type === "in" ? "Stock Added" : "Stock Consumed", `${type === "in" ? "Added" : "Consumed"} ${qty} units of ${item.name}`);
 
       await logSystemEvent("INVENTORY_USAGE_LOGGED", {
         itemId: item.id,
@@ -370,42 +320,29 @@ export default function Inventory() {
           tenantId,
         });
       } else {
-        if (navigator.onLine) {
-          const docRef = await addDoc(collection(db, "inventory"), {
-            ...scanResult,
-            quantity: qty,
-            unit: scanResult.suggestedUnit || "units",
-            tenantId,
-            lastScannedAt: serverTimestamp(),
-            minThreshold: scanResult.category === "Bulk" ? 2 : 5,
-          });
-          logAction("Inventory", "New Item", `Added ${qty} of new item ${scanResult.name}`);
-          await logSystemEvent("NEW_INVENTORY_ITEM_CREATED", {
-            itemId: docRef.id,
-            name: scanResult.name,
-            initialQty: qty,
-            tenantId,
-          });
-        } else {
-          await syncService.queueAction(
-            "CREATE",
-            "inventory",
-            {
-              ...scanResult,
-              quantity: qty,
-              unit: scanResult.suggestedUnit || "units",
-              lastScannedAt: new Date().toISOString(),
-              minThreshold: scanResult.category === "Bulk" ? 2 : 5,
-            },
-            tenantId,
-          );
-          logAction("Inventory", "New Item (Offline)", `Added ${qty} of new item ${scanResult.name}`);
-          await logSystemEvent("NEW_INVENTORY_ITEM_CREATED_OFFLINE", {
-            name: scanResult.name,
-            initialQty: qty,
-            tenantId,
-          });
-        }
+        // Strip scanner-only transient keys that aren't inventory columns.
+        const {
+          id: _scanId,
+          item: _scanItem,
+          status: _scanStatus,
+          isExisting: _scanIsExisting,
+          suggestedUnit,
+          ...scanFields
+        } = scanResult;
+        const created = await inventoryRepo.create({
+          ...scanFields,
+          quantity: qty,
+          unit: suggestedUnit || "units",
+          lastScannedAt: new Date().toISOString(),
+          minThreshold: scanResult.category === "Bulk" ? 2 : 5,
+        });
+        logAction("Inventory", "New Item", `Added ${qty} of new item ${scanResult.name}`);
+        await logSystemEvent("NEW_INVENTORY_ITEM_CREATED", {
+          itemId: created?.id,
+          name: scanResult.name,
+          initialQty: qty,
+          tenantId,
+        });
         await ingestKnowledge(
           `New Inventory Alert: ${scanResult.name} added. Staring stock: ${qty}.`,
           { type: "inventory", action: "new_item" },
@@ -887,7 +824,7 @@ export default function Inventory() {
                         onClick={async () => {
                           if (!item.id) return;
                           try {
-                            await updateDoc(doc(db, "inventory", item.id), { isArchived: true, deletedAt: serverTimestamp() });
+                            await inventoryRepo.archive(item.id);
                             logAction("Inventory", "Remove Item", `Archived/deleted ${item.name}`);
                             await logSystemEvent("INVENTORY_ITEM_DELETED", {
                               itemId: item.id,
@@ -1059,7 +996,9 @@ export default function Inventory() {
                         Sync:{" "}
                         {item.lastScannedAt
                           ? new Date(
-                              item.lastScannedAt.seconds * 1000,
+                              item.lastScannedAt.seconds
+                                ? item.lastScannedAt.seconds * 1000
+                                : item.lastScannedAt,
                             ).toLocaleDateString()
                           : "Pending"}
                       </span>

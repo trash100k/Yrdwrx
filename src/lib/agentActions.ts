@@ -136,14 +136,17 @@ export async function executeAgentAction(
         const customer = await resolveCustomer(args, ctx);
         const amount = Number(args.amount) || 0;
         const isQuote = name !== "create_invoice";
+        const clientLabel = customer ? fullName(customer) : args.clientName || "";
         const inv = await invoicesRepo.create({
           amount,
-          status: "DRAFT",
+          status: "draft", // lowercase: the Invoices UI + ClientPortal are lowercase-oriented
           customer_id: customer?.id || null,
           data: {
             serviceDescription: args.serviceDescription || args.description || "",
             kind: isQuote ? "quote" : "invoice",
-            clientName: customer ? fullName(customer) : args.clientName || "",
+            // The invoice screens read `data.client` (name string) for display + portal matching.
+            client: clientLabel,
+            clientName: clientLabel,
           },
         });
         return {

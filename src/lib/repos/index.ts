@@ -59,6 +59,7 @@ export const jobsRepo = {
 
 // --- Other domains (generic CRUD + realtime; create auto-stamps tenant) ---
 export const leadsRepo = makeRepo("leads", { orderBy: { column: "created_at" } });
+export const materialLogsRepo = makeRepo("material_logs", { orderBy: { column: "created_at", ascending: false } });
 export const invoicesRepo = makeRepo("invoices", { orderBy: { column: "created_at" } });
 export const expensesRepo = makeRepo("expenses", { orderBy: { column: "created_at" } });
 export const reviewsRepo = makeRepo("reviews", { orderBy: { column: "created_at" } });

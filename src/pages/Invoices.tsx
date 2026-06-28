@@ -2,23 +2,12 @@ import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
-  collection,
-  onSnapshot,
-  query,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-  deleteDoc,
-  where,
-} from "firebase/firestore";
-import {
-  db,
   handleFirestoreError,
   OperationType,
   logSystemEvent,
   auth
 } from "../lib/firebase";
+import { invoicesRepo, expensesRepo, jobsRepo } from "../lib/repos";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
   FileText,
@@ -54,6 +43,49 @@ import { PrinterFriendlyInvoice } from "../components/PrinterFriendlyInvoice";
 import { useLocation } from "react-router-dom";
 import { Invoice } from "../types";
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
+
+// Surface invoice fields that have no Supabase column (client name, clientEmail,
+// clientPhone, clientId) — they live in the `data` jsonb. Spread `data` first so
+// real columns win on key collisions. Status is normalized to lowercase so the
+// agent's "DRAFT" writes line up with the lowercase strings ("sent"/"paid") this
+// UI and ClientPortal already use for filtering/badges.
+const adaptInvoice = (r: any): any => ({
+  ...(r?.data || {}),
+  ...r,
+  status: (r?.status || "").toString().toLowerCase(),
+});
+
+// Map a camelCase invoice to a Supabase `invoices` row. Columnless fields
+// (client/clientEmail/clientPhone/clientId) nest into `data`; tenant/timestamps
+// are stamped server-side (RLS / column defaults) so we drop them here.
+const toInvoiceRow = (i: any) => ({
+  amount: i.amount,
+  status: i.status,
+  date: i.date,
+  dueDate: i.dueDate,
+  items: i.items,
+  customerId: i.customerId,
+  data: {
+    client: i.client,
+    clientEmail: i.clientEmail,
+    clientPhone: i.clientPhone,
+    clientId: i.clientId,
+    ...(i.data || {}),
+  },
+});
+
+// Surface expense fields without a column (vendor/notes/status) from `data`.
+const adaptExpense = (r: any): any => ({ ...(r?.data || {}), ...r });
+
+// Map a camelCase expense to a Supabase `expenses` row. amount/merchant/category/
+// date stay as columns; vendor/notes/status nest into `data`.
+const toExpenseRow = (x: any) => ({
+  amount: x.amount,
+  merchant: x.merchant,
+  category: x.category,
+  date: x.date,
+  data: { vendor: x.vendor, notes: x.notes, status: x.status, ...(x.data || {}) },
+});
 
 export default function Invoices() {
   const { tenant } = useTenant();
@@ -96,37 +128,14 @@ export default function Invoices() {
   const aiModalRef = useFocusTrap<HTMLDivElement>(showAIModal);
 
   useEffect(() => {
-    const tenantId = tenant?.id || "genesis-1";
-    const qInv = query(
-      collection(db, "invoices"),
-      where("tenantId", "==", tenantId),
+    // RLS scopes invoices/expenses to the caller's tenant, so no tenantId filter
+    // is needed. subscribe() pushes a fresh full list on any change (onSnapshot
+    // equivalent) and returns an unsubscribe fn.
+    const unsubscribeInv = invoicesRepo.subscribe((rows) =>
+      setInvoices((rows || []).map(adaptInvoice)),
     );
-    const unsubscribeInv = onSnapshot(
-      qInv,
-      (snapshot) => {
-        setInvoices(
-          snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as any),
-        );
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "invoices");
-      },
-    );
-
-    const qExp = query(
-      collection(db, "expenses"),
-      where("tenantId", "==", tenantId),
-    );
-    const unsubscribeExp = onSnapshot(
-      qExp,
-      (snapshot) => {
-        setExpenses(
-          snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as any),
-        );
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "expenses");
-      },
+    const unsubscribeExp = expensesRepo.subscribe((rows) =>
+      setExpenses((rows || []).map(adaptExpense)),
     );
 
     return () => {
@@ -172,27 +181,20 @@ export default function Invoices() {
       } else if (name === "log_expense") {
         setActiveTab("Expenses");
         if (args && args.amount) {
-          const tenantId = tenant?.id || "genesis-1";
-          const newDoc = {
-            amount: args.amount,
-            merchant: args.vendor || "Field Expense",
-            category: "Other",
-            notes: args.description || "Added via voice",
-            date: new Date().toISOString(),
-            status: "cleared",
-            tenantId,
-            createdAt: new Date().toISOString()
-          };
-          if (navigator.onLine) {
-            import("firebase/firestore").then(({ addDoc, collection, serverTimestamp }) => {
-              import("../lib/firebase").then(({ db }) => {
-                addDoc(collection(db, "expenses"), {
-                  ...newDoc,
-                  createdAt: serverTimestamp()
-                });
-              });
-            });
-          }
+          expensesRepo
+            .create(
+              toExpenseRow({
+                amount: args.amount,
+                merchant: args.vendor || "Field Expense",
+                category: "Other",
+                notes: args.description || "Added via voice",
+                date: new Date().toISOString(),
+                status: "cleared",
+              }),
+            )
+            .catch((err) =>
+              handleFirestoreError(err, OperationType.CREATE, "expenses"),
+            );
         } else {
           setIsScanning(true);
         }
@@ -269,18 +271,14 @@ export default function Invoices() {
            };
         }
         
-        const path = "expenses";
         const tenantId = tenant?.id || "genesis-1";
 
         if (navigator.onLine) {
-          const docRef = await addDoc(collection(db, path), {
-            ...data,
-            status: "cleared",
-            tenantId,
-            createdAt: serverTimestamp(),
-          });
+          const created = await expensesRepo.create(
+            toExpenseRow({ ...data, status: "cleared" }),
+          );
           await logSystemEvent("EXPENSE_SCAN_COMPLETED", {
-            expenseId: docRef.id,
+            expenseId: created?.id,
             merchant: data.merchant,
             tenantId,
           });
@@ -351,10 +349,7 @@ export default function Invoices() {
 
       // Only flip status to "sent" after the PDF/draft was created successfully.
       const tenantId = tenant?.id || "genesis-1";
-      await updateDoc(doc(db, "invoices", inv.id), {
-        status: "sent",
-        updatedAt: serverTimestamp(),
-      });
+      await invoicesRepo.update(inv.id, { status: "sent" });
       await logSystemEvent("INVOICE_PDF_GENERATED", {
         invoiceId: inv.id,
         client: inv.client,
@@ -624,11 +619,7 @@ export default function Invoices() {
                         const tenantId = tenant?.id || "genesis-1";
                         try {
                           if (navigator.onLine) {
-                            await updateDoc(doc(db, "invoices", inv.id), {
-                              status: "sent",
-                              updatedAt: serverTimestamp(),
-                              tenantId,
-                            });
+                            await invoicesRepo.update(inv.id, { status: "sent" });
                           } else {
                             await syncService.queueAction(
                               "UPDATE",
@@ -661,7 +652,7 @@ export default function Invoices() {
                         const tenantId = tenant?.id || "genesis-1";
                         try {
                           if (navigator.onLine) {
-                            await updateDoc(doc(db, "invoices", inv.id), { isArchived: true, deletedAt: serverTimestamp() });
+                            await invoicesRepo.archive(inv.id);
                           } else {
                             console.warn("Deletions require active sync.");
                             return;
@@ -722,7 +713,7 @@ export default function Invoices() {
                         const tenantId = tenant?.id || "genesis-1";
                         try {
                           if (navigator.onLine) {
-                            await updateDoc(doc(db, "expenses", exp.id), { isArchived: true, deletedAt: serverTimestamp() });
+                            await expensesRepo.archive(exp.id);
                           } else {
                             console.warn("Deletions require active sync.");
                             return;
@@ -1083,17 +1074,17 @@ export default function Invoices() {
                       try {
                         let invoiceId = "";
                         if (navigator.onLine) {
-                          const docRef = await addDoc(collection(db, path), {
-                            client: aiAnalysis.clientName,
-                            amount: calculatedTotal,
-                            items: aiAnalysis.items,
-                            status: "sent",
-                            tenantId,
-                            createdAt: serverTimestamp(),
-                          });
-                          invoiceId = docRef.id;
+                          const created = await invoicesRepo.create(
+                            toInvoiceRow({
+                              client: aiAnalysis.clientName,
+                              amount: calculatedTotal,
+                              items: aiAnalysis.items,
+                              status: "sent",
+                            }),
+                          );
+                          invoiceId = created?.id;
                           await logSystemEvent("INVOICE_CREATED_FROM_AI", {
-                            invoiceId: docRef.id,
+                            invoiceId: created?.id,
                             client: aiAnalysis.clientName,
                             tenantId,
                           });
@@ -1118,13 +1109,14 @@ export default function Invoices() {
                         }
 
                         if (autoSchedule && invoiceId && navigator.onLine) {
-                            await addDoc(collection(db, "jobs"), {
+                            await jobsRepo.create({
                                 title: aiAnalysis.items[0]?.description || "Scheduled Service",
-                                client: aiAnalysis.clientName,
                                 date: scheduleDate || new Date().toISOString().split('T')[0],
                                 status: "SCHEDULED",
-                                invoiceId,
-                                tenantId
+                                data: {
+                                  client: aiAnalysis.clientName,
+                                  invoiceId,
+                                },
                             });
                         }
 

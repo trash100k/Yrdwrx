@@ -9,18 +9,30 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  updateDoc,
-  doc,
-  addDoc,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { jobsRepo, invoicesRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { Job } from "../types";
+
+// Surface Firestore-only job fields (client/time/invoiceId) that live in the `data`
+// jsonb on Supabase. Spread `data` first so real columns win on key collisions.
+const adaptJob = (r: any): Job => ({ ...(r?.data || {}), ...r });
+
+// Map a camelCase Job to a Supabase `jobs` row. Fields without a column
+// (client/time/invoiceId) are nested into `data`; tenant/timestamps are
+// stamped server-side (RLS / column defaults) so we drop them here.
+const toJobRow = (j: any) => ({
+  title: j.title,
+  status: j.status,
+  date: j.date,
+  address: j.address,
+  notes: j.notes,
+  progress: j.progress,
+  checklist: j.checklist,
+  revenue: j.revenue,
+  customerId: j.customerId,
+  assignedTo: j.assignedTo,
+  data: { client: j.client, time: j.time, invoiceId: j.invoiceId, ...(j.data || {}) },
+});
 
 import { VoiceMemoJobModal } from "../components/VoiceMemoJobModal";
 import { useRole } from "../hooks/useRole";
@@ -51,17 +63,12 @@ export default function Scheduler() {
   const addModalRef = useFocusTrap<HTMLDivElement>(showAddModal);
 
   useEffect(() => {
-    const tenantId = tenant?.id || "genesis-1";
-    const q = query(collection(db, "jobs"), where("tenantId", "==", tenantId));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setActiveJobs(
-        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Job),
-      );
-    });
-
+    // RLS scopes jobs to the caller's tenant, so no tenantId filter is needed.
+    const unsubscribe = jobsRepo.subscribe((rows) =>
+      setActiveJobs((rows || []).map(adaptJob)),
+    );
     return () => unsubscribe();
-  }, [tenant]);
+  }, []);
 
   useEffect(() => {
     const handleVoiceAction = (e: CustomEvent) => {
@@ -83,27 +90,21 @@ export default function Scheduler() {
 
   const handleAddJob = async () => {
     if (!newJob.title) return;
-    const tenantId = tenant?.id || "genesis-1";
-    
+
     let invoiceId = "";
     if (autoInvoice) {
        const invPrice = categories.flatMap(cat => cat.services).find(s => s.name === newJob.title)?.price || 150;
-       const invRef = await addDoc(collection(db, "invoices"), {
-          client: newJob.client || "Unknown Client",
+       // Supabase invoices: free-text client name lives in the data jsonb (no column); RLS stamps tenant.
+       const invRow = await invoicesRepo.create({
           amount: invPrice,
           items: [{ description: newJob.title, quantity: 1, rate: invPrice }],
           status: "sent",
-          tenantId,
-          createdAt: new Date().toISOString()
+          data: { client: newJob.client || "Unknown Client" },
        });
-       invoiceId = invRef.id;
+       invoiceId = invRow?.id || "";
     }
 
-    await addDoc(collection(db, "jobs"), {
-      ...newJob,
-      invoiceId,
-      tenantId,
-    });
+    await jobsRepo.create(toJobRow({ ...newJob, invoiceId }));
     setShowAddModal(false);
     setNewJob({ title: "", status: "SCHEDULED" });
   };
@@ -112,7 +113,7 @@ export default function Scheduler() {
     jobId: string,
     newStatus: Job["status"],
   ) => {
-    await updateDoc(doc(db, "jobs", jobId), { status: newStatus });
+    await jobsRepo.update(jobId, { status: newStatus });
   };
 
   const statusColors = {
