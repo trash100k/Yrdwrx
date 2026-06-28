@@ -1,32 +1,32 @@
 // @ts-nocheck
-// Supabase client — replaces src/lib/firebase.ts (Auth + Postgres data + Storage).
-// Tenant isolation is enforced by Postgres RLS (supabase/migrations/0002_rls.sql),
-// so queries no longer carry an explicit tenantId filter — the caller's profile row
-// scopes every read/write.
+// Supabase data client (HYBRID AUTH). Identity stays in Firebase Auth; this client
+// forwards the Firebase ID token on every request, and Supabase validates it via
+// Third-Party Auth so Postgres RLS keys on the Firebase UID (auth.jwt() ->> 'sub').
+// See supabase/migrations/0002_rls.sql + 0003_rls_helpers_private_schema.sql.
+//
+// NOTE: with the `accessToken` option set, do NOT use supabase.auth.* — auth is
+// owned entirely by Firebase (src/lib/firebase.ts).
 
 import { createClient } from "@supabase/supabase-js";
+import { auth } from "./firebase";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  // Surface misconfig loudly in dev rather than failing with an opaque network error.
   console.warn(
     "[supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not set. " +
-      "Auth and data access will not work until they are configured (.env.local).",
+      "Data access will not work until they are configured (.env.local).",
   );
 }
 
 export const supabase = createClient(SUPABASE_URL ?? "", SUPABASE_ANON_KEY ?? "", {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
+  // Forward the current Firebase ID token to Supabase (Third-Party Auth).
+  accessToken: async () => {
+    try {
+      return (await auth.currentUser?.getIdToken()) ?? null;
+    } catch {
+      return null;
+    }
   },
 });
-
-// Convenience: current access token for authed calls to the Express API (src/lib/api.ts).
-export async function getAccessToken(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
-}

@@ -1,6 +1,8 @@
 -- YardWorx — Row-Level Security (replaces firestore.rules)
--- Tenant isolation keyed on the caller's profile row. Mirrors firestore.rules:
---   getTenantId()  -> public.auth_tenant_id()
+-- HYBRID AUTH: identity stays in Firebase Auth; Supabase trusts Firebase JWTs via
+-- Third-Party Auth. The caller's Firebase UID is the JWT `sub` claim, matched against
+-- profiles.firebase_uid. Mirrors firestore.rules:
+--   getTenantId()  -> public.auth_tenant_id()   (profiles.tenant_id for auth.jwt()->>'sub')
 --   getRole()      -> public.auth_role()
 --   SaaS admin     -> profiles.is_platform_admin (replaces the hardcoded owner email)
 -- The Express server uses the service-role key, which bypasses RLS for privileged ops
@@ -13,17 +15,17 @@
 
 create or replace function public.auth_tenant_id()
 returns uuid language sql stable security definer set search_path = public as $$
-  select tenant_id from public.profiles where id = (select auth.uid())
+  select tenant_id from public.profiles where firebase_uid = (auth.jwt() ->> 'sub')
 $$;
 
 create or replace function public.auth_role()
 returns text language sql stable security definer set search_path = public as $$
-  select role from public.profiles where id = (select auth.uid())
+  select role from public.profiles where firebase_uid = (auth.jwt() ->> 'sub')
 $$;
 
 create or replace function public.is_platform_admin()
 returns boolean language sql stable security definer set search_path = public as $$
-  select coalesce((select is_platform_admin from public.profiles where id = (select auth.uid())), false)
+  select coalesce((select is_platform_admin from public.profiles where firebase_uid = (auth.jwt() ->> 'sub')), false)
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -63,15 +65,15 @@ drop policy if exists profiles_update on public.profiles;
 
 create policy profiles_read on public.profiles for select using (
   public.is_platform_admin()
-  or id = (select auth.uid())
+  or firebase_uid = (auth.jwt() ->> 'sub')
   or tenant_id = public.auth_tenant_id()
 );
 create policy profiles_insert on public.profiles for insert with check (
-  public.is_platform_admin() or id = (select auth.uid())
+  public.is_platform_admin() or firebase_uid = (auth.jwt() ->> 'sub')
 );
 create policy profiles_update on public.profiles for update using (
   public.is_platform_admin()
-  or id = (select auth.uid())
+  or firebase_uid = (auth.jwt() ->> 'sub')
   or (tenant_id = public.auth_tenant_id() and public.auth_role() in ('admin','owner'))
 );
 -- NOTE: prevent self role/tenant escalation with a BEFORE UPDATE trigger (follow-up);
@@ -100,12 +102,12 @@ drop policy if exists business_settings_rw on public.business_settings;
 create policy business_settings_rw on public.business_settings for all
 using (
   public.is_platform_admin()
-  or user_id = (select auth.uid())
+  or firebase_uid = (auth.jwt() ->> 'sub')
   or (tenant_id = public.auth_tenant_id() and public.auth_role() in ('admin','owner'))
 )
 with check (
   public.is_platform_admin()
-  or user_id = (select auth.uid())
+  or firebase_uid = (auth.jwt() ->> 'sub')
   or (tenant_id = public.auth_tenant_id() and public.auth_role() in ('admin','owner'))
 );
 

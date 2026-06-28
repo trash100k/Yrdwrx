@@ -22,10 +22,13 @@ create table if not exists public.tenants (
   updated_at        timestamptz not null default now()
 );
 
--- One row per auth user. Replaces the Firestore /users/{uid} doc; carries the
+-- One row per Firebase user. Replaces the Firestore /users/{uid} doc; carries the
 -- tenant_id + role that RLS keys on (mirrors firestore.rules getTenantId()/getRole()).
+-- HYBRID AUTH: identity stays in Firebase Auth. Supabase trusts Firebase JWTs via
+-- Third-Party Auth, so the PK is the Firebase UID (the JWT `sub` claim) — there is no
+-- Supabase auth.users table to reference.
 create table if not exists public.profiles (
-  id                  uuid primary key references auth.users(id) on delete cascade,
+  firebase_uid        text primary key,
   tenant_id           uuid references public.tenants(id) on delete set null,
   role                text not null default 'employee'
                         check (role in ('admin','owner','employee','client','foreman')),
@@ -39,7 +42,7 @@ create index if not exists profiles_tenant_idx on public.profiles(tenant_id);
 
 -- Per-user business settings (Firestore /settings/{userId}).
 create table if not exists public.business_settings (
-  user_id            uuid primary key references auth.users(id) on delete cascade,
+  firebase_uid       text primary key,
   tenant_id          uuid not null references public.tenants(id) on delete cascade,
   company_name       text,
   onboarding_complete boolean not null default false,
@@ -332,7 +335,7 @@ create table if not exists public.audit_logs (
   id         uuid primary key default gen_random_uuid(),
   tenant_id  uuid not null references public.tenants(id) on delete cascade,
   event      text not null,
-  user_id    uuid,
+  user_id    text,  -- Firebase UID of the acting user
   metadata   jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
@@ -342,7 +345,7 @@ create table if not exists public.system_logs (
   id         uuid primary key default gen_random_uuid(),
   tenant_id  uuid references public.tenants(id) on delete cascade,
   event      text not null,
-  user_id    uuid,
+  user_id    text,  -- Firebase UID of the acting user
   metadata   jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );

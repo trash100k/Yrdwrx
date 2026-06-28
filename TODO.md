@@ -28,6 +28,15 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 - Priority legend: 🔴 **blocker** (can't launch) · 🟠 **risky** (breaks/degrades in real prod or at
   scale) · 🟢 **feature/polish** (value-add & de-uglify).
 
+> **Backend architecture (decided + in progress): HYBRID.** Keep **Firebase Auth** (Google Sign-In +
+> Workspace consent) + **Cloud Run** (+ **Vertex AI Gemini via ADC**); move only **DATA → Supabase
+> Postgres + RLS**, bridged by **Supabase Third-Party Auth (Firebase)** so RLS keys on the Firebase
+> UID (`auth.jwt()->>'sub'`). **Live now:** the full Postgres schema + RLS is applied to project
+> `bzpxudpmksnawmaanxal` (org GaelWorx) — 23 tables, tenant-scoped policies in a hardened `private`
+> helper schema, **cross-tenant isolation verified live**, **0 security advisories**. Migrations:
+> `supabase/migrations/0001`–`0004`. Next: enable Supabase Third-Party Auth → Firebase in the
+> dashboard, then cut pages off Firestore via `src/lib/repos/*`.
+
 ---
 
 ## Launch-readiness snapshot
@@ -36,7 +45,7 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 |------|:------:|:------:|--------------|
 | Build / deploy | 🔴 | 0% | `npm run build` never bundles `server.ts` → `dist/server.cjs`; Cloud Run crash-loops |
 | Auth | 🔴 | 0% | **Every `/api/*` route is unauthenticated** (proven live — mount-path bug) |
-| Multi-tenancy | 🔴 | ~10% | Rules are solid, but client hardcodes `demo-tenant-1`; onboarding collides all clients on `genesis-1` |
+| Multi-tenancy | 🟠 | ~55% | **Supabase Postgres + RLS is LIVE** (project `bzpxudpmksnawmaanxal`, Firebase-UID keyed, cross-tenant isolation verified, 0 security advisories). Remaining: wire Third-Party Auth in dashboard + cut pages over from Firestore; client still hardcodes `demo-tenant-1` until then |
 | Billing | 🟠 | ~40% | Stripe Connect + checkout wired; no tier/quota enforcement; webhook not tenant-safe |
 | Design Studio | 🔴 | ~30% | Crashes in mock mode; mockup 500s; pricing AI-invented, not catalog-grounded |
 | Live Ear (flagship) | 🟢 | ~60% | Streaming works; Live tools are stubs; no vision builder yet |
