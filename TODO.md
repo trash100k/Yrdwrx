@@ -418,8 +418,11 @@ sweep, and a text/copy consistency scan). Newly-surfaced concrete work, prioriti
   connected account with `application_fee_percent`.
 - [ ] 🔴 **Two-way SMS** — outbound only (`/api/sms/send`). Add a Twilio inbound webhook →
   conversation thread (reuse the `messages` table from migration 0006).
-- [ ] 🟠 **Online booking / instant-quote public intake** — no customer-facing form that creates a
-  CRM lead (only the internal `LeadSubmissionModal` + magic-link portal).
+- [x] ✅ **Online booking / instant-quote public intake** — shipped: public page `/book/:tenantId`
+  (`src/pages/BookingIntake.tsx`) → `POST /api/public/lead-intake` (auth-excluded, rate-limited 30/hr,
+  injection-scanned, input-capped) creates a NEW lead in the tenant's pipeline; `GET /api/public/tenant/:id`
+  shows the company name. Degrades to a simulated success without Firebase creds. _Follow-up: surface the
+  shareable booking link in Settings; land the lead in Supabase `leads` once the data cutover happens._
 - [ ] 🟠 **Crew time-tracking → payroll** — no clock-in/out timesheets (payroll is an AI draft via
   `/api/workflows/payroll`; `CrewSuite` has geofence only). Add a `timesheets` table + clock UI.
 - [ ] 🟠 **Estimate e-signature → auto-convert to job + invoice** — Design Studio quotes are real +

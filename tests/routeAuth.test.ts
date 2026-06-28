@@ -19,6 +19,11 @@ describe('routeAuth.isExcludedApiPath', () => {
     expect(isExcludedApiPath('/api/health')).toBe(true);
   });
 
+  it('excludes the public intake namespace', () => {
+    expect(isExcludedApiPath('/api/public/lead-intake')).toBe(true);
+    expect(isExcludedApiPath('/api/public/tenant/abc')).toBe(true);
+  });
+
   it('does NOT exclude /api/playground/* (now auth+metered — was open AI-cost abuse)', () => {
     expect(isExcludedApiPath('/api/playground/chat')).toBe(false);
     expect(isExcludedApiPath('/api/playground/anything/else')).toBe(false);

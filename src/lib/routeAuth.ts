@@ -18,7 +18,11 @@ export const AUTH_EXCLUDED_ROUTES: string[] = [
 ];
 
 export function isExcludedApiPath(fullPath: string): boolean {
-  return AUTH_EXCLUDED_ROUTES.includes(fullPath);
+  if (AUTH_EXCLUDED_ROUTES.includes(fullPath)) return true;
+  // Public namespace: customer-facing intake (online booking / instant-quote). No login by
+  // design — protected instead by a strict rate limiter + the injection scanner + input caps.
+  if (fullPath.startsWith("/api/public/")) return true;
+  return false;
 }
 
 // True when the path is an /api/* route that must carry a verified token.

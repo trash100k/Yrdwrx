@@ -58,6 +58,7 @@ const Agent = lazy(() => import("./pages/Agent"));
 const Portfolio = lazy(() => import("./pages/Portfolio"));
 const ClientPortal = lazy(() => import("./pages/ClientPortal"));
 const MagicLinkAuth = lazy(() => import("./pages/MagicLinkAuth"));
+const BookingIntake = lazy(() => import("./pages/BookingIntake"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 const TermsOfService = lazy(() => import("./pages/TermsOfService"));
 const DataMap = lazy(() => import("./pages/DataMap"));
@@ -234,6 +235,11 @@ useEffect(() => {
                           <Route
                             path="/portal/auth/:token"
                             element={<MagicLinkAuth />}
+                          />
+                          {/* Public online booking / instant-quote intake (no auth). */}
+                          <Route
+                            path="/book/:tenantId"
+                            element={<BookingIntake />}
                           />
                           {!user ? (
                             <Route
