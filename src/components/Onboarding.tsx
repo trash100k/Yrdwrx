@@ -183,7 +183,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         {" "}
         <div className="flex gap-3 mb-16">
           {" "}
-          {[1, 2, 3].map((i) => (
+          {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
               className={`h-1.5 flex-1 rounded-full transition-all duration-700 ${i <= step ? "bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "bg-white/10"}`}

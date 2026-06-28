@@ -18,35 +18,75 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-const app = initializeApp(firebaseConfig);
+// YardWorx runs on Supabase Auth + Postgres as the system of record. Firebase is
+// legacy and optional: a handful of not-yet-migrated components still import `db`,
+// `auth`, `storage`, `analytics` from here and call Firestore's `collection(db, …)`
+// at mount. Two failure modes to avoid:
+//
+//  1) initializeAuth/getAuth/getStorage with an EMPTY apiKey throws
+//     `auth/invalid-api-key` synchronously at module load → the whole SPA goes
+//     blank. So we only init auth/storage/analytics when a real apiKey is present.
+//  2) Exporting `db = null` makes legacy `collection(db, …)` throw synchronously
+//     at render → the root error boundary swallows the entire view. Firestore's
+//     own init only needs a projectId (NOT an apiKey), so we always create a valid
+//     `db`. Locked/unauthenticated reads then fail gracefully via the async
+//     onSnapshot error callback (which legacy call sites already tolerate) instead
+//     of crashing the render. Their primary data paths already go through Supabase.
+const hasFirebaseConfig = !!firebaseConfig.apiKey;
 
-const firestoreDb = initializeFirestore(app, {
-  localCache: memoryLocalCache()
-});
+let app: ReturnType<typeof initializeApp> | null = null;
+let firestoreDb: ReturnType<typeof initializeFirestore> | null = null;
+let tempAuth: ReturnType<typeof getAuth> | null = null;
+let storageInst: ReturnType<typeof getStorage> | null = null;
+export let analytics: ReturnType<typeof getAnalytics> | null = null;
 
-export const db = firestoreDb;
-
-let tempAuth;
 try {
-  tempAuth = initializeAuth(app, {
-    persistence: inMemoryPersistence
+  // initializeApp + Firestore work with just a projectId — no apiKey required.
+  app = initializeApp(firebaseConfig);
+  firestoreDb = initializeFirestore(app, {
+    localCache: memoryLocalCache(),
   });
-} catch(e) {
-  // Fallback in case it's already initialized
-  tempAuth = getAuth(app);
+} catch (e) {
+  console.warn("[firebase] Firestore init skipped:", (e as Error)?.message);
+  app = null;
+  firestoreDb = null;
 }
 
-export const auth = tempAuth;
-
-export const storage = getStorage(app);
-
-// Analytics is only supported in browser environments
-export let analytics: ReturnType<typeof getAnalytics> | null = null;
-isSupported().then((supported) => {
-  if (supported) {
-    analytics = getAnalytics(app);
+if (hasFirebaseConfig && app) {
+  try {
+    try {
+      tempAuth = initializeAuth(app, { persistence: inMemoryPersistence });
+    } catch (e) {
+      // Fallback in case it's already initialized
+      tempAuth = getAuth(app);
+    }
+    storageInst = getStorage(app);
+    // Analytics is only supported in browser environments
+    isSupported()
+      .then((supported) => {
+        if (supported && app) analytics = getAnalytics(app);
+      })
+      .catch(() => {});
+  } catch (e) {
+    console.warn(
+      "[firebase] auth/storage init skipped — running Supabase-only:",
+      (e as Error)?.message,
+    );
+    tempAuth = null;
+    storageInst = null;
   }
-});
+} else {
+  console.info("[firebase] no VITE_FIREBASE_API_KEY — Supabase-only mode");
+}
+
+// Cast away the `| null` so the public type contract matches the pre-Supabase
+// behavior (legacy consumers without @ts-nocheck assume these are non-null). At
+// runtime `db` is virtually always a valid Firestore instance (init needs only a
+// projectId); `auth`/`storage` may be null in Supabase-only mode, but the only
+// callers are legacy Google-OAuth buttons behind explicit user clicks.
+export const db = firestoreDb as ReturnType<typeof initializeFirestore>;
+export const auth = tempAuth as ReturnType<typeof getAuth>;
+export const storage = storageInst as ReturnType<typeof getStorage>;
 
 export enum OperationType {
   CREATE = "create",

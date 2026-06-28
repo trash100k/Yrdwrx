@@ -345,17 +345,21 @@ export default function BrainChat({
       );
   }, [isOpen, setIsOpen]);
 
-  const handleQuery = async (e?: React.FormEvent) => {
+  const handleQuery = async (e?: React.FormEvent, overrideText?: string) => {
     if (e) e.preventDefault();
-    if (!query.trim() || isLoading) return;
+    // overrideText lets tappable quick-reply chips drive the conversation without
+    // the user having to type (the whole point: a contractor with muddy hands on a
+    // phone taps "Yes" instead of typing it).
+    const submitted = (overrideText ?? query).trim();
+    if (!submitted || isLoading) return;
 
     const userMessage = {
       id: String(Date.now()),
       sender: "user" as const,
-      text: query,
+      text: submitted,
     };
     setMessages((prev) => [...prev, userMessage]);
-    const currentQuery = query.toLowerCase();
+    const currentQuery = submitted.toLowerCase();
     setQuery("");
 
     if (activeWorkflow === "disclaimer") {
@@ -644,6 +648,25 @@ export default function BrainChat({
     }
   };
 
+  // Tappable answers for the guided first-run conversation. A tech-illiterate
+  // contractor should never have to type during onboarding — they tap a big chip.
+  // Empty array → no chips (free-form chat), so this only shows during a workflow.
+  const quickReplies: string[] = (() => {
+    if (isLoading) return [];
+    switch (activeWorkflow) {
+      case "disclaimer":
+        return ["Yes, I understand", "Tell me more"];
+      case "tour_prompt":
+        return ["Yes, show me around", "Skip for now"];
+      case "onboarding_prop":
+        return ["Residential", "HOA", "Commercial"];
+      case "onboarding_bottle":
+        return ["Routing & Dispatch", "Sales & Outreach", "Inventory"];
+      default:
+        return [];
+    }
+  })();
+
   const content = (
     <div className={`w-full flex flex-col relative overflow-hidden ${mode === 'overlay' ? 'max-w-2xl h-[min(800px,85vh)] bg-slate-900 rounded-2xl shadow-2xl border border-white/5' : 'h-full bg-transparent'}`}>
       {!hideHeader && (
@@ -759,7 +782,22 @@ export default function BrainChat({
               )}
             </div>
 
-            <div className="p-8 border-t border-white/5 flex gap-4">
+            <div className="p-8 border-t border-white/5 flex flex-col gap-4">
+              {quickReplies.length > 0 && (
+                <div className="flex flex-wrap gap-3">
+                  {quickReplies.map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => handleQuery(undefined, label)}
+                      className="px-5 py-3 rounded-2xl bg-forest-600 hover:bg-forest-500 active:scale-95 text-white text-base font-black transition-all shadow-lg"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-4">
               <button
                 type="button"
                 onClick={toggleListening}
@@ -792,6 +830,7 @@ export default function BrainChat({
                   <Send size={24} />
                 </button>
               </form>
+              </div>
             </div>
           </div>
   );
