@@ -70,6 +70,7 @@ import { NotificationsCenter } from "./NotificationsCenter";
 import { UserProfileMenu } from "./UserProfileMenu";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { QuickCreateMenu } from "./QuickCreateMenu";
+import { Tooltip } from "./Tooltip";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -621,8 +622,7 @@ export default function Layout() {
 
             <div className="flex-1 max-w-2xl hidden lg:flex justify-start mr-auto lg:pr-12">
               <div 
-                className="relative group w-full cursor-pointer"
-                onClick={() => setIsCommandPaletteOpen(true)}
+                className="relative group w-full"
               >
                 <Search
                   size={22}
@@ -631,15 +631,18 @@ export default function Layout() {
                 <label htmlFor="system-search" className="sr-only">
                   Search
                 </label>
-                <div
-                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-500 flex items-center justify-between"
+                <button
+                  id="system-search"
+                  type="button"
+                  onClick={() => setIsCommandPaletteOpen(true)}
+                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-500 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                 >
                   <span>Search for customers, equipment, or jobs...</span>
                   <div className="flex items-center gap-1">
                     <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">⌘</kbd>
                     <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">K</kbd>
                   </div>
-                </div>
+                </button>
               </div>
             </div>
 
@@ -665,32 +668,38 @@ export default function Layout() {
                   {themeSettings.visualContrast === 'outdoor-light' ? <Moon size={20} /> : <Sun size={20} />}
                 </button>
 
-                <button
-                  onClick={() => setIsQuickCreateOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
-                  aria-label="Quick Create"
-                >
-                  <Plus size={20} />
-                </button>
+                <Tooltip content="Quick Create" position="bottom">
+                  <button
+                    onClick={() => setIsQuickCreateOpen(true)}
+                    className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
+                    aria-label="Quick Create"
+                  >
+                    <Plus size={20} />
+                  </button>
+                </Tooltip>
 
-                <button
-                  onClick={() => setIsNotificationsOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
-                  aria-label="Notifications"
-                >
-                  <Bell size={20} />
-                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
-                </button>
+                <Tooltip content="Notifications" position="bottom">
+                  <button
+                    onClick={() => setIsNotificationsOpen(true)}
+                    className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                    aria-label="Notifications"
+                  >
+                    <Bell size={20} />
+                    <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
+                  </button>
+                </Tooltip>
 
-                <button
-                  id="brain-trigger"
-                  onClick={() => setIsBrainOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
-                  aria-label="Get Help"
-                >
-                  <Brain size={20} />
-                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-forest-500 rounded-full border-2 border-black" />
-                </button>
+                <Tooltip content="YardPilot (AI Help)" position="bottom">
+                  <button
+                    id="brain-trigger"
+                    onClick={() => setIsBrainOpen(true)}
+                    className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                    aria-label="Get Help"
+                  >
+                    <Brain size={20} />
+                    <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-forest-500 rounded-full border-2 border-black" />
+                  </button>
+                </Tooltip>
 
                 <div 
                   className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors"
