@@ -18,12 +18,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { useToast } from "../contexts/ToastContext";
-import {
-  customersRepo,
-  jobsRepo,
-  invoicesRepo,
-  leadsRepo,
-} from "../lib/repos";
+import { executeAgentAction } from "../lib/agentActions";
+import { useRole } from "../hooks/useRole";
 
 import { useFieldMode } from "../contexts/FieldModeContext";
 
@@ -33,6 +29,8 @@ export default function LiveEar() {
   const { setFocus, setJobStatus } = useCuttyGuide();
   const { toggleFieldMode } = useFieldMode();
   const { showToast } = useToast();
+  const { role } = useRole();
+  const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [transcription, setTranscription] = useState("");
@@ -251,110 +249,6 @@ let stream;
     nextStartTimeRef.current = startTime + buffer.duration;
   };
 
-  // Actually run the detected voice tool-call against the data layer.
-  // Each branch is independently guarded so a single failure never crashes the panel.
-  const executeAction = async (call: Record<string, any>) => {
-    const name = call?.name;
-    const args = call?.args || {};
-    try {
-      switch (name) {
-        case "load_client_data": {
-          const query = args.clientName || args.name || "";
-          const matches = await customersRepo.findByNameOrPhone(query);
-          if (matches && matches.length > 0) {
-            const c = matches[0];
-            setLoadedCustomer(c);
-            const full = `${c.first_name || ""} ${c.last_name || ""}`.trim();
-            setLastResult(`Customer found: ${full || query}`);
-          } else {
-            setLoadedCustomer(null);
-            setLastResult("No match — create lead?");
-          }
-          break;
-        }
-        case "create_lead": {
-          const leadName =
-            [args.firstName, args.lastName].filter(Boolean).join(" ") ||
-            args.name ||
-            "New Lead";
-          await leadsRepo.create({ name: leadName, notes: args.notes });
-          setLastResult(`Lead created: ${leadName}`);
-          showToast("Lead created", leadName, "success");
-          break;
-        }
-        case "schedule_job": {
-          const jobRow: Record<string, any> = {
-            title: args.serviceType || "Service",
-            status: "SCHEDULED",
-            date: args.date || null,
-          };
-          if (loadedCustomer?.id) jobRow.customer_id = loadedCustomer.id;
-          await jobsRepo.create(jobRow);
-          setLastResult(`Job scheduled: ${jobRow.title}`);
-          showToast("Job scheduled", jobRow.title, "success");
-          break;
-        }
-        case "create_invoice": {
-          const amount = Number(args.amount) || 0;
-          await invoicesRepo.create({
-            amount,
-            status: "DRAFT",
-            data: { serviceDescription: args.serviceDescription },
-          });
-          setLastResult(`Invoice drafted: $${amount}`);
-          showToast("Invoice created", `Draft for $${amount}`, "success");
-          break;
-        }
-        case "add_client_note": {
-          if (loadedCustomer?.id) {
-            const note = args.note || "";
-            const merged =
-              (loadedCustomer.notes ? loadedCustomer.notes + "\n" : "") + note;
-            const updated = await customersRepo.update(loadedCustomer.id, {
-              notes: merged,
-            });
-            setLoadedCustomer(updated || { ...loadedCustomer, notes: merged });
-            setLastResult("Note added to client");
-            showToast("Note added", note, "success");
-          } else {
-            setLastResult("No client loaded — say the client name first");
-            showToast(
-              "No client loaded",
-              "Load a client before adding a note.",
-              "info",
-            );
-          }
-          break;
-        }
-        case "build_design_vision":
-        case "enter_field_mode": {
-          setLastResult("Opening Design Studio…");
-          showToast("Opening Design Studio…", "", "info");
-          if (loadedCustomer) {
-            navigate("/design-studio", { state: { customer: loadedCustomer } });
-          } else {
-            navigate("/design-studio");
-          }
-          break;
-        }
-        default: {
-          // Unknown — already logged to the actions panel; nothing to execute.
-          break;
-        }
-      }
-    } catch (err: any) {
-      console.error("LiveEar: action execution failed", name, err);
-      setLastResult(`Action failed: ${prettyActionName(name)}`);
-      try {
-        showToast(
-          "Action failed",
-          err?.message || `Couldn't run ${prettyActionName(name)}`,
-          "error",
-        );
-      } catch {}
-    }
-  };
-
   const handleDetectedAction = (toolCall: Record<string, any>) => {
     if (
       !toolCall ||
@@ -376,51 +270,33 @@ let stream;
         ...prev,
       ].slice(0, 6),
     );
+    setJobStatus(`${prettyActionName(call.name)}…`);
 
-    // Actually execute the detected tool-call against the data layer.
-    void executeAction(call);
-
-    // YardWorx Guidance Logic
-    if (call.name === "schedule_job") {
-      setJobStatus(`Scheduling Job...`);
-      if (location.pathname !== "/scheduler") navigate("/scheduler");
-    } else if (call.name === "create_invoice") {
-      setJobStatus(`Preparing Invoice for ${call.args.clientName}...`);
-      if (location.pathname !== "/invoices") navigate("/invoices");
-    } else if (call.name === "load_client_data") {
-      setJobStatus(`Opening Client: ${call.args.clientName}`);
-      if (location.pathname !== "/crm") navigate("/crm");
-    } else if (call.name === "create_lead") {
-      setJobStatus(`Adding ${call.args.firstName} as a Lead`);
-      if (location.pathname !== "/crm") navigate("/crm");
-    } else if (call.name === "add_client_note") {
-      setJobStatus(`Adding note for ${call.args.clientName}`);
-      if (location.pathname !== "/crm") navigate("/crm");
-    } else if (call.name === "check_inventory") {
-      setJobStatus(
-        `Checking inventory for ${call.args.itemName || "items"}...`,
-      );
-      if (location.pathname !== "/inventory") navigate("/inventory");
-    } else if (call.name === "load_employee_data") {
-      setJobStatus(`Locating ${call.args.employeeName}...`);
-      if (location.pathname !== "/crew-suite") navigate("/crew-suite");
-    } else if (call.name === "enter_field_mode") {
-      setJobStatus(`Activating Field Mode...`);
-      toggleFieldMode();
-    } else if (call.name === "log_expense") {
-      setJobStatus(`Scanning expense for $${call.args.amount}...`);
-      if (location.pathname !== "/invoices") navigate("/invoices");
-    } else if (call.name === "log_inventory_usage") {
-      setJobStatus(
-        `Logging usage of ${call.args.quantity}x ${call.args.itemName}...`,
-      );
-      if (location.pathname !== "/inventory") navigate("/inventory");
-    }
-
-    setTimeout(() => {
-      const event = new CustomEvent("cutty-action", { detail: call });
-      window.dispatchEvent(event);
-    }, 400);
+    // Run the detected tool-call through the shared executor: real Supabase mutation,
+    // a confirmation message, and a navigation hint so the owner can click to verify.
+    void (async () => {
+      const result = await executeAgentAction(call, {
+        navigate,
+        rolePrefix,
+        showToast,
+        toggleFieldMode,
+        getLoadedCustomer: () => loadedCustomer,
+        setLoadedCustomer,
+      });
+      setLastResult(result.message);
+      if (result.navigateTo && location.pathname !== result.navigateTo) {
+        navigate(result.navigateTo);
+      }
+      try {
+        showToast(prettyActionName(call.name), result.message, result.ok ? "success" : "info");
+      } catch {}
+      // Mirror a confirmation line into the text agent's transcript.
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("cutty-action", { detail: { ...call, _result: result } }),
+        );
+      }, 200);
+    })();
 
     setTimeout(() => {
       setLastAction(null);

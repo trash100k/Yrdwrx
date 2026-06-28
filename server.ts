@@ -4272,18 +4272,26 @@ export async function createApp({ startListening = false } = {}) {
             If the user shows you a receipt, say "I see a receipt, let me log that expense" and call log_expense.
             If the user shows you a lawn issue, analyze it visually and give advice.
 
+            BE PROACTIVE. The owner is often on a call or driving — when you hear an actionable
+            intent, CALL THE TOOL immediately (don't wait to be asked) and say what you did in one
+            short line. You can chain tools: e.g. load_client_data then schedule_job then create_invoice.
+
             DETECT INTENT and use tools:
-            - If they mention scheduling (e.g. "Let's put Mrs. Gable down for Tuesday"), call schedule_job.
-            - If they mention billing (e.g. "Send a bill for $400 for the irrigation work"), call create_invoice.
-            - If they mention logging an expense or receipt (e.g. "I spent $50 on gas"), call log_expense.
-            - If they talk about looking up a client, call load_client_data.
-            - If they talk about adding a note or gate code for a client, call add_client_note.
-            - If they mention taking or using inventory items (e.g. "I'm taking 3 units of mulch"), call log_inventory_usage. If they mention using it for a specific job/client, include the clientName.
-            - If they talk about tracking parts or checking stock, call check_inventory.
-            - If they say they are starting the route or heading out, call enter_field_mode.
-            - If they talk about an employee or crew member, call load_employee_data.
-            - If they talk about a new potential customer, call create_lead.
-            
+            - New customer or prospect mentioned ("got a call from a Jane on Oak St") -> create_contact (or create_lead).
+            - Looking someone up ("pull up Mrs. Gable") -> load_client_data.
+            - Scheduling ("put Mrs. Gable down for Tuesday") -> schedule_job.
+            - Billing ("send a bill for $400 for the irrigation work") -> create_invoice.
+            - A quote/estimate ("quote them $1,200 for the patio") -> create_quote.
+            - Expense or receipt ("I spent $50 on gas", or you SEE a receipt) -> log_expense.
+            - A note about a client -> add_client_note.
+            - A gate code / lockbox code for a client ("the gate code is 1234") -> set_gate_code.
+            - Taking/using inventory ("I'm taking 3 units of mulch") -> log_inventory_usage (include clientName if for a job).
+            - Checking stock / parts -> check_inventory.
+            - Asking for a review / "remind me to get a review from them" -> request_review.
+            - Redesign / planting / hardscape / "show them ideas" -> build_design_vision.
+            - Starting the route / heading out -> enter_field_mode.
+            - An employee or crew member -> load_employee_data.
+
             Speak like a helpful, Southern hospitality assistant. Keep it brief and encouraging.
             "I've got Mrs. Gable's history ready," "Adding that new project to the list," "Pulling up Crew Alpha's stats."
           `,
@@ -4442,6 +4450,62 @@ export async function createApp({ startListening = false } = {}) {
                       notes: { type: Type.STRING },
                     },
                     required: ["firstName"],
+                  },
+                },
+                {
+                  name: "create_contact",
+                  description:
+                    "Add a brand-new customer/contact to the client book. Use when a new person or business is mentioned for the first time.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      firstName: { type: Type.STRING },
+                      lastName: { type: Type.STRING },
+                      phone: { type: Type.STRING },
+                      email: { type: Type.STRING },
+                      address: { type: Type.STRING },
+                      notes: { type: Type.STRING },
+                    },
+                    required: ["firstName"],
+                  },
+                },
+                {
+                  name: "set_gate_code",
+                  description:
+                    "Save a gate / lockbox access code on a client's profile so the field crew sees it.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING },
+                      gateCode: { type: Type.STRING },
+                    },
+                    required: ["gateCode"],
+                  },
+                },
+                {
+                  name: "create_quote",
+                  description:
+                    "Draft a price quote/estimate for a client (a draft invoice they can approve).",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING },
+                      amount: { type: Type.NUMBER },
+                      serviceDescription: { type: Type.STRING },
+                    },
+                    required: ["amount"],
+                  },
+                },
+                {
+                  name: "request_review",
+                  description:
+                    "Queue a request to ask a client for an online review after a completed job.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING },
+                    },
+                    required: [],
                   },
                 },
               ],

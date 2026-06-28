@@ -26,9 +26,69 @@ import { db } from "../lib/firebase";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 import { useRole } from "../hooks/useRole";
+import { executeAgentAction } from "../lib/agentActions";
 
 
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+
+// Lightweight intent detection for the TEXT agent. High-confidence verbs map to the SAME
+// tool-calls the voice agent uses (executeAgentAction); anything else falls through to Q&A.
+function detectAgentIntent(text: string): { name: string; args: any } | null {
+  const t = (text || "").trim();
+  const low = t.toLowerCase();
+  if (!t) return null;
+  const amount = () => {
+    const m = t.match(/\$?\s*([\d,]+(?:\.\d{1,2})?)/);
+    return m ? Number(m[1].replace(/,/g, "")) : undefined;
+  };
+  const grab = (re: RegExp) => {
+    const m = t.match(re);
+    return m && m[1] ? m[1].trim().replace(/[.,]$/, "") : undefined;
+  };
+
+  if (/\bgate code|lock\s?box code|access code\b/.test(low)) {
+    return { name: "set_gate_code", args: { clientName: grab(/for ([A-Za-z .'-]+?)(?: is|,|\.|$)/i), gateCode: grab(/code(?: for .+?)?(?: is| =|:)?\s*([A-Za-z0-9#*]{2,})\b/i) } };
+  }
+  if (/\b(log (an )?expense|spent|receipt|bought|paid for)\b/.test(low) && amount() !== undefined) {
+    return { name: "log_expense", args: { amount: amount(), merchant: grab(/(?:at|from|on) ([A-Za-z0-9 .&'-]+?)(?: for|,|\.|$)/i) } };
+  }
+  if (/\b(invoice|bill|charge)\b/.test(low) && amount() !== undefined) {
+    return { name: "create_invoice", args: { clientName: grab(/(?:invoice|bill|charge)\s+([A-Za-z .'-]+?)(?: for| \$|\d|,|\.|$)/i), amount: amount(), serviceDescription: grab(/for ([A-Za-z0-9 .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(quote|estimate)\b/.test(low) && amount() !== undefined) {
+    return { name: "create_quote", args: { clientName: grab(/(?:quote|estimate)\s+(?:for\s+)?([A-Za-z .'-]+?)(?: for| \$|\d|,|\.|$)/i), amount: amount(), serviceDescription: grab(/for ([A-Za-z0-9 .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(schedule|book|set up)\b/.test(low) || /\bput .+ down\b/.test(low)) {
+    const date = (t.match(/\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\b/i) || [])[0];
+    const svc = (t.match(/\b(mow\w*|clean\s?up|trim\w*|mulch\w*|aerat\w*|fertiliz\w*|leaf removal|snow\w*|irrigation|install\w*|landscap\w*)\b/i) || [])[0];
+    return { name: "schedule_job", args: { clientName: grab(/(?:for|put|book|schedule) ([A-Za-z .'-]+?)(?: down| for| on| next| tomorrow|,|\.|$)/i), serviceType: svc, date } };
+  }
+  if (/\b(used|using|took|take|grab\w*|pulled)\b/.test(low) && /\b(mulch|fertiliz\w*|fuel|gas|seed|sod|stone|gravel|bag\w*|gallon\w*|pallet\w*|unit\w*)\b/.test(low)) {
+    const qty = (t.match(/\b(\d+)\b/) || [])[1];
+    return { name: "log_inventory_usage", args: { itemName: (t.match(/\b(mulch|fertilizer|fuel|gas|seed|sod|stone|gravel)\b/i) || [])[1], quantity: qty ? Number(qty) : 1, clientName: grab(/for ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) } };
+  }
+  if (/\bcheck (the )?(stock|inventory)\b/.test(low) || /\bin stock\b/.test(low) || /how (much|many) .+ (do we have|left)/.test(low)) {
+    return { name: "check_inventory", args: { itemName: (t.match(/\b(mulch|fertilizer|fuel|gas|seed|sod|stone|gravel)\b/i) || [])[1] } };
+  }
+  if (/\breview\b/.test(low) && /\b(request|ask|get|remind|send)\b/.test(low)) {
+    return { name: "request_review", args: { clientName: grab(/from ([A-Za-z .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(design|redesign|render|mock\s?up|landscape (?:plan|design))\b/.test(low) || /show .+ ideas/.test(low)) {
+    return { name: "build_design_vision", args: { clientName: grab(/for ([A-Za-z .'-]+?)(?:,|\.|$)/i) } };
+  }
+  if (/\b(field mode|start (the )?route|heading out|start my day|on my way)\b/.test(low)) {
+    return { name: "enter_field_mode", args: {} };
+  }
+  if (/\b(add|create|new)\b/.test(low) && /\b(lead|contact|customer|client|prospect)\b/.test(low)) {
+    const nm = grab(/(?:named|called|:) ([A-Za-z .'-]+?)(?:,|\.| at | on |$)/i) || grab(/\b(?:lead|contact|customer|client|prospect)\s+(?:named |called )?([A-Za-z]+(?: [A-Za-z]+)?)/i);
+    const parts = (nm || "").split(/\s+/);
+    return { name: "create_contact", args: { firstName: parts[0] || nm, lastName: parts.slice(1).join(" "), phone: (t.match(/(\+?\d[\d\-() ]{6,}\d)/) || [])[1], email: (t.match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0] } };
+  }
+  if (/\b(pull up|look up|open|find|show me)\b/.test(low) && /\b(client|customer|account|profile|file|history)\b/.test(low)) {
+    return { name: "load_client_data", args: { clientName: grab(/(?:client|customer|account|profile|file|history)(?: for| named| called| of)? ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) || grab(/(?:pull up|look up|open|find|show me)(?: the)? ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) } };
+  }
+  return null;
+}
 
 export default function BrainChat({
   isOpen = true,
@@ -51,6 +111,7 @@ export default function BrainChat({
   const navigate = useNavigate();
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const loadedCustomerRef = useRef<any>(null);
   const { startTour, setFocus } = useCuttyGuide();
   const { tenant } = useTenant();
   const { role } = useRole();
@@ -238,30 +299,33 @@ export default function BrainChat({
 
   useEffect(() => {
     const handleVoiceAction = (e: CustomEvent) => {
-      const { name, args } = e.detail;
-      let text = "";
-      if (name === "log_inventory_usage") {
-        text = `Logged Hands-free Inventory Audit: ${args.quantity}x ${args.itemName}`;
-        if (args.clientName) text += ` to job for ${args.clientName}`;
-        text += `. The fees and item reductions were placed successfully.`;
-      } else if (name === "check_inventory") {
-        text = `Checking inventory for ${args.itemName || "items"}. I have opened the Asset Hub.`;
-      } else if (name === "schedule_job") {
-        text = `I've opened the scheduler to book ${args.clientName || 'the client'} for a new job.`;
-      } else if (name === "load_client_data") {
-        text = `Pulled up the profile for ${args.clientName}. Ready to assist.`;
-      } else if (name === "add_client_note") {
-        text = `Added note to ${args.clientName}'s profile: "${args.note}"`;
-      } else if (name === "create_invoice") {
-        text = `Prepared an invoice for ${args.clientName} for $${args.amount}.`;
-      } else if (name === "create_lead") {
-        text = `Created a new lead for ${args.firstName} ${args.lastName || ''}.`;
-      } else if (name === "log_expense") {
-        text = `Logged a new out-of-pocket expense for $${args.amount}.`;
-      } else if (name === "enter_field_mode") {
-        text = `Entering Field Mode for optimized mobile operations.`;
-      } else if (name === "load_employee_data") {
-        text = `Looking up crew member ${args.employeeName}.`;
+      const { name, args, _result } = e.detail || {};
+      // Prefer the executor's real confirmation; fall back to a generic line.
+      let text = _result?.message || "";
+      if (!text) {
+        if (name === "log_inventory_usage") {
+          text = `Logged inventory use: ${args.quantity}x ${args.itemName}`;
+          if (args.clientName) text += ` for ${args.clientName}`;
+          text += ".";
+        } else if (name === "check_inventory") {
+          text = `Checking inventory for ${args.itemName || "items"}.`;
+        } else if (name === "schedule_job") {
+          text = `Opened the scheduler to book ${args.clientName || "the client"}.`;
+        } else if (name === "load_client_data") {
+          text = `Pulled up the profile for ${args.clientName}.`;
+        } else if (name === "add_client_note") {
+          text = `Added note to ${args.clientName}'s profile.`;
+        } else if (name === "create_invoice") {
+          text = `Prepared an invoice for ${args.clientName} for $${args.amount}.`;
+        } else if (name === "create_lead" || name === "create_contact") {
+          text = `Created a new contact for ${args.firstName} ${args.lastName || ""}.`;
+        } else if (name === "log_expense") {
+          text = `Logged an expense for $${args.amount}.`;
+        } else if (name === "enter_field_mode") {
+          text = `Entering Field Mode.`;
+        } else if (name === "load_employee_data") {
+          text = `Looking up crew member ${args.employeeName}.`;
+        }
       }
 
       if (text) {
@@ -515,6 +579,34 @@ export default function BrainChat({
         ]);
         setIsLoading(false);
       }, 4500);
+      return;
+    }
+
+    // Real agentic action? Route it through the shared executor so the text agent DOES
+    // things (create contact / job / invoice / expense / etc.), not just answer questions.
+    const intent = detectAgentIntent(userMessage.text);
+    if (intent) {
+      setIsLoading(true);
+      try {
+        const result = await executeAgentAction(intent, {
+          navigate,
+          rolePrefix,
+          getLoadedCustomer: () => loadedCustomerRef.current,
+          setLoadedCustomer: (c) => {
+            loadedCustomerRef.current = c;
+          },
+        });
+        setMessages((prev) => [
+          ...prev,
+          { id: String(Date.now()), sender: "agent", text: result.message },
+        ]);
+        if (result.navigateTo && location.pathname !== result.navigateTo) {
+          navigate(result.navigateTo);
+        }
+        if ((tenant?.settings as any)?.voiceEnabled !== false) playVoice(result.message);
+      } finally {
+        setIsLoading(false);
+      }
       return;
     }
 
