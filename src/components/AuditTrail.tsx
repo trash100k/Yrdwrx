@@ -1,34 +1,19 @@
-import React, { useState, useEffect } from "react";
-import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { useTenant } from "../contexts/TenantContext";
+import React, { useState } from "react";
 import { Shield, List, Lock, Filter } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-export default function AuditTrail() {
-  const { tenant } = useTenant();
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+// Dumb renderer: the parent (Compliance) owns the Supabase read + RLS scoping
+// and passes already-adapted rows (timestamp/module/actionType/details/userEmail/role).
+export default function AuditTrail({
+  logs = [],
+  loading = false,
+}: {
+  logs?: any[];
+  loading?: boolean;
+}) {
   const [filterModule, setFilterModule] = useState<string>("all");
 
-  useEffect(() => {
-    if (!tenant) return;
-    setLoading(true);
-    const q = query(
-      collection(db, "audit_logs"),
-      where("tenantId", "==", tenant.id),
-      orderBy("timestamp", "desc")
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      setAuditLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    }, (error) => {
-      console.warn("Audit logs fetch issue:", error);
-      setLoading(false);
-    });
-    return unsub;
-  }, [tenant]);
-
+  const auditLogs = logs;
   const filteredLogs = filterModule === "all" ? auditLogs : auditLogs.filter(log => log.module === filterModule);
   
   const modules = Array.from(new Set(auditLogs.map(log => log.module))).filter(Boolean);
@@ -102,7 +87,7 @@ export default function AuditTrail() {
                 </div>
                 <div className="text-left sm:text-right shrink-0 py-2 sm:py-0 border-t sm:border-t-0 border-white/5 sm:border-l sm:pl-5 mt-2 sm:mt-0">
                   <p className="text-xs font-mono text-zinc-400 uppercase tracking-widest">
-                    {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : 'Just now'}
+                    {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Just now'}
                   </p>
                 </div>
               </motion.div>

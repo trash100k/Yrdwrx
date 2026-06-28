@@ -7,10 +7,8 @@ import { getAnalytics, isSupported } from "firebase/analytics";
 import {
   initializeFirestore,
   memoryLocalCache,
-  collection,
-  addDoc,
-  serverTimestamp,
 } from "firebase/firestore";
+import { supabase, getCurrentUser } from "./supabase";
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -102,40 +100,25 @@ export function handleFirestoreError(
   }
 }
 
-import { syncService } from "../services/syncService";
-
 /**
  * Gold Standard Audit Trail.
  * Every critical mutation should be followed by a call to this function.
+ *
+ * Best-effort write to Supabase `system_logs`. RLS scopes the row to the
+ * caller's tenant when there's a session. Logging must never throw or block
+ * the UI, so failures are swallowed.
  */
 export async function logSystemEvent(
   event: string,
   metadata: Record<string, unknown> = {},
 ) {
   try {
-    // Audit logs are critical but shouldn't block the UI if they fail.
-    // In low service areas, these are queued.
-    if (navigator.onLine) {
-      await addDoc(collection(db, "systemLogs"), {
-        event,
-        userId: auth?.currentUser?.uid || "system",
-        timestamp: new Date().toISOString(),
-        serverTimestamp: serverTimestamp(),
-        metadata,
-      });
-    } else {
-      await syncService.queueAction(
-        "CREATE",
-        "systemLogs",
-        {
-          event,
-          userId: auth?.currentUser?.uid || "system",
-          timestamp: new Date().toISOString(),
-          metadata,
-        },
-        (metadata.tenantId as string) || "genesis-1",
-      );
-    }
+    await supabase.from("system_logs").insert({
+      event,
+      user_id: getCurrentUser()?.uid || "system",
+      metadata,
+      tenant_id: (metadata?.tenantId as string) || null,
+    });
   } catch (error) {
     console.warn("[AUDIT LOG FAILED]", error);
   }

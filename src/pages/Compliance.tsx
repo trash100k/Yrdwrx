@@ -5,9 +5,7 @@ import { motion } from "motion/react";
 import { Shield, CloudRain, Wind, AlertTriangle, CheckCircle, PenTool, Droplets, Info, List } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { useTenant } from "../contexts/TenantContext";
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { getCurrentUser } from "../lib/supabase";
+import { supabase, getCurrentUser } from "../lib/supabase";
 import { useRole } from "../hooks/useRole";
 import { useAuditLog } from "../hooks/useAuditLog";
 import AuditTrail from "../components/AuditTrail";
@@ -29,21 +27,42 @@ export default function Compliance() {
 
   // Audit Logs State
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+
+  // Adapt Supabase audit_logs rows to the shape AuditTrail renders.
+  // ts -> timestamp, event -> module, action -> actionType, target -> details,
+  // actor -> userEmail. `role` lives in the meta jsonb column.
+  const adaptLog = (row: any) => ({
+    id: row.id,
+    timestamp: row.ts || row.created_at || null,
+    module: row.event,
+    actionType: row.action,
+    details: row.target,
+    userEmail: row.actor,
+    role: row.meta?.role ?? row.role ?? null,
+  });
+
+  const fetchLogs = async () => {
+    if (!tenant) return;
+    setAuditLoading(true);
+    try {
+      // RLS scopes the query to the caller's tenant automatically.
+      const { data, error } = await supabase
+        .from("audit_logs")
+        .select("*")
+        .order("ts", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      setAuditLogs((data || []).map(adaptLog));
+    } catch (error) {
+      console.warn("Audit logs fetch issue:", error);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!tenant) return;
-    const q = query(
-      collection(db, "audit_logs"),
-      where("tenantId", "==", tenant.id),
-      orderBy("timestamp", "desc")
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      setAuditLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => {
-      // Ignore missing index error or permissions for now
-      console.warn("Audit logs fetch issue:", error);
-    });
-    return unsub;
+    fetchLogs();
   }, [tenant]);
 
   // Mock checking weather
@@ -92,30 +111,30 @@ export default function Compliance() {
     setLoading(true);
     try {
       // Persist a structured EPA application record to the audit ledger (the Audit tab reads it).
-      await addDoc(collection(db, "audit_logs"), {
-        tenantId: tenant.id,
-        userId: getCurrentUser()?.uid || "unknown",
-        userEmail: getCurrentUser()?.email || "unknown",
-        role,
-        module: "Compliance",
-        actionType: "EPA Application Logged",
-        details: `Applied ${amount} of ${chemical} on job ${jobId}.`,
-        epa: {
+      const { error } = await supabase.from("audit_logs").insert({
+        tenant_id: tenant.id,
+        user_id: getCurrentUser()?.uid || "unknown",
+        actor: getCurrentUser()?.email,
+        event: "Compliance",
+        action: "EPA Application Logged",
+        target: `Applied ${amount} of ${chemical} on job ${jobId}.`,
+        meta: {
           chemical,
           amount,
           jobId,
+          signedBy: signature,
           weatherSafe: weatherCheck?.safe ?? null,
-          overrodeWarning: weatherCheck?.safe === false,
         },
-        signedBy: signature || null,
-        timestamp: serverTimestamp(),
       });
+      if (error) throw error;
       showToast("Application logged to the EPA compliance ledger.", "success");
       setChemical("");
       setAmount("");
       setJobId("");
       setSignature("");
       setWeatherCheck(null);
+      // Re-fetch so the new entry shows in the Audit tab.
+      fetchLogs();
     } catch (e) {
       console.error("EPA log save failed:", e);
       showToast("Couldn't save the EPA log. Check your connection and retry.", "error");
@@ -282,7 +301,7 @@ export default function Compliance() {
 
       {activeTab === "audit" && (
         <div className="h-[600px] lg:h-[800px]">
-          <AuditTrail />
+          <AuditTrail logs={auditLogs} loading={auditLoading} />
         </div>
       )}
     </div>
