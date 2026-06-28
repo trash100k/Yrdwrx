@@ -9,6 +9,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { deleteUser, signOut } from "firebase/auth";
+import { fetchApi } from "../lib/api";
+import { useEffect } from "react";
 
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
 import { StripeConnectSection } from "../components/StripeConnectSection";
@@ -47,6 +49,69 @@ function BookingLinkSection({ tenantId }: { tenantId?: string }) {
           {copied ? "Copied!" : "Copy Link"}
         </button>
       </div>
+    </section>
+  );
+}
+
+// QuickBooks Online connect + one-way sync. Reads status from the server (tokens never reach
+// the client); shows Connect / Sync actions that light up once QBO creds are configured.
+function QuickBooksSection() {
+  const { showToast } = useToast();
+  const [status, setStatus] = useState<{ configured?: boolean; connected?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try { const r = await fetchApi("/api/quickbooks/status"); setStatus(await r.json()); } catch { setStatus({ configured: false, connected: false }); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const r = await fetchApi("/api/quickbooks/connect");
+      const d = await r.json();
+      if (r.ok && d?.url) { window.location.href = d.url; return; }
+      showToast(d?.error || "QuickBooks is not configured yet.", "error");
+    } catch (e: any) { showToast(e?.message || "Could not start QuickBooks connect.", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const sync = async () => {
+    setBusy(true);
+    try {
+      const r = await fetchApi("/api/quickbooks/sync", { method: "POST", body: JSON.stringify({}) });
+      const d = await r.json();
+      if (r.ok) showToast(`Synced ${d.synced}/${d.total} customers to QuickBooks.`, "success");
+      else showToast(d?.error || "QuickBooks sync unavailable.", "error");
+    } catch (e: any) { showToast(e?.message || "QuickBooks sync failed.", "error"); }
+    finally { setBusy(false); }
+  };
+
+  const connected = status?.connected;
+  const configured = status?.configured;
+  return (
+    <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-1">
+          <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Accounting</span>
+          <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">QuickBooks Online</h3>
+          <p className="text-sm text-zinc-400">Push customers + invoices to QuickBooks so books reconcile automatically.</p>
+        </div>
+        <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${connected ? "text-forest-400 bg-forest-500/10 border-forest-500/20" : "text-zinc-400 bg-white/5 border-white/10"}`}>
+          {connected ? "Connected" : configured ? "Not connected" : "Not configured"}
+        </span>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <button onClick={connect} disabled={busy} className="px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all">
+          {connected ? "Reconnect" : "Connect QuickBooks"}
+        </button>
+        <button onClick={sync} disabled={busy || !connected} className="px-6 py-3 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white font-black text-xs uppercase tracking-widest rounded-xl border border-white/10 transition-all">
+          Sync Customers
+        </button>
+      </div>
+      {!configured && (
+        <p className="text-[10px] text-zinc-600">Set QBO_CLIENT_ID / QBO_CLIENT_SECRET / QBO_REDIRECT_URI to enable.</p>
+      )}
     </section>
   );
 }
@@ -392,6 +457,8 @@ export default function Settings() {
       <ServicePricingCatalog />
 
       <BookingLinkSection tenantId={tenant?.id} />
+
+      <QuickBooksSection />
 
       <StripeConnectSection />
       

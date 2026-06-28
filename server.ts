@@ -1920,6 +1920,124 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // ===========================================================================
+  // QUICKBOOKS ONLINE — one-way sync (the accounting moat). OAuth connect + a
+  // customers push. Tokens live in the service-role-only `integrations` table.
+  // Lights up when QBO_CLIENT_ID/SECRET/REDIRECT_URI are set; every path degrades
+  // to a clear 503/`configured:false` otherwise. NOTE: the live QBO REST calls are
+  // pending sandbox verification — the OAuth + mapping code is wired, not yet run
+  // against a real Intuit company.
+  // ===========================================================================
+  const qboConfig = () => {
+    const clientId = process.env.QBO_CLIENT_ID;
+    const clientSecret = process.env.QBO_CLIENT_SECRET;
+    const redirectUri = process.env.QBO_REDIRECT_URI || `${BASE_URL}/api/quickbooks/callback`;
+    const sandbox = (process.env.QBO_ENVIRONMENT || "sandbox") !== "production";
+    return {
+      configured: !!(clientId && clientSecret),
+      clientId, clientSecret, redirectUri, sandbox,
+      apiBase: sandbox ? "https://sandbox-quickbooks.api.intuit.com" : "https://quickbooks.api.intuit.com",
+      tokenUrl: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+      authUrl: "https://appcenter.intuit.com/connect/oauth2",
+    };
+  };
+
+  const qboGetIntegration = async (tenantId: string) => {
+    const sb = getServiceSupabase();
+    if (!sb || !tenantId) return null;
+    const { data } = await sb.from("integrations").select("*").eq("tenant_id", tenantId).eq("provider", "quickbooks").maybeSingle();
+    return data || null;
+  };
+
+  // Refresh the access token if expired; returns a usable access token or null.
+  const qboAccessToken = async (integ: any) => {
+    if (!integ) return null;
+    const cfg = qboConfig();
+    const notExpired = integ.expires_at && new Date(integ.expires_at).getTime() > Date.now() + 60000;
+    if (notExpired && integ.access_token) return integ.access_token;
+    if (!integ.refresh_token || !cfg.configured) return integ.access_token || null;
+    const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: integ.refresh_token });
+    const r = await fetch(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
+    if (!r.ok) return integ.access_token || null;
+    const tok = await r.json();
+    const sb = getServiceSupabase();
+    const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
+    if (sb) await sb.from("integrations").update({ access_token: tok.access_token, refresh_token: tok.refresh_token || integ.refresh_token, expires_at, updated_at: new Date().toISOString() }).eq("id", integ.id);
+    return tok.access_token;
+  };
+
+  app.get("/api/quickbooks/status", async (req: any, res) => {
+    const cfg = qboConfig();
+    const tenant = await resolveTenant(req);
+    const integ = tenant ? await qboGetIntegration(tenant.id) : null;
+    res.json({ configured: cfg.configured, connected: !!(integ && integ.access_token), realmId: integ?.realm_id || null });
+  });
+
+  app.get("/api/quickbooks/connect", async (req: any, res) => {
+    const cfg = qboConfig();
+    if (!cfg.configured) return res.status(503).json({ error: "QuickBooks is not configured (set QBO_CLIENT_ID / QBO_CLIENT_SECRET).", code: "QBO_UNCONFIGURED" });
+    const tenant = await resolveTenant(req);
+    const state = tenant?.id || req.query?.tenantId || "demo";
+    const url = `${cfg.authUrl}?client_id=${encodeURIComponent(cfg.clientId)}&response_type=code&scope=${encodeURIComponent("com.intuit.quickbooks.accounting")}&redirect_uri=${encodeURIComponent(cfg.redirectUri)}&state=${encodeURIComponent(state)}`;
+    res.json({ url });
+  });
+
+  // Intuit redirects here (auth-excluded). Exchanges the code and stores tokens for the tenant.
+  app.get("/api/quickbooks/callback", async (req: any, res) => {
+    const cfg = qboConfig();
+    const { code, state, realmId } = req.query || {};
+    if (!cfg.configured) return res.status(503).send("QuickBooks not configured.");
+    if (!code || !state) return res.status(400).send("Missing code/state.");
+    try {
+      const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+      const body = new URLSearchParams({ grant_type: "authorization_code", code: String(code), redirect_uri: cfg.redirectUri });
+      const r = await fetch(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
+      if (!r.ok) throw new Error(`Token exchange failed (${r.status})`);
+      const tok = await r.json();
+      const sb = getServiceSupabase();
+      if (!sb) throw new Error("SUPABASE_SERVICE_ROLE_KEY required to store the connection.");
+      const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
+      await sb.from("integrations").upsert({
+        tenant_id: String(state), provider: "quickbooks", realm_id: realmId ? String(realmId) : null,
+        access_token: tok.access_token, refresh_token: tok.refresh_token, expires_at, status: "connected", updated_at: new Date().toISOString(),
+      }, { onConflict: "tenant_id,provider" });
+      res.redirect(`${BASE_URL}/admin/settings?quickbooks=connected`);
+    } catch (e: any) {
+      console.error("QBO callback error:", e?.message);
+      res.redirect(`${BASE_URL}/admin/settings?quickbooks=error`);
+    }
+  });
+
+  // One-way push of the tenant's customers into QuickBooks.
+  app.post("/api/quickbooks/sync", async (req: any, res) => {
+    const cfg = qboConfig();
+    if (!cfg.configured) return res.status(503).json({ error: "QuickBooks is not configured.", code: "QBO_UNCONFIGURED" });
+    const tenant = await resolveTenant(req);
+    if (!tenant) return res.status(401).json({ error: "Unauthorized" });
+    const integ = await qboGetIntegration(tenant.id);
+    if (!integ || !integ.realm_id) return res.status(503).json({ error: "QuickBooks is not connected. Connect it in Settings first.", code: "QBO_NOT_CONNECTED" });
+    try {
+      const token = await qboAccessToken(integ);
+      if (!token) return res.status(503).json({ error: "QuickBooks token unavailable; reconnect in Settings.", code: "QBO_TOKEN" });
+      const sb = getServiceSupabase();
+      const { data: customers } = await sb.from("customers").select("*").eq("tenant_id", tenant.id).limit(200);
+      let synced = 0; const errors: string[] = [];
+      for (const c of customers || []) {
+        const displayName = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.company_name || c.email || "Customer";
+        const payload: any = { DisplayName: displayName, PrimaryEmailAddr: c.email ? { Address: c.email } : undefined, PrimaryPhone: c.phone ? { FreeFormNumber: c.phone } : undefined };
+        const r = await fetch(`${cfg.apiBase}/v3/company/${integ.realm_id}/customer`, {
+          method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload),
+        });
+        if (r.ok) synced++; else errors.push(`${displayName}: ${r.status}`);
+      }
+      res.json({ synced, total: (customers || []).length, errors: errors.slice(0, 10) });
+    } catch (e: any) {
+      console.error("QBO sync error:", e?.message);
+      res.status(500).json({ error: e?.message || "QuickBooks sync failed." });
+    }
+  });
+
   // API Routes
   app.post("/api/knowledge/ingest", async (req, res) => {
     try {

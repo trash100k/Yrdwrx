@@ -15,6 +15,7 @@ export const AUTH_EXCLUDED_ROUTES: string[] = [
   "/api/auth/magic-link/validate",
   "/api/stripe/webhook",
   "/api/health",
+  "/api/quickbooks/callback", // Intuit OAuth redirect (carries its own code+state)
 ];
 
 export function isExcludedApiPath(fullPath: string): boolean {

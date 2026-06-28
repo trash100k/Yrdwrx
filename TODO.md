@@ -175,10 +175,12 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > LMN, SingleOps, Aspire) — not differentiators. Operator tool usage: accounting **77%**, invoicing
 > **72%**, estimating **61%**. Missing them = not credible, regardless of how good the AI is.
 
-- [ ] **QuickBooks sync.** The confirmed competitive **moat** (every incumbent ships it; "double
-  entry is a thing of the past"). Ship **one-way** first (Jobber-style: customers, invoices, payments,
-  items → QuickBooks Online), then two-way (SingleOps/LMN-style) as a stickiness follow-up. _Decide
-  one-way-now vs two-way at design time — it interacts with the Supabase migration._
+- [~] 🟡 **QuickBooks sync (one-way) — wired, pending sandbox verification.** Built the OAuth connect
+  flow (`/api/quickbooks/connect|callback|status`) + a one-way **customers** push (`/api/quickbooks/sync`)
+  with token refresh; tokens stored in the service-role-only `integrations` table (migration 0009, RLS,
+  advisors=0). Settings has a Connect/Sync UI; env `QBO_*`. Guard-path tested. **Remaining (needs Intuit
+  sandbox creds): verify live token exchange + entity mapping, then add invoices/items/payments + nightly
+  sync.** Two-way is a later stickiness follow-up.
 - [ ] **Online payments to the contractor's customers** — card + **ACH** on invoices (extends the
   existing Stripe Connect wiring); branded invoice sent on job completion via SMS/email.
 - [x] ✅ **Recurring / seasonal billing** — `POST /api/stripe/recurring/checkout` creates a
