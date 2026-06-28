@@ -18,6 +18,15 @@ import { validateSafeUrl } from "./src/lib/securityUtils.js";
 
 dotenv.config();
 
+// SECURITY: Centralized secrets management with strict production enforcement
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : "cutty-super-secret-key-for-development");
+const SAAS_ADMIN_EMAIL = process.env.SAAS_ADMIN_EMAIL;
+
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || !process.env.SAAS_ADMIN_EMAIL)) {
+  console.error("FATAL: Security environment variables (JWT_SECRET, SAAS_ADMIN_EMAIL) are missing in production mode. Process exiting for security.");
+  process.exit(1);
+}
+
 function parseGeminiJson(text: string | undefined) {
   if (!text) return null;
   try {
@@ -396,6 +405,10 @@ async function startServer() {
   };
 
   app.get("/api/security/threats", (req, res) => {
+    // SECURITY: Authorization check to restrict threat logs to SaaS admins only
+    if (req.user?.email !== SAAS_ADMIN_EMAIL) {
+      return res.status(403).json({ error: "Unauthorized: Admin privileges required." });
+    }
     res.json(threatLog);
   });
 
@@ -458,7 +471,8 @@ async function startServer() {
     // (req.path === "/design/process"). Use the FULL path for route matching, otherwise the
     // "/api/" checks below never match and auth is silently skipped on every route.
     const fullPath = (req.baseUrl || '') + req.path;
-    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/security/threats', '/api/stripe/webhook'];
+    // SECURITY: /api/security/threats is removed from excludedRoutes to ensure it is protected by authentication
+    const excludedRoutes = ['/api/auth/magic-link/generate', '/api/auth/magic-link/validate', '/api/stripe/webhook'];
     if (excludedRoutes.includes(fullPath) || fullPath.startsWith('/api/playground/') || !fullPath.startsWith('/api/')) {
         return next();
     }
@@ -3413,9 +3427,9 @@ async function startServer() {
       const { clientId, email } = req.body;
       if (!clientId) return res.status(400).json({ error: "Client ID required" });
       
-      const token = jwt.sign({ clientId, email }, process.env.JWT_SECRET || "cutty-super-secret-key-for-development", { expiresIn: '7d' });
-      // In a real app, send an email here using SendGrid or Mailgun
-      // We will just return the link so the frontend can show it or simulate sending
+      const token = jwt.sign({ clientId, email }, JWT_SECRET, { expiresIn: '7d' });
+      // SECURITY TODO: In production, magic links should NEVER be returned in the API response.
+      // They must only be dispatched via a secure side-channel (e.g. verified email).
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
       
       res.json({ success: true, token, magicLink });
@@ -3429,7 +3443,7 @@ async function startServer() {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "Token required" });
       
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cutty-super-secret-key-for-development");
+      const decoded = jwt.verify(token, JWT_SECRET);
       res.json({ valid: true, clientId: decoded.clientId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
