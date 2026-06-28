@@ -51,6 +51,7 @@ import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { HandsFreeDictator } from "../components/HandsFreeDictator";
+import { executeAgentAction } from "../lib/agentActions";
 import { ResourceAssignmentModal } from "../components/ResourceAssignmentModal";
 import { ResourceTimeline } from "../components/ResourceTimeline";
 import { TimeClock } from "../components/TimeClock";
@@ -1017,7 +1018,30 @@ onClick={() => {
         )}
       </AnimatePresence>
     </div>
-    <HandsFreeDictator />
+    <HandsFreeDictator
+      onProcessAction={async (data: any) => {
+        // Turn a parsed field dictation into a real action.
+        if (data?.intent === "UPDATE_INVENTORY" && data?.data?.item) {
+          await executeAgentAction(
+            {
+              name: "log_inventory_usage",
+              args: { itemName: data.data.item, quantity: data.data.quantity || 1 },
+            },
+            { showToast },
+          );
+        } else if (data?.intent === "UPDATE_CREW_STATUS") {
+          showToast("Status logged", data.summary || "Crew update noted", "success");
+          try {
+            addLog({
+              type: "chat",
+              recipient: "Operations Channel",
+              subject: "Crew Status Update",
+              content: data.summary || "Field status update",
+            });
+          } catch {}
+        }
+      }}
+    />
     <AnimatePresence>
       <ResourceAssignmentModal
         isOpen={isResourceAssignOpen}

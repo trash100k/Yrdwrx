@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { Customer } from "../types";
 import { useToast } from "../contexts/ToastContext";
 
@@ -53,6 +54,7 @@ export default function AgenticOutreachDrawer({
   onClose,
 }: AgenticOutreachDrawerProps) {
   const { showToast } = useToast();
+  const { addLog } = useWorkspaceOutbox();
   const [carriers, setCarriers] = useState<Customer[]>([]);
   const [selectedLeadId, setSelectedLeadId] = useState<string>("");
   const [includeSocialProof, setIncludeSocialProof] = useState<boolean>(true);
@@ -149,18 +151,17 @@ export default function AgenticOutreachDrawer({
       bodyText += `We are proud to serve several premium communities in your immediate neighborhood. As part of our trust-first, transparent communication protocol, we have synthesized some real-time milestones that may interest you.\n\n`;
 
       if (includeSocialProof) {
-        bodyText += `★ VERIFIABLE LOCAL SOCIAL PROOF:\n`;
-        bodyText += `We currently handle ${localStats.propertiesMaintained} master-planned associations within a ${localStats.proximityRadius} mile radius of ${selectedLead?.address || "your district"}.\n`;
-        bodyText += `Our verified rating is ${localStats.neighborhoodAvgRating}/5.0 stars across adjacent residential sectors.\n\n`;
+        // Editable template — review and replace the example with a real reference before sending.
+        bodyText += `We're proud of the work we do for nearby communities, and we'd be glad to share references on request. For example:\n`;
         bodyText += `"${mockSocialProofReviews[selectedReviewIdx].text}"\n`;
-        bodyText += `- ${mockSocialProofReviews[selectedReviewIdx].author}, ${mockSocialProofReviews[selectedReviewIdx].property}\n\n`;
+        bodyText += `— ${mockSocialProofReviews[selectedReviewIdx].author}, ${mockSocialProofReviews[selectedReviewIdx].property}\n`;
+        bodyText += `(Tip: swap in one of your own recent reviews before sending.)\n\n`;
       }
 
       if (includePropertyPhoto && !isPhotoDenied) {
-        bodyText += `[ATTACHED EVIDENCE: Verified High-Resolution Job Completion Showcase from Adjacent District Project]\n`;
-        bodyText += `This photorealistic preview illustrates the precise turf management and hardscape restoration standards we guarantee.\n\n`;
+        bodyText += `[Attach a recent before/after photo from a comparable local project here.]\n\n`;
       } else if (isPhotoDenied) {
-        bodyText += `[VISUAL PRIVACY NOTE]: We adhere strictly to homeowner privacy metrics. By supervisor guideline instruction, adjacent site completion imagery has been omitted from this email block and is available exclusively via secure portals.\n\n`;
+        bodyText += `Out of respect for client privacy, we've omitted site photos from this email; they're available on request.\n\n`;
       }
 
       bodyText += `Would you be open to a 5-minute visual walkthrough of how our real-time inventory feed minimizes water waste and lowers HOA liability?\n\n`;
@@ -205,9 +206,21 @@ export default function AgenticOutreachDrawer({
   };
 
   const handleSendCampaignInstance = () => {
-    showToast(
-      `Outreach queued for sending to ${carriers.find((c) => c.id === selectedLeadId)?.email || "the selected lead"}`,
-    );
+    const lead = carriers.find((c) => c.id === selectedLeadId);
+    const recipient = lead?.email || lead?.companyName || "the selected lead";
+    // Honest behavior: save the drafted outreach to the workspace outbox (a tracked draft).
+    // Actual email delivery is wired up separately (see the email-send follow-up).
+    try {
+      addLog({
+        type: "email",
+        recipient,
+        subject: emailSubject || "Outreach campaign",
+        content: emailBody || "",
+      });
+      showToast("Outreach saved to your outbox as a draft.", recipient, "success");
+    } catch {
+      showToast("Couldn't save the outreach draft.", "error");
+    }
     onClose();
   };
 

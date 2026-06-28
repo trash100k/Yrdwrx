@@ -5,8 +5,9 @@ import { motion } from "motion/react";
 import { Shield, CloudRain, Wind, AlertTriangle, CheckCircle, PenTool, Droplets, Info, List } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { useTenant } from "../contexts/TenantContext";
-import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { getCurrentUser } from "../lib/supabase";
 import { useRole } from "../hooks/useRole";
 import { useAuditLog } from "../hooks/useAuditLog";
 import AuditTrail from "../components/AuditTrail";
@@ -69,9 +70,13 @@ export default function Compliance() {
     }
   };
 
-  const submitLog = () => {
+  const submitLog = async () => {
     const isSignatureRequired = tenant?.settings?.subFeatures?.requireSignature !== false;
-    
+
+    if (!chemical || !amount || !jobId) {
+      showToast("Fill out job, chemical, and amount before logging.", "error");
+      return;
+    }
     if (isSignatureRequired && !signature) {
       showToast("A digital signature is required for EPA logging.", "error");
       return;
@@ -80,13 +85,43 @@ export default function Compliance() {
       showToast("Please provide a full signature to override the AI warning.", "error");
       return;
     }
-    showToast("Application Log saved to EPA Compliance Ledger.", "success");
-    logAction("Compliance", "EPA Log Submitted", `Logged application of ${amount} ${chemical} on job ${jobId}`);
-    setChemical("");
-    setAmount("");
-    setJobId("");
-    setSignature("");
-    setWeatherCheck(null);
+    if (!tenant) {
+      showToast("No active workspace — cannot save the log.", "error");
+      return;
+    }
+    setLoading(true);
+    try {
+      // Persist a structured EPA application record to the audit ledger (the Audit tab reads it).
+      await addDoc(collection(db, "audit_logs"), {
+        tenantId: tenant.id,
+        userId: getCurrentUser()?.uid || "unknown",
+        userEmail: getCurrentUser()?.email || "unknown",
+        role,
+        module: "Compliance",
+        actionType: "EPA Application Logged",
+        details: `Applied ${amount} of ${chemical} on job ${jobId}.`,
+        epa: {
+          chemical,
+          amount,
+          jobId,
+          weatherSafe: weatherCheck?.safe ?? null,
+          overrodeWarning: weatherCheck?.safe === false,
+        },
+        signedBy: signature || null,
+        timestamp: serverTimestamp(),
+      });
+      showToast("Application logged to the EPA compliance ledger.", "success");
+      setChemical("");
+      setAmount("");
+      setJobId("");
+      setSignature("");
+      setWeatherCheck(null);
+    } catch (e) {
+      console.error("EPA log save failed:", e);
+      showToast("Couldn't save the EPA log. Check your connection and retry.", "error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

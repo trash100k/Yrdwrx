@@ -297,6 +297,23 @@ function getMockText(request: any): string {
   if (instr.includes("OUTPUT FORMAT: JSON")) {
     return JSON.stringify({});
   }
+  // Hands-free field dictation: classify into an inventory or crew-status update.
+  if (instr.includes("processing continuous voice dictations")) {
+    const c = contentStr.toLowerCase();
+    if (/(mulch|bag|bags|shovel|fertiliz|seed|sod|stone|gravel|fuel|gas|pallet|inventory|stock|counted|pine straw|units?)/.test(c)) {
+      const qty = (contentStr.match(/\b(\d+)\b/) || [])[1];
+      const item = (c.match(/(mulch|fertilizer|seed|sod|stone|gravel|fuel|gas|pine straw|shovels?)/) || [])[1] || "supplies";
+      return JSON.stringify({
+        intent: "UPDATE_INVENTORY",
+        summary: `Logged ${qty || ""} ${item}`.replace(/\s+/g, " ").trim() + " to inventory.",
+        data: { item, quantity: qty ? Number(qty) : null },
+      });
+    }
+    if (/(crew|job|site|arrived|delayed|finished|completed|on (my|the) way|en route)/.test(c)) {
+      return JSON.stringify({ intent: "UPDATE_CREW_STATUS", summary: "Crew/job status update noted.", data: {} });
+    }
+    return JSON.stringify({ intent: "UNKNOWN_OR_UNPARSEABLE", summary: "", data: {} });
+  }
 
   return "I'm a mock AI response since the system is running without a GEMINI_API_KEY.";
 }
@@ -2173,8 +2190,13 @@ export async function createApp({ startListening = false } = {}) {
         config: { systemInstruction, responseMimeType: "application/json" }
       });
 
-      const parsed = JSON.parse(response.text || '{}');
-      res.json(parsed);
+      let parsed: any;
+      try {
+        parsed = parseGeminiJson(response.text);
+      } catch {
+        parsed = null;
+      }
+      res.json(parsed || { intent: "UNKNOWN_OR_UNPARSEABLE", summary: "", data: {} });
     } catch (e: any) {
       console.error("Hands-free error:", e);
       res.status(500).json({ error: e.message });

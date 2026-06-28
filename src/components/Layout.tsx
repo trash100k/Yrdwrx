@@ -945,7 +945,14 @@ export default function Layout() {
           </AnimatePresence>
 
           {/* QoL Features */}
-          <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
+          <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            onOutreach={() => {
+              setIsCommandPaletteOpen(false);
+              setIsOutreachOpen(true);
+            }}
+          />
           <QuickCreateMenu isOpen={isQuickCreateOpen} onClose={() => setIsQuickCreateOpen(false)} />
           <NotificationsCenter isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
           <UserProfileMenu isOpen={isUserMenuOpen} onClose={() => setIsUserMenuOpen(false)} />
