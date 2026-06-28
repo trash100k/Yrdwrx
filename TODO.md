@@ -13,8 +13,14 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-28 — added **Part E** (audit findings: landscaper feature gaps, widget/UI
-> health, text/copy) and kicked off the quick-wins batch. Earlier this session: server hardening
+> _Last updated: 2026-06-28 (later) — **architecture decision changed to FULL SUPABASE AUTH** (see
+> the backend note above). Landed: the Firebase→Supabase Auth migration (client + server + signup
+> provisioning trigger), the **unified agent action executor** (Live Ear voice + copilot text both
+> perform real RLS-scoped mutations: create contact/job/invoice/quote/expense, gate codes, inventory
+> draws, etc.), and a batch of lost-import runtime-crash fixes (gate-photo flow, geofence, magic-link,
+> TTS auth) + the job-status casing fix that was silently breaking Field Mode. **Next: Part F — the
+> Firestore→repos screen cutover.** Earlier this session: added **Part E** (audit findings) and the
+> quick-wins batch; before that: server hardening
 > (playground gated, threats admin-only, fail-fast `JWT_SECRET`, IPv6 limiter, tenant-scoped caches,
 > env-driven CSP), auth restoration behind `VITE_REQUIRE_AUTH`/`REQUIRE_AUTH` + the tenant
 > provisioning endpoint, real billing (tenant-safe Stripe + `application_fee` + ACH + subscribe) and
@@ -35,16 +41,17 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 - Priority legend: 🔴 **blocker** (can't launch) · 🟠 **risky** (breaks/degrades in real prod or at
   scale) · 🟢 **feature/polish** (value-add & de-uglify).
 
-> **Backend architecture (decided + in progress): HYBRID.** Keep **Firebase Auth** (Google Sign-In +
-> Workspace consent) + **Cloud Run** (+ **Vertex AI Gemini via ADC**); move only **DATA → Supabase
-> Postgres + RLS**, bridged by **Supabase Third-Party Auth (Firebase)** so RLS keys on the Firebase
-> UID (`auth.jwt()->>'sub'`). **Live now:** the full Postgres schema + RLS is applied to project
-> `bzpxudpmksnawmaanxal` (org GaelWorx) — tenant-scoped policies in a hardened `private`
-> helper schema, **cross-tenant isolation verified live**, **0 security advisories**. Migrations:
-> `supabase/migrations/0001`–`0006` (`0006` adds the supporting tables the app needed:
-> `material_logs`/`messages`/`audit_logs`/`system_logs`/`telemetry`, same RLS pattern). Next: enable
-> Supabase Third-Party Auth → Firebase in the dashboard, then cut pages off Firestore via
-> `src/lib/repos/*` (still runs on Firestore in the demo today).
+> **Backend architecture (DECISION CHANGED 2026-06-28): FULL SUPABASE.** Auth moved from
+> Firebase to **native Supabase Auth** (email/password + magic link); **DATA = Supabase Postgres + RLS**.
+> RLS keys on the Supabase JWT `sub` (the user UID) matched to `profiles.firebase_uid` (column kept its
+> historical name; it now stores the Supabase UID) via the `private.auth_tenant_id/auth_role/is_platform_admin`
+> helpers. A `handle_new_user` trigger auto-provisions a tenant + owner profile on signup. The Express
+> server verifies the Supabase JWT (`auth.getUser(token)`, anon client). Firebase is retained only for
+> optional **Storage**. Project `bzpxudpmksnawmaanxal` — **0 security advisories**.
+> **DONE:** auth swap (client + server), provisioning trigger, the unified agent action executor
+> (voice **and** text agents perform real RLS-scoped mutations).
+> **REMAINING (the cutover): the ~10 screens still read/write Firestore** — migrate them to
+> `src/lib/repos/*` so real data + the agent's writes are visible. See **Part F** below.
 
 ---
 
@@ -542,3 +549,52 @@ mock mode (`ai.models.generateContent` only).*
 & `inventory` Firestore collections · `/api/design/{process,tiers,generate-mockup}` · `BeforeAfterSlider`,
 `MarkupCanvas` · `syncService` (offline queue) · `firestore.rules` (solid tenant model) · `security_spec.md` +
 `TEST_MATRIX.md` (test specs to implement).
+
+---
+
+## Part F — Firestore → Supabase cutover (the remaining gate) 🔴
+
+Auth + the agent executor are on Supabase; these screens still read/write **Firestore**, so real
+data and the agent's writes don't show. Migrate each to `src/lib/repos/*` (RLS-scoped; `subscribe()`
+replaces `onSnapshot`, `create/update/remove` replace `addDoc/updateDoc/deleteDoc`). Repos return
+**camelCase** (so most field reads keep working) and snake-ize writes; **drop `tenantId`** from
+reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status is **UPPERCASE**
+(`SCHEDULED|IN_PROGRESS|COMPLETED`). Verify each screen logged-in before moving on.
+
+- [ ] **CRM** (`src/pages/CRM.tsx`) — `customers` (→ `customersRepo`) + `knowledge` (→ `knowledgeRepo`).
+      ~14 customer call sites incl. a dynamic-path `addDoc` (`:787`) and bulk import (`:864/:933`).
+      This is where the agent's `create_contact`/`load_client_data`/`add_client_note`/`set_gate_code` land.
+- [ ] **Scheduler** (`src/pages/Scheduler.tsx`) — `jobs` → `jobsRepo` (agent `schedule_job`).
+- [ ] **Invoices** (`src/pages/Invoices.tsx`) — `invoices` → `invoicesRepo`, `expenses` → `expensesRepo`
+      (agent `create_invoice`/`create_quote`/`log_expense`). Invoices used a free-text `client` name;
+      prefer `customer_id`.
+- [ ] **Inventory** (`src/pages/Inventory.tsx`) — `inventory` → `inventoryRepo`, `materialLogs` →
+      `material_logs` (agent `check_inventory`/`log_inventory_usage` already write here).
+- [ ] **CrewSuite** (`src/pages/CrewSuite.tsx`) — `crews` → `crewsRepo` (+ `employees` table; add an
+      `employeesRepo` for `load_employee_data`).
+- [ ] **Reviews** (`src/pages/Reviews.tsx`) — `reviews` → `reviewsRepo`.
+- [ ] **FieldModeInterface** (`src/components/FieldModeInterface.tsx`) — active-job query + completion
+      write → `jobsRepo`; `inspection_forms` → `inspectionFormsRepo`. Map job `data.gateCode` → the
+      Gate Access panel (the agent's `set_gate_code` writes the customer's `data.gateCode`).
+- [ ] **Portfolio** (`src/pages/Portfolio.tsx`) — completed-jobs query → `jobsRepo` (filter
+      `status==='COMPLETED'` + departure photo).
+- [ ] **Dashboard** (`src/pages/Dashboard.tsx`) — widget data reads → repos.
+- [ ] **ClientPortal** (`src/pages/ClientPortal.tsx`) — customer + `customer_messages` reads → repos;
+      replace the hardcoded mock proposal with the real `customer_design_visions` row.
+
+### Auth follow-ups (post-switch)
+- [ ] **"Connect Google" buttons** still call Firebase `signInWithPopup` for Calendar/Gmail scopes
+      (CRM `:382/:415/:898`, DesignStudio `:339`, Dashboard `:515`, Invoices `:324`, CrewSuite `:663`).
+      Rework via Supabase OAuth or a direct Google OAuth flow, or hide until ready.
+- [ ] **ClientPortal** `:35` still uses `auth.onAuthStateChanged` (Firebase) — vestigial; the portal
+      uses magic-link token auth. Remove.
+- [ ] **Server webhook Firestore writes** (Stripe `:439`, Twilio `:530`, `initFirebaseAdmin` `:988`)
+      still write to Firestore — move to Supabase (service-role client) so events land in the SoR.
+- [ ] **Account deletion** — add a server endpoint (service role `auth.admin.deleteUser`) wired to
+      Settings (currently signs out + TODO).
+
+### Human-only (you)
+- [ ] Supabase dashboard → **Auth → Email**: turn off "Confirm email" (or set SMTP) for instant signup.
+- [ ] Put the **service-role key** in the server env (`SUPABASE_SERVICE_ROLE_KEY`) for server-side
+      tenant lookups + AI credit metering.
+- [ ] Set `VITE_REQUIRE_AUTH=true` + `REQUIRE_AUTH=true` to enforce the real auth gate.
