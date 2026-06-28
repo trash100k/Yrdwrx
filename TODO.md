@@ -581,8 +581,11 @@ reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status 
       `data.departurePhotoUrl`). DONE.
 - [x] **Dashboard** (`src/pages/Dashboard.tsx`) — crews/leads/vendors/invoices reads + customer create
       → repos. DONE.
-- [ ] **ClientPortal** (`src/pages/ClientPortal.tsx`) — customer + `customer_messages` reads → repos;
-      replace the hardcoded mock proposal with the real `customer_design_visions` row.
+- [x] **ClientPortal** (`src/pages/ClientPortal.tsx`) — DONE, and **secured**: rebuilt as a
+      capability-token, server-proxied portal (`/api/portal/{data,message,checkout}`), no direct DB
+      / no localStorage-only authz; real jobs/invoices/designs/messages; fabricated proposal removed.
+      `magic-link/generate` now owner-authed + tenant-scoped. **Requires `SUPABASE_SERVICE_ROLE_KEY`**
+      on the server to run. (Stripe checkout + invoice-paid webhook also moved to Supabase.)
 
 ### Auth follow-ups (post-switch)
 - [ ] **"Connect Google" buttons** still call Firebase `signInWithPopup` for Calendar/Gmail scopes
@@ -590,8 +593,8 @@ reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status 
       Rework via Supabase OAuth or a direct Google OAuth flow, or hide until ready.
 - [ ] **ClientPortal** `:35` still uses `auth.onAuthStateChanged` (Firebase) — vestigial; the portal
       uses magic-link token auth. Remove.
-- [ ] **Server webhook Firestore writes** (Stripe `:439`, Twilio `:530`, `initFirebaseAdmin` `:988`)
-      still write to Firestore — move to Supabase (service-role client) so events land in the SoR.
+- [~] **Server webhook Firestore writes** — invoice-paid now writes Supabase (Firestore mirror only);
+      remaining Twilio `:530` + other `initFirebaseAdmin` side-paths still write Firestore — move to Supabase.
 - [ ] **Account deletion** — add a server endpoint (service role `auth.admin.deleteUser`) wired to
       Settings (currently signs out + TODO).
 
