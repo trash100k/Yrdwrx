@@ -185,7 +185,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     if (!image || !result) return;
     setIsGeneratingMockup(true);
     try {
-        const description = result.identifiedAreas.map(a => a.suggestion).join(". ");
+        const description = (result.identifiedAreas || []).map(a => a.suggestion).join(". ");
         const response = await fetchApi("/api/design/generate-mockup", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -576,7 +576,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                           <ImageIcon size={14} /> Identified Areas
                         </p>
                         <div className="space-y-3">
-                          {result.identifiedAreas.map((area, idx) => (
+                          {(result.identifiedAreas || []).map((area, idx) => (
                             <div
                               key={idx}
                               className="p-4 bg-white/5 border border-white/5 rounded-2xl group"
@@ -733,7 +733,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                             )}
 
                             <div className="space-y-2.5">
-                              {(result.tiers && activeTier !== "standard" ? result.tiers[activeTier].estimatedMaterials : result.estimatedMaterials).map((material: any, idx: number) => (
+                              {((result.tiers && activeTier !== "standard" ? result.tiers[activeTier]?.estimatedMaterials : result.estimatedMaterials) || []).map((material: any, idx: number) => (
                                 <div
                                   key={idx}
                                   className="flex items-center justify-between p-3.5 bg-white/5 border-l-2 border-forest-500/40 rounded-xl"

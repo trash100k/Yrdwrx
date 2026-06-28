@@ -196,6 +196,34 @@ function getMockText(request: any): string {
       ],
     });
   }
+  // Design Studio: return a realistic, well-shaped object so mock mode (no GEMINI_API_KEY)
+  // produces a usable result instead of {} (which white-screened the results panel).
+  if (instr.includes("three pricing tiers")) {
+    return JSON.stringify({
+      tiers: {
+        good: { name: "Good (Budget)", estimatedMaterials: [{ item: "Double-Shredded Hardwood Mulch", quantity: "2 cubic yards", estimatedCost: 100 }, { item: "Turf-Type Tall Fescue Seed", quantity: "25 lb", estimatedCost: 90 }], totalCost: 450, description: "Budget-friendly refresh using standard materials and smaller plant stock." },
+        better: { name: "Better (Standard)", estimatedMaterials: [{ item: "Limelight Hydrangea (3-Gallon)", quantity: "7 shrubs", estimatedCost: 315 }, { item: "Double-Shredded Hardwood Mulch", quantity: "2 cubic yards", estimatedCost: 120 }], totalCost: 850, description: "The recommended balance of quality and value." },
+        best: { name: "Best (Premium)", estimatedMaterials: [{ item: "Limelight Hydrangea (7-Gallon, mature)", quantity: "7 shrubs", estimatedCost: 560 }, { item: "Low-Voltage Landscape Lighting", quantity: "4 fixtures", estimatedCost: 600 }], totalCost: 1900, description: "Premium mature plantings plus accent lighting for maximum curb appeal." },
+      },
+    });
+  }
+  if (instr.includes("Cutty Logic Core") || instr.includes("landscape architect")) {
+    return JSON.stringify({
+      identifiedAreas: [
+        { id: "a1", description: "Compacted bare soil along the foundation bed", suggestion: "Install a 3-foot mulched planting bed with Limelight Hydrangea (3-Gallon) at 3-foot centers" },
+        { id: "a2", description: "Thin, declining fescue in the front lawn", suggestion: "Aerate and overseed with turf-type tall fescue; topdress with compost" },
+      ],
+      botanicalViolations: [],
+      visionSummary: "Define the foundation line with a tidy hydrangea bed and revive the front lawn — a clean, high-curb-appeal refresh a crew can install in a day.",
+      estimatedMaterials: [
+        { item: "Limelight Hydrangea (3-Gallon)", quantity: "7 shrubs", estimatedCost: 315, geoSpatialVolume: "~45 sq ft bed" },
+        { item: "Double-Shredded Hardwood Mulch", quantity: "2 cubic yards", estimatedCost: 120, geoSpatialVolume: "2 cu yd" },
+        { item: "Turf-Type Tall Fescue Seed", quantity: "25 lb", estimatedCost: 90, geoSpatialVolume: "1,500 sq ft" },
+      ],
+      strategicValue: "≈$525 install that lifts curb appeal and sets up a recurring maintenance account.",
+      approvalRequired: false,
+    });
+  }
   if (instr.includes("OUTPUT FORMAT: JSON array")) {
     return JSON.stringify([]);
   }
@@ -2240,6 +2268,9 @@ async function startServer() {
   app.post("/api/design/process", cacheApiResponse(120), async (req, res) => {
     try {
       const { image, markup, prompt, role, settings = {} } = req.body;
+      if (!image || typeof image !== "string") {
+        return res.status(400).json({ error: "Missing or invalid 'image' (base64 string required)." });
+      }
 
       // Ensure that employees and foreman are strictly constrained to safe botanical rules and local whitelists.
       // This acts as the air gap, preventing prompt injection or wild unfeasible suggestions.
@@ -2346,8 +2377,18 @@ async function startServer() {
   app.post("/api/design/generate-mockup", aiLimiter, async (req, res) => {
     try {
       const { image, description } = req.body;
+      if (!image || typeof image !== "string") {
+        return res.status(400).json({ error: "Missing or invalid 'image' (base64 string required)." });
+      }
       const base64Data = image.includes(",") ? image.split(',')[1] : image;
       const mimeType = image.includes(";") ? image.split(';')[0].split(':')[1] : 'image/jpeg';
+
+      // Mock mode (no GEMINI_API_KEY): the image model isn't available, so echo the
+      // original photo back as a safe placeholder "after" — the before/after slider stays
+      // usable in demos/dev instead of erroring.
+      if (isMockMode) {
+        return res.json({ imageUrl: image, mock: true });
+      }
 
       // Using the required Interactions API for the bleeding-edge image model
       const interaction = await ai.interactions.create({
