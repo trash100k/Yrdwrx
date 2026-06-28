@@ -6,7 +6,7 @@ import { useTenant } from "../contexts/TenantContext";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
-import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe } from "lucide-react";
+import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { deleteUser, signOut } from "firebase/auth";
 import { fetchApi } from "../lib/api";
