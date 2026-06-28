@@ -441,11 +441,12 @@ sweep, and a text/copy consistency scan). Newly-surfaced concrete work, prioriti
 - [ ] 🔴 **`pb-safe` is undefined → no safe-area padding** (`Layout.tsx:796`, `ConsentBanner.tsx:31`).
   With `viewport-fit=cover`, the fixed bottom nav is occluded by the phone home indicator. Define
   `.pb-safe { padding-bottom: env(safe-area-inset-bottom); }` in `src/index.css`.
-- [x] ✅ **`EarningsWidget` wired to REAL revenue** — Dashboard subscribes to `invoices` and
-  `computeEarnings()` builds a 14-day paid-invoice series + MTD totals (Earnings MTD / Invoices Paid /
-  Avg Invoice); badge flips to "Live · Paid Invoices", falling back to a labeled "Sample" only when
-  there's no paid data. _Remaining: `AlertsWidget`, "Top Services", Analytics stat cards still
-  sample-labeled (wire to real alerts/job-costing next)._
+- [x] ✅ **Dashboard widgets wired to REAL data** — Dashboard subscribes to `invoices`;
+  `EarningsWidget` (14-day paid series + MTD totals, "Live" badge w/ labeled "Sample" fallback),
+  **Top Services** (top paid-invoice services + revenue share, LIVE/SAMPLE badge), and the **Analytics
+  stat cards** (Weekly Earnings, Crew Status, Open Leads, Outstanding Billing — all computed from
+  invoices/crews/leads) are now real. _Remaining: `AlertsWidget` still sample (needs a real alerting
+  engine — weather/fuel/HOA signals)._
 - [ ] 🟠 **`crews` widget has no empty state** (`Dashboard.tsx:2087`) — new tenant sees an empty box.
 - [ ] 🟢 `EarningsWidget.tsx:28` conflicting `md:w-full md:w-[450px]`; `WidgetConfigurator.tsx:91`
   malformed `shadow-[...]` (spaces → silently no-ops); `Tabs.tsx:13` `w-max` overflows mobile w/ no

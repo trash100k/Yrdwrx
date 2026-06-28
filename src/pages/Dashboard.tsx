@@ -130,6 +130,42 @@ function computeEarnings(invoices: any[]) {
   return { revenueData, totals: { earningsMTD, count: mtdInvoices.length } };
 }
 
+const usd0 = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(n) || 0);
+
+// Real top-of-funnel + billing stats for the Analytics tab, from the live collections.
+function computeAnalytics(invoices: any[], crews: any[], hotLeads: any[]) {
+  const toDate = (t: any) => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 7);
+  const inv = invoices || [];
+  const isStatus = (i: any, set: string[]) => set.includes(String(i?.status || "").toLowerCase());
+  const weekly = inv
+    .filter((i) => isStatus(i, ["paid"]))
+    .filter((i) => { const d = toDate(i.paidAt || i.updatedAt || i.date || i.createdAt); return d && d >= weekAgo; })
+    .reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const unpaid = inv.filter((i) => isStatus(i, ["sent", "overdue", "unpaid", "draft"]));
+  const missed = unpaid.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const onSite = (crews || []).filter((c) => String(c?.status || "").toUpperCase().includes("ON")).length;
+  return { weekly, missed, missedCount: unpaid.length, onSite, crewTotal: (crews || []).length, openLeads: (hotLeads || []).length };
+}
+
+// Top revenue services from paid invoices (empty => widget shows its labeled sample).
+function computeTopServices(invoices: any[]) {
+  const paid = (invoices || []).filter((i) => String(i?.status || "").toLowerCase() === "paid");
+  const map: Record<string, number> = {};
+  for (const inv of paid) {
+    const label =
+      inv.service || inv.serviceType ||
+      (Array.isArray(inv.items) && inv.items[0] && (inv.items[0].name || inv.items[0].description)) ||
+      inv.description || "General Service";
+    map[label] = (map[label] || 0) + (Number(inv.amount) || 0);
+  }
+  const entries = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
+  return entries.map(([label, value]) => ({ label: String(label).slice(0, 40), value, share: Math.round((value / total) * 100) }));
+}
+
 export default function Dashboard() {
   const { tenant } = useTenant();
   const { isFieldMode, toggleFieldMode } = useFieldMode();
@@ -175,6 +211,8 @@ export default function Dashboard() {
   // Real revenue series + MTD totals from paid invoices (null => no paid data yet, the
   // EarningsWidget falls back to its labeled sample).
   const earnings = computeEarnings(invoices);
+  const analytics = computeAnalytics(invoices, crews, hotLeads);
+  const topServices = computeTopServices(invoices);
 
   
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -2009,19 +2047,26 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3 pb-3 border-b border-white/10 molten-edge">
                            <TrendingUp className="text-forest-400" size={20} />
                            <h5 className="text-sm font-bold text-white uppercase tracking-wider">Top Services</h5>
-                           <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">SAMPLE</span>
+                           {topServices.length > 0 ? (
+                             <span className="ml-auto text-[10px] bg-forest-500/20 text-forest-400 px-2 py-0.5 rounded-full font-bold">LIVE</span>
+                           ) : (
+                             <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">SAMPLE</span>
+                           )}
                         </div>
                         <div className="space-y-3">
-                           {[
-                              { label: "Mowing & Edge", value: "$4,200", trend: "+12%" },
-                              { label: "Pine Straw Mulch", value: "$2,850", trend: "+8%" },
-                              { label: "Shrub Trimming", value: "$1,100", trend: "-2%" }
-                           ].map((item, i) => (
+                           {(topServices.length > 0
+                              ? topServices.map((s) => ({ label: s.label, value: usd0(s.value), trend: `${s.share}%` }))
+                              : [
+                                 { label: "Mowing & Edge", value: "$4,200", trend: "+12%" },
+                                 { label: "Pine Straw Mulch", value: "$2,850", trend: "+8%" },
+                                 { label: "Shrub Trimming", value: "$1,100", trend: "-2%" },
+                              ]
+                           ).map((item, i) => (
                              <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                <span className="text-sm font-medium text-white">{item.label}</span>
-                                <div className="text-right flex items-center gap-3">
+                                <span className="text-sm font-medium text-white truncate min-w-0 mr-3">{item.label}</span>
+                                <div className="text-right flex items-center gap-3 shrink-0">
                                    <span className="text-sm font-bold text-white">{item.value}</span>
-                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('+') ? 'text-forest-400' : 'text-red-400'}`}>{item.trend}</span>
+                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('-') ? 'text-red-400' : 'text-forest-400'}`}>{item.trend}</span>
                                 </div>
                              </div>
                            ))}
@@ -2423,10 +2468,7 @@ export default function Dashboard() {
       ) : (
         // DEEP INTEL / INFO FREAK VIEW (Tab 2: Analytics)
         <section className="space-y-12 animate-fadeIn">
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 w-max">
-            Sample analytics — illustrative figures pending live reporting
-          </div>
-          {/* Main detailed high density stats */}
+          {/* Main detailed high density stats — live from invoices / crews / leads */}
           <div
             id="analytics-dense-stats"
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-8"
@@ -2434,29 +2476,29 @@ export default function Dashboard() {
             {[
               {
                 label: "Weekly Earnings",
-                value: "$24.8k",
-                change: "+12% MTD projection",
+                value: usd0(analytics.weekly),
+                change: "Paid in last 7 days",
                 trendColor: "text-forest-400",
                 icon: Zap,
               },
               {
                 label: "Crew Status",
-                value: "3 / 4 ON_SITE",
-                change: "Beta ready in transport",
+                value: `${analytics.onSite} / ${analytics.crewTotal} ON_SITE`,
+                change: "Live crew board",
                 trendColor: "text-celtic-400",
                 icon: Briefcase,
               },
               {
-                label: "System Efficiency",
-                value: "92.4%",
-                change: "Optimal output speed",
+                label: "Open Leads",
+                value: `${analytics.openLeads}`,
+                change: "In the pipeline",
                 trendColor: "text-forest-400",
                 icon: ShieldCheck,
               },
               {
-                label: "Missed Billing",
-                value: "$2,120",
-                change: "4 recoverable opportunities",
+                label: "Outstanding Billing",
+                value: usd0(analytics.missed),
+                change: `${analytics.missedCount} open invoice${analytics.missedCount === 1 ? "" : "s"}`,
                 trendColor: "text-amber-500",
                 icon: CloudRain,
               },
