@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import MarkupCanvas from "../components/MarkupCanvas";
 import BeforeAfterSlider from "../components/BeforeAfterSlider";
+import Design3D from "../components/Design3D";
 import { designVisionsRepo } from "../lib/repos";
 import { db, auth } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
@@ -102,7 +103,7 @@ export default function DesignStudio() {
   const [isGeneratingTiers, setIsGeneratingTiers] = useState(false);
 const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "best">("standard");
   const [activeView, setActiveView] = useState<"studio" | "database">("studio");
-  const [activeTab, setActiveTab] = useState<"scribble" | "compare">("scribble");
+  const [activeTab, setActiveTab] = useState<"scribble" | "compare" | "preview3d">("scribble");
 
   useEffect(() => {
     if (hookTranscript) {
@@ -479,6 +480,16 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                       ✨ Interactive Slider
                     </button>
                   )}
+                  {result && (
+                    <button
+                      onClick={() => setActiveTab("preview3d")}
+                      className={`py-2 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
+                        activeTab === "preview3d" ? "bg-white text-black shadow-md scale-[1.02]" : "text-white/40 hover:text-white"
+                      }`}
+                    >
+                      ✨ 3D Preview
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -501,6 +512,10 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                       <span className="px-6 py-3.5 bg-white text-black text-xs font-black uppercase tracking-widest rounded-xl shadow-lg transition-transform active:scale-95">
                         Choose Photo
                       </span>
+                    </div>
+                  ) : activeTab === "preview3d" && result ? (
+                    <div className="absolute inset-0 p-1">
+                      <Design3D result={result} image={image} />
                     </div>
                   ) : activeTab === "compare" && mockupImage ? (
                     <BeforeAfterSlider beforeImage={image} afterImage={mockupImage} imageAspectRatio={imageAspectRatio} />
