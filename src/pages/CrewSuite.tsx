@@ -2,7 +2,7 @@
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 import React, { useState, useEffect } from "react";
-import { crewsRepo, jobsRepo } from "../lib/repos";
+import { crewsRepo, jobsRepo, timesheetsRepo } from "../lib/repos";
 import {
   logSystemEvent,
   auth
@@ -30,6 +30,8 @@ import {
   Plus,
   Phone,
   Trash2,
+  Play,
+  Square,
   X
 } from "lucide-react";
 import { SubscriptionGuard } from "../components/SubscriptionGuard";
@@ -43,7 +45,6 @@ import { HandsFreeDictator } from "../components/HandsFreeDictator";
 import { executeAgentAction } from "../lib/agentActions";
 import { ResourceAssignmentModal } from "../components/ResourceAssignmentModal";
 import { ResourceTimeline } from "../components/ResourceTimeline";
-import { TimeClock } from "../components/TimeClock";
 
 // READ adapter: flatten the jsonb `data` bag first, then let real columns win, so
 // data-only fields (currentJob/efficiency/incidents/assignedResources) surface
@@ -129,6 +130,100 @@ export default function CrewSuite() {
   // Field note / voice transcription capture — inline modal instead of a blocking window.prompt.
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
+
+  // --- Time Clock (per-job time entries for accurate Job Costing) ----------------
+  // Every timesheet row MUST carry a job_id so labor hours roll up to the right job.
+  const [clockJobs, setClockJobs] = useState<any[]>([]); // active/scheduled jobs to clock into
+  const [selectedClockJobId, setSelectedClockJobId] = useState<string>("");
+  const [openTimesheet, setOpenTimesheet] = useState<any | null>(null); // currently-open (clocked-in) row
+  const [isClocking, setIsClocking] = useState(false);
+
+  // Load active/scheduled jobs for the picker (title + client). Generic repo.list()
+  // returns camelCase rows; we keep only jobs that are still in play.
+  useEffect(() => {
+    let active = true;
+    const loadJobs = async () => {
+      try {
+        const rows = await jobsRepo.list();
+        const jobs = (rows || []).map((r: any) => ({ ...(r?.data || {}), ...r }));
+        const open = jobs.filter((j: any) => {
+          const s = (j.status || "").toString().toUpperCase();
+          return s !== "COMPLETED" && s !== "CANCELLED" && s !== "CANCELED" && s !== "ARCHIVED";
+        });
+        if (!active) return;
+        setClockJobs(open);
+        setSelectedClockJobId((prev) => prev || (open[0]?.id ?? ""));
+      } catch {
+        /* non-fatal: picker simply shows no jobs */
+      }
+    };
+    loadJobs();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const clockJobLabel = (j: any) => {
+    const title = j?.title || j?.name || "Untitled Job";
+    const client = j?.client || j?.customerName || j?.customer || "";
+    return client ? `${title} — ${client}` : title;
+  };
+
+  // Clock IN: create a timesheet row with jobId ALWAYS set, plus userName + clockIn.
+  const handleClockIn = async () => {
+    if (!selectedClockJobId) {
+      showToast("Select a job to clock into first.", "error");
+      return;
+    }
+    if (openTimesheet) {
+      showToast("You're already clocked in — clock out first.", "warning");
+      return;
+    }
+    setIsClocking(true);
+    try {
+      const job = clockJobs.find((j: any) => j.id === selectedClockJobId);
+      const created = await timesheetsRepo.create({
+        jobId: selectedClockJobId,
+        userName: auth?.currentUser?.displayName || auth?.currentUser?.email || "Field Crew",
+        clockIn: new Date().toISOString(),
+      });
+      setOpenTimesheet(created);
+      showToast(`Clocked in to ${clockJobLabel(job || {})}.`, "success");
+      logSystemEvent("TIMECLOCK_IN", { jobId: selectedClockJobId });
+    } catch (error: any) {
+      console.error("Clock-in failed:", error);
+      showToast(error?.message || "Failed to clock in.", "error");
+    } finally {
+      setIsClocking(false);
+    }
+  };
+
+  // Clock OUT: close the open row — set clockOut + duration_mins, keeping its job_id.
+  const handleClockOut = async () => {
+    if (!openTimesheet) {
+      showToast("You're not clocked in.", "warning");
+      return;
+    }
+    setIsClocking(true);
+    try {
+      const startedAt = openTimesheet.clockIn || openTimesheet.clock_in;
+      const start = startedAt ? new Date(startedAt).getTime() : Date.now();
+      const out = new Date();
+      const durationMins = Math.max(0, Math.round((out.getTime() - start) / 60000));
+      await timesheetsRepo.update(openTimesheet.id, {
+        clockOut: out.toISOString(),
+        durationMins,
+      });
+      setOpenTimesheet(null);
+      showToast(`Clocked out — ${durationMins} min logged to job.`, "success");
+      logSystemEvent("TIMECLOCK_OUT", { jobId: openTimesheet.jobId || openTimesheet.job_id, durationMins });
+    } catch (error: any) {
+      console.error("Clock-out failed:", error);
+      showToast(error?.message || "Failed to clock out.", "error");
+    } finally {
+      setIsClocking(false);
+    }
+  };
 
   // Persist the captured field note to the workspace outbox feed, then confirm with a 2-arg toast.
   const submitFieldNote = () => {
@@ -615,8 +710,80 @@ export default function CrewSuite() {
         <ResourceTimeline />
       )}
 
+      {/* TIME CLOCK — per-job time entries for accurate Job Costing.
+          Every created/closed timesheet carries a job_id (via jobId) so labor
+          hours roll up to the correct job. */}
       <div className="mt-10 max-w-md">
-        <TimeClock />
+        <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-6 rounded-2xl relative overflow-hidden">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 bg-forest-500/10 border border-forest-500/20 rounded-2xl flex items-center justify-center text-forest-400">
+              <Clock size={18} />
+            </div>
+            <div>
+              <h3 className="text-base font-black italic uppercase tracking-tight text-white leading-none">
+                Time Clock
+              </h3>
+              <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest mt-1.5">
+                Clock in / out against a job
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">
+                Job
+              </label>
+              <select
+                className="w-full bg-black border border-white/5 rounded-2xl px-5 py-3.5 text-sm focus:border-forest-500 focus:outline-none transition-all text-white disabled:opacity-50"
+                value={selectedClockJobId}
+                onChange={(e) => setSelectedClockJobId(e.target.value)}
+                disabled={!!openTimesheet || clockJobs.length === 0}
+              >
+                {clockJobs.length === 0 ? (
+                  <option value="">No active jobs available</option>
+                ) : (
+                  clockJobs.map((j: any) => (
+                    <option key={j.id} value={j.id}>
+                      {clockJobLabel(j)}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            {openTimesheet && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-forest-500/5 border border-forest-500/20 rounded-2xl">
+                <span className="w-2 h-2 rounded-full bg-forest-400 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-forest-400">
+                  Clocked in
+                  {openTimesheet.clockIn || openTimesheet.clock_in
+                    ? ` since ${new Date(openTimesheet.clockIn || openTimesheet.clock_in).toLocaleTimeString()}`
+                    : ""}
+                </span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleClockIn}
+                disabled={isClocking || !!openTimesheet || !selectedClockJobId}
+                className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-forest-500 text-black font-black text-[10px] uppercase tracking-widest hover:bg-forest-400 transition-all shadow-lg shadow-forest-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Play size={14} /> Clock In
+              </button>
+              <button
+                type="button"
+                onClick={handleClockOut}
+                disabled={isClocking || !openTimesheet}
+                className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-zinc-800 border border-white/5 text-white font-black text-[10px] uppercase tracking-widest hover:bg-white/5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Square size={14} /> Clock Out
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-10 mt-10 rounded-2xl relative overflow-hidden">

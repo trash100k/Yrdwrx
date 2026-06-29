@@ -7,7 +7,7 @@ import {
   logSystemEvent,
   auth
 } from "../lib/firebase";
-import { invoicesRepo, expensesRepo, jobsRepo, contractsRepo } from "../lib/repos";
+import { invoicesRepo, expensesRepo, jobsRepo, contractsRepo, customersRepo } from "../lib/repos";
 import { runAutomations } from "../lib/automations";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
@@ -114,6 +114,19 @@ export default function Invoices() {
     null,
   );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  // Customer roster for the invoice customer selector. Persisting the selected
+  // customer's id as invoices.customer_id is what lets Job Costing, Customer
+  // Intelligence profitability, and reporting attribute revenue to a customer.
+  const [customers, setCustomers] = useState<any[]>([]);
+  // Currently selected customer id for the new-invoice form (-> invoice.customerId).
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
+  // Human-readable label for a customer (mirrors the camelCased repo shape).
+  const customerLabel = (c: any) =>
+    (c.companyName ||
+      [c.firstName, c.lastName].filter(Boolean).join(" ") ||
+      c.name ||
+      c.phone ||
+      "Unnamed Customer");
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Tracks which invoice ids were already "paid" on the last subscription push, so we can
   // detect a transition into paid and fire the automation engine exactly once per flip.
@@ -179,10 +192,33 @@ export default function Invoices() {
     };
   }, []);
 
+  // Load the customer roster once so the new-invoice form can attach a customerId
+  // (invoices.customer_id) for per-customer revenue attribution. Best-effort: if it
+  // fails the form still works as a free-text "client" entry.
+  useEffect(() => {
+    customersRepo
+      .list()
+      .then((rows) => setCustomers(rows || []))
+      .catch(() => {});
+  }, []);
+
+  // When the proposal modal opens, sync the customer selector to whatever the
+  // current draft carries (CRM/job context seeds aiAnalysis.customerId). Manual
+  // "Quick Add"/"Generate Invoice" drafts have none, so the selector resets to
+  // "no customer linked" rather than leaking a prior selection.
+  useEffect(() => {
+    if (showAIModal) setSelectedCustomerId(aiAnalysis?.customerId || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAIModal]);
+
   useEffect(() => {
     if (location.state?.client) {
+      // Carry the originating customer's id through so the created invoice attributes
+      // revenue to that customer (Job Costing / Customer Intelligence profitability).
+      setSelectedCustomerId(location.state.customer?.id || "");
       setAiAnalysis({
         clientName: location.state.client,
+        customerId: location.state.customer?.id || "",
         items: [
           { description: "Pending Service Review", quantity: 1, rate: 0 },
         ],
@@ -1083,12 +1119,54 @@ export default function Invoices() {
                         <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                           Client Info
                         </span>
-                        <input 
+                        <input
                           type="text"
                           value={aiAnalysis?.clientName || ""}
                           onChange={(e) => setAiAnalysis({...aiAnalysis, clientName: e.target.value})}
                           className="text-base font-semibold text-white bg-transparent text-right outline-none focus:border-forest-500 border-b border-transparent"
                         />
+                      </div>
+
+                      {/* Customer link — persists invoices.customer_id so this invoice's
+                          revenue is attributed to the customer in Job Costing,
+                          Customer Intelligence profitability, and reporting. */}
+                      <div className="pb-4 border-b border-white/5 molten-edge">
+                        <label
+                          htmlFor="invoice-customer-select"
+                          className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-2"
+                        >
+                          Link to Customer
+                        </label>
+                        <select
+                          id="invoice-customer-select"
+                          value={selectedCustomerId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setSelectedCustomerId(id);
+                            const c = customers.find((x: any) => x.id === id);
+                            // Keep clientName/customerId in sync with the picked customer so
+                            // the human-readable name (data.client) and customer_id both persist.
+                            setAiAnalysis({
+                              ...aiAnalysis,
+                              customerId: id,
+                              ...(c ? { clientName: customerLabel(c) } : {}),
+                            });
+                          }}
+                          className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-base sm:text-sm text-white focus:outline-none focus:border-forest-500"
+                        >
+                          <option value="">No customer linked (free-text only)</option>
+                          {customers.map((c: any) => (
+                            <option key={c.id} value={c.id}>
+                              {customerLabel(c)}
+                            </option>
+                          ))}
+                        </select>
+                        {!selectedCustomerId && (
+                          <p className="text-[10px] text-amber-400/70 mt-2">
+                            Link a customer so this invoice's revenue is tracked in
+                            profitability &amp; job costing.
+                          </p>
+                        )}
                       </div>
                       
                       {aiAnalysis?.summary && (
@@ -1234,6 +1312,10 @@ export default function Invoices() {
                       const tenantId = tenant?.id || "genesis-1";
                       if (!aiAnalysis) return;
                       const calculatedTotal = (aiAnalysis.items || []).reduce((acc: number, curr: any) => acc + ((curr.rate || 0) * (curr.quantity || 0)), 0);
+                      // Resolve the linked customer id so the invoice attributes revenue
+                      // to a customer (invoices.customer_id). Prefer the explicit selector,
+                      // then any customerId carried in from CRM/job context.
+                      const customerId = selectedCustomerId || aiAnalysis.customerId || "";
                       try {
                         let invoiceId = "";
                         if (navigator.onLine) {
@@ -1243,12 +1325,17 @@ export default function Invoices() {
                               amount: calculatedTotal,
                               items: aiAnalysis.items,
                               status: "sent",
+                              // Persist the customer linkage for profitability/job costing/reporting.
+                              ...(customerId ? { customerId } : {}),
+                              // Carry a job association through to the invoice's data jsonb if present.
+                              ...(aiAnalysis.jobId ? { data: { jobId: aiAnalysis.jobId } } : {}),
                             }),
                           );
                           invoiceId = created?.id;
                           await logSystemEvent("INVOICE_CREATED_FROM_AI", {
                             invoiceId: created?.id,
                             client: aiAnalysis.clientName,
+                            customerId,
                             tenantId,
                           });
                         } else {
@@ -1261,13 +1348,15 @@ export default function Invoices() {
                               amount: calculatedTotal,
                               items: aiAnalysis.items,
                               status: "sent",
+                              ...(customerId ? { customerId } : {}),
+                              ...(aiAnalysis.jobId ? { jobId: aiAnalysis.jobId } : {}),
                               createdAt: new Date().toISOString(),
                             },
                             tenantId,
                           );
                           await logSystemEvent(
                             "INVOICE_CREATED_FROM_AI_OFFLINE",
-                            { client: aiAnalysis.clientName, tenantId },
+                            { client: aiAnalysis.clientName, customerId, tenantId },
                           );
                         }
 
@@ -1276,6 +1365,8 @@ export default function Invoices() {
                                 title: aiAnalysis.items[0]?.description || "Scheduled Service",
                                 date: scheduleDate || new Date().toISOString().split('T')[0],
                                 status: "SCHEDULED",
+                                // Link the scheduled job to the same customer so job costing lines up.
+                                ...(customerId ? { customerId } : {}),
                                 data: {
                                   client: aiAnalysis.clientName,
                                   invoiceId,

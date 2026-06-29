@@ -11,6 +11,7 @@ import {
   inventoryRepo,
   materialLogsRepo,
   expensesRepo,
+  jobsRepo,
 } from "../lib/repos";
 import { ingestKnowledge } from "../services/brainService";
 import {
@@ -124,6 +125,47 @@ export default function Inventory() {
   const [editItem, setEditItem] = useState<any>(null);
   const [editForm, setEditForm] = useState({ name: "", minThreshold: "", unit: "", unitCost: "" });
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Jobs (for attributing material usage to a job so Job Costing can pick up the cost).
+  const [jobs, setJobs] = useState<any[]>([]);
+
+  // "Log Usage" modal — consume stock and (optionally) attribute it to a job so the
+  // material_logs row carries job_id and Job Costing can recover the material cost.
+  const [usageItem, setUsageItem] = useState<any>(null);
+  const [usageQty, setUsageQty] = useState("1");
+  const [usageJobId, setUsageJobId] = useState("");
+  const [savingUsage, setSavingUsage] = useState(false);
+
+  const openUsage = (item: any) => {
+    setUsageItem(item);
+    setUsageQty("1");
+    setUsageJobId("");
+  };
+
+  const submitUsage = async () => {
+    if (!usageItem?.id) return;
+    const qty = Number(usageQty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      showToast("Enter a quantity greater than zero.", "error");
+      return;
+    }
+    setSavingUsage(true);
+    try {
+      const job = usageJobId ? jobs.find((j) => j.id === usageJobId) : null;
+      await logUsage(usageItem, qty, "out", job);
+      showToast(
+        job
+          ? `Logged ${qty} ${usageItem.unit || "units"} of ${usageItem.name} to ${job.title || "job"}.`
+          : `Logged ${qty} ${usageItem.unit || "units"} of ${usageItem.name}.`,
+        "success",
+      );
+      setUsageItem(null);
+    } catch (err: any) {
+      showToast(err?.message || "Could not log usage.", "error");
+    } finally {
+      setSavingUsage(false);
+    }
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -250,6 +292,12 @@ export default function Inventory() {
       setLogs((rows || []).slice(0, 10).map(adaptLog)),
     );
 
+    // Jobs power the usage-attribution picker (so usage logs carry a job_id).
+    jobsRepo
+      .list()
+      .then((rows) => setJobs(rows || []))
+      .catch(() => {});
+
     return () => {
       unsubscribe();
       unsubLogs();
@@ -312,6 +360,7 @@ export default function Inventory() {
     item: InventoryItem & { quantity?: number; minThreshold?: number },
     qty: number,
     type: "in" | "out" = "out",
+    job?: { id?: string; title?: string; client?: string; customerName?: string } | null,
   ) => {
     const tenantId = tenant?.id || "genesis-1";
     if (!item.id) return;
@@ -326,12 +375,17 @@ export default function Inventory() {
         lastScannedAt: new Date().toISOString(),
       });
 
+      // Attribute consumption to a job (optional) so Job Costing can recover the
+      // material cost. snakeize() maps jobId -> job_id, clientName -> client_name.
+      const clientName = job?.client || job?.customerName;
       await materialLogsRepo.create({
         itemId: item.id,
         itemName: item.name,
         quantity: qty,
         type,
         unit: item.unit,
+        ...(job?.id ? { jobId: job.id } : {}),
+        ...(clientName ? { clientName } : {}),
       });
 
       logAction("Inventory", type === "in" ? "Stock Added" : "Stock Consumed", `${type === "in" ? "Added" : "Consumed"} ${qty} units of ${item.name}`);
@@ -1064,16 +1118,16 @@ export default function Inventory() {
                       </div>
                     ) : item.category === "Fuel" ? (
                       <button
-                        onClick={() => logUsage(item, 1, "out")}
-                        aria-label={`Reduce fuel for ${item.name} by 1 Gallon`}
+                        onClick={() => openUsage(item)}
+                        aria-label={`Log fuel usage for ${item.name}`}
                         className="bg-white text-black px-6 py-4 rounded-[20px] micro-label font-black hover:scale-105 active:scale-95 transition-all flex items-center gap-3 shadow-[0_15px_30px_rgba(255,255,255,0.1)]"
                       >
-                        <Fuel size={14} aria-hidden="true" /> -1 Gal.
+                        <Fuel size={14} aria-hidden="true" /> Log Use
                       </button>
                     ) : (
                       <button
-                        onClick={() => logUsage(item, 1, "out")}
-                        aria-label={`Reduce inventory for ${item.name} by 1 unit`}
+                        onClick={() => openUsage(item)}
+                        aria-label={`Log usage for ${item.name}`}
                         className="w-12 h-12 bg-white/5 text-white/20 rounded-[20px] flex items-center justify-center hover:bg-white hover:text-black transition-all border border-white/5 shadow-2xl"
                       >
                         <Package size={20} aria-hidden="true" />
@@ -1251,6 +1305,100 @@ export default function Inventory() {
                   >
                     {savingEdit ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
                     Save
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Log Usage Modal — consume stock and attribute it to a job (optional) */}
+      <AnimatePresence>
+        {usageItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0"
+              onClick={() => !savingUsage && setUsageItem(null)}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-forest-500/10 rounded-xl flex items-center justify-center text-forest-400">
+                    <ArrowUpToLine size={20} />
+                  </div>
+                  <h2 className="text-xl font-black text-white italic uppercase tracking-tight">Log Usage</h2>
+                </div>
+                <button
+                  onClick={() => !savingUsage && setUsageItem(null)}
+                  className="text-zinc-500 hover:text-white transition-colors"
+                  aria-label="Close usage"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <p className="micro-label font-black uppercase tracking-widest text-white/40 mb-6 italic">
+                {usageItem.name} · {(usageItem.quantity || 0)} {usageItem.unit || "units"} on hand
+              </p>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
+                    Quantity Used
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={usageQty}
+                    onChange={(e) => setUsageQty(e.target.value)}
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
+                    Attribute to Job (optional)
+                  </label>
+                  <select
+                    value={usageJobId}
+                    onChange={(e) => setUsageJobId(e.target.value)}
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500 [color-scheme:dark]"
+                  >
+                    <option value="">No job — general usage</option>
+                    {jobs.map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {(j.title || "Untitled job")}
+                        {(j.client || j.customerName) ? ` — ${j.client || j.customerName}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-[10px] font-bold text-white/30 italic">
+                    Linking a job lets Job Costing attribute this material cost.
+                  </p>
+                </div>
+                <div className="pt-2 flex gap-3">
+                  <button
+                    onClick={() => setUsageItem(null)}
+                    disabled={savingUsage}
+                    className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitUsage}
+                    disabled={savingUsage}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-forest-600 hover:bg-forest-500 text-white rounded-xl font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
+                  >
+                    {savingUsage ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+                    Log Usage
                   </button>
                 </div>
               </div>

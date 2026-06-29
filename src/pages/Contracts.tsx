@@ -2,12 +2,15 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   FileText, Plus, CalendarClock, CreditCard, ChevronRight, X, Save,
-  DollarSign, ShieldCheck, AlertTriangle, Loader2, Trash2,
+  DollarSign, ShieldCheck, AlertTriangle, Loader2, Trash2, CalendarPlus,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { contractsRepo, customersRepo } from "../lib/repos";
+import { contractsRepo, customersRepo, jobsRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { nextVisitDates, parseCadence } from "../lib/recurring";
+
+const VISITS_TO_GENERATE = 4;
 
 // --- Status model -----------------------------------------------------------
 const STATUS = {
@@ -48,6 +51,7 @@ export default function Contracts() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [generatingId, setGeneratingId] = useState(null); // contract.id currently generating visits
 
   // --- Realtime list --------------------------------------------------------
   useEffect(() => {
@@ -162,6 +166,76 @@ export default function Contracts() {
     } finally {
       setDeleteTarget(null);
     }
+  }
+
+  // --- Maintenance-revenue engine: generate upcoming visits -----------------
+  // For an active recurring contract, schedule the next 4 visits as jobs at the
+  // contract's cadence. Best-effort dup-guard: load this customer's jobs once and
+  // skip any (contractId + date) pair that already has a job, so re-clicking is safe.
+  async function handleGenerateVisits(c) {
+    if (!c) return;
+    const customerId = c.customerId || c.customer_id || null;
+    setGeneratingId(c.id);
+    try {
+      const cadence = parseCadence(c.data?.frequency || c.data?.cycle);
+      const dates = nextVisitDates(new Date().toISOString(), cadence, VISITS_TO_GENERATE);
+
+      // Build a set of already-scheduled dates for THIS contract (best-effort).
+      let existing = new Set();
+      try {
+        const jobs = customerId
+          ? await jobsRepo.forCustomer(customerId)
+          : await jobsRepo.list();
+        for (const j of jobs || []) {
+          if ((j?.data?.contractId || j?.data?.contract_id) !== c.id) continue;
+          const d = j.date ? String(j.date).slice(0, 10) : null;
+          if (d) existing.add(d);
+        }
+      } catch {
+        // If we can't load jobs, fall through and create without the dup-guard.
+      }
+
+      const title = c.data?.serviceType || c.data?.services || c.name || "Maintenance visit";
+      const resolvedAddress = resolveCustomerAddress(customerId);
+
+      let created = 0;
+      for (const date of dates) {
+        if (existing.has(date)) continue;
+        await jobsRepo.create({
+          title,
+          status: "SCHEDULED",
+          date,
+          customerId,
+          address: resolvedAddress || null,
+          data: { contractId: c.id, recurring: true },
+        });
+        created++;
+      }
+
+      const skipped = dates.length - created;
+      if (created === 0) {
+        showToast(
+          skipped > 0 ? "All upcoming visits already scheduled — nothing to do" : "No visits to generate",
+          "info"
+        );
+      } else {
+        showToast(
+          `Scheduled ${created} ${cadence} visit${created === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already existed)` : ""}`,
+          "success"
+        );
+      }
+    } catch (e) {
+      showToast(e?.message || "Failed to generate visits", "error");
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+
+  // Resolve a customer's service address from the loaded customer list (best-effort).
+  function resolveCustomerAddress(id) {
+    if (!id) return null;
+    const c = customers.find((x) => x.id === id);
+    return c?.address || null;
   }
 
   // --- Render ---------------------------------------------------------------
@@ -469,9 +543,26 @@ export default function Contracts() {
                         </div>
                       </td>
                       <td className="p-4 pr-6 text-right">
-                        <button className="text-zinc-500 group-hover:text-white transition-colors">
-                          <ChevronRight size={20} />
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {c.status === "active" && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleGenerateVisits(c); }}
+                              disabled={generatingId === c.id}
+                              title={`Generate the next ${VISITS_TO_GENERATE} scheduled visits`}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-forest-500/10 hover:bg-forest-500/20 text-forest-400 border border-forest-500/30 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50"
+                            >
+                              {generatingId === c.id ? (
+                                <Loader2 size={13} className="animate-spin" />
+                              ) : (
+                                <CalendarPlus size={13} />
+                              )}
+                              <span className="hidden sm:inline">Generate Visits</span>
+                            </button>
+                          )}
+                          <button className="text-zinc-500 group-hover:text-white transition-colors">
+                            <ChevronRight size={20} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

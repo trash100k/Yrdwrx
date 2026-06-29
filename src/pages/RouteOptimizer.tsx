@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { Truck, Map as MapIcon, Route, Play, Settings, CheckCircle2, Navigation2 } from "lucide-react";
 import { APIProvider, Map, AdvancedMarker } from "@vis.gl/react-google-maps";
 import { jobsRepo } from "../lib/repos";
+import { geocodeAddress } from "../lib/geocode";
 import { useToast } from "../contexts/ToastContext";
 
 // READ adapter: flatten the jsonb `data` bag first (carries client/time/coords),
@@ -65,12 +66,16 @@ export default function RouteOptimizer() {
       .catch((err) => console.warn("Failed to load maps config", err));
   }, []);
 
-  // Real stop list: today's SCHEDULED jobs that have an address. Only jobs that also
-  // carry coordinates (`coords`/`lat`+`lng`) can be sent to the Routes API as waypoints.
+  // Real stop list: today's SCHEDULED jobs that have an address. Prefer each job's
+  // stored `lat`/`lng` (geocoded on create). For jobs that have an address but no
+  // stored coords, geocode on demand (best-effort, in parallel) so they can still be
+  // routed/plotted. Stops that still resolve to no coords are kept but flagged as
+  // un-routable and surfaced as a skipped count.
   useEffect(() => {
-    const unsub = jobsRepo.subscribe((rows) => {
+    let cancelled = false;
+    const unsub = jobsRepo.subscribe(async (rows) => {
       const today = todayStr();
-      const list = (rows || [])
+      const base = (rows || [])
         .map(adaptJob)
         .filter((j: any) => (j.status || "").toUpperCase() === "SCHEDULED")
         .filter((j: any) => !!j.address && j.date === today)
@@ -80,15 +85,50 @@ export default function RouteOptimizer() {
           const hasCoords = typeof lat === "number" && typeof lng === "number";
           return { id: j.id, title: j.title, client: j.client, address: j.address, lat, lng, hasCoords };
         });
-      setStops(list);
-      // Invalidate any prior optimization when the underlying jobs change.
-      setComplete(false);
-      setRouteData(null);
+
+      // Show what we have immediately (stored coords), then enrich missing ones.
+      if (!cancelled) {
+        setStops(base);
+        setComplete(false);
+        setRouteData(null);
+      }
+
+      // Geocode (best-effort, in parallel) only the stops missing stored coords.
+      const needsGeocode = base.filter((s) => !s.hasCoords && s.address);
+      if (needsGeocode.length === 0) return;
+
+      const geocoded = await Promise.all(
+        needsGeocode.map(async (s) => {
+          const result = await geocodeAddress(s.address); // {lat,lng}|null, never throws
+          return { id: s.id, result };
+        })
+      );
+      if (cancelled) return;
+
+      const coordsById = new Map(
+        geocoded
+          .filter((g) => g.result && typeof g.result.lat === "number" && typeof g.result.lng === "number")
+          .map((g) => [g.id, g.result])
+      );
+      if (coordsById.size === 0) return;
+
+      setStops((prev) =>
+        prev.map((s) => {
+          if (s.hasCoords) return s;
+          const c = coordsById.get(s.id);
+          if (!c) return s;
+          return { ...s, lat: c.lat, lng: c.lng, hasCoords: true };
+        })
+      );
     });
-    return () => unsub();
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, []);
 
   const waypoints = stops.filter((s) => s.hasCoords);
+  const skippedCount = stops.filter((s) => !s.hasCoords).length;
   const route = routeData?.data?.routes?.[0];
   const orderIndex: number[] = Array.isArray(route?.optimizedIntermediateWaypointIndex)
     ? route.optimizedIntermediateWaypointIndex
@@ -219,9 +259,15 @@ export default function RouteOptimizer() {
             <h2 className="text-xl font-bold text-white mb-1 uppercase tracking-tight flex items-center gap-2">
               <Truck size={20} className="text-zinc-400" /> Stop List
             </h2>
-            <p className="text-sm text-zinc-400 font-medium mb-6">
+            <p className="text-sm text-zinc-400 font-medium mb-2">
               {complete ? "Optimized order for today's scheduled stops." : "Today's scheduled jobs with an address."}
             </p>
+            {skippedCount > 0 && (
+              <p className="text-[10px] font-bold text-amber-400/80 uppercase tracking-widest mb-6">
+                {skippedCount} stop{skippedCount === 1 ? "" : "s"} skipped — no location
+              </p>
+            )}
+            {skippedCount === 0 && <div className="mb-6" />}
 
             <div className="space-y-3 max-h-[280px] overflow-y-auto custom-scrollbar pr-1">
               {stops.length === 0 ? (

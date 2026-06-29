@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { fetchApi } from "../lib/api";
+import { geocodeAddress } from "../lib/geocode";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Customer } from "../types";
 import { MapPin } from "lucide-react";
@@ -9,7 +10,6 @@ import {
   AdvancedMarker,
   Pin,
   useMap,
-  useMapsLibrary,
 } from "@vis.gl/react-google-maps";
 
 const defaultCenter = { lat: 32.35, lng: -88.7 };
@@ -140,8 +140,10 @@ export const CustomerMap = ({
   );
 };
 
-// Resolves coordinates for each customer (stored coords first, else geocode the
-// address) and renders markers, fitting the map to the resolved points.
+// Plots each customer from its stored `lat`/`lng` (geocoded on create). Records
+// missing stored coords fall back to on-demand geocoding via the `geocodeAddress`
+// helper (best-effort, in parallel). Renders markers and fits the map to the
+// resolved points.
 function CustomerMarkers({
   customers,
   onSelectCustomer,
@@ -150,7 +152,6 @@ function CustomerMarkers({
   onSelectCustomer: (c: Customer) => void;
 }) {
   const map = useMap();
-  const geocodingLib = useMapsLibrary("geocoding");
   const [points, setPoints] = useState<
     { customer: Customer; pos: { lat: number; lng: number } }[]
   >([]);
@@ -165,28 +166,33 @@ function CustomerMarkers({
       }[] = [];
       const toGeocode: Customer[] = [];
 
+      // Stored coords win — plot them directly, no geocoding round-trip.
       for (const c of customers) {
         const stored = readCoords(c);
         if (stored) resolved.push({ customer: c, pos: stored });
         else if (c.address && c.address.trim() !== "") toGeocode.push(c);
       }
 
-      if (geocodingLib && toGeocode.length > 0) {
-        const geocoder = new geocodingLib.Geocoder();
-        for (const c of toGeocode) {
-          if (cancelled.current) return;
-          try {
-            const { results } = await geocoder.geocode({ address: c.address });
-            const loc = results?.[0]?.geometry?.location;
-            if (loc) {
-              resolved.push({
-                customer: c,
-                pos: { lat: loc.lat(), lng: loc.lng() },
-              });
-            }
-          } catch {
-            // Skip unresolvable addresses rather than fabricating a location.
+      // Fallback only for records missing coords: geocode in parallel, tolerate nulls.
+      if (toGeocode.length > 0) {
+        const geocoded = await Promise.all(
+          toGeocode.map(async (c) => ({
+            customer: c,
+            pos: await geocodeAddress(c.address), // {lat,lng}|null, never throws
+          })),
+        );
+        for (const g of geocoded) {
+          if (
+            g.pos &&
+            Number.isFinite(g.pos.lat) &&
+            Number.isFinite(g.pos.lng)
+          ) {
+            resolved.push({
+              customer: g.customer,
+              pos: { lat: g.pos.lat, lng: g.pos.lng },
+            });
           }
+          // Skip unresolvable addresses rather than fabricating a location.
         }
       }
 
@@ -196,7 +202,7 @@ function CustomerMarkers({
     return () => {
       cancelled.current = true;
     };
-  }, [customers, geocodingLib]);
+  }, [customers]);
 
   // Fit bounds to whatever real points we resolved.
   useEffect(() => {
