@@ -13,7 +13,22 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (deferred features + QoL) — **shipped the Scheduler calendar view, a
+> _Last updated: 2026-06-29 (QA crawl loop + missing-functions audit) — **built a headless
+> Chromium crawler that loads every route and clicks every button**, capturing runtime crashes /
+> console errors / error-boundary trips, and ran a test->fix->retest loop. Fixes landed: CrewSuite
+> window.prompt -> modal; res.ok/content-type guards on the maps + threat-log fetches; and a whole
+> NULL-FIREBASE-AUTH CRASH CLASS (7 signInWithPopup(auth) sites + AiPlayground auth?.currentUser +
+> Dashboard) that crashed under Supabase-only/demo. **Result: all 18 admin routes now crawl clean —
+> zero error boundaries, zero render crashes, zero button errors.** (Crawler: scratchpad/crawl.cjs.)
+>
+> MISSING FUNCTIONS for real usability (audited, NOT yet built — see "Missing functions" below):
+> (1) real outbound EMAIL delivery — every "send" (invoice/estimate/proposal/review-request/outreach/
+> team-invite) only drafts to an in-app outbox; the only wired email path is the Gmail API behind the
+> dead Firebase popup. Needs a server-side provider (Resend/SendGrid/SMTP). (2) address GEOCODING —
+> zero in the codebase, so the map + route optimizer can't plot real jobs. (3) Google Calendar/Gmail/
+> Contacts sync — all via the broken Firebase popup. Config blockers unchanged (network->supabase.co,
+> service-role key, Gemini/Stripe/Twilio keys, JWT, confirm-email off, auth flags).
+> Previously: 2026-06-29 (deferred features + QoL) — **shipped the Scheduler calendar view, a
 > quality-of-life wave, and the three endpoint-backed features that were deferred.** Calendar: month
 > grid w/ board toggle, click-day-to-schedule, status chips. QoL: confirm dialogs on all destructive
 > actions, loading/empty states across the list screens, real Cmd+K entity search, keyboard-shortcut
@@ -701,3 +716,29 @@ reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status 
 - [ ] Put the **service-role key** in the server env (`SUPABASE_SERVICE_ROLE_KEY`) for server-side
       tenant lookups + AI credit metering.
 - [ ] Set `VITE_REQUIRE_AUTH=true` + `REQUIRE_AUTH=true` to enforce the real auth gate.
+
+---
+
+## Missing functions for real usability (audited 2026-06-29)
+
+Core CRUD/screens are functionally present and crawl-clean. These are the genuinely
+MISSING functions a real contractor needs, in priority order:
+
+- [ ] **Outbound EMAIL delivery (highest leverage).** No real email sender exists
+      (no Resend/SendGrid/SMTP/nodemailer). Every "send" — invoice, estimate/proposal,
+      review request, outreach, team invite (no-SMTP) — only drafts into the in-app
+      WorkspaceOutbox; the lone wired path is the Gmail API behind the dead Firebase
+      popup. Wire one provider server-side (`/api/email/send`) + point the outbox,
+      invoice "send", and client portal at it. Lights up 5+ flows at once.
+- [ ] **Address geocoding.** Zero geocoding in the codebase → customers/jobs never get
+      lat/lng → the map + Route Optimizer can't plot real stops (optimization only runs
+      for jobs that already have coords, which none do). Add geocode-on-save (Google
+      Geocoding API) for customer/job addresses.
+- [ ] **Google Calendar / Gmail / Contacts sync.** All via the Firebase Google popup,
+      which is dead under Supabase Auth (now guarded so it no longer crashes — just
+      toasts "not configured"). Rework via server-side Google OAuth, or hide until ready.
+
+Already present (do NOT re-list as missing): recurring/seasonal billing
+(`/api/stripe/recurring/checkout`), SMS send (Twilio when configured), payments,
+client portal (view/pay/approve/PDF), AI agent (voice+text), automations engine,
+team invites, admin tenant console, account deletion, offline sync.
