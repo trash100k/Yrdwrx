@@ -13,7 +13,13 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (HELL SPRINT — feature blitz to sellable) — on top of the Design Studio
+> _Last updated: 2026-06-29 (HELL SPRINT cont.) — added `LAUNCH_CHECKLIST.md` (the human-only
+> config gate to go live: keys, network allowlist, Supabase auth, flip `REQUIRE_AUTH`, deploy +
+> verify steps); Design Studio **iterate-on-render** ("Refine" = place object-after-object on the
+> result); fixed dead `meridiangreen.io` icon refs → local YardWorx `public/icon.svg` + correct
+> title/manifest; **QA smoke crawl now 20/20 routes crash-clean**. App is feature-complete +
+> verifiably crash-clean in demo mode; remaining gate is keys/config (see LAUNCH_CHECKLIST). Earlier:
+> 2026-06-29 (HELL SPRINT — feature blitz to sellable) — on top of the Design Studio
 > overhaul, shipped in rapid gated-green waves: Design Studio money path (zone-aware placement, AI-viz
 > badge, branded proposal PDF, plantIntelligence lib +20 tests); Referrals engine; Equipment/fleet
 > tracker; Unified conversation Inbox; On-My-Way arrival ETA; Business Defaults in Settings; + a QA
