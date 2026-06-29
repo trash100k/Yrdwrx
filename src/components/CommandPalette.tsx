@@ -95,7 +95,7 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="flex-1 bg-transparent border-none text-xl text-white focus:outline-none placeholder:text-zinc-600 font-medium"
               />
-              <button onClick={onClose} className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full ml-4">
+              <button onClick={onClose} aria-label="Close command palette" className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full ml-4">
                 <X size={16} />
               </button>
             </div>
