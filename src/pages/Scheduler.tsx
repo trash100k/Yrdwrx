@@ -8,7 +8,11 @@ import {
   Settings2,
   Trash2,
   Zap,
+  ChevronLeft,
+  ChevronRight,
+  List,
 } from "lucide-react";
+import { EmptyState } from "../components/EmptyState";
 import { jobsRepo, invoicesRepo, customersRepo } from "../lib/repos";
 import { runAutomations } from "../lib/automations";
 import { useTenant } from "../contexts/TenantContext";
@@ -95,6 +99,59 @@ export default function Scheduler() {
     status: "SCHEDULED",
   });
   const [autoInvoice, setAutoInvoice] = useState(true);
+
+  // Board (status list) vs Calendar (month grid) view.
+  const [viewMode, setViewMode] = useState<"board" | "calendar">("board");
+  const [calCursor, setCalCursor] = useState(() => {
+    const n = new Date();
+    return { y: n.getFullYear(), m: n.getMonth() };
+  });
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const dateKey = (y: number, m: number, d: number) => `${y}-${pad2(m + 1)}-${pad2(d)}`;
+  const todayKey = (() => {
+    const n = new Date();
+    return dateKey(n.getFullYear(), n.getMonth(), n.getDate());
+  })();
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+  // 6-week (Sun-first) grid of day numbers (null = padding) for the cursor month.
+  const calendarCells = React.useMemo(() => {
+    const { y, m } = calCursor;
+    const firstDow = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < firstDow; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  }, [calCursor]);
+
+  // Bucket jobs by their date string ("YYYY-MM-DD" from the date input).
+  const jobsByDay = React.useMemo(() => {
+    const map: Record<string, Job[]> = {};
+    for (const j of activeJobs) {
+      if (!j.date) continue;
+      (map[j.date] ||= []).push(j);
+    }
+    return map;
+  }, [activeJobs]);
+
+  const shiftMonth = (delta: number) =>
+    setCalCursor((c) => {
+      let m = c.m + delta;
+      let y = c.y;
+      if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
+      return { y, m };
+    });
+  const goToday = () => {
+    const n = new Date();
+    setCalCursor({ y: n.getFullYear(), m: n.getMonth() });
+  };
+  // Click an empty calendar day -> open the add-job modal preset to that date.
+  const addJobOnDay = (y: number, m: number, d: number) => {
+    setNewJob({ title: "", status: "SCHEDULED", date: dateKey(y, m, d) });
+    setShowAddModal(true);
+  };
 
   const availableSlots = React.useMemo(() => {
     if (!newJob.date) return [];
@@ -278,21 +335,103 @@ export default function Scheduler() {
             Active Routing & Dispatch
           </p>
         </div>
-        {hasPermission("dispatcher") && (
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center bg-black/40 border border-white/10 rounded-xl p-1">
             <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center justify-center gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-white text-black font-semibold text-sm rounded-xl shadow-sm border border-transparent hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
+              onClick={() => setViewMode("board")}
+              className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors ${viewMode === "board" ? "bg-white text-black" : "text-white/50 hover:text-white"}`}
+              title="Board view"
             >
-            <Plus size={24} />{" "}
-            <span className="hidden sm:inline">Deploy Unit</span>
+              <List size={14} /> <span className="hidden sm:inline">Board</span>
             </button>
-        )}
+            <button
+              onClick={() => setViewMode("calendar")}
+              className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors ${viewMode === "calendar" ? "bg-white text-black" : "text-white/50 hover:text-white"}`}
+              title="Calendar view"
+            >
+              <CalendarIcon size={14} /> <span className="hidden sm:inline">Calendar</span>
+            </button>
+          </div>
+          {hasPermission("dispatcher") && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center justify-center gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-white text-black font-semibold text-sm rounded-xl shadow-sm border border-transparent hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
+            >
+              <Plus size={24} /> <span className="hidden sm:inline">Deploy Unit</span>
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8 relative z-10">
-        {/* Left Column: Board */}
+        {/* Left Column: Board or Calendar */}
         <div className="lg:col-span-2 space-y-6">
-          {(["IN_PROGRESS", "SCHEDULED", "PENDING"] as const).map(
+          {viewMode === "calendar" ? (
+            <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-white italic uppercase">
+                  {MONTHS[calCursor.m]} {calCursor.y}
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => shiftMonth(-1)} className="w-9 h-9 rounded-lg bg-black/40 border border-white/10 text-white/60 hover:text-white flex items-center justify-center" title="Previous month">
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button onClick={goToday} className="px-3 h-9 rounded-lg bg-black/40 border border-white/10 text-white/60 hover:text-white text-xs font-black uppercase tracking-widest">
+                    Today
+                  </button>
+                  <button onClick={() => shiftMonth(1)} className="w-9 h-9 rounded-lg bg-black/40 border border-white/10 text-white/60 hover:text-white flex items-center justify-center" title="Next month">
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                  <div key={d} className="text-center text-[10px] font-black text-white/30 uppercase tracking-widest py-1">{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {calendarCells.map((day, idx) => {
+                  if (day == null) return <div key={idx} className="min-h-[84px] rounded-lg" />;
+                  const key = dateKey(calCursor.y, calCursor.m, day);
+                  const dayJobs = jobsByDay[key] || [];
+                  const isToday = key === todayKey;
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => hasPermission("dispatcher") && addJobOnDay(calCursor.y, calCursor.m, day)}
+                      className={`min-h-[84px] rounded-lg border p-1.5 text-left transition-colors ${hasPermission("dispatcher") ? "cursor-pointer" : ""} ${isToday ? "border-celtic-500/50 bg-celtic-500/5" : "border-white/5 bg-black/20 hover:bg-white/5"}`}
+                      title={hasPermission("dispatcher") ? "Click to schedule a job on this day" : undefined}
+                    >
+                      <div className={`text-xs font-black mb-1 ${isToday ? "text-celtic-400" : "text-white/50"}`}>{day}</div>
+                      <div className="space-y-1">
+                        {dayJobs.slice(0, 3).map((job) => (
+                          <button
+                            key={job.id}
+                            onClick={(e) => { e.stopPropagation(); setSelectedJob(job); }}
+                            className={`w-full text-left px-1.5 py-1 rounded text-[9px] font-bold truncate border ${statusColors[job.status] || "text-white/60 bg-white/5 border-white/10"}`}
+                            title={`${job.time ? job.time + " · " : ""}${job.title}${job.client ? " — " + job.client : ""}`}
+                          >
+                            {job.time ? <span className="opacity-70">{job.time} </span> : null}{job.title}
+                          </button>
+                        ))}
+                        {dayJobs.length > 3 && (
+                          <div className="text-[9px] font-black text-white/40 px-1.5">+{dayJobs.length - 3} more</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : activeJobs.length === 0 ? (
+            <EmptyState
+              icon={CalendarIcon}
+              title="No jobs scheduled"
+              description="Deploy your first unit and it'll show up here on the board and calendar."
+              action={hasPermission("dispatcher") ? { label: "Deploy Unit", onClick: () => setShowAddModal(true) } : undefined}
+            />
+          ) : (
+            (["IN_PROGRESS", "SCHEDULED", "PENDING"] as const).map(
             (statusGroup) => {
               const jobsInGroup = activeJobs.filter(
                 (j) => j.status === statusGroup,
@@ -404,7 +543,7 @@ export default function Scheduler() {
                 </div>
               );
             },
-          )}
+          ))}
         </div>
 
         {/* Right Column: Global Meta */}
