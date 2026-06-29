@@ -2003,6 +2003,13 @@ export default function CRM() {
                               Design Grid
                             </Link>
                             <button
+                              onClick={() => enrichData(selectedCustomer)}
+                              disabled={isEnriching}
+                              className="text-xs md:text-[10px] text-white/40 hover:text-white disabled:opacity-50 transition-colors underline decoration-white/10 underline-offset-8 uppercase font-black tracking-widest"
+                            >
+                              {isEnriching ? "Enriching..." : "Enrich"}
+                            </button>
+                            <button
                               onClick={() => analyzeProperty(selectedCustomer)}
                               disabled={isAnalyzing}
                               className="text-xs md:text-[10px] text-white/40 hover:text-white disabled:opacity-50 transition-colors underline decoration-white/10 underline-offset-8 uppercase font-black tracking-widest"
@@ -2051,6 +2058,39 @@ export default function CRM() {
                               <p className="text-xs text-white/20 italic font-medium">
                                 Visual metrics pending execution.
                               </p>
+                            </div>
+                          )}
+
+                          {enrichedData && (
+                            <div className="mt-2 p-5 rounded-[24px] bg-celtic-500/5 border border-celtic-500/20 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="micro-label text-celtic-400 uppercase tracking-widest font-black">
+                                  Property Intelligence
+                                </span>
+                                {enrichedData.simulated && (
+                                  <span className="text-[8px] uppercase tracking-widest font-black text-white/30 border border-white/10 rounded px-1.5 py-0.5">
+                                    Estimate
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                {Object.entries(enrichedData)
+                                  .filter(([k, v]) => k !== "simulated" && v !== null && v !== "" && typeof v !== "object")
+                                  .map(([k, v]) => (
+                                    <div key={k} className="bg-black/30 rounded-xl px-3 py-2">
+                                      <p className="text-[8px] uppercase tracking-widest font-black text-white/30">
+                                        {k.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase()).trim()}
+                                      </p>
+                                      <p className="text-xs font-bold text-white/80 mt-0.5">
+                                        {k === "estimatedPropertyValue" && typeof v === "number"
+                                          ? `$${Number(v).toLocaleString()}`
+                                          : k === "upsellProbability" && typeof v === "number"
+                                            ? `${v}%`
+                                            : String(v)}
+                                      </p>
+                                    </div>
+                                  ))}
+                              </div>
                             </div>
                           )}
                         </div>

@@ -16,6 +16,7 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 import { validateSafeUrl } from "./src/lib/securityUtils.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
+import { resolveZone } from "./src/lib/plantIntelligence.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -4139,27 +4140,43 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/crm/enrich", cacheApiResponse(300), async (req, res) => {
     try {
-      const { customer } = req.body;
-      const systemInstruction = `
-        You are a Real Estate & Agricultural Data Scientist.
-        Enrich this landscaping customer's data using simulated "Local Market Intelligence" for Meridian, MS.
-        Provide:
-        - estimatedPropertyValue: number (based on neighborhood)
-        - soilComposition: "Clay" | "Sandy" | "Loamy"
-        - neighborhoodGrowth: "Rising" | "Stable"
-        - upsellProbability: number (0-100)
-        - strategicInsight: "1 sentence logic for an upgrade"
-        
-        OUTPUT FORMAT: JSON
-      `;
+      const c = req.body?.customer || {};
+      const addr = c.address || c.data?.address || "";
+      const city = c.city || c.data?.city || "";
+      const state = c.state || c.data?.state || "";
+      const zip = (String(addr).match(/\b(\d{5})\b/) || [])[1];
+      const z = resolveZone({ zip, state });
+      const zoneLabel = z.zone ? `${z.zone}${z.approx ? " (approx)" : ""}` : "Unknown";
+      const loc = [addr, city, state].filter(Boolean).join(", ") || "the customer's area";
 
+      // Mock mode: honest placeholder (no fabricated property value), real zone if derivable.
+      if (isMockMode) {
+        return res.json({
+          estimatedPropertyValue: null,
+          hardinessZone: zoneLabel,
+          soilComposition: "Unknown",
+          neighborhoodGrowth: "Stable",
+          upsellProbability: 50,
+          strategicInsight: "Connect a Gemini key for AI-grounded property enrichment.",
+          simulated: true,
+        });
+      }
+
+      const systemInstruction = `You are a property & landscaping market analyst. Using general knowledge of the customer's ACTUAL location, give a BEST-ESTIMATE enrichment for a landscaping CRM. These are estimates, not verified records — be reasonable, not falsely precise. OUTPUT JSON ONLY:
+{"estimatedPropertyValue": number|null, "hardinessZone": "string", "soilComposition": "Clay|Sandy|Loamy|Mixed|Unknown", "neighborhoodGrowth": "Rising|Stable|Declining", "upsellProbability": number, "strategicInsight": "one sentence upsell logic tied to this property type/area"}`;
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: `Enrich profile for: ${JSON.stringify(customer)}`,
+        model: "gemini-2.5-flash",
+        contents: `Customer location: ${loc}. Known USDA hardiness zone hint: ${z.zone || "unknown"}. Profile: ${JSON.stringify({ firstName: c.firstName, lastName: c.lastName, companyName: c.companyName, address: addr, city, state, isHoa: c.isHoa }).slice(0, 600)}`,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
-      res.json(parseGeminiJson(response.text));
+      const data = parseGeminiJson(response.text) || {};
+      // Prefer our deterministic zone when the model didn't supply a usable one.
+      if (z.zone && (!data.hardinessZone || /unknown/i.test(String(data.hardinessZone)))) {
+        data.hardinessZone = zoneLabel;
+      }
+      res.json(data);
     } catch (error: any) {
+      console.error("[crm/enrich]", error?.message);
       res.status(500).json({ error: error.message });
     }
   });
