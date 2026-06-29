@@ -13,7 +13,16 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (QA crawl loop + missing-functions audit) — **built a headless
+> _Last updated: 2026-06-29 (market + design research) — **ran a parallel market/design research
+> sweep; see `PRODUCT_RESEARCH_2026.md`.** Competitor gap analysis, 2026–2027 SaaS UI/UX trends, and a
+> flagship UX case. Top table-stakes gaps: real outbound EMAIL (foundational), AERIAL PROPERTY
+> MEASUREMENT → instant estimate (#1 landscaping table-stake), real-time JOB COSTING, QuickBooks sync,
+> GPS crew tracking, chemical/compliance logs. Design north star = **"Tell it, don't drive it"**
+> (intent-first, ambient AI, generative defaults, confidence+undo, sunlight/big-target field UI).
+> Flagship to build = **"The Tailgate Closeout"** (one voice utterance at the truck → invoice sent,
+> job closed, next visit booked, inventory flagged) via a reusable risk-tiered ActionCard primitive.
+> Also: the QA crawl loop CONVERGED — full 31-route headless crawl is crash-clean. Previously:_
+> _2026-06-29 (QA crawl loop + missing-functions audit) — **built a headless
 > Chromium crawler that loads every route and clicks every button**, capturing runtime crashes /
 > console errors / error-boundary trips, and ran a test->fix->retest loop. Fixes landed: CrewSuite
 > window.prompt -> modal; res.ok/content-type guards on the maps + threat-log fetches; and a whole
