@@ -3344,43 +3344,65 @@ export async function createApp({ startListening = false } = {}) {
   });
 
   // --- DEEP RESEARCH EXPERT ---
+  // "Deep research" is just a single strong, web-grounded model call (gemini-2.5-pro +
+  // Google Search grounding) — NOT the fabricated ai.interactions background-agent API that
+  // was here before (which doesn't exist in @google/genai and threw on every call). The call
+  // can take 20-60s, so we keep the existing start/poll UX: /start kicks the generation off
+  // in the background and returns a job id; the client polls /status until it's done.
+  const researchJobs = new Map<string, { status: "pending" | "completed" | "failed"; report?: string; error?: string; ts: number }>();
+
+  async function runDeepResearch(prompt: string): Promise<string> {
+    const systemInstruction =
+      "You are a meticulous market & competitive-research analyst for a landscaping / " +
+      "field-service business. Produce a thorough, well-structured report (use markdown " +
+      "headings and bullet lists) with concrete figures where available. Ground every factual " +
+      "claim in current web information via search; do not fabricate sources, prices, or names.";
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-pro",
+      contents: prompt,
+      config: { systemInstruction, tools: [{ googleSearch: {} }] },
+    });
+    let text = response.text || "";
+    // Append the grounding sources the model actually used, when present.
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources = [...new Set(chunks.map((c: any) => c?.web?.uri).filter(Boolean))];
+    if (sources.length) {
+      text += "\n\n---\n**Sources**\n" + sources.map((u: string) => `- ${u}`).join("\n");
+    }
+    return text || "No report was generated.";
+  }
+
   app.post("/api/research/start", aiLimiter, async (req, res) => {
     try {
       if (isMockMode) return aiUnavailable(res, "Deep research requires GEMINI_API_KEY", "RESEARCH_UNAVAILABLE");
-      const { prompt } = req.body;
-      const initialInteraction = await ai.interactions.create({
-          agent: "deep-research-preview-04-2026",
-          input: prompt,
-          background: true,
-      });
-      res.json({ interactionId: initialInteraction.id });
-    } catch(e: any) {
+      const { prompt } = req.body || {};
+      if (!prompt || typeof prompt !== "string") return res.status(400).json({ error: "prompt required" });
+      const id = crypto.randomUUID();
+      researchJobs.set(id, { status: "pending", ts: Date.now() });
+      // Fire-and-forget; the client polls /status. Errors are captured onto the job.
+      runDeepResearch(prompt.slice(0, 4000))
+        .then((report) => researchJobs.set(id, { status: "completed", report, ts: Date.now() }))
+        .catch((e: any) => researchJobs.set(id, { status: "failed", error: e?.message || "failed", ts: Date.now() }));
+      // Opportunistic cleanup of jobs older than an hour.
+      for (const [k, v] of researchJobs) if (Date.now() - v.ts > 3600_000) researchJobs.delete(k);
+      res.json({ interactionId: id });
+    } catch (e: any) {
       return handleAiError(res, e, "Failed to start deep research");
     }
   });
 
   app.post("/api/research/status", aiLimiter, async (req, res) => {
-      try {
-          if (isMockMode) return res.json({ status: "completed", report: "Deep research requires GEMINI_API_KEY (mock mode)." });
-          const { interactionId } = req.body;
-          const interaction = await ai.interactions.get(interactionId);
-          if (interaction.status === "completed") {
-             let fullReport = "";
-             for (const step of interaction.steps) {
-                 if (step.type === 'model_output') {
-                     const textContent = step.content?.find((c: any) => c.type === 'text');
-                     if (textContent) fullReport += textContent.text;
-                 }
-             }
-             res.json({ status: "completed", report: fullReport });
-          } else if (["failed", "cancelled"].includes(interaction.status)) {
-             res.json({ status: "failed" });
-          } else {
-             res.json({ status: "pending" });
-          }
-      } catch(e: any) {
-          return handleAiError(res, e, "Failed to poll research");
-      }
+    try {
+      if (isMockMode) return res.json({ status: "completed", report: "Deep research requires GEMINI_API_KEY (mock mode)." });
+      const { interactionId } = req.body || {};
+      const job = researchJobs.get(interactionId);
+      if (!job) return res.json({ status: "failed", report: "That research job expired or was not found." });
+      if (job.status === "completed") return res.json({ status: "completed", report: job.report || "" });
+      if (job.status === "failed") return res.json({ status: "failed", report: job.error || "Research failed." });
+      return res.json({ status: "pending" });
+    } catch (e: any) {
+      return handleAiError(res, e, "Failed to poll research");
+    }
   });
 
   // --- PROMO VIDEO GENERATION ---
