@@ -262,6 +262,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   // Render history for undo/redo across iterations.
   const [history, setHistory] = useState(() => historyInit());
   const [designZone, setDesignZone] = useState<number | "">("");
+  const [designSnap, setDesignSnap] = useState(true);
   const [isPdfing, setIsPdfing] = useState(false);
 
   // Resolve a working USDA zone (contractor can override) so the AI places zone-appropriate
@@ -355,39 +356,87 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
         // composite client-side so the rest of the scene stays pixel-identical.
         if (placeRegions.length) {
           const base = cleanImage || image;
-          const regs = placeRegions.map((r: any) => ({ ...r, label: regionLabels[r.id] || "" }));
-          const response = await fetchApi("/api/design/place-objects", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              image: base,
-              regions: regs,
-              description: transcript || description,
-              aspectRatio: imageAspectRatio ? nearestAspect(imageAspectRatio) : undefined,
-              zone: designZone || undefined,
-            }),
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok || data?.error) {
-            showToast(data?.error || "Couldn't render the placement. Try again.", "error");
-            return;
+          let regs = placeRegions.map((r: any) => ({ ...r, label: regionLabels[r.id] || "" }));
+
+          // Smart snap: refine each "add" region to the real surface under its center
+          // (best-effort; mock mode / no box -> keep the user's drawn region).
+          if (designSnap) {
+            regs = await Promise.all(
+              regs.map(async (r: any) => {
+                if (r.intent !== "add") return r;
+                try {
+                  const sres = await fetchApi("/api/design/segment", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: base, cx: r.cx, cy: r.cy }),
+                  });
+                  const sd = await sres.json().catch(() => ({}));
+                  if (sres.ok && sd?.box) {
+                    const b = sd.box;
+                    return { ...r, shape: "rect", x: b.x, y: b.y, w: b.w, h: b.h, cx: b.x + b.w / 2, cy: b.y + b.h / 2 };
+                  }
+                } catch { /* keep drawn region */ }
+                return r;
+              }),
+            );
           }
-          if (data.mock) {
-            showToast("Preview echoes your photo — AI rendering needs a Gemini key.", "info");
-            setMockupImage(base);
-            setActiveTab("compare");
-            return;
+
+          const baseDesc = transcript || description;
+          const MAX = 2;
+          let attempt = 0, lastJudge: any = null, composited: any = null;
+          while (attempt < MAX) {
+            const fixHint = attempt > 0 && lastJudge?.fixHint ? ` Improve: ${lastJudge.fixHint}` : "";
+            const response = await fetchApi("/api/design/place-objects", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                image: base,
+                regions: regs,
+                description: baseDesc + fixHint,
+                aspectRatio: imageAspectRatio ? nearestAspect(imageAspectRatio) : undefined,
+                zone: designZone || undefined,
+              }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data?.error) {
+              showToast(data?.error || "Couldn't render the placement. Try again.", "error");
+              return;
+            }
+            if (data.mock) {
+              showToast("Preview echoes your photo — AI rendering needs a Gemini key.", "info");
+              setMockupImage(base);
+              setActiveTab("compare");
+              return;
+            }
+            if (!data.imageUrl) {
+              showToast("No preview image was returned.", "error");
+              return;
+            }
+            composited = await compositeRegions(base, data.imageUrl, regs).catch(() => data.imageUrl);
+            // Auto-verify; retry once with the judge's fix hint (mock judge -> PASS).
+            try {
+              const jres = await fetchApi("/api/design/judge", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ beforeImage: base, afterImage: composited, instruction: baseDesc }),
+              });
+              lastJudge = await jres.json().catch(() => ({ verdict: "PASS" }));
+            } catch {
+              lastJudge = { verdict: "PASS" };
+            }
+            if (lastJudge?.verdict === "PASS" || lastJudge?.mock || attempt >= MAX - 1) break;
+            attempt++;
           }
-          if (data.imageUrl) {
-            const composited = await compositeRegions(base, data.imageUrl, regs).catch(() => data.imageUrl);
-            setLastComposite(composited);
-            const badged = await burnAiVizBadge(composited).catch(() => composited);
-            setMockupImage(badged);
-            setHistory((h) => historyPush(h, { image: badged, composite: composited, regions: regs, labels: regionLabels, ts: Date.now() }));
-            setActiveTab("compare");
-            showToast("Render ready — swipe to compare.", "success");
+
+          setLastComposite(composited);
+          const badged = await burnAiVizBadge(composited).catch(() => composited);
+          setMockupImage(badged);
+          setHistory((h) => historyPush(h, { image: badged, composite: composited, regions: regs, labels: regionLabels, ts: Date.now() }));
+          setActiveTab("compare");
+          if (lastJudge && lastJudge.verdict && lastJudge.verdict !== "PASS" && !lastJudge.mock) {
+            showToast("Render ready — quality check flagged it; try Variation or Refine.", "warning");
           } else {
-            showToast("No preview image was returned.", "error");
+            showToast("Render ready — swipe to compare.", "success");
           }
           return;
         }
@@ -1237,6 +1286,14 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                   className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs font-bold text-white/90 text-center focus:border-forest-500/40 focus:outline-none"
                                 />
                                 <span className="text-[9px] text-white/30 uppercase tracking-widest font-bold">plants matched to this zone</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setDesignSnap((s) => !s)}
+                                  title="Snap each spot to the real surface under it before rendering"
+                                  className={`ml-auto px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${designSnap ? "bg-forest-500 text-black" : "bg-white/5 text-white/50 border border-white/10"}`}
+                                >
+                                  Smart Snap {designSnap ? "On" : "Off"}
+                                </button>
                               </div>
                               {regions.map((r: any, i: number) =>
                                 r.intent === "add" ? (
