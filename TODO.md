@@ -1035,3 +1035,67 @@ greps + 2026 market data). Effort: S/M/L.
       lead, use Gemini Search + Maps grounding (already wired, `server.ts:1607`/`3187`) to enrich
       property (lot-size band, HOA hints, hardiness zone, comparable jobs) and pre-draft a
       good/better/best proposal. Reinforces "close in the driveway" without the heavy aerial build.
+
+## Simulation pass — fixes (2026-06-29)
+
+Full-app simulation (3 parallel trace agents over money path / server endpoints / core flows +
+a 40-route Puppeteer smoke crawl across all portals). **Smoke result: 40/40 routes crash-clean.**
+Gates after fixes: `tsc --noEmit` clean, **172 tests** (added `src/lib/payments.test.ts`), server
+bundles, vitest green.
+
+### FIXED this pass ✅
+- [x] **[P0] Stripe webhook wrote off partial payments** (`server.ts` `checkout.session.completed`).
+      It set `status:"paid"` for ANY amount and never updated `data.amountPaid` → a $50 payment on a
+      $500 invoice marked it fully paid and lost $450, and left the client able to be charged again.
+      Now reads the invoice, accumulates `data.amountPaid` from `session.amount_total`, merges the
+      `data` jsonb (a column write replaces it wholesale), appends to `payments[]`, and only marks
+      `paid` when the balance is settled (else `partial`).
+- [x] **[P1] Cash "Mark Paid" left `amountPaid` stale** (`Invoices.tsx handleMarkPaid`). Now stamps
+      `data.amountPaid = total`, so AR "collected", the portal balance, and the checkout guard agree.
+- [x] **[P1] AR "collected" undercounted** — same root cause as above; fixed by the two ledger writes.
+- [x] **[P1] Portal could re-charge a settled invoice** (`/api/portal/checkout`). Added an explicit
+      `status` check → 409 on already paid/void/cancelled invoices (defense-in-depth on top of the
+      now-correct `amountPaid` math).
+- [x] **[P1] ~16 API routes shadowed by SPA serving.** `app.use(vite.middlewares)` (dev) and the
+      prod `app.get("*all")` SPA catch-all were registered BEFORE later `/api/*` routes, so GET
+      `/api/portal/data`, `/api/team`, `/api/admin/tenants` returned index.html in production and all
+      POST routes after the mount were dead in dev. Both now skip `/api/*` (`req.path.startsWith`).
+- [x] **[P1] Editing a customer/job address never re-geocoded** (`repos/index.ts`). Added `update`
+      overrides to `customersRepo`/`jobsRepo` that re-geocode on address change (lat/lng stayed stale).
+- [x] **[P1] Mock-mode 500s** — `parseGeminiJson` threw on the generic mock prose for any AI route
+      whose system-instruction had no `getMockText` matcher (e.g. `/api/compliance/check`). `getMockText`
+      now returns `{}` when the caller expects JSON, so mock/demo mode never 500s on unmatched routes.
+- [x] **[P2] AR aging never aged no-due-date invoices** (`Invoices.tsx arAging`) — contract
+      auto-invoices have no `dueDate` so they sat in "Current" forever and dodged reminders. Now falls
+      back to `inv.date`/`created_at`.
+- [x] **[P2] Possible duplicate contract invoice on date drift** (`Scheduler.tsx
+      finalizeContractBilling`) — match now normalizes both sides to `YYYY-MM-DD` (`.slice(0,10)`).
+- [x] **[P2] Overpayment inflated AR "collected"** (`Invoices.tsx handleRecordPayment`) — extracted
+      `src/lib/payments.ts` (`applyPayment`/`invoiceBalance`/`agingBucket`, unit-tested) that clamps a
+      payment to the remaining balance; wired into the handler.
+- [x] **[P2] `$NaN` invoice totals** — two inline line-item reducers multiplied `rate*quantity`
+      without `Number()` guards (`Invoices.tsx`); now `(Number(rate)||0)*(Number(qty)||0)`.
+- [x] **[P2] Empty service-catalog crash** (`ServicePricingCatalog.tsx addCustomService`) — guarded
+      `catalog[0]?.name` + early-return on empty catalog.
+- [x] **[P2] Unguarded request bodies → caught 500s leaking internal error strings** — added input
+      validation (400s) to `/api/crm/draft-proposal`, `/api/scheduler/draft-notification`,
+      `/api/reports/predictive-maintenance`, `/api/inventory/forecast`,
+      `/api/outbound/draft-personalized-campaign`, `/api/outbound/simulate-call`.
+
+### DEFERRED (logged, not yet fixed)
+- [ ] **[P2] `nextInvoiceNumber()` is racy** (`Invoices.tsx`) — computed from the in-memory list, so
+      two fast/concurrent creates can collide. Needs a DB sequence or unique constraint to fix properly.
+- [ ] **[P2] Auto-billed contract invoices have no `number`** — they label as `INV-<id slice>` and
+      skip sequential numbering. Decide: stamp a number on the auto-billed path, or accept hash labels.
+- [ ] **[P2] First recurring visit can be dated "today" and immediately invoiced** (`recurring.ts`
+      anchor clamps to today for past `start_date`). Decide whether `i=0`=today should be billable.
+- [ ] **[P2] Circle placement radius uses an inconsistent normalization denominator**
+      (`canvasGeometry.ts` `regionFromBBox` circle: `min(nw,nh)/2` vs consumers `* max(W,H)`). Mild
+      footprint error on wide images; store radius in one explicit space.
+- [ ] **[P2] Design Studio "Refine" discards the prior materials/tier estimate on re-finalize**
+      (`DesignStudio.tsx`) — merge new analysis into the prior result instead of replacing.
+- [ ] **[P2] `/api/workflows/*` ignore mock mode** — `/api/workflows/proposal` uses a raw `fetch` to
+      the Gemini REST endpoint (hard-fails without a key); route it through the mocked `ai` client so
+      the proposal workflow is demoable in mock mode like every other AI route.
+- [ ] **[note] `PORT` hardcoded to 3000** (`server.ts`) — ignores `process.env.PORT`; Cloud Run injects
+      `$PORT`. Confirm the deploy maps 3000 or switch to `process.env.PORT || 3000`.

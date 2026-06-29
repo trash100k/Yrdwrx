@@ -9,6 +9,7 @@ import {
 } from "../lib/firebase";
 import { invoicesRepo, expensesRepo, jobsRepo, contractsRepo, customersRepo } from "../lib/repos";
 import { runAutomations } from "../lib/automations";
+import { applyPayment } from "../lib/payments";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
   FileText,
@@ -644,10 +645,18 @@ export default function Invoices() {
   const handleMarkPaid = async (inv: any) => {
     const tenantId = tenant?.id || "genesis-1";
     try {
+      // Settle the full balance: stamp amountPaid = total so AR "collected", the portal
+      // balance, and the checkout guard all agree this invoice is fully paid (otherwise
+      // amountPaid stays stale and the client could be charged the full amount again online).
+      const total = Number(inv.amount) || 0;
+      const paidPatch = {
+        status: "paid",
+        data: { ...(inv.data || {}), amountPaid: total },
+      };
       if (navigator.onLine) {
-        await invoicesRepo.update(inv.id, { status: "paid" });
+        await invoicesRepo.update(inv.id, paidPatch);
       } else {
-        await syncService.queueAction("UPDATE", "invoices", { status: "paid" }, tenantId, inv.id);
+        await syncService.queueAction("UPDATE", "invoices", paidPatch, tenantId, inv.id);
       }
       await logSystemEvent("INVOICE_MARKED_PAID", {
         invoiceId: inv.id,
@@ -672,16 +681,17 @@ export default function Invoices() {
   };
   const handleRecordPayment = async () => {
     if (!paymentInvoice) return;
-    const amt = Number(payAmount) || 0;
-    if (amt <= 0) { showToast("Enter a payment amount.", "error"); return; }
+    const rawAmt = Number(payAmount) || 0;
+    if (rawAmt <= 0) { showToast("Enter a payment amount.", "error"); return; }
     setSavingPayment(true);
     const tenantId = tenant?.id || "genesis-1";
     try {
       const prevPaid = Number(paymentInvoice.amountPaid) || 0;
-      const payments = Array.isArray(paymentInvoice.payments) ? paymentInvoice.payments : [];
-      const amountPaid = Math.round((prevPaid + amt) * 100) / 100;
       const total = Number(paymentInvoice.amount) || 0;
-      const newStatus = amountPaid >= total - 0.005 ? "paid" : "partial";
+      // applyPayment clamps overpayment to the remaining balance (so the AR "collected"
+      // total can't report e.g. $9,999 on a $100 invoice) and decides partial vs paid.
+      const { accepted: amt, amountPaid, status: newStatus } = applyPayment(prevPaid, rawAmt, total);
+      const payments = Array.isArray(paymentInvoice.payments) ? paymentInvoice.payments : [];
       const newPayments = [...payments, { amount: amt, date: new Date().toISOString().slice(0, 10), method: payMethod }];
       await invoicesRepo.update(paymentInvoice.id, {
         status: newStatus,
@@ -770,7 +780,10 @@ export default function Invoices() {
       const bal = total - paid;
       if (bal <= 0.005 || s === "paid") continue;
       b.outstanding += bal;
-      const due = inv.dueDate ? new Date(inv.dueDate).getTime() : NaN;
+      // Age off the due date; if none was set (e.g. auto-billed contract visits), fall back
+      // to the invoice/issue date so recurring revenue still ages and shows up in reminders.
+      const dueRaw = inv.dueDate || inv.date || (inv as any).created_at;
+      const due = dueRaw ? new Date(dueRaw).getTime() : NaN;
       const daysOver = isNaN(due) ? 0 : Math.floor((now - due) / 86400000);
       if (daysOver <= 0) b.current += bal;
       else {
@@ -959,7 +972,7 @@ export default function Invoices() {
     if (!aiAnalysis) return;
     const newItems = [...aiAnalysis.items];
     newItems[idx] = { ...newItems[idx], [field]: value };
-    const newTotal = newItems.reduce((acc: number, curr: any) => acc + (curr.rate * curr.quantity), 0);
+    const newTotal = newItems.reduce((acc: number, curr: any) => acc + (Number(curr.rate) || 0) * (Number(curr.quantity) || 0), 0);
     setAiAnalysis({ ...aiAnalysis, items: newItems, total: newTotal });
   };
 
@@ -1710,7 +1723,7 @@ export default function Invoices() {
                                  <button onClick={() => {
                                     const newItems = [...aiAnalysis.items];
                                     newItems.splice(idx, 1);
-                                    const newTotal = newItems.reduce((acc, curr) => acc + (curr.rate * curr.quantity), 0);
+                                    const newTotal = newItems.reduce((acc, curr) => acc + (Number(curr.rate) || 0) * (Number(curr.quantity) || 0), 0);
                                     setAiAnalysis({...aiAnalysis, items: newItems, total: newTotal});
                                  }} className="text-zinc-600 hover:text-red-400 p-1">
                                     <X size={16} />

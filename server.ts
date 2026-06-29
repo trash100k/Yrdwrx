@@ -320,6 +320,13 @@ function getMockText(request: any): string {
     return JSON.stringify({ intent: "UNKNOWN_OR_UNPARSEABLE", summary: "", data: {} });
   }
 
+  // If the caller expects JSON (responseMimeType or an explicit JSON instruction) but no
+  // matcher above fired, return a parseable empty object so parseGeminiJson() doesn't throw
+  // a 500 in mock/demo mode. Otherwise return the human-readable mock prose.
+  const wantsJson =
+    (request.config?.responseMimeType || "").includes("json") ||
+    /\bJSON\b/.test(instr);
+  if (wantsJson) return JSON.stringify({});
   return "I'm a mock AI response since the system is running without a GEMINI_API_KEY.";
 }
 
@@ -481,10 +488,28 @@ export async function createApp({ startListening = false } = {}) {
         case 'checkout.session.completed': {
           const session = event.data.object;
           if (session.metadata && session.metadata.invoiceId) {
-            // Mark paid in Supabase (system of record).
+            // Apply the payment to the invoice ledger (system of record). The portal
+            // supports SMALLER partial payments, so we must accumulate data.amountPaid and
+            // only mark fully "paid" when the balance is settled — blindly setting "paid"
+            // would write off the remainder and let the client be charged again later.
+            // We read the invoice first so the data jsonb is merged (a column write replaces
+            // it wholesale, which would otherwise erase number/tax/contractId).
             try {
-              if (sb) await sb.from("invoices").update({ status: "paid" }).eq("id", session.metadata.invoiceId);
-            } catch (e) { console.warn("Supabase invoice mark-paid failed:", (e as any)?.message); }
+              if (sb) {
+                const invId = session.metadata.invoiceId;
+                const { data: inv } = await sb.from("invoices").select("amount,data").eq("id", invId).maybeSingle();
+                if (inv) {
+                  const paid = (Number(session.amount_total) || 0) / 100;
+                  const prevPaid = Number(inv.data?.amountPaid) || 0;
+                  const amountPaid = Math.round((prevPaid + paid) * 100) / 100;
+                  const total = Number(inv.amount) || 0;
+                  const status = amountPaid >= total - 0.005 ? "paid" : "partial";
+                  const payments = Array.isArray(inv.data?.payments) ? inv.data.payments : [];
+                  payments.push({ amount: paid, date: new Date().toISOString().slice(0, 10), method: "card", source: "stripe" });
+                  await sb.from("invoices").update({ status, data: { ...(inv.data || {}), amountPaid, payments } }).eq("id", invId);
+                }
+              }
+            } catch (e) { console.warn("Supabase invoice payment apply failed:", (e as any)?.message); }
           }
           // SaaS subscription checkout → set tenant tier.
           if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
@@ -2470,7 +2495,8 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/crm/draft-proposal", async (req, res) => {
     try {
-      const { customer, suggestion } = req.body;
+      const { customer, suggestion } = req.body || {};
+      if (!customer || !customer.firstName) return res.status(400).json({ error: "customer with firstName required" });
       const systemInstruction = `
         Draft a professional landscaping proposal for ${customer.firstName}.
         Tone: Professional, approachable, and persuasive.
@@ -2794,9 +2820,10 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/scheduler/draft-notification", async (req, res) => {
     try {
-      const { job, weather } = req.body;
+      const { job, weather } = req.body || {};
+      if (!job) return res.status(400).json({ error: "job required" });
       const systemInstruction = `
-        Draft a friendly portal notification to ${job.client} notifying them we are on the way.
+        Draft a friendly portal notification to ${job.client || "the customer"} notifying them we are on the way.
         Mention the current weather if relevant (${weather?.temp}°). Keep it under 160 characters.
       `;
       const response = await ai.models.generateContent({
@@ -3068,7 +3095,7 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/reports/predictive-maintenance", async (req, res) => {
     try {
-      const { customers } = req.body;
+      const customers = Array.isArray(req.body?.customers) ? req.body.customers : [];
       const systemInstruction = `
         Analyze these customers and predict which ones will need specific landscape maintenance (mulching, aeration, winterization) in the next 30 days based on their history and property details.
         OUTPUT FORMAT: JSON array
@@ -3165,7 +3192,7 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/inventory/forecast", cacheApiResponse(300), async (req, res) => {
     try {
-      const { jobs } = req.body;
+      const jobs = Array.isArray(req.body?.jobs) ? req.body.jobs : [];
       const systemInstruction = `
         Based on these upcoming jobs in Meridian, MS, forecast the inventory needs (pine straw, mulch, fertilizer, herbicide) for the next 2 weeks.
         OUTPUT FORMAT: JSON array
@@ -4359,8 +4386,10 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/outbound/draft-personalized-campaign", aiLimiter, async (req, res) => {
     try {
-      const { targetService, customers, instructions } = req.body;
-      
+      const { targetService, instructions } = req.body || {};
+      const customers = Array.isArray(req.body?.customers) ? req.body.customers : [];
+      if (!customers.length) return res.status(400).json({ error: "customers array required" });
+
       // SECURITY: Sanitize bounds to prevent tokenizer exhaustion and limit attack surface
       if (JSON.stringify(customers).length > 200000) {
           return res.status(400).json({ error: "Payload Too Large: Max customer batch size exceeded." });
@@ -4433,7 +4462,8 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/outbound/simulate-call", async (req, res) => {
     try {
-      const { customer, context } = req.body;
+      const { customer, context } = req.body || {};
+      if (!customer || !customer.firstName) return res.status(400).json({ error: "customer with firstName required" });
       const systemInstruction = `
         You are "Meridian Voice", the outbound calling agent for Cutty Green.
         Your goal is to simulate a professional, southern-hospitable follow-up call to ${customer.firstName}.
@@ -4655,7 +4685,13 @@ export async function createApp({ startListening = false } = {}) {
         server: { middlewareMode: true },
         appType: "spa",
       });
-      app.use(vite.middlewares);
+      // Let Vite handle only non-API requests (SPA shell / HMR / assets). The /api/* routes
+      // are registered AFTER this point, so we must skip Vite (and its dev proxy) for them —
+      // otherwise every API route below would be swallowed and dead in development.
+      app.use((req: any, res: any, next: any) => {
+        if (req.url.startsWith("/api/")) return next();
+        return (vite.middlewares as any)(req, res, next);
+      });
     }
   } else {
     const distPath = path.join(process.cwd(), "dist");
@@ -4672,7 +4708,10 @@ export async function createApp({ startListening = false } = {}) {
       }
     }));
     
-    app.get("*all", (req, res) => {
+    app.get("*all", (req, res, next) => {
+      // Never serve the SPA shell for API requests — some GET /api routes are registered
+      // after this catch-all, so fall through to let them (or a real 404) handle it.
+      if (req.path.startsWith("/api/")) return next();
       res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=30');
       res.sendFile(path.join(distPath, "index.html"));
     });
@@ -4892,9 +4931,13 @@ export async function createApp({ startListening = false } = {}) {
     const sb = getServiceSupabase();
     if (!sb) return res.status(503).json({ error: "Billing not configured" });
     try {
-      const { data: inv } = await sb.from("invoices").select("amount,tenant_id,customer_id,data").eq("id", invoiceId).maybeSingle();
+      const { data: inv } = await sb.from("invoices").select("amount,tenant_id,customer_id,status,data").eq("id", invoiceId).maybeSingle();
       if (!inv) return res.status(404).json({ error: "Invoice not found" });
       if (inv.customer_id !== tok.clientId) return res.status(403).json({ error: "Not your invoice" });
+      const invStatus = String(inv.status || "").toLowerCase();
+      if (["paid", "void", "cancelled", "canceled"].includes(invStatus)) {
+        return res.status(409).json({ error: "This invoice is already settled" });
+      }
       if (!process.env.STRIPE_SECRET_KEY) {
         return res.json({ error: "Stripe key missing. Payment simulated.", simulatedUrl: successUrl || `${BASE_URL}?success=mock` });
       }

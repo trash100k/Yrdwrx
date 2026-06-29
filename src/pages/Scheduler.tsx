@@ -287,12 +287,14 @@ export default function Scheduler() {
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
       // Load invoices once; find the matching auto-draft for THIS visit:
-      // same contract + same visit date.
+      // same contract + same visit date. Normalize both dates to YYYY-MM-DD so a stray
+      // time component on job.date can't slip past the guard and create a duplicate invoice.
+      const visitDate = String(job.date || "").slice(0, 10);
       const invoices = (await invoicesRepo.list()) || [];
       const draft = invoices.find(
         (inv: any) =>
           inv?.data?.contractId === job.data.contractId &&
-          inv?.data?.jobDate === job.date,
+          String(inv?.data?.jobDate || "").slice(0, 10) === visitDate,
       );
 
       if (draft && draft.status === "draft") {
@@ -327,7 +329,7 @@ export default function Scheduler() {
           date: today,
           data: {
             contractId: job.data.contractId,
-            jobDate: job.date,
+            jobDate: visitDate,
             autoBilled: true,
           },
         });

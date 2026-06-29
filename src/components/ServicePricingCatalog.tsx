@@ -54,8 +54,9 @@ export function ServicePricingCatalog() {
 
   const addCustomService = () => {
     if (!newServiceName) return;
+    if (!catalog.length) return; // nothing to attach the service to
     const updated = catalog.map(cat => {
-      if (cat.name === (newServiceCategory || catalog[0].name)) {
+      if (cat.name === (newServiceCategory || catalog[0]?.name)) {
         return {
           ...cat,
           services: [...cat.services, { name: newServiceName, price: parseFloat(newServicePrice) || 0 }]

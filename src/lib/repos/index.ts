@@ -25,6 +25,19 @@ export const customersRepo = {
     }
     return customersBase.create(i);
   },
+  // Re-geocode when the address changes on edit, so lat/lng don't go stale for
+  // maps/routing. Skip if the caller already supplied explicit coordinates.
+  async update(id: string, patch: any) {
+    const p = { ...patch };
+    if (p.address && p.lat == null && p.lng == null) {
+      const g = await geocodeAddress(p.address);
+      if (g) {
+        p.lat = g.lat;
+        p.lng = g.lng;
+      }
+    }
+    return customersBase.update(id, p);
+  },
   // Name OR phone lookup (used by Live Ear / on-site flows).
   async findByNameOrPhone(query: string) {
     const q = (query || "").trim();
@@ -73,6 +86,18 @@ export const jobsRepo = {
       }
     }
     return jobsBase.create(i);
+  },
+  // Re-geocode when a job's address changes on edit (keeps lat/lng fresh for routing).
+  async update(id: string, patch: any) {
+    const p = { ...patch };
+    if (p.address && p.lat == null && p.lng == null) {
+      const g = await geocodeAddress(p.address);
+      if (g) {
+        p.lat = g.lat;
+        p.lng = g.lng;
+      }
+    }
+    return jobsBase.update(id, p);
   },
   async forCustomer(customerId: string) {
     const { data, error } = await supabase
