@@ -13,7 +13,12 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (HELL SPRINT cont.2) — **ALL Design Studio phases built** (Phase 1
+> _Last updated: 2026-06-29 (APP DEEP-DIVE AUDIT) — ran an 8-cluster workflow audit of all 32
+> sections; full report in **`APP_AUDIT.md`** (purpose/works/missing/research per section + cross-cutting
+> themes + top-10 research agenda). The actionable backlog derived from it is the new **"App audit
+> remediation backlog"** section below; a parallel subagent build sprint is clearing the buildable-now
+> items (honesty pass, security hot spots, metrics-theater, geocoding, per-job linkage). Earlier:
+> 2026-06-29 (HELL SPRINT cont.2) — **ALL Design Studio phases built** (Phase 1
 > segmentation snap + VLM-judge/retry + undo/redo; Phase 2 catalog seed + SuggestedPalette→cost +
 > provenance; Phase 3 crop-and-paste-back "Precise"). New: `/api/design/segment`, `/api/design/judge`;
 > `src/lib/{designSession(+tests),plantCatalogSeed}`; `components/design/SuggestedPalette`. Depth/shadow
@@ -133,6 +138,77 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > Prior (2026-06-27): re-prioritized from the deep US market study (`MARKET_RESEARCH.md`) —
 > QuickBooks/payments/recurring billing as launch table-stakes (A7); AI repositioned as on-site closing;
 > added the Gemini-native build-leverage map + the beachhead._
+
+## App audit remediation backlog (2026-06-29) — from `APP_AUDIT.md`
+
+Derived from the section-by-section deep dive. **Full per-section detail (purpose/works/missing/
+needs-research) is in `APP_AUDIT.md`** — this is the actionable, prioritized work list. Checkboxes
+track the parallel remediation sprint.
+
+### P0 — Honesty & trust (the #1 trust risk; buildable now)
+Kill the "graceful fallback to success" pattern everywhere — never show "Synced!/Sent!/Review Sent"
+when the call failed, was cancelled, or only simulated. The good sections (Client Portal, Booking,
+Owner Digest, Inbox, Scheduler On-My-Way) prove the honest `simulated:true` pattern — make it global.
+- [ ] **Dashboard** — Workspace/integration handlers show success on failure/cancel; Morning Briefing
+      uses hardcoded Alpha/Beta/Gamma crews + "Schmidt Residence" placeholders (use real crew/job data).
+- [ ] **CRM** — SMS claims "sent securely via Twilio" even when simulated (surface `simulated`);
+      remove the fabricated property-value growth chart (invented numbers shown to a paying user).
+- [ ] **Field & Crew (CrewSuite)** — dispatch shows success when it didn't.
+- [ ] **Reviews** — "Deploy/Solicit/Review Sent" success-on-failure.
+- [ ] **Metrics theater** — make real or remove: Inventory `$65/unit` valuation + `4.2% leakage` +
+      "100% SECURE"; Agent "Runtime Stats" panel; SOC toggles that enforce nothing.
+
+### P0 — Security & cost-abuse hot spots (buildable now)
+- [ ] **`/api/live` WebSocket is unauthenticated** — open, unmetered Gemini + client-side tool exec.
+      Add token auth on connection + per-tenant metering + a connection cap.
+- [ ] Public lead-intake has no CAPTCHA/abuse guard — add rate-limit + a basic bot check.
+- [ ] Client-side-only role gates (e.g. CRM CSV import) — enforce server-side/RLS.
+- [ ] Raw browser Google Maps key handed to any client — restrict key (referrer) / proxy.
+- [ ] Closeout high-risk invoice gate not enforced server-side.
+
+### P0 — Geocoding layer (single highest-leverage enabler)
+- [ ] No address→lat/lng anywhere → Route Optimizer unusable, CustomerMap re-geocodes each view,
+      Scheduler jobs non-routable. Add **server-side geocode-on-write** (Google Geocoding,
+      `GOOGLE_MAPS_PLATFORM_KEY`, mock-safe) caching lat/lng on the customer/job record. Unblocks 3 sections.
+
+### P1 — Data integrity & analytics truth
+- [ ] **Per-job linkage** — require `jobId`/`customerId` on timesheets, expenses, material logs, invoices
+      at the source (clock-in-against-job, log-to-job, invoice-with-customer) so Job Costing / Customer
+      Intelligence profitability / Closeout invoices stop falling back to estimates.
+- [ ] Real per-customer **activity timeline** feeding the CRM AI briefing (today `interactions:[]` hardcoded).
+- [ ] Dead/stub endpoints: remove or implement `/api/crm/clients` ({status:'ok'}); de-dupe the mock
+      `/api/weather` route and wire the Dashboard to the real `{configured,...}` shape.
+
+### P1 — Real-time / offline / notifications
+- [ ] Inbox + Portal Messages are reload-only → add realtime/polling.
+- [ ] Event notifications (email/SMS/push) on new invoice/message/approved-design/low-stock/arrival.
+- [ ] Closeout (the field flow most likely to lose signal) should use the existing `syncService` offline queue.
+
+### P1 — Data-seeding / ingestion
+- [ ] Reviews: ingest from Google/Yelp (no ingestion today). CRM/Inventory: CSV import + **dedupe/merge**
+      (re-import currently creates duplicates). Inbox: inbound email routing. Starter templates for
+      Form Builder + Compliance.
+
+### P1 — Field / mobile UX
+- [ ] Crew-facing job view (start/complete, checklist, photos), before/after photo capture at closeout,
+      geofenced clock-in, HEIC/EXIF intake, offline queueing.
+
+### P2 — Brand / legacy-stack cleanup
+- [ ] Reconcile multi-brand copy (YardWorx / Cutty / Meridian Green / Gaelworx AI) in user+legal text.
+- [ ] Purge Firestore-era strings/shims in a Supabase app (Inventory/Reviews/CRM error strings, Form
+      Builder Firebase import, AI Playground "infrastructure" test). Switch AI Playground to `fetchApi`.
+
+### Research agenda (top 10 — see `APP_AUDIT.md` for full context; many gate live launch)
+- [ ] 1. Property-measurement provider selection + economics (Nearmap/Regrid/EagleView/Google Solar) — gates Instant Estimate.
+- [ ] 2. Geocoding provider + caching at SMB scale (+ Google Route Optimization API/VRP) — gates routing/maps.
+- [ ] 3. Google restricted-scope / CASA security assessment (gmail/calendar/drive/contacts) — gates Workspace surface.
+- [ ] 4. SMS 10DLC/A2P + TCPA consent + two-party-consent (Live Ear) — gates Inbox/On-My-Way/CRM SMS/recording.
+- [ ] 5. Stripe Connect economics & onboarding (Express vs Standard, fees, ACH) — gates the money path.
+- [ ] 6. US sales-tax for landscaping + tax-engine buy decision (Avalara/TaxJar/Stripe Tax).
+- [ ] 7. Live-key validation pass of all Gemini features on Cloud Run (Design Studio flagship first).
+- [ ] 8. Competitor parity benchmark (Jobber/ServiceTitan/Aspire/Housecall/LawnStarter/SingleOps).
+- [ ] 9. Legal review of trust/compliance copy (DataMap data-sale + CCPA/CPRA, AI Usage "binding" terms, review-gating FTC/Google).
+- [ ] 10. Validated churn signals + labor-burden/overhead model for green industry (Customer Intel / Job Costing / Owner Digest).
 
 ## How to use this file
 
