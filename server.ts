@@ -4576,6 +4576,215 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Client approves a design proposal from the portal (token-scoped to their record).
+  app.post("/api/portal/proposal/approve", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal unavailable" });
+    const { designId } = req.body || {};
+    if (!designId) return res.status(400).json({ error: "designId required" });
+    try {
+      const { data: dv } = await sb
+        .from("customer_design_visions")
+        .select("id,customer_id,tenant_id,proposal,summary")
+        .eq("id", designId)
+        .maybeSingle();
+      if (!dv) return res.status(404).json({ error: "Proposal not found" });
+      if (dv.customer_id !== tok.clientId) return res.status(403).json({ error: "Not your proposal" });
+      const proposal = { ...(dv.proposal || {}), approved: true, approvedAt: new Date().toISOString() };
+      await sb.from("customer_design_visions").update({ proposal }).eq("id", designId);
+      // Drop a note into the conversation so the business sees the approval.
+      try {
+        await sb.from("customer_messages").insert({
+          tenant_id: dv.tenant_id,
+          customer_id: tok.clientId,
+          sender: "client",
+          text: `✅ I approved the proposal${dv.summary ? `: ${dv.summary}` : ""}. Let's move forward!`,
+        });
+      } catch {}
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("portal approve error", e?.message);
+      res.status(500).json({ error: "Failed to approve proposal" });
+    }
+  });
+
+  // Client downloads a PDF of one of THEIR invoices (token-scoped; server-rendered).
+  app.post("/api/portal/invoice-pdf", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal unavailable" });
+    const { invoiceId } = req.body || {};
+    if (!invoiceId) return res.status(400).json({ error: "invoiceId required" });
+    try {
+      const { data: inv } = await sb
+        .from("invoices")
+        .select("id,amount,status,date,due_date,items,data,customer_id,tenant_id")
+        .eq("id", invoiceId)
+        .maybeSingle();
+      if (!inv) return res.status(404).json({ error: "Invoice not found" });
+      if (inv.customer_id !== tok.clientId) return res.status(403).json({ error: "Not your invoice" });
+      let tenantName = "Your Service Provider";
+      try {
+        const { data: t } = await sb.from("tenants").select("name").eq("id", inv.tenant_id).maybeSingle();
+        if (t?.name) tenantName = t.name;
+      } catch {}
+      const esc = (s: any) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const merchant = esc(inv.data?.client || "Client");
+      const items = Array.isArray(inv.items) ? inv.items : [];
+      const rows = items.length
+        ? items.map((it: any) => {
+            const qty = Number(it?.quantity ?? 1);
+            const rate = Number(it?.rate ?? it?.amount ?? 0);
+            const lt = (qty * rate) || Number(it?.amount ?? 0);
+            return `<tr><td style="padding:14px 0;">${esc(it?.description || "Service")}${qty > 1 ? ` ×${qty}` : ""}</td><td style="text-align:right;font-weight:bold;padding:14px 0;">$${lt.toLocaleString()}</td></tr>`;
+          }).join("")
+        : `<tr><td style="padding:20px 0;">Landscaping & Property Services</td><td style="text-align:right;font-weight:bold;padding:20px 0;">$${Number(inv.amount).toLocaleString()}</td></tr>`;
+      const html = `<html><body style="font-family:sans-serif;padding:40px;color:#333;"><div style="border-bottom:2px solid #333;padding-bottom:20px;"><h1 style="font-size:40px;margin:0;">INVOICE</h1><p style="color:#666;margin-top:10px;">ID: INV-${esc(String(inv.id).slice(0, 6))} · ${esc(tenantName)}</p></div><div style="margin-top:40px;"><h3 style="margin:0;color:#666;text-transform:uppercase;font-size:12px;letter-spacing:2px;">Billed To</h3><p style="font-size:24px;font-weight:bold;margin-top:10px;">${merchant}</p>${inv.due_date ? `<p style="color:#666;">Due: ${esc(inv.due_date)}</p>` : ""}</div><div style="margin-top:40px;width:100%;"><table style="width:100%;border-collapse:collapse;"><tr style="border-bottom:1px solid #ccc;"><th style="text-align:left;padding:10px 0;color:#666;">Description</th><th style="text-align:right;padding:10px 0;color:#666;">Amount</th></tr>${rows}</table></div><div style="margin-top:60px;text-align:right;"><h3 style="margin:0;color:#666;text-transform:uppercase;font-size:12px;letter-spacing:2px;">Total Due</h3><p style="font-size:48px;font-weight:bold;margin-top:10px;">$${Number(inv.amount).toLocaleString()}</p></div></body></html>`;
+      const browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: "networkidle0" });
+      const pdf = await page.pdf({ format: "A4", printBackground: true });
+      await browser.close();
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="invoice-${String(inv.id).slice(0, 6)}.pdf"`);
+      res.send(pdf);
+    } catch (e: any) {
+      console.error("portal invoice-pdf error", e?.message);
+      res.status(500).json({ error: "Failed to generate PDF" });
+    }
+  });
+
+  // ===========================================================================
+  // TEAM MANAGEMENT — owner invites/lists/removes members of THEIR tenant.
+  // ===========================================================================
+  app.get("/api/team", async (req: any, res: any) => {
+    if (REQUIRE_AUTH && !req.user?.uid) return res.status(401).json({ error: "Unauthorized" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Team management unavailable (SUPABASE_SERVICE_ROLE_KEY not set)", code: "PROVISION_UNAVAILABLE" });
+    const tenant = await resolveTenant(req);
+    if (!tenant) return res.json({ members: [] });
+    const { data } = await sb
+      .from("profiles")
+      .select("firebase_uid,email,display_name,role,agreements_accepted")
+      .eq("tenant_id", tenant.id);
+    res.json({
+      members: (data || []).map((m: any) => ({
+        id: m.firebase_uid,
+        email: m.email,
+        name: m.display_name,
+        role: m.role,
+        active: m.agreements_accepted,
+        isSelf: m.firebase_uid === req.user?.uid,
+      })),
+    });
+  });
+
+  app.post("/api/team/invite", async (req: any, res: any) => {
+    if (REQUIRE_AUTH && !req.user?.uid) return res.status(401).json({ error: "Unauthorized" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Invites unavailable (SUPABASE_SERVICE_ROLE_KEY not set)", code: "PROVISION_UNAVAILABLE" });
+    const tenant = await resolveTenant(req);
+    if (!tenant) return res.status(404).json({ error: "No workspace found" });
+    if (tenant.role !== "owner") return res.status(403).json({ error: "Only the owner can invite team members." });
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const role = ["employee", "foreman"].includes(req.body?.role) ? req.body.role : "employee";
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: "A valid email is required." });
+    // The handle_new_user trigger reads tenant_id + role from the invite metadata and joins
+    // the new user to this tenant with that role.
+    const meta = { tenant_id: tenant.id, role };
+    const redirectTo = `${BASE_URL}/login`;
+    try {
+      const { error } = await sb.auth.admin.inviteUserByEmail(email, { data: meta, redirectTo });
+      if (error) throw error;
+      return res.json({ success: true, emailed: true });
+    } catch (e1: any) {
+      // No SMTP configured (or other) -> generate a shareable invite link the owner can send.
+      try {
+        const { data, error } = await sb.auth.admin.generateLink({ type: "invite", email, options: { data: meta, redirectTo } });
+        if (error) throw error;
+        return res.json({ success: true, emailed: false, inviteLink: data?.properties?.action_link || null });
+      } catch (e2: any) {
+        console.error("team invite error", e2?.message || e1?.message);
+        return res.status(500).json({ error: e2?.message || e1?.message || "Failed to create invite." });
+      }
+    }
+  });
+
+  app.post("/api/team/remove", async (req: any, res: any) => {
+    if (REQUIRE_AUTH && !req.user?.uid) return res.status(401).json({ error: "Unauthorized" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Team management unavailable", code: "PROVISION_UNAVAILABLE" });
+    const tenant = await resolveTenant(req);
+    if (!tenant || tenant.role !== "owner") return res.status(403).json({ error: "Only the owner can remove team members." });
+    const memberId = String(req.body?.memberId || "");
+    if (!memberId) return res.status(400).json({ error: "memberId required" });
+    if (memberId === req.user?.uid) return res.status(400).json({ error: "You can't remove yourself." });
+    const { data: m } = await sb.from("profiles").select("firebase_uid").eq("firebase_uid", memberId).eq("tenant_id", tenant.id).maybeSingle();
+    if (!m) return res.status(404).json({ error: "Member not found in your workspace." });
+    await sb.from("profiles").delete().eq("firebase_uid", memberId).eq("tenant_id", tenant.id);
+    try { await sb.auth.admin.deleteUser(memberId); } catch {}
+    res.json({ success: true });
+  });
+
+  // ===========================================================================
+  // PLATFORM ADMIN — tenant console (is_platform_admin profiles only).
+  // ===========================================================================
+  const requirePlatformAdmin = async (req: any, res: any) => {
+    const sb = getServiceSupabase();
+    if (!sb) { res.status(503).json({ error: "Admin console unavailable (SUPABASE_SERVICE_ROLE_KEY not set)" }); return null; }
+    if (!REQUIRE_AUTH) return sb; // demo mode: no real data to protect
+    if (!req.user?.uid) { res.status(401).json({ error: "Unauthorized" }); return null; }
+    const { data: prof } = await sb.from("profiles").select("is_platform_admin").eq("firebase_uid", req.user.uid).maybeSingle();
+    if (!prof?.is_platform_admin) { res.status(403).json({ error: "Platform admin only" }); return null; }
+    return sb;
+  };
+
+  app.get("/api/admin/tenants", async (req: any, res: any) => {
+    const sb = await requirePlatformAdmin(req, res);
+    if (!sb) return;
+    try {
+      const { data: tenants } = await sb
+        .from("tenants")
+        .select("id,name,tier,created_at,stripe_account_id,ai_credits_used")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      const { data: profs } = await sb.from("profiles").select("tenant_id");
+      const counts: Record<string, number> = {};
+      for (const p of profs || []) if (p.tenant_id) counts[p.tenant_id] = (counts[p.tenant_id] || 0) + 1;
+      res.json({
+        tenants: (tenants || []).map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          tier: t.tier,
+          createdAt: t.created_at,
+          members: counts[t.id] || 0,
+          stripeConnected: !!t.stripe_account_id,
+          aiCreditsUsed: t.ai_credits_used || 0,
+        })),
+      });
+    } catch (e: any) {
+      console.error("admin tenants error", e?.message);
+      res.status(500).json({ error: "Failed to load tenants" });
+    }
+  });
+
+  app.post("/api/admin/tenants/:id/tier", async (req: any, res: any) => {
+    const sb = await requirePlatformAdmin(req, res);
+    if (!sb) return;
+    const id = String(req.params.id || "");
+    const tier = ["free", "pro", "enterprise"].includes(req.body?.tier) ? req.body.tier : null;
+    if (!tier) return res.status(400).json({ error: "Invalid tier" });
+    try {
+      await sb.from("tenants").update({ tier }).eq("id", id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to update tier" });
+    }
+  });
+
   // Test mode: return the configured app without opening a socket or the Live WebSocket.
   if (!startListening) return app;
 
