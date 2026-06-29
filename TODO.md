@@ -13,7 +13,16 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (feature-completeness sprint) — **swept every section for dead buttons,
+> _Last updated: 2026-06-29 (deferred features + QoL) — **shipped the Scheduler calendar view, a
+> quality-of-life wave, and the three endpoint-backed features that were deferred.** Calendar: month
+> grid w/ board toggle, click-day-to-schedule, status chips. QoL: confirm dialogs on all destructive
+> actions, loading/empty states across the list screens, real Cmd+K entity search, keyboard-shortcut
+> help, and the offline syncService now flushes to Supabase (was the dead Firestore). Deferred features
+> NOW DONE (server + UI): Team invites (GET/POST /api/team[/invite|/remove], invite email w/ shareable
+> link fallback + member list + remove), Client-portal Approve-Proposal + Invoice-PDF download
+> (token-scoped /api/portal/{proposal/approve,invoice-pdf}), and the Platform-admin tenant console
+> (/api/admin/tenants[/:id/tier], list + tier editing). Gates green throughout. NEXT: the security
+> sprint. Previously: 2026-06-29 (feature-completeness sprint) — **swept every section for dead buttons,
 > fake/hardcoded data, crashes, and missing functions, then fixed them in a 7-agent wave.** CRM
 > (approved-lead status bug, real Tasks/Documents tabs, aiScore on create, removed fabricated columns
 > + a crash), field ops (CrewSuite crash, Field Mode Start-Job/Photo/Audio/incident, real Route
