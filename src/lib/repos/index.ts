@@ -6,6 +6,7 @@ import { supabase } from "../supabase";
 
 export { getCurrentProfile, clearProfileCache } from "./profile";
 export { documentsRepo } from "./documents";
+export { tenantsRepo } from "./tenant";
 
 // --- Customers (soft-delete enabled) ---
 export const customersRepo = {
@@ -71,3 +72,7 @@ export const designCatalogRepo = makeRepo("design_catalog", { orderBy: { column:
 export const contractsRepo = makeRepo("contracts", { orderBy: { column: "created_at" } });
 export const inspectionFormsRepo = makeRepo("inspection_forms", { orderBy: { column: "created_at" } });
 export const designVisionsRepo = makeRepo("customer_design_visions", { orderBy: { column: "created_at" } });
+// Timesheets (clock in/out) — read for week-hours rollups, create/update on clock events.
+export const timesheetsRepo = makeRepo("timesheets", { orderBy: { column: "clock_in", ascending: false } });
+// System logs — READ path for the Reports audit feed (writes happen via logSystemEvent in lib/firebase).
+export const systemLogsRepo = makeRepo("system_logs", { orderBy: { column: "created_at", ascending: false } });
