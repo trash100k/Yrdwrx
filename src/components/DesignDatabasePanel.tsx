@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { designCatalogRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
-import { Trash2, Plus, GripVertical, Save, Zap, HelpCircle } from "lucide-react";
+import { Trash2, Plus, GripVertical, Save, Zap, HelpCircle, Pencil, Check, X } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 
 interface CatalogItem {
@@ -21,6 +21,11 @@ export function DesignDatabasePanel() {
   
   const [newItemName, setNewItemName] = useState("");
   const [newItemDesc, setNewItemDesc] = useState("");
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editType, setEditType] = useState<CatalogItem["type"]>("material");
 
   useEffect(() => {
     if (!tenant) return;
@@ -52,6 +57,37 @@ export function DesignDatabasePanel() {
       showToast("Item removed", "success");
     } catch (err) {
       showToast("Failed to delete", "error");
+    }
+  };
+
+  const handleStartEdit = (item: CatalogItem) => {
+    setEditingId(item.id!);
+    setEditName(item.name);
+    setEditDesc(item.description || "");
+    setEditType(item.type);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditName("");
+    setEditDesc("");
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editName.trim()) {
+      showToast("Name is required", "error");
+      return;
+    }
+    try {
+      await designCatalogRepo.update(id, {
+        type: editType,
+        name: editName,
+        description: editDesc,
+      });
+      showToast("Item updated", "success");
+      handleCancelEdit();
+    } catch (err) {
+      showToast("Failed to update", "error");
     }
   };
 
@@ -146,21 +182,79 @@ export function DesignDatabasePanel() {
               </div>
             ) : (
               filteredItems.map(item => (
-                <div key={item.id} className="group bg-black/40 border border-white/5 hover:border-forest-500/30 p-4 rounded-xl flex items-center gap-4 transition-all">
-                  <div className="text-white/20 cursor-grab active:cursor-grabbing">
-                    <GripVertical size={16} />
+                editingId === item.id ? (
+                  <div key={item.id} className="bg-black/40 border border-forest-500/30 p-4 rounded-xl flex flex-col gap-4 transition-all">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-1 block">Type</label>
+                        <select
+                          value={editType}
+                          onChange={(e) => setEditType(e.target.value as CatalogItem["type"])}
+                          className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors"
+                        >
+                          {(["material", "workType", "supplier", "area"] as CatalogItem["type"][]).map((cat) => (
+                            <option key={cat} value={cat}>{getCategoryLabel(cat)}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-1 block">Name</label>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-1 block">Details / Rules (Optional)</label>
+                        <textarea
+                          value={editDesc}
+                          onChange={(e) => setEditDesc(e.target.value)}
+                          rows={3}
+                          className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-forest-500 transition-colors resize-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleSaveEdit(item.id!)}
+                        disabled={!editName.trim()}
+                        className="flex-1 py-3 bg-forest-500/20 text-forest-400 hover:bg-forest-500 hover:text-black border border-forest-500/30 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        <Check size={14} /> Save
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        className="flex-1 py-3 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white border border-white/10 rounded-xl font-black uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-2"
+                      >
+                        <X size={14} /> Cancel
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-white uppercase tracking-tight">{item.name}</p>
-                    {item.description && <p className="text-xs text-white/50 truncate mt-1 italic">{item.description}</p>}
+                ) : (
+                  <div key={item.id} className="group bg-black/40 border border-white/5 hover:border-forest-500/30 p-4 rounded-xl flex items-center gap-4 transition-all">
+                    <div className="text-white/20 cursor-grab active:cursor-grabbing">
+                      <GripVertical size={16} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-white uppercase tracking-tight">{item.name}</p>
+                      {item.description && <p className="text-xs text-white/50 truncate mt-1 italic">{item.description}</p>}
+                    </div>
+                    <button
+                      onClick={() => handleStartEdit(item)}
+                      className="w-10 h-10 rounded-lg bg-forest-500/10 text-forest-400 opacity-0 group-hover:opacity-100 flex items-center justify-center hover:bg-forest-500 hover:text-black transition-all shrink-0"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id!)}
+                      className="w-10 h-10 rounded-lg bg-red-500/10 text-red-400 opacity-0 group-hover:opacity-100 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shrink-0"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleDelete(item.id!)}
-                    className="w-10 h-10 rounded-lg bg-red-500/10 text-red-400 opacity-0 group-hover:opacity-100 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shrink-0"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+                )
               ))
             )}
           </div>

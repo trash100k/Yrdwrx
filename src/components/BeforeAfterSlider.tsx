@@ -10,7 +10,28 @@ interface BeforeAfterSliderProps {
 export default function BeforeAfterSlider({ beforeImage, afterImage, imageAspectRatio }: BeforeAfterSliderProps) {
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
+  const [beforeError, setBeforeError] = useState(false);
+  const [afterError, setAfterError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const clampPosition = (value: number) => Math.min(100, Math.max(0, value));
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const step = 2;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setSliderPosition((p) => clampPosition(p - step));
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setSliderPosition((p) => clampPosition(p + step));
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      setSliderPosition(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      setSliderPosition(100);
+    }
+  };
 
   const handlePositionChange = (clientX: number) => {
     if (!containerRef.current) return;
@@ -46,46 +67,85 @@ export default function BeforeAfterSlider({ beforeImage, afterImage, imageAspect
 
   return (
     <div className="flex-1 w-full h-full flex items-center justify-center min-h-0 p-4 relative">
-      <div 
+      <div
         ref={containerRef}
         className="relative rounded-2xl border border-white/10 bg-black/40 overflow-hidden shadow-2xl cursor-ew-resize group flex items-center justify-center"
-        style={{ maxWidth: '100%', maxHeight: '100%' }}
+        style={{
+          maxWidth: '100%',
+          maxHeight: '100%',
+          // When the aspect ratio is known, constrain the container to it so the
+          // before/after images keep their real proportions and the clip line
+          // maps correctly across the full image. Fall back to the same ratio
+          // if the sizer image is unavailable (otherwise the sizer <img> drives it).
+          ...(imageAspectRatio ? { aspectRatio: String(imageAspectRatio) } : {}),
+          ...(imageAspectRatio || beforeError ? { width: '100%', height: 'auto' } : {}),
+        }}
+        tabIndex={0}
+        role="slider"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(sliderPosition)}
+        aria-label="Before/after comparison slider"
+        onKeyDown={handleKeyDown}
         onMouseDown={() => setIsDragging(true)}
         onTouchStart={() => setIsDragging(true)}
         onMouseMove={handleMouseMove}
         onTouchMove={handleTouchMove}
       >
-        {/* Sizer */}
-        <img 
+        {/* Sizer — establishes the container's intrinsic size from the before
+            image's natural aspect ratio (object-contain, no stretch). If an
+            explicit imageAspectRatio is supplied, the container style above
+            governs and this just fills it. */}
+        <img
           src={beforeImage}
           className="invisible pointer-events-none"
           style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain' }}
           alt="sizer"
+          aria-hidden="true"
           crossOrigin="anonymous"
+          onError={() => setBeforeError(true)}
         />
 
-        {/* Before Canvas - Ambient base */}
+        {/* Before Canvas - Ambient base. object-contain keeps real proportions;
+            identical sizing/positioning to the after layer so the clip aligns. */}
         <div className="absolute inset-0 w-full h-full pointer-events-none">
-          <img
-            src={beforeImage}
-            alt="Before Yard"
-            className="w-full h-full object-fill pointer-events-none"
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
-          />
+          {beforeError ? (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-zinc-500 bg-black/40">
+              <Camera size={20} className="opacity-50" />
+              <span className="text-[10px] font-black uppercase tracking-widest">Image unavailable</span>
+            </div>
+          ) : (
+            <img
+              src={beforeImage}
+              alt="Before Yard"
+              className="w-full h-full object-contain pointer-events-none"
+              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
+              onError={() => setBeforeError(true)}
+            />
+          )}
         </div>
 
-        {/* After Canvas - Controlled split using clipPath */}
+        {/* After Canvas - Controlled split using clipPath. Same inset-0 / w-full
+            h-full / object-contain as the before layer so the reveal lines up. */}
         <div className="absolute inset-0 w-full h-full pointer-events-none"
              style={{ clipPath: `polygon(0 0, ${sliderPosition}% 0, ${sliderPosition}% 100%, 0 100%)` }}
         >
-          <img
-            src={afterImage}
-            alt="After Yard Design"
-            className="w-full h-full object-fill pointer-events-none"
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
-          />
+          {afterError ? (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-zinc-500 bg-black/60">
+              <Sparkles size={20} className="opacity-50" />
+              <span className="text-[10px] font-black uppercase tracking-widest">Image unavailable</span>
+            </div>
+          ) : (
+            <img
+              src={afterImage}
+              alt="After Yard Design"
+              className="w-full h-full object-contain pointer-events-none"
+              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
+              onError={() => setAfterError(true)}
+            />
+          )}
         </div>
 
         {/* Slide vertical bar line controller */}

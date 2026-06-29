@@ -32,12 +32,16 @@ import {
   BrainCircuit,
   Lock,
   Save,
-  Database
+  Database,
+  Send,
+  RefreshCw,
+  Users,
+  Download
 } from "lucide-react";
 import MarkupCanvas from "../components/MarkupCanvas";
 import BeforeAfterSlider from "../components/BeforeAfterSlider";
 import Design3D from "../components/Design3D";
-import { designVisionsRepo, designCatalogRepo } from "../lib/repos";
+import { designVisionsRepo, designCatalogRepo, customersRepo } from "../lib/repos";
 import { auth } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { playVoice } from "../lib/playVoice";
@@ -140,9 +144,15 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     firstName?: string;
     lastName?: string;
     address?: string;
+    email?: string;
+    data?: any;
   } | null>(null);
 
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  // All customers, so a vision can be attached to a client right here (not only when
+  // the agent navigates in with a preloaded customer).
+  const [allCustomers, setAllCustomers] = useState<any[]>([]);
+  const [isSendingToClient, setIsSendingToClient] = useState(false);
 
   useEffect(() => {
     if (!tenant) return;
@@ -151,6 +161,18 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     });
     return unsub;
   }, [tenant]);
+
+  useEffect(() => {
+    if (!tenant) return;
+    customersRepo.list().then((rows: any[]) => setAllCustomers(rows || [])).catch(() => {});
+  }, [tenant]);
+
+  const customerLabel = (c: any) =>
+    (c?.name ||
+      `${c?.firstName || c?.first_name || ""} ${c?.lastName || c?.last_name || ""}`.trim() ||
+      c?.companyName ||
+      c?.company_name ||
+      "Unnamed client").trim();
 
   // Preload the customer handed in via router state (e.g. from the agent's
   // "design for <client>" action, which navigates here with { state: { customer } }).
@@ -212,13 +234,24 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ image: image, description })
         });
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data?.error) {
+          showToast(data?.error || "Couldn't render the preview. Try again.", "error");
+          return;
+        }
+        if (data.mock) {
+          showToast("Preview shows your original photo — AI rendering needs a Gemini key.", "info");
+        }
         if (data.imageUrl) {
           setMockupImage(data.imageUrl);
           setActiveTab("compare");
+          if (!data.mock) showToast("Render ready — swipe the slider to compare.", "success");
+        } else {
+          showToast("No preview image was returned.", "error");
         }
     } catch(e) {
         console.error(e);
+        showToast("Network error during preview render.", "error");
     } finally {
         setIsGeneratingMockup(false);
     }
@@ -250,20 +283,34 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.error) {
+        const msg = data?.error || `Design analysis failed (${response.status}).`;
+        showToast(
+          /gemini|quota|key|limit/i.test(msg)
+            ? msg
+            : "Couldn't analyze the design. Try again.",
+          "error",
+        );
+        return;
+      }
+      if (!data.identifiedAreas?.length && !data.visionSummary) {
+        showToast(
+          "No suggestions came back — add some markup or voice notes and retry.",
+          "info",
+        );
+      }
       setResult(data);
-      if (data.identifiedAreas && (tenant?.settings as any)?.voiceEnabled !== false) {
+      if (data.identifiedAreas?.length && (tenant?.settings as any)?.voiceEnabled !== false) {
         let textToSpeek = "Here is the plan. ";
         data.identifiedAreas.slice(0, 2).forEach((a: any) => {
           textToSpeek += a.suggestion + ". ";
         });
-        if (data.estimatedCost) {
-            textToSpeek += ` The estimated cost will be roughly ${data.estimatedCost} dollars.`;
-        }
         playVoice(textToSpeek);
       }
     } catch (error) {
       console.error("Design Processing Error:", error);
+      showToast("Network error during design analysis.", "error");
     } finally {
       setIsProcessing(false);
     }
@@ -288,14 +335,20 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.error || !data?.tiers) {
+        showToast(data?.error || "Couldn't generate Good/Better/Best packages.", "error");
+        return;
+      }
       setResult((prev: any) => ({
         ...prev,
         tiers: data.tiers,
       }));
       setActiveTier("better");
+      showToast("Good / Better / Best packages ready.", "success");
     } catch (error) {
       console.error("Design Tiers Error:", error);
+      showToast("Network error generating packages.", "error");
     } finally {
       setIsGeneratingTiers(false);
     }
@@ -344,6 +397,74 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
       showToast("Could not save vision. Check connection.", "error");
     } finally {
       setIsSavingVision(false);
+    }
+  };
+
+  // Email the design vision straight to the attached client (uses the server email path;
+  // honest when email isn't configured — saved/simulated rather than faking a send).
+  const handleSendToClient = async () => {
+    if (!result) return;
+    const email = activeCustomer?.email || activeCustomer?.data?.email;
+    if (!email) {
+      showToast("Attach a client with an email first (top of page).", "error");
+      return;
+    }
+    setIsSendingToClient(true);
+    try {
+      const lines: string[] = [];
+      lines.push(`Hi ${activeCustomer?.firstName || customerLabel(activeCustomer)},`);
+      lines.push("");
+      lines.push(result.visionSummary || "Here is the design vision for your yard.");
+      if (canSeeCosts && estimatedTotal > 0) {
+        lines.push("");
+        lines.push(`Estimated investment: ${formatCurrency(estimatedTotal)}`);
+      }
+      if (activeMaterials.length) {
+        lines.push("");
+        lines.push("Highlights:");
+        activeMaterials.slice(0, 8).forEach((m: any) => lines.push(`• ${m.item} (${m.quantity})`));
+      }
+      lines.push("");
+      lines.push(`— ${tenant?.name || "YardWorx"}`);
+      const res = await fetchApi("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          subject: `Your yard design from ${tenant?.name || "YardWorx"}`,
+          text: lines.join("\n"),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.sent) {
+        showToast("Design sent to the client.", "success");
+        addLog({ type: "email", recipient: email, subject: "Yard design", content: result.visionSummary || "Design vision" });
+      } else if (data.simulated) {
+        showToast("Email isn't configured yet — drafted to your outbox instead.", "info");
+        addLog({ type: "email", recipient: email, subject: "Yard design", content: result.visionSummary || "Design vision" }, "draft");
+      } else {
+        showToast(data.error || "Couldn't send the design.", "error");
+      }
+    } catch (err) {
+      console.error("Send design error:", err);
+      showToast("Network error sending the design.", "error");
+    } finally {
+      setIsSendingToClient(false);
+    }
+  };
+
+  // Download the rendered "after" image (or the saved vision) so it can be shared offline.
+  const downloadMockup = () => {
+    if (!mockupImage) return;
+    try {
+      const a = document.createElement("a");
+      a.href = mockupImage;
+      a.download = `YardWorx-Design-${Date.now()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      showToast("Couldn't download the image.", "error");
     }
   };
 
@@ -430,6 +551,38 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
               ? `Architecting transformation for ${activeCustomer.firstName} ${activeCustomer.lastName}'s property at ${activeCustomer.address}.`
               : "Upload a photo of the yard, mark what you want changed, and let YardWorx help you design."}
           </p>
+
+          {activeView === "studio" && (
+            <div className="flex items-center gap-2 max-w-xl">
+              <Users size={14} className="text-forest-400 shrink-0" />
+              <label htmlFor="design-client-picker" className="sr-only">Attach a client</label>
+              <select
+                id="design-client-picker"
+                value={activeCustomer?.id || ""}
+                onChange={(e) => {
+                  const c = allCustomers.find((x) => x.id === e.target.value);
+                  if (!c) { setActiveCustomer(null); return; }
+                  const firstName = c.firstName || c.first_name || "";
+                  const lastName = c.lastName || c.last_name || "";
+                  setActiveCustomer({
+                    ...c,
+                    id: c.id,
+                    firstName,
+                    lastName,
+                    name: customerLabel(c),
+                    address: c.address || c.data?.address || "",
+                    email: c.email || c.data?.email || "",
+                  });
+                }}
+                className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-bold text-white/80 uppercase tracking-widest focus:border-forest-500/40 focus:outline-none"
+              >
+                <option value="">No client attached</option>
+                {allCustomers.map((c) => (
+                  <option key={c.id} value={c.id}>{customerLabel(c)}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {activeCustomer?.id && savedVisions.length > 0 && (
             <div className="mt-4 max-w-xl">
@@ -790,17 +943,39 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                           {/* Reveal mockup rendering */}
                           <div className="flex flex-col gap-4">
                             {mockupImage ? (
-                              <div className="p-4 bg-forest-500/10 border border-forest-500/20 rounded-2xl flex items-center justify-between text-forest-400">
+                              <div className="p-4 bg-forest-500/10 border border-forest-500/20 rounded-2xl space-y-3 text-forest-400">
                                 <div className="flex items-center gap-2">
                                   <CheckCircle2 size={16} />
-                                  <span className="text-[10px] font-black uppercase tracking-widest">Active Slider Active</span>
+                                  <span className="text-[10px] font-black uppercase tracking-widest">Render Ready</span>
                                 </div>
-                                <button 
-                                  onClick={() => setActiveTab("compare")} 
-                                  className="px-4 py-1.5 bg-forest-500 text-black hover:bg-forest-400 rounded-xl text-[10px] font-black uppercase transition-all shadow-[0_0_15px_rgba(5,168,69,0.2)]"
-                                >
-                                  Open Slider
-                                </button>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    onClick={() => setActiveTab("compare")}
+                                    className="flex-1 px-3 py-2 bg-forest-500 text-black hover:bg-forest-400 rounded-xl text-[10px] font-black uppercase transition-all shadow-[0_0_15px_rgba(5,168,69,0.2)]"
+                                  >
+                                    Open Slider
+                                  </button>
+                                  <button
+                                    onClick={generateMockup}
+                                    disabled={isGeneratingMockup}
+                                    title="Generate a fresh render"
+                                    className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                  >
+                                    {isGeneratingMockup ? (
+                                      <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                      <RefreshCw size={12} />
+                                    )}
+                                    Redo
+                                  </button>
+                                  <button
+                                    onClick={downloadMockup}
+                                    title="Download the after image"
+                                    className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5"
+                                  >
+                                    <Download size={12} /> Save
+                                  </button>
+                                </div>
                               </div>
                             ) : (
                               <button
@@ -971,7 +1146,19 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                 <><Save size={14} /> Save to Quote</>
                               )}
                             </button>
-                            <button 
+                            <button
+                              onClick={handleSendToClient}
+                              disabled={isSendingToClient || !activeCustomer?.email}
+                              title={activeCustomer?.email ? "Email this design to the client" : "Attach a client with an email first"}
+                              className="w-full bg-forest-500/15 text-forest-300 py-4 rounded-xl border border-forest-500/30 font-black uppercase tracking-widest text-xs hover:bg-forest-500/25 active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {isSendingToClient ? (
+                                <><div className="w-4 h-4 border-2 border-forest-400/30 border-t-forest-400 rounded-full animate-spin" /> Sending...</>
+                              ) : (
+                                <><Send size={14} /> Send Design to Client</>
+                              )}
+                            </button>
+                            <button
                               onClick={handleSaveToDrive}
                               disabled={isSavingDrive}
                               className="w-full bg-celtic-500/10 text-celtic-400 py-4 rounded-xl border border-celtic-500/20 font-black uppercase tracking-widest text-xs hover:bg-celtic-500/20 active:scale-95 duration-150 transition-all flex items-center justify-center gap-2"
