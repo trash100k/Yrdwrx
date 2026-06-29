@@ -13,7 +13,12 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (feature wave SHIPPED) — **built & shipped six research-driven features
+> _Last updated: 2026-06-29 (DESIGN STUDIO overhaul + owner-intelligence wave) — see the dedicated
+> **"Design Studio overhaul"** and **"Owner-intelligence wave"** sections below, and the full engineering
+> spec in **`DESIGN_STUDIO_PLAN.md`**. Shipped a whole-feature Design Studio audit + reliability pass +
+> new features + the real flagship region-aware "draw a circle → place THAT object exactly there"
+> placement engine (Phase 0), all gated green (103 tests). Previously the same day:
+> 2026-06-29 (feature wave SHIPPED) — **built & shipped six research-driven features
 > (gated green, 89 tests): outbound EMAIL send, the "Tailgate Closeout" flagship voice→actions flow,
 > real-time JOB COSTING, chemical/pesticide COMPLIANCE log (+ new `compliance_logs` Supabase table,
 > 0 advisories), public ONLINE BOOKING widget, and INSTANT ESTIMATE (property measurement).** New
@@ -785,6 +790,89 @@ wired into routes (`App.tsx`) and the sidebar (`Layout.tsx`).
 - [x] **Instant Estimate** (`src/components/InstantEstimate.tsx` + `src/pages/EstimateStudio.tsx`)
       — address → `POST /api/measure/property` (provider-pluggable, honest AI-estimate badge) →
       suggested quote → create draft estimate. _Aerial measurement provider still a config blocker._
+
+## Owner-intelligence wave — SHIPPED 2026-06-29 (gated green, 89 tests)
+
+New server endpoints `POST /api/agent/owner-digest` + `POST /api/agent/save-play` (Gemini, mock-safe).
+
+- [x] **Customer Intelligence** (`src/pages/CustomerIntelligence.tsx`) — churn-risk radar (health
+      score + reasons) + per-customer profitability/LTV with margin verdicts and AI "save play"
+      (`/api/agent/save-play`, optional emailed send). Covers 2 find-more items.
+- [x] **Owner Digest** (`src/pages/OwnerDigest.tsx`) — AI "state of your business" brief from
+      client-computed aggregates (`/api/agent/owner-digest`), period toggle, email-me. Honest
+      metrics (utilization omitted when underivable).
+- [x] **Before/After gallery + review prompt** (Portfolio) — arrival vs departure photos grouped by
+      property; per-customer review request; slideshow kept intact.
+- [x] Wired admin routes (`customer-intel`, `owner-digest`) + sidebar nav (Activity / FileText icons).
+
+## Design Studio overhaul — SHIPPED 2026-06-29 (gated green, 103 tests)
+
+Whole-feature audit + reliability + new features + the **real flagship region-aware placement engine**.
+Full engineering spec: **`DESIGN_STUDIO_PLAN.md`** (verified 2026 AI contract + 10-step flawless
+process + phased plan + must-test risks). Commits: `ff9b25f`, `e4aaa2f`, `c942172`.
+
+**Reliability (done):**
+- [x] `response.ok` guards + honest error/info toasts on `processDesign` / `generateMockup` /
+      `generateTiers` (were silent `console.error`); mock mode now says "AI rendering needs a Gemini
+      key" instead of echoing the photo as a no-op; removed dead top-level `data.estimatedCost` line.
+- [x] **Image-cache bug fixed** (`server.ts`): the `generateContent` cache stored only `.text`, so a
+      repeat IMAGE request returned no `candidates` → blank render. Image requests now bypass cache.
+- [x] **BeforeAfterSlider** — respect `imageAspectRatio` (no more `object-fill` stretch), keyboard
+      a11y (arrows/Home/End), broken-image fallback.
+
+**New features (done):**
+- [x] **Attach a client** picker in the studio (bind visions/quotes without agent navigation).
+- [x] **Send Design to Client** — emails the vision via `/api/email/send` (honest simulated/draft).
+- [x] **Regenerate (Redo) + Download** on the render panel.
+- [x] **Catalog DB inline Edit** (`DesignDatabasePanel` — was create/delete only; now uses
+      `designCatalogRepo.update` + validation).
+
+**Phase 0 placement engine — the "draw a circle → place THAT object exactly there" flagship (done):**
+- [x] `src/lib/canvasGeometry.ts` (+14 Vitest cases) — pure contain→normalized coord math;
+      `regionFromBBox`; `describeRegion`.
+- [x] **MarkupCanvas** tags circle/box (`add`) and X (`remove`) shapes; on finalize emits semantic
+      `regions[]` (normalized 0..1) + the **clean** photo (no burned-in marks) via a `MarkupPayload`.
+- [x] **`POST /api/design/place-objects`** — clean photo + numbered per-region instruction
+      (`describeRegion`) → `gemini-2.5-flash-image`; parts order **refs → yard (last) → text** +
+      `imageConfig.aspectRatio`; mock parity (echo photo); honest errors.
+- [x] **DesignStudio** — per-region "what goes here" labels; `generateMockup` routes through
+      place-objects when regions exist, then **composites the model output back over the
+      byte-identical original through a feathered region mask (client-side)** so nothing outside the
+      regions changes (THE guarantee); whole-image restyle kept as fallback; unified FAB.
+
+**Verified AI contract (the decisive findings — see `DESIGN_STUDIO_PLAN.md`):**
+- NO first-party Google mask-inpaint exists (Imagen mask-inpaint was Vertex-only AND shut down
+  2026-06-24); `gemini-2.5-flash-image` is **instruction-only** (no mask/bbox/editMode field).
+- The "rest-of-scene-unchanged" guarantee is a **feathered-mask composite**, not a prompt/marker.
+- Parts order **refs → yard last → text last** (output adopts the yard's aspect ratio).
+- Gemini-native **segmentation** (`box_2d` + PNG) is free from the same SDK; SynthID watermark on
+  output; ~$0.039/image; `MAX_REFS=2` (dev-API cap unconfirmed); model **EOL Oct 2 2026**.
+
+**HONEST caveats / blockers:**
+- ⚠️ **Real-model behavior is UNVERIFIED in this sandbox** — the network policy blocks Gemini egress,
+  so the placement engine is built to the verified contract + gated-green + mock-safe, but actual
+  render quality needs a live `GEMINI_API_KEY` to validate (must-test-first risks in the plan §8).
+- Chose **client-side composite** for Phase 0 (zero new deps, gate-verifiable). The stronger
+  **server-side `sharp` composite + SCENE_PRESERVED assertion** is the recommended hardening —
+  deferred because `sharp` is a native dep with a flagged Cloud Run build risk (needs human verify).
+
+**Design Studio — remaining phases (NOT yet built; full detail in `DESIGN_STUDIO_PLAN.md`):**
+- [ ] **Phase 1 — Snap/verify/iterate:** Gemini-native segmentation surface-snap (circle → real
+      lawn/bed); VLM-judge auto-verify + retry (+ deterministic SCENE_PRESERVED gate, escalate to
+      `gemini-3-pro-image`); append-only `DesignSession`/`PlacementLayer` edit history + undo/redo
+      (iteration invariant: always feed the **composited HEAD**); Firestore/Storage image cache +
+      async job + per-tenant image budget. _Mostly buildable now (needs key for real renders)._
+- [ ] **Phase 2 — Grounding & economics:** `CatalogItem` type + zone resolver (address → USDA zone,
+      cached on customer) + `selectPlants` rules engine (zone/sun/size/deer, no-crowd qty); selection
+      → **deterministic cost** that the render is constrained to agree with; delivery PDF (Puppeteer)
+      + "AI Visualization" badge + provenance. _Catalog data (Perenual) is a `[key]` blocker._
+- [ ] **Phase 3 (optional):** Depth Anything v2 for occlusion/scale; crop-and-paste-back v2 path;
+      shadow/intrinsic harmonization. _`[provider]` deps._
+- [ ] **Server-side `sharp` composite** hardening (Dockerfile + Cloud Run binary verify) — the
+      flagged-blocking upgrade that makes "rest unchanged" server-enforced.
+- [ ] Fix `reopenVision` snake/camel mismatch so saved visions reload (`DesignStudio.tsx`).
+- [ ] Design3D maps procedural primitives only (doesn't use the uploaded photo) — conceptual; map the
+      photo onto a ground plane later.
 
 ## Discovered backlog — "find more" pass (2026-06-29)
 
