@@ -3551,16 +3551,38 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/invoices/generate-pdf", async (req, res) => {
     try {
-      const { invoiceId, accessToken, clientEmail, merchant, amount } = req.body;
+      const { invoiceId, accessToken, clientEmail, merchant, amount, items } = req.body;
 
       if (!invoiceId || !accessToken) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
       // SECURITY: Construct HTML strictly server-side to prevent Puppeteer SSRF/XSS vectors
+      const esc = (s: any) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const safeId = String(invoiceId).slice(0, 6).replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      const safeMerchant = String(merchant).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const safeMerchant = esc(merchant);
       const safeAmount = Number(amount).toLocaleString();
+
+      // Render real line items when the caller passes them; otherwise a single summary row.
+      const lineItems = Array.isArray(items) && items.length
+        ? items.map((it: any) => {
+            const qty = Number(it?.quantity ?? 1);
+            const rate = Number(it?.rate ?? it?.amount ?? 0);
+            const lineTotal = (qty * rate) || Number(it?.amount ?? 0);
+            return { desc: esc(it?.description || "Service"), qty, rate, lineTotal };
+          })
+        : null;
+      const itemRowsHtml = lineItems
+        ? lineItems.map((li) => `
+                <tr>
+                  <td style="padding: 14px 0;">${li.desc}${li.qty > 1 ? ` <span style="color:#999;">×${li.qty}</span>` : ""}</td>
+                  <td style="text-align: right; font-weight: bold; padding: 14px 0;">$${li.lineTotal.toLocaleString()}</td>
+                </tr>`).join("")
+        : `
+                <tr>
+                  <td style="padding: 20px 0;">Landscaping & Property Services</td>
+                  <td style="text-align: right; font-weight: bold; padding: 20px 0;">$${safeAmount}</td>
+                </tr>`;
 
       const invoiceHtml = `
         <html>
@@ -3581,10 +3603,7 @@ export async function createApp({ startListening = false } = {}) {
                   <th style="text-align: left; padding: 10px 0; color: #666;">Description</th>
                   <th style="text-align: right; padding: 10px 0; color: #666;">Amount</th>
                 </tr>
-                <tr>
-                  <td style="padding: 20px 0;">Landscaping & Property Services</td>
-                  <td style="text-align: right; font-weight: bold; padding: 20px 0;">$${safeAmount}</td>
-                </tr>
+                ${itemRowsHtml}
               </table>
             </div>
 

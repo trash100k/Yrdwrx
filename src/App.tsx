@@ -426,6 +426,10 @@ useEffect(() => {
                                   path="routing"
                                   element={<RouteOptimizer />}
                                 />
+                                <Route
+                                  path="ai-playground"
+                                  element={<AiPlayground />}
+                                />
                                 {/* Employees shouldn't see sensitive admin reports or settings */}
                                 <Route
                                   path="*"
