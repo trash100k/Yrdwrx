@@ -755,6 +755,78 @@ export default function Invoices() {
     });
   }, [invoices, quarterFilter]);
 
+  // Accounts-receivable aging: bucket each invoice's OUTSTANDING balance by how many
+  // days past its due date it is. Drives the owner AR summary + "remind all overdue".
+  const arAging = useMemo(() => {
+    const now = new Date(new Date().toDateString()).getTime();
+    const b = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90: 0, outstanding: 0, collected: 0, overdueInvoices: [] as any[] };
+    for (const inv of invoices) {
+      if (inv.isArchived) continue;
+      const s = (inv.status || "").toLowerCase();
+      if (["void", "cancelled", "canceled", "draft"].includes(s)) continue;
+      const total = Number(inv.amount) || 0;
+      const paid = Number((inv as any).amountPaid) || 0;
+      b.collected += paid;
+      const bal = total - paid;
+      if (bal <= 0.005 || s === "paid") continue;
+      b.outstanding += bal;
+      const due = inv.dueDate ? new Date(inv.dueDate).getTime() : NaN;
+      const daysOver = isNaN(due) ? 0 : Math.floor((now - due) / 86400000);
+      if (daysOver <= 0) b.current += bal;
+      else {
+        if (daysOver <= 30) b.d1_30 += bal;
+        else if (daysOver <= 60) b.d31_60 += bal;
+        else if (daysOver <= 90) b.d61_90 += bal;
+        else b.d90 += bal;
+        b.overdueInvoices.push(inv);
+      }
+    }
+    return b;
+  }, [invoices]);
+
+  const [remindingAll, setRemindingAll] = useState(false);
+
+  // Email a payment reminder to every overdue invoice's client; one honest summary toast.
+  const handleRemindAllOverdue = async () => {
+    const list = arAging.overdueInvoices;
+    if (!list.length) { showToast("No overdue invoices to remind.", "info"); return; }
+    setRemindingAll(true);
+    let sent = 0, simulated = 0, skipped = 0, failed = 0;
+    try {
+      for (const inv of list) {
+        const cust = customers.find((c: any) => c.id === (inv.customerId || inv.clientId));
+        const email = inv.clientEmail || (inv as any).email || cust?.email;
+        if (!email) { skipped++; continue; }
+        const bal = (Number(inv.amount) || 0) - (Number((inv as any).amountPaid) || 0);
+        const link = `${window.location.origin}/portal/${inv.customerId || inv.clientId || ""}`;
+        try {
+          const res = await fetchApi("/api/email/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: email,
+              subject: `Payment reminder — INV-${(inv as any).number || inv.id.slice(0, 6)}`,
+              text: `Hi ${inv.client || "there"}, a friendly reminder that ${formatCurrency(bal)} is past due. Pay securely here: ${link}. Thank you!`,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data?.error) failed++;
+          else if (data.simulated) simulated++;
+          else { sent++; }
+        } catch { failed++; }
+      }
+      const parts = [];
+      if (sent) parts.push(`${sent} sent`);
+      if (simulated) parts.push(`${simulated} not configured`);
+      if (skipped) parts.push(`${skipped} no email`);
+      if (failed) parts.push(`${failed} failed`);
+      showToast(`Reminders: ${parts.join(" · ") || "none"}.`, sent ? "success" : simulated || skipped ? "info" : "error");
+      if (sent) await logSystemEvent("INVOICE_REMINDERS_BULK", { count: sent, tenantId: tenant?.id || "genesis-1" });
+    } finally {
+      setRemindingAll(false);
+    }
+  };
+
   // Perform the actual invoice deletion (soft-delete/archive). Gated by the
   // ConfirmDialog — only called after the user confirms.
   const performDeleteInvoice = async (inv: any) => {
@@ -952,6 +1024,42 @@ export default function Invoices() {
 
       {activeTab === "Invoices" && (
         <div className="space-y-10">
+          {/* Accounts-receivable aging — outstanding balances by how overdue they are. */}
+          {(arAging.outstanding > 0 || arAging.collected > 0) && (
+            <div className="bg-zinc-900/60 border border-white/10 rounded-2xl p-5">
+              <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Accounts Receivable</p>
+                  <p className="text-2xl font-black text-white">{formatCurrency(arAging.outstanding)} <span className="text-sm font-medium text-zinc-500">outstanding</span></p>
+                  <p className="text-[11px] text-forest-400/80 mt-0.5">{formatCurrency(arAging.collected)} collected</p>
+                </div>
+                {arAging.overdueInvoices.length > 0 && (
+                  <button
+                    onClick={handleRemindAllOverdue}
+                    disabled={remindingAll}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-amber-500/20 transition-all disabled:opacity-50"
+                  >
+                    {remindingAll ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />}
+                    Remind {arAging.overdueInvoices.length} Overdue
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {[
+                  { label: "Current", val: arAging.current, cls: "text-forest-400" },
+                  { label: "1–30 days", val: arAging.d1_30, cls: "text-amber-400" },
+                  { label: "31–60 days", val: arAging.d31_60, cls: "text-amber-400" },
+                  { label: "61–90 days", val: arAging.d61_90, cls: "text-rose-400" },
+                  { label: "90+ days", val: arAging.d90, cls: "text-rose-400" },
+                ].map((b) => (
+                  <div key={b.label} className="bg-black/30 border border-white/5 rounded-xl px-3 py-2.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{b.label}</p>
+                    <p className={`text-sm font-bold mt-0.5 ${b.val > 0 ? b.cls : "text-zinc-600"}`}>{formatCurrency(b.val)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex flex-wrap items-center gap-4">
               <button
