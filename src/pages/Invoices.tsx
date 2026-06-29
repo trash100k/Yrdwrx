@@ -110,6 +110,10 @@ export default function Invoices() {
   const [showAIModal, setShowAIModal] = useState(false);
   const [autoSchedule, setAutoSchedule] = useState(true);
   const [scheduleDate, setScheduleDate] = useState("");
+  // Billing controls (tax / discount / due date). Tax + net-terms default from tenant settings.
+  const [taxRate, setTaxRate] = useState<number>(Number((tenant?.settings as any)?.taxRate) || 0);
+  const [discount, setDiscount] = useState<number>(0);
+  const [dueDays, setDueDays] = useState<number>(Number((tenant?.settings as any)?.invoiceNetDays) || 30);
   const [aiAnalysis, setAiAnalysis] = useState<Record<string, any> | null>(
     null,
   );
@@ -207,9 +211,23 @@ export default function Invoices() {
   // "Quick Add"/"Generate Invoice" drafts have none, so the selector resets to
   // "no customer linked" rather than leaking a prior selection.
   useEffect(() => {
-    if (showAIModal) setSelectedCustomerId(aiAnalysis?.customerId || "");
+    if (showAIModal) {
+      setSelectedCustomerId(aiAnalysis?.customerId || "");
+      // Reset billing controls to tenant defaults each time a draft opens.
+      setTaxRate(Number((tenant?.settings as any)?.taxRate) || 0);
+      setDiscount(0);
+      setDueDays(Number((tenant?.settings as any)?.invoiceNetDays) || 30);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAIModal]);
+
+  // Next human-friendly sequential invoice number (max existing + 1, base 1001).
+  const nextInvoiceNumber = () => {
+    const nums = (invoices || [])
+      .map((i: any) => Number(i?.number ?? i?.data?.number))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return (nums.length ? Math.max(...nums) : 1000) + 1;
+  };
 
   useEffect(() => {
     if (location.state?.client) {
@@ -761,8 +779,16 @@ export default function Invoices() {
                     <h4 className="font-semibold text-white text-lg group-hover:text-forest-400 transition-colors">
                       {inv.client}
                     </h4>
-                    <p className="text-zinc-500 text-sm">
-                      {inv.date || "Today"} • INV-{inv.id.slice(0, 6)}
+                    <p className="text-zinc-500 text-sm flex items-center gap-2 flex-wrap">
+                      <span>{inv.date || "Today"} • INV-{(inv as any).number || inv.id.slice(0, 6)}</span>
+                      {(() => {
+                        const s = (inv.status || "").toLowerCase();
+                        const unpaid = !["paid", "draft", "void", "cancelled", "canceled"].includes(s);
+                        const overdue = unpaid && inv.dueDate && new Date(inv.dueDate) < new Date(new Date().toDateString());
+                        if (overdue) return <span className="text-[10px] font-black uppercase tracking-widest text-red-400 bg-red-500/10 border border-red-500/30 px-2 py-0.5 rounded">Overdue</span>;
+                        if (unpaid && inv.dueDate) return <span className="text-[10px] text-zinc-600">Due {inv.dueDate}</span>;
+                        return null;
+                      })()}
                     </p>
                   </div>
                 </div>
@@ -1261,14 +1287,39 @@ export default function Invoices() {
                         )}
                       </div>
                       
-                      <div className="pt-6 border-t border-white/10 flex justify-between items-end">
-                        <span className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
-                          Total Estimate
-                        </span>
-                        <span className="text-3xl font-bold text-white leading-none">
-                          ${((aiAnalysis?.items?.reduce((acc: number, curr: any) => acc + ((curr.rate || 0) * (curr.quantity || 0)), 0) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
+                      {/* Billing summary: subtotal -> discount -> tax -> total, with due terms. */}
+                      {(() => {
+                        const subtotal = (aiAnalysis?.items || []).reduce((acc: number, curr: any) => acc + ((curr.rate || 0) * (curr.quantity || 0)), 0);
+                        const disc = Math.min(Number(discount) || 0, subtotal);
+                        const taxable = subtotal - disc;
+                        const tax = taxable * ((Number(taxRate) || 0) / 100);
+                        const total = taxable + tax;
+                        const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        return (
+                          <div className="pt-6 border-t border-white/10 space-y-2.5">
+                            <div className="flex justify-between text-sm text-zinc-400"><span>Subtotal</span><span className="font-mono text-white">{money(subtotal)}</span></div>
+                            <div className="flex justify-between items-center text-sm text-zinc-400">
+                              <span>Discount ($)</span>
+                              <input type="number" value={discount} onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)} className="w-24 bg-zinc-900 border border-white/10 rounded-lg p-1.5 text-right text-white text-sm focus:outline-none focus:border-forest-500" />
+                            </div>
+                            <div className="flex justify-between items-center text-sm text-zinc-400">
+                              <span>Tax (%)</span>
+                              <div className="flex items-center gap-2">
+                                <input type="number" value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)} className="w-16 bg-zinc-900 border border-white/10 rounded-lg p-1.5 text-right text-white text-sm focus:outline-none focus:border-forest-500" />
+                                <span className="font-mono text-white w-24 text-right">{money(tax)}</span>
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center text-sm text-zinc-400">
+                              <span>Payment due in (days)</span>
+                              <input type="number" value={dueDays} onChange={(e) => setDueDays(parseInt(e.target.value) || 0)} className="w-20 bg-zinc-900 border border-white/10 rounded-lg p-1.5 text-right text-white text-sm focus:outline-none focus:border-forest-500" />
+                            </div>
+                            <div className="flex justify-between items-end pt-2.5 border-t border-white/5">
+                              <span className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Total Due</span>
+                              <span className="text-3xl font-bold text-white leading-none">{money(total)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                       
                       <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-4">
                         <div className="flex items-center gap-3 mb-4">
@@ -1311,7 +1362,24 @@ export default function Invoices() {
                       const path = "invoices";
                       const tenantId = tenant?.id || "genesis-1";
                       if (!aiAnalysis) return;
-                      const calculatedTotal = (aiAnalysis.items || []).reduce((acc: number, curr: any) => acc + ((curr.rate || 0) * (curr.quantity || 0)), 0);
+                      // Billing math (mirror the summary block): subtotal -> discount -> tax -> total.
+                      const subtotal = (aiAnalysis.items || []).reduce((acc: number, curr: any) => acc + ((curr.rate || 0) * (curr.quantity || 0)), 0);
+                      const discountAmt = Math.min(Number(discount) || 0, subtotal);
+                      const taxableBase = subtotal - discountAmt;
+                      const taxAmount = taxableBase * ((Number(taxRate) || 0) / 100);
+                      const calculatedTotal = taxableBase + taxAmount;
+                      const invNumber = nextInvoiceNumber();
+                      const today = new Date();
+                      const dueDate = new Date(today.getTime() + (Number(dueDays) || 0) * 86400000)
+                        .toISOString()
+                        .slice(0, 10);
+                      const billing = {
+                        number: invNumber,
+                        subtotal,
+                        discount: discountAmt,
+                        taxRate: Number(taxRate) || 0,
+                        taxAmount,
+                      };
                       // Resolve the linked customer id so the invoice attributes revenue
                       // to a customer (invoices.customer_id). Prefer the explicit selector,
                       // then any customerId carried in from CRM/job context.
@@ -1325,10 +1393,11 @@ export default function Invoices() {
                               amount: calculatedTotal,
                               items: aiAnalysis.items,
                               status: "sent",
+                              dueDate,
                               // Persist the customer linkage for profitability/job costing/reporting.
                               ...(customerId ? { customerId } : {}),
-                              // Carry a job association through to the invoice's data jsonb if present.
-                              ...(aiAnalysis.jobId ? { data: { jobId: aiAnalysis.jobId } } : {}),
+                              // Sequential number + tax/discount breakdown + optional job link.
+                              data: { ...billing, ...(aiAnalysis.jobId ? { jobId: aiAnalysis.jobId } : {}) },
                             }),
                           );
                           invoiceId = created?.id;
@@ -1348,7 +1417,9 @@ export default function Invoices() {
                               amount: calculatedTotal,
                               items: aiAnalysis.items,
                               status: "sent",
+                              dueDate,
                               ...(customerId ? { customerId } : {}),
+                              ...billing,
                               ...(aiAnalysis.jobId ? { jobId: aiAnalysis.jobId } : {}),
                               createdAt: new Date().toISOString(),
                             },

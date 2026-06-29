@@ -2,15 +2,18 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   FileText, Plus, CalendarClock, CreditCard, ChevronRight, X, Save,
-  DollarSign, ShieldCheck, AlertTriangle, Loader2, Trash2, CalendarPlus,
+  DollarSign, ShieldCheck, AlertTriangle, Loader2, Trash2, CalendarPlus, Receipt,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { contractsRepo, customersRepo, jobsRepo } from "../lib/repos";
+import { contractsRepo, customersRepo, jobsRepo, invoicesRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { nextVisitDates, parseCadence } from "../lib/recurring";
+import { visitDatesUntil, parseCadence, pricePerVisitFromMrr } from "../lib/recurring";
 
 const VISITS_TO_GENERATE = 4;
+
+// Today as YYYY-MM-DD (UTC) — used to anchor generation and count future visits.
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 // --- Status model -----------------------------------------------------------
 const STATUS = {
@@ -35,8 +38,9 @@ function renewingSoon(c) {
 }
 
 const EMPTY_FORM = {
-  name: "", customer_id: "", status: "active", mrr: "",
+  name: "", customer_id: "", status: "active", mrr: "", pricePerVisit: "",
   cycle: "Monthly", start_date: "", end_date: "", services: "",
+  visitsToGenerate: String(VISITS_TO_GENERATE),
 };
 
 export default function Contracts() {
@@ -52,6 +56,8 @@ export default function Contracts() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [generatingId, setGeneratingId] = useState(null); // contract.id currently generating visits
+  const [alsoInvoice, setAlsoInvoice] = useState(false);   // generate draft invoices alongside visits
+  const [upcomingByContract, setUpcomingByContract] = useState({}); // contractId -> # of future jobs
 
   // --- Realtime list --------------------------------------------------------
   useEffect(() => {
@@ -68,6 +74,28 @@ export default function Contracts() {
     customersRepo.list().then((rows) => active && setCustomers(rows || [])).catch(() => {});
     return () => { active = false; };
   }, []);
+
+  // --- Upcoming-visit counts ------------------------------------------------
+  // Load all jobs once and tally FUTURE (date >= today) scheduled jobs per
+  // contract (keyed off data.contractId). Re-run after generating visits.
+  async function refreshUpcoming() {
+    try {
+      const jobs = await jobsRepo.list();
+      const cutoff = todayISO();
+      const counts = {};
+      for (const j of jobs || []) {
+        const cid = j?.data?.contractId || j?.data?.contract_id;
+        if (!cid) continue;
+        const d = j.date ? String(j.date).slice(0, 10) : null;
+        if (!d || d < cutoff) continue;
+        counts[cid] = (counts[cid] || 0) + 1;
+      }
+      setUpcomingByContract(counts);
+    } catch {
+      // Non-fatal: chips just won't show.
+    }
+  }
+  useEffect(() => { refreshUpcoming(); }, []);
 
   const customerName = (id) => {
     const c = customers.find((x) => x.id === id);
@@ -111,13 +139,16 @@ export default function Contracts() {
     setEditing(c);
     setForm({
       name: c.name || "",
-      customer_id: c.customer_id || "",
+      customer_id: c.customer_id || c.customerId || "",
       status: c.status || "active",
       mrr: c.mrr != null ? String(c.mrr) : "",
+      pricePerVisit: c.data?.pricePerVisit != null ? String(c.data.pricePerVisit) : "",
       cycle: c.data?.cycle || "Monthly",
       start_date: c.data?.start_date || "",
       end_date: c.data?.end_date || "",
       services: c.data?.services || "",
+      visitsToGenerate:
+        c.data?.visitsToGenerate != null ? String(c.data.visitsToGenerate) : String(VISITS_TO_GENERATE),
     });
     setShowModal(true);
   }
@@ -128,6 +159,8 @@ export default function Contracts() {
       return;
     }
     setSaving(true);
+    const ppv = form.pricePerVisit === "" ? null : Number(form.pricePerVisit) || 0;
+    const visitsToGenerate = Math.max(1, Math.floor(Number(form.visitsToGenerate) || VISITS_TO_GENERATE));
     const row = {
       name: form.name.trim(),
       status: form.status,
@@ -138,6 +171,8 @@ export default function Contracts() {
         start_date: form.start_date || null,
         end_date: form.end_date || null,
         services: form.services.trim(),
+        pricePerVisit: ppv,
+        visitsToGenerate,
       },
     };
     try {
@@ -169,61 +204,113 @@ export default function Contracts() {
   }
 
   // --- Maintenance-revenue engine: generate upcoming visits -----------------
-  // For an active recurring contract, schedule the next 4 visits as jobs at the
-  // contract's cadence. Best-effort dup-guard: load this customer's jobs once and
-  // skip any (contractId + date) pair that already has a job, so re-clicking is safe.
-  async function handleGenerateVisits(c) {
+  // For an active recurring contract, schedule the next N visits as jobs at the
+  // contract's cadence. Anchored on the LATER of (contract start_date, today) so
+  // we never backfill past visits, and stopped at the contract end_date.
+  // Best-effort dup-guards: load this customer's jobs once and skip any
+  // (contractId + date) pair that already has a job; when `withInvoices` is on,
+  // also load invoices once and skip any (contractId + date) already invoiced.
+  // So re-clicking is always safe.
+  async function handleGenerateVisits(c, withInvoices) {
     if (!c) return;
     const customerId = c.customerId || c.customer_id || null;
     setGeneratingId(c.id);
     try {
       const cadence = parseCadence(c.data?.frequency || c.data?.cycle);
-      const dates = nextVisitDates(new Date().toISOString(), cadence, VISITS_TO_GENERATE);
 
-      // Build a set of already-scheduled dates for THIS contract (best-effort).
-      let existing = new Set();
+      // Anchor on the later of start date and today (no backfilling).
+      const today = todayISO();
+      const start = c.data?.start_date ? String(c.data.start_date).slice(0, 10) : null;
+      const anchorISO = start && start > today ? start : today;
+
+      // Configurable horizon, respecting the contract's end date (if any).
+      const horizon = Math.max(1, Math.floor(Number(c.data?.visitsToGenerate) || VISITS_TO_GENERATE));
+      const endISO = c.data?.end_date ? String(c.data.end_date).slice(0, 10) : null;
+      const dates = visitDatesUntil(anchorISO, cadence, endISO, horizon);
+
+      // Per-visit price: explicit field if set, else derive from MRR + cadence.
+      const explicitPrice = c.data?.pricePerVisit;
+      const price =
+        explicitPrice != null && explicitPrice !== ""
+          ? Number(explicitPrice) || 0
+          : pricePerVisitFromMrr(Number(c.mrr || 0), cadence);
+      const canInvoice = !!withInvoices && price > 0;
+
+      const title = c.data?.serviceType || c.data?.services || c.name || "Maintenance visit";
+      const resolvedAddress = resolveCustomerAddress(customerId);
+
+      // Dup-guard set for jobs: existing (contractId + date) for THIS contract.
+      let existingJobDates = new Set();
       try {
-        const jobs = customerId
-          ? await jobsRepo.forCustomer(customerId)
-          : await jobsRepo.list();
+        const jobs = customerId ? await jobsRepo.forCustomer(customerId) : await jobsRepo.list();
         for (const j of jobs || []) {
           if ((j?.data?.contractId || j?.data?.contract_id) !== c.id) continue;
           const d = j.date ? String(j.date).slice(0, 10) : null;
-          if (d) existing.add(d);
+          if (d) existingJobDates.add(d);
         }
       } catch {
         // If we can't load jobs, fall through and create without the dup-guard.
       }
 
-      const title = c.data?.serviceType || c.data?.services || c.name || "Maintenance visit";
-      const resolvedAddress = resolveCustomerAddress(customerId);
-
-      let created = 0;
-      for (const date of dates) {
-        if (existing.has(date)) continue;
-        await jobsRepo.create({
-          title,
-          status: "SCHEDULED",
-          date,
-          customerId,
-          address: resolvedAddress || null,
-          data: { contractId: c.id, recurring: true },
-        });
-        created++;
+      // Dup-guard set for invoices: existing (contractId + jobDate) for THIS contract.
+      let existingInvoiceDates = new Set();
+      if (canInvoice) {
+        try {
+          const invoices = await invoicesRepo.list();
+          for (const inv of invoices || []) {
+            if ((inv?.data?.contractId || inv?.data?.contract_id) !== c.id) continue;
+            const d = inv?.data?.jobDate ? String(inv.data.jobDate).slice(0, 10) : null;
+            if (d) existingInvoiceDates.add(d);
+          }
+        } catch {
+          // If we can't load invoices, fall through and create without the dup-guard.
+        }
       }
 
-      const skipped = dates.length - created;
-      if (created === 0) {
+      let createdJobs = 0;
+      let createdInvoices = 0;
+      for (const date of dates) {
+        if (!existingJobDates.has(date)) {
+          await jobsRepo.create({
+            title,
+            status: "SCHEDULED",
+            date,
+            customerId,
+            address: resolvedAddress || null,
+            data: { contractId: c.id, recurring: true },
+          });
+          createdJobs++;
+        }
+        if (canInvoice && !existingInvoiceDates.has(date)) {
+          await invoicesRepo.create({
+            amount: price,
+            items: [{ description: title, quantity: 1, rate: price }],
+            status: "draft",
+            customerId,
+            date,
+            data: { contractId: c.id, jobDate: date, autoBilled: true },
+          });
+          createdInvoices++;
+        }
+      }
+
+      const skipped = dates.length - createdJobs;
+      if (createdJobs === 0 && createdInvoices === 0) {
         showToast(
-          skipped > 0 ? "All upcoming visits already scheduled — nothing to do" : "No visits to generate",
+          dates.length === 0
+            ? "No visits in range to generate — check start/end dates"
+            : "All upcoming visits already scheduled — nothing to do",
           "info"
         );
       } else {
-        showToast(
-          `Scheduled ${created} ${cadence} visit${created === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already existed)` : ""}`,
-          "success"
-        );
+        const visitPart = `Scheduled ${createdJobs} ${cadence} visit${createdJobs === 1 ? "" : "s"}`;
+        const invoicePart = canInvoice
+          ? ` + ${createdInvoices} draft invoice${createdInvoices === 1 ? "" : "s"}`
+          : "";
+        const skipPart = skipped > 0 ? ` (${skipped} already existed)` : "";
+        showToast(`${visitPart}${invoicePart}${skipPart}`, "success");
       }
+      refreshUpcoming();
     } catch (e) {
       showToast(e?.message || "Failed to generate visits", "error");
     } finally {
@@ -305,19 +392,20 @@ export default function Contracts() {
                   </select>
                 </div>
 
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Status</label>
+                  <select
+                    value={form.status}
+                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
+                  >
+                    {STATUS_ORDER.map((s) => (
+                      <option key={s} value={s}>{STATUS[s].label}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Status</label>
-                    <select
-                      value={form.status}
-                      onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
-                    >
-                      {STATUS_ORDER.map((s) => (
-                        <option key={s} value={s}>{STATUS[s].label}</option>
-                      ))}
-                    </select>
-                  </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">MRR ($)</label>
                     <input
@@ -328,20 +416,49 @@ export default function Contracts() {
                       placeholder="0.00"
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Price / Visit ($)</label>
+                    <input
+                      type="number"
+                      value={form.pricePerVisit}
+                      onChange={(e) => setForm((f) => ({ ...f, pricePerVisit: e.target.value }))}
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
+                      placeholder={(() => {
+                        const est = pricePerVisitFromMrr(Number(form.mrr || 0), parseCadence(form.cycle));
+                        return est > 0 ? `Auto: ${fmtMoney(est)}` : "0.00";
+                      })()}
+                    />
+                  </div>
                 </div>
+                <p className="text-[11px] text-zinc-500 -mt-2">
+                  Leave Price / Visit blank to auto-derive it from MRR &amp; billing cycle when generating visits or invoices.
+                </p>
 
-                <div>
-                  <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Billing Cycle</label>
-                  <select
-                    value={form.cycle}
-                    onChange={(e) => setForm((f) => ({ ...f, cycle: e.target.value }))}
-                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
-                  >
-                    <option>Monthly</option>
-                    <option>Bi-Weekly</option>
-                    <option>Weekly</option>
-                    <option>Annually</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Billing Cycle</label>
+                    <select
+                      value={form.cycle}
+                      onChange={(e) => setForm((f) => ({ ...f, cycle: e.target.value }))}
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
+                    >
+                      <option>Monthly</option>
+                      <option>Bi-Weekly</option>
+                      <option>Weekly</option>
+                      <option>Annually</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Visits / Generate</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={form.visitsToGenerate}
+                      onChange={(e) => setForm((f) => ({ ...f, visitsToGenerate: e.target.value }))}
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
+                      placeholder={String(VISITS_TO_GENERATE)}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -423,12 +540,28 @@ export default function Contracts() {
           <FileText size={32} className="text-forest-400" />
           <h1 className="text-2xl sm:text-3xl sm:text-4xl font-black text-white italic uppercase tracking-tight">Recurring Contracts</h1>
         </div>
-        <button
-          onClick={openCreate}
-          className="bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-sm tracking-widest hover:scale-105 transition-transform flex items-center gap-2"
-        >
-          <Plus size={18} /> New Contract
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Generation mode: visits only vs visits + draft invoices */}
+          <button
+            type="button"
+            onClick={() => setAlsoInvoice((v) => !v)}
+            title="Choose whether 'Generate Visits' also creates a draft invoice per visit"
+            className={`px-4 py-3 rounded-full font-bold uppercase text-xs tracking-widest border transition-colors flex items-center gap-2 ${
+              alsoInvoice
+                ? "bg-forest-500/15 text-forest-400 border-forest-500/40"
+                : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+            }`}
+          >
+            <Receipt size={15} />
+            {alsoInvoice ? "Visits + Draft Invoices" : "Visits Only"}
+          </button>
+          <button
+            onClick={openCreate}
+            className="bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-sm tracking-widest hover:scale-105 transition-transform flex items-center gap-2"
+          >
+            <Plus size={18} /> New Contract
+          </button>
+        </div>
       </div>
 
       {/* Live metrics */}
@@ -544,11 +677,24 @@ export default function Contracts() {
                       </td>
                       <td className="p-4 pr-6 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {upcomingByContract[c.id] > 0 && (
+                            <span
+                              title={`${upcomingByContract[c.id]} upcoming scheduled visit${upcomingByContract[c.id] === 1 ? "" : "s"}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-zinc-300 text-[10px] font-black uppercase tracking-widest"
+                            >
+                              <CalendarClock size={11} className="text-forest-400" />
+                              {upcomingByContract[c.id]} upcoming
+                            </span>
+                          )}
                           {c.status === "active" && (
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleGenerateVisits(c); }}
+                              onClick={(e) => { e.stopPropagation(); handleGenerateVisits(c, alsoInvoice); }}
                               disabled={generatingId === c.id}
-                              title={`Generate the next ${VISITS_TO_GENERATE} scheduled visits`}
+                              title={
+                                alsoInvoice
+                                  ? "Generate upcoming visits + a draft invoice per visit"
+                                  : "Generate the next upcoming scheduled visits"
+                              }
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-forest-500/10 hover:bg-forest-500/20 text-forest-400 border border-forest-500/30 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50"
                             >
                               {generatingId === c.id ? (
