@@ -242,6 +242,9 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   const [cleanImage, setCleanImage] = useState<string | null>(null);
   const [regions, setRegions] = useState<any[]>([]);
   const [regionLabels, setRegionLabels] = useState<Record<string, string>>({});
+  // Pre-badge composite of the latest render, so "Refine" iterates on the clean result
+  // (the spec's invariant: feed the composited HEAD back, never the badged display image).
+  const [lastComposite, setLastComposite] = useState<string | null>(null);
   const [designZone, setDesignZone] = useState<number | "">("");
   const [isPdfing, setIsPdfing] = useState(false);
 
@@ -361,6 +364,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           }
           if (data.imageUrl) {
             const composited = await compositeRegions(base, data.imageUrl, regs).catch(() => data.imageUrl);
+            setLastComposite(composited);
             const badged = await burnAiVizBadge(composited).catch(() => composited);
             setMockupImage(badged);
             setActiveTab("compare");
@@ -387,6 +391,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
         }
         if (data.imageUrl) {
           const finalImg = data.mock ? data.imageUrl : await burnAiVizBadge(data.imageUrl).catch(() => data.imageUrl);
+          setLastComposite(data.imageUrl);
           setMockupImage(finalImg);
           setActiveTab("compare");
           if (!data.mock) showToast("Render ready — swipe the slider to compare.", "success");
@@ -618,6 +623,21 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     } catch (e) {
       showToast("Couldn't download the image.", "error");
     }
+  };
+
+  // Iterate: make the current render the new base, so the next placement composites onto
+  // it (place object after object). Uses the pre-badge composite so badges never compound.
+  const refineOnRender = () => {
+    const head = lastComposite || mockupImage;
+    if (!head) return;
+    setCleanImage(head);
+    setImage(head);
+    setMockupImage(null);
+    setRegions([]);
+    setRegionLabels({});
+    setResult((prev: any) => prev); // keep the analysis/materials context
+    setActiveTab("scribble");
+    showToast("Mark new spots on this design to keep refining.", "info");
   };
 
   // Branded before/after + itemized proposal PDF the contractor hands the client.
@@ -1214,6 +1234,13 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                     className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5"
                                   >
                                     <Download size={12} /> Save
+                                  </button>
+                                  <button
+                                    onClick={refineOnRender}
+                                    title="Keep designing on top of this render"
+                                    className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5"
+                                  >
+                                    <Sparkles size={12} /> Refine
                                   </button>
                                 </div>
                               </div>
