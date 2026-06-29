@@ -4905,6 +4905,82 @@ OUTPUT JSON ONLY, shape:
     }
   });
 
+  // ===========================================================================
+  // AI OWNER DIGEST — narrative "state of your business" brief from aggregates the
+  // client already computed (revenue/margin/AR/at-risk/utilization). Gemini turns
+  // numbers into a readable digest; mock-mode returns a deterministic templated one.
+  // ===========================================================================
+  app.post("/api/agent/owner-digest", aiLimiter, async (req: any, res) => {
+    try {
+      const { metrics, period } = req.body || {};
+      const m = metrics || {};
+      const fmt = (n: any) => (typeof n === "number" ? `$${Math.round(n).toLocaleString()}` : "—");
+      if (isMockMode) {
+        return res.json({
+          simulated: true,
+          headline: `Your ${period || "weekly"} business brief`,
+          summary: `Revenue ${fmt(m.revenue)} across ${m.jobsCompleted ?? 0} completed jobs at a ${m.marginPct != null ? m.marginPct + "%" : "—"} blended margin. ${m.overdueAr ? `${fmt(m.overdueAr)} in overdue AR needs chasing.` : "AR is current."}`,
+          sections: [
+            { title: "Money", items: [`Revenue ${fmt(m.revenue)}`, `Costs ${fmt(m.cost)}`, `Overdue AR ${fmt(m.overdueAr)}`] },
+            { title: "Customers", items: [`${m.atRisk ?? 0} customers flagged at-risk`, `${m.newLeads ?? 0} new leads`] },
+            { title: "Crew", items: [`${m.jobsCompleted ?? 0} jobs completed`, m.utilizationPct != null ? `${m.utilizationPct}% crew utilization` : "Utilization not tracked"] },
+          ],
+          recommendations: [
+            m.overdueAr ? "Send payment reminders on overdue invoices." : "Keep AR current — send invoices same-day via Closeout.",
+            m.atRisk ? "Review the at-risk list and trigger a save play." : "Ask happy customers for a referral.",
+          ],
+        });
+      }
+      const systemInstruction = `You are YardWorx's owner business analyst. Given a landscaping company's period metrics, write a concise, confident "state of your business" digest the owner reads over coffee. Be specific with the numbers given; do NOT invent figures not provided. OUTPUT JSON ONLY:
+{"headline":"...","summary":"2-3 sentences","sections":[{"title":"Money|Customers|Crew|...","items":["short line", ...]}],"recommendations":["actionable, prioritized", ...]}`;
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Period: ${period || "this week"}\nMetrics: ${JSON.stringify(m).slice(0, 2000)}`,
+        config: { systemInstruction, responseMimeType: "application/json" },
+      });
+      const digest = parseGeminiJson(response.text);
+      if (!digest || !digest.summary) return res.status(502).json({ error: "Digest generation failed" });
+      res.json(digest);
+    } catch (e: any) {
+      console.error("[agent/owner-digest]", e?.message);
+      res.status(500).json({ error: e?.message || "Digest failed" });
+    }
+  });
+
+  // ===========================================================================
+  // CHURN SAVE PLAY — given a customer + the risk signals the client computed,
+  // draft a retention play (channel + message + optional offer). Mock-safe.
+  // ===========================================================================
+  app.post("/api/agent/save-play", aiLimiter, async (req: any, res) => {
+    try {
+      const { customer, signals } = req.body || {};
+      if (!customer) return res.status(400).json({ error: "customer required" });
+      const name = customer.firstName || customer.name || customer.companyName || "this customer";
+      if (isMockMode) {
+        return res.json({
+          simulated: true,
+          channel: customer.email ? "email" : customer.phone ? "sms" : "call",
+          subject: `We'd love to keep your yard looking great, ${name}`,
+          message: `Hi ${name}, we noticed it's been a while since your last service. We'd love to get you back on the schedule — reply and we'll find a time that works. As a thank-you for your loyalty, your next visit is 10% off.`,
+          offer: "10% off next visit",
+          reasoning: (Array.isArray(signals) ? signals : []).slice(0, 5),
+        });
+      }
+      const systemInstruction = `You are YardWorx's retention strategist. A landscaping customer shows churn-risk signals. Draft ONE concise save play. Pick the best channel from what contact info exists. Keep it warm, specific, and short. OUTPUT JSON ONLY: {"channel":"email|sms|call","subject":"(email only)","message":"...","offer":"short offer or null","reasoning":["why", ...]}`;
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Customer: ${JSON.stringify(customer).slice(0, 800)}\nRisk signals: ${JSON.stringify(signals || []).slice(0, 600)}`,
+        config: { systemInstruction, responseMimeType: "application/json" },
+      });
+      const play = parseGeminiJson(response.text);
+      if (!play || !play.message) return res.status(502).json({ error: "Save-play generation failed" });
+      res.json(play);
+    } catch (e: any) {
+      console.error("[agent/save-play]", e?.message);
+      res.status(500).json({ error: e?.message || "Save play failed" });
+    }
+  });
+
   // Test mode: return the configured app without opening a socket or the Live WebSocket.
   if (!startListening) return app;
 
