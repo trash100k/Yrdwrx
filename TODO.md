@@ -13,7 +13,19 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (HOA + automations) — **deepened HOA features and made the "agent
+> _Last updated: 2026-06-29 (feature-completeness sprint) — **swept every section for dead buttons,
+> fake/hardcoded data, crashes, and missing functions, then fixed them in a 7-agent wave.** CRM
+> (approved-lead status bug, real Tasks/Documents tabs, aiScore on create, removed fabricated columns
+> + a crash), field ops (CrewSuite crash, Field Mode Start-Job/Photo/Audio/incident, real Route
+> Optimizer + Resource Timeline + job reschedule), money (Mark Paid, Convert-to-Contract wiring the
+> quote_approved trigger, inventory edit + forecast fix, real Reviews/Reports, Stripe no-fake-success),
+> agent (Agent.tsx's 4 mockup tabs made real, AgentLabs failure states, workflow toggle persistence),
+> and shell (dead Settings toggles removed, notification dots/rows, command palette, portal name +
+> no fake payment). Server: invoice-PDF line items + /employee/ai-playground route. Gates green.
+> DEFERRED (need new server endpoints / bigger builds, NOT yet done): SaaS-Admin tenant console
+> (+/api/admin/tenants), Team invite (+/api/team/invite), Client-portal "approve proposal" +
+> invoice-PDF download (token-scoped endpoints), full Scheduler calendar view. Security sprint is next.
+> Previously: 2026-06-29 (HOA + automations) — **deepened HOA features and made the "agent
 > workflows" real.** Two audits (HOA depth, agentic-function completeness) drove a wave: Field Mode
 > now shows the crew the REAL gate code + the property's actual HOA rules (was hardcoded); CRM got a
 > real "Edit Bylaws" editor + HOA fields in add/edit modals (is_hoa + data.{hoaRules,gateCode});
