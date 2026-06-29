@@ -45,6 +45,8 @@ import { designVisionsRepo, designCatalogRepo, customersRepo } from "../lib/repo
 import { auth } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { playVoice } from "../lib/playVoice";
+import { burnAiVizBadge } from "../lib/aiVizBadge";
+import { resolveZone } from "../lib/plantIntelligence";
 
 interface DesignResult {
   identifiedAreas: Array<{
@@ -240,6 +242,18 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   const [cleanImage, setCleanImage] = useState<string | null>(null);
   const [regions, setRegions] = useState<any[]>([]);
   const [regionLabels, setRegionLabels] = useState<Record<string, string>>({});
+  const [designZone, setDesignZone] = useState<number | "">("");
+  const [isPdfing, setIsPdfing] = useState(false);
+
+  // Resolve a working USDA zone (contractor can override) so the AI places zone-appropriate
+  // plants — from the tenant's configured zone, else the customer's ZIP, else their state.
+  useEffect(() => {
+    const addr = activeCustomer?.address || activeCustomer?.data?.address || "";
+    const zip = (String(addr).match(/\b(\d{5})(?:-\d{4})?\b/) || [])[1];
+    const state = activeCustomer?.data?.state || (activeCustomer as any)?.state;
+    const r = resolveZone({ explicit: (tenant?.settings as any)?.zone ?? null, zip, state });
+    if (r.zone) setDesignZone(r.zone);
+  }, [activeCustomer?.id, tenant]);
 
   useEffect(() => {
     if (!tenant) return;
@@ -331,6 +345,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
               regions: regs,
               description: transcript || description,
               aspectRatio: imageAspectRatio ? nearestAspect(imageAspectRatio) : undefined,
+              zone: designZone || undefined,
             }),
           });
           const data = await response.json().catch(() => ({}));
@@ -346,7 +361,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           }
           if (data.imageUrl) {
             const composited = await compositeRegions(base, data.imageUrl, regs).catch(() => data.imageUrl);
-            setMockupImage(composited);
+            const badged = await burnAiVizBadge(composited).catch(() => composited);
+            setMockupImage(badged);
             setActiveTab("compare");
             showToast("Render ready — swipe to compare.", "success");
           } else {
@@ -370,7 +386,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           showToast("Preview shows your original photo — AI rendering needs a Gemini key.", "info");
         }
         if (data.imageUrl) {
-          setMockupImage(data.imageUrl);
+          const finalImg = data.mock ? data.imageUrl : await burnAiVizBadge(data.imageUrl).catch(() => data.imageUrl);
+          setMockupImage(finalImg);
           setActiveTab("compare");
           if (!data.mock) showToast("Render ready — swipe the slider to compare.", "success");
         } else {
@@ -600,6 +617,50 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
       a.remove();
     } catch (e) {
       showToast("Couldn't download the image.", "error");
+    }
+  };
+
+  // Branded before/after + itemized proposal PDF the contractor hands the client.
+  const handleProposalPdf = async () => {
+    if (!result) return;
+    setIsPdfing(true);
+    try {
+      const clientName =
+        activeCustomer?.name ||
+        `${activeCustomer?.firstName || ""} ${activeCustomer?.lastName || ""}`.trim();
+      const res = await fetchApi("/api/design/proposal-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          beforeImage: cleanImage || image,
+          afterImage: mockupImage,
+          visionSummary: result.visionSummary,
+          materials: activeMaterials,
+          total: estimatedTotal,
+          clientName,
+          tenantName: tenant?.name,
+          strategicValue: result.strategicValue,
+        }),
+      });
+      if (!res.ok) {
+        showToast("Couldn't generate the proposal PDF.", "error");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "design-proposal.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast("Proposal PDF downloaded.", "success");
+    } catch (e) {
+      console.error("proposal pdf error", e);
+      showToast("Network error generating the proposal PDF.", "error");
+    } finally {
+      setIsPdfing(false);
     }
   };
 
@@ -1083,6 +1144,19 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                               <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold leading-relaxed">
                                 Name what goes in each marked spot, then hit Reveal — we place it exactly there and keep the rest of the photo untouched.
                               </p>
+                              <div className="flex items-center gap-2 pb-1">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-forest-400">USDA Zone</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={13}
+                                  value={designZone}
+                                  onChange={(e) => setDesignZone(e.target.value ? Number(e.target.value) : "")}
+                                  placeholder="—"
+                                  className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs font-bold text-white/90 text-center focus:border-forest-500/40 focus:outline-none"
+                                />
+                                <span className="text-[9px] text-white/30 uppercase tracking-widest font-bold">plants matched to this zone</span>
+                              </div>
                               {regions.map((r: any, i: number) =>
                                 r.intent === "add" ? (
                                   <input
@@ -1322,6 +1396,18 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                 <><div className="w-4 h-4 border-2 border-forest-400/30 border-t-forest-400 rounded-full animate-spin" /> Sending...</>
                               ) : (
                                 <><Send size={14} /> Send Design to Client</>
+                              )}
+                            </button>
+                            <button
+                              onClick={handleProposalPdf}
+                              disabled={isPdfing}
+                              title="Download a branded before/after proposal PDF"
+                              className="w-full bg-white/5 text-white/80 py-4 rounded-xl border border-white/10 font-black uppercase tracking-widest text-xs hover:bg-white/10 active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {isPdfing ? (
+                                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Building PDF...</>
+                              ) : (
+                                <><Download size={14} /> Download Proposal PDF</>
                               )}
                             </button>
                             <button

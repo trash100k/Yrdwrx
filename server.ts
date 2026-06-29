@@ -3377,7 +3377,7 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/design/place-objects", aiLimiter, async (req, res) => {
     try {
-      const { image, regions, description, aspectRatio } = req.body || {};
+      const { image, regions, description, aspectRatio, zone } = req.body || {};
       if (!image || typeof image !== "string") {
         return res.status(400).json({ error: "Missing or invalid 'image' (clean base64 photo required)." });
       }
@@ -3411,10 +3411,16 @@ export async function createApp({ startListening = false } = {}) {
         );
       });
 
+      const zoneNum = Number(zone);
+      const zonePhrase =
+        zoneNum >= 1 && zoneNum <= 13
+          ? `Only use plants that are appropriate and hardy for USDA zone ${zoneNum}. `
+          : "";
       const instruction = [
         "Edit this photo of a yard with photorealistic results.",
         regionLines.join(" "),
         description ? `Overall intent: ${String(description).slice(0, 400)}.` : "",
+        zonePhrase,
         "Keep everything else in the image EXACTLY the same — preserve the house, hardscape, sky, " +
           "composition, lighting, and the input aspect ratio. Add nothing else; no extra objects, people, or text.",
       ]
@@ -3466,6 +3472,56 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       console.error("[design/place-objects]", e?.message);
       return handleAiError(res, e, "Object placement failed");
+    }
+  });
+
+  // ===========================================================================
+  // DESIGN PROPOSAL PDF — branded before/after + itemized scope the contractor hands
+  // the client. Reuses the Puppeteer pattern; embeds before/after as data URIs.
+  // ===========================================================================
+  app.post("/api/design/proposal-pdf", async (req: any, res: any) => {
+    try {
+      const { beforeImage, afterImage, visionSummary, materials, total, clientName, tenantName, strategicValue } = req.body || {};
+      const esc = (s: any) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const brand = esc(tenantName || "YardWorx");
+      const client = esc(clientName || "Valued Client");
+      const mats = Array.isArray(materials) ? materials : [];
+      const rows = mats.length
+        ? mats
+            .map(
+              (m: any) =>
+                `<tr><td style="padding:10px 0;border-bottom:1px solid #eee;">${esc(m.item || "Item")}<div style="color:#888;font-size:11px;">${esc(m.quantity || "")}</div></td><td style="padding:10px 0;border-bottom:1px solid #eee;text-align:right;font-weight:bold;white-space:nowrap;">${typeof m.estimatedCost === "number" && m.estimatedCost > 0 ? "$" + Math.round(m.estimatedCost).toLocaleString() : ""}</td></tr>`,
+            )
+            .join("")
+        : `<tr><td style="padding:10px 0;">Proposed landscaping scope</td><td></td></tr>`;
+      const imgCell = (src: any, label: string) =>
+        src
+          ? `<div style="flex:1;text-align:center;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#888;margin-bottom:6px;">${label}</div><img src="${esc(src)}" style="width:100%;border-radius:10px;border:1px solid #ddd;"/></div>`
+          : "";
+      const totalNum = Number(total) || 0;
+      const html = `<html><body style="font-family:Helvetica,Arial,sans-serif;padding:40px;color:#1a1a1a;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #05a845;padding-bottom:16px;">
+          <div><div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#05a845;font-weight:bold;">Design Proposal</div><h1 style="margin:6px 0 0;font-size:32px;">${brand}</h1></div>
+          <div style="text-align:right;color:#666;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;">Prepared for</div><div style="font-size:18px;font-weight:bold;color:#1a1a1a;">${client}</div></div>
+        </div>
+        ${beforeImage || afterImage ? `<div style="display:flex;gap:16px;margin-top:24px;">${imgCell(beforeImage, "Before")}${imgCell(afterImage, "After (AI Visualization)")}</div>` : ""}
+        ${visionSummary ? `<div style="margin-top:24px;"><h3 style="text-transform:uppercase;font-size:12px;letter-spacing:2px;color:#888;margin:0 0 8px;">The Vision</h3><p style="line-height:1.6;font-size:14px;">${esc(visionSummary)}</p></div>` : ""}
+        <div style="margin-top:24px;"><h3 style="text-transform:uppercase;font-size:12px;letter-spacing:2px;color:#888;margin:0 0 8px;">Scope &amp; Materials</h3><table style="width:100%;border-collapse:collapse;font-size:13px;"><tr><th style="text-align:left;color:#888;font-size:11px;text-transform:uppercase;padding-bottom:6px;">Item</th><th style="text-align:right;color:#888;font-size:11px;text-transform:uppercase;padding-bottom:6px;">Investment</th></tr>${rows}</table></div>
+        ${totalNum > 0 ? `<div style="margin-top:24px;text-align:right;"><span style="text-transform:uppercase;font-size:12px;letter-spacing:2px;color:#888;">Estimated Total</span><div style="font-size:40px;font-weight:bold;">$${Math.round(totalNum).toLocaleString()}</div></div>` : ""}
+        ${strategicValue ? `<div style="margin-top:16px;padding:14px;background:#f3faf5;border-left:3px solid #05a845;border-radius:6px;font-size:13px;font-style:italic;color:#2a2a2a;">${esc(strategicValue)}</div>` : ""}
+        <p style="margin-top:32px;font-size:10px;color:#aaa;line-height:1.5;">The "after" image is an AI-generated visualization for illustration only; installed results vary with site conditions, plant availability, and growth. Pricing is an estimate, not a contract. Prepared by ${brand}.</p>
+      </body></html>`;
+      const browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: "networkidle0" });
+      const pdf = await page.pdf({ format: "A4", printBackground: true });
+      await browser.close();
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="design-proposal.pdf"`);
+      res.send(pdf);
+    } catch (e: any) {
+      console.error("[design/proposal-pdf]", e?.message);
+      res.status(500).json({ error: "Failed to generate proposal PDF" });
     }
   });
 
