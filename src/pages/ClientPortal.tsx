@@ -71,6 +71,12 @@ export default function ClientPortal() {
   }, [messages, activeTab]);
 
   const client = data?.customer;
+  // The portal API returns firstName/lastName/companyName (never `name`); compose a
+  // friendly display name from whatever is present.
+  const clientDisplayName =
+    [client?.firstName, client?.lastName].filter(Boolean).join(" ").trim() ||
+    client?.companyName ||
+    "";
   const jobs = data?.jobs || [];
   const invoices = data?.invoices || [];
   const designs = data?.designs || [];
@@ -90,7 +96,19 @@ export default function ClientPortal() {
         body: JSON.stringify({ invoiceId: invoice.id, successUrl: window.location.href, cancelUrl: window.location.href }),
       });
       const json = await res.json().catch(() => ({}));
-      const url = json.checkoutUrl || json.url || json.simulatedUrl;
+      // When Stripe isn't configured the server returns a simulated/mock response
+      // (e.g. { error: "Stripe key missing. Payment simulated.", simulatedUrl: "...?success=mock" }).
+      // Don't fake a successful payment — tell the client payments aren't live yet.
+      const isMockCheckout =
+        json.simulated === true ||
+        json.mock === true ||
+        (typeof json.simulatedUrl === "string" && !json.checkoutUrl && !json.url) ||
+        (typeof json.error === "string" && /stripe|simulat/i.test(json.error));
+      if (isMockCheckout) {
+        setPaymentError("Online payments aren't enabled yet. Please contact your service provider to settle this invoice.");
+        return;
+      }
+      const url = json.checkoutUrl || json.url;
       if (url) window.location.href = url;
       else setPaymentError(json.error || "Unable to start checkout. Please try again.");
     } catch (e: any) {
@@ -186,6 +204,7 @@ export default function ClientPortal() {
           {activeTab === "dashboard" && (
             <ClientDashboard
               client={client}
+              displayName={clientDisplayName}
               upcomingServices={upcoming}
               recentProjects={completed.map((j: any) => ({
                 title: j.title || "Service",

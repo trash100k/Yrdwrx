@@ -3,17 +3,25 @@ import { Calendar, CheckCircle2, Clock } from "lucide-react";
 
 interface ClientDashboardProps {
   client: any;
+  displayName?: string;
   upcomingServices: any[];
   recentProjects: any[];
 }
 
-export default function ClientDashboard({ client, upcomingServices, recentProjects }: ClientDashboardProps) {
+export default function ClientDashboard({ client, displayName, upcomingServices, recentProjects }: ClientDashboardProps) {
+  // The portal API returns firstName/lastName/companyName (never `name`). Prefer the
+  // composed displayName passed in; otherwise derive a first name from the fields we have.
+  const greetingName =
+    (displayName && displayName.split(" ")[0]) ||
+    client?.firstName ||
+    client?.companyName ||
+    "Client";
   return (
     <div className="space-y-8">
       {/* Client Context */}
       <div className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-6 shadow-2xl">
         <h2 className="text-xl sm:text-2xl font-black uppercase text-white mb-1">
-          Welcome back, {client?.name?.split(" ")[0] || "Client"}
+          Welcome back, {greetingName}
         </h2>
         <p className="text-zinc-400 text-sm">{client?.address}</p>
       </div>

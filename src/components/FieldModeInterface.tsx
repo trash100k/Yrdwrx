@@ -2,7 +2,7 @@
 import { compressImage } from "../lib/imageUtils";
 import { fetchApi } from "../lib/api";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   MapPin,
   Lock,
@@ -14,9 +14,11 @@ import {
   Calendar,
   Settings,
   X,
-  MessageSquare,
   Map as MapIcon,
   ClipboardList,
+  Mic,
+  Square,
+  Play,
 } from "lucide-react";
 import { useFieldMode } from "../contexts/FieldModeContext";
 import { jobsRepo, inspectionFormsRepo, customersRepo } from "../lib/repos";
@@ -26,6 +28,7 @@ import JobMap from "./JobMap";
 
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useAuditLog } from "../hooks/useAuditLog";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 export default function FieldModeInterface() {
   const { tenant } = useTenant();
@@ -36,7 +39,21 @@ export default function FieldModeInterface() {
   const [activeJob, setActiveJob] = useState<Record<string, unknown> | null>(
     null,
   );
+  const [openJobs, setOpenJobs] = useState<Record<string, unknown>[]>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Voice note dictation for the Comms tab.
+  const {
+    transcript: noteTranscript,
+    isListening: isRecordingNote,
+    startListening: startNoteDictation,
+    stopListening: stopNoteDictation,
+    setTranscript: setNoteTranscript,
+  } = useSpeechRecognition();
+  const [isSavingNote, setIsSavingNote] = useState(false);
   const [activeTab, setActiveTab] = useState<"comms" | "map" | "documentation" | "checklist">(
     "documentation",
   );
@@ -138,12 +155,113 @@ export default function FieldModeInterface() {
     }
   };
 
-  const handleReportIncident = () => {
-    if (!incidentReport.trim()) return;
-    console.debug("Incident Reported:", incidentReport);
-    setIncidentReport("");
-    setShowIncidentModal(false);
-    showToast("Incident reported to dispatch.");
+  const handleReportIncident = async () => {
+    const text = incidentReport.trim();
+    if (!text) return;
+    if (!activeJob) {
+      showToast("No active job to attach this incident to.", "error");
+      return;
+    }
+    const incident = { text, ts: new Date().toISOString() };
+    try {
+      const existing = (activeJob.data as any) || {};
+      await jobsRepo.update(activeJob.id, {
+        data: {
+          ...existing,
+          incidents: [...(existing.incidents || []), incident],
+        },
+      });
+      logAction("Field Mode", "Incident Reported", `Job ID: ${activeJob.id} — ${text}`);
+      showToast("Incident reported to dispatch.");
+    } catch (e) {
+      console.error(e);
+      showToast("Error reporting incident", "error");
+    } finally {
+      setIncidentReport("");
+      setShowIncidentModal(false);
+    }
+  };
+
+  // Manually pick the active job from the open queue (picker).
+  const selectJob = (id: string) => {
+    const job = openJobs.find((j) => j.id === id) || null;
+    activeJobIdRef.current = id;
+    setActiveJobId(id);
+    setActiveJob(job);
+  };
+
+  // Start the active job: move SCHEDULED -> IN_PROGRESS.
+  const handleStartJob = async () => {
+    if (!activeJob || isStarting) return;
+    setIsStarting(true);
+    try {
+      await jobsRepo.update(activeJob.id, {
+        status: "IN_PROGRESS",
+        data: {
+          ...((activeJob.data as any) || {}),
+          startedAt: new Date().toISOString(),
+        },
+      });
+      setActiveJob((prev) => (prev ? { ...prev, status: "IN_PROGRESS" } : prev));
+      logAction("Field Mode", "Job Started", `Job ID: ${activeJob.id} (${activeJob.title || "Unknown Job"})`);
+      showToast("Job started.");
+    } catch (e) {
+      console.error(e);
+      showToast("Error starting job", "error");
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  // Toggle dictation for a field voice note; persist transcript to the job on stop.
+  const toggleVoiceNote = () => {
+    if (isRecordingNote) {
+      stopNoteDictation();
+      void saveVoiceNote();
+    } else {
+      startNoteDictation();
+    }
+  };
+
+  const saveVoiceNote = async () => {
+    const text = (noteTranscript || "").trim();
+    if (!text) return;
+    if (!activeJob) {
+      showToast("No active job to attach this note to.", "error");
+      return;
+    }
+    setIsSavingNote(true);
+    const note = { text, ts: new Date().toISOString(), author: "Field" };
+    try {
+      const existing = (activeJob.data as any) || {};
+      await jobsRepo.update(activeJob.id, {
+        data: {
+          ...existing,
+          fieldNotes: [...(existing.fieldNotes || []), note],
+        },
+      });
+      // Optimistically reflect in the active job so the log re-renders immediately.
+      setActiveJob((prev) =>
+        prev
+          ? {
+              ...prev,
+              data: {
+                ...((prev.data as any) || {}),
+                fieldNotes: [...(((prev.data as any) || {}).fieldNotes || []), note],
+              },
+              fieldNotes: [...((prev.fieldNotes as any[]) || []), note],
+            }
+          : prev,
+      );
+      logAction("Field Mode", "Field Note", `Job ID: ${activeJob.id} — ${text}`);
+      showToast("Field note saved.");
+    } catch (e) {
+      console.error(e);
+      showToast("Error saving note", "error");
+    } finally {
+      setNoteTranscript("");
+      setIsSavingNote(false);
+    }
   };
 
   useEffect(() => {
@@ -161,7 +279,12 @@ export default function FieldModeInterface() {
       const open = (rows || []).map(adaptJob)
         .filter(j => j.status === "SCHEDULED" || j.status === "IN_PROGRESS")
         .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
-      const job = open[0] || null;
+      setOpenJobs(open);
+      // Respect a manually-picked job; otherwise default to the first open job.
+      const picked = activeJobIdRef.current;
+      const job = (picked && open.find((j) => j.id === picked)) || open[0] || null;
+      activeJobIdRef.current = job?.id || null;
+      setActiveJobId(job?.id || null);
       setActiveJob(job);
       setIsLoading(false);
       // Surface the client's gate code + HOA rules from the linked customer.
@@ -267,6 +390,44 @@ export default function FieldModeInterface() {
                       {activeJob.address}
                     </p>
                   </div>
+
+                  {/* Job picker — when more than one open job is in the queue. */}
+                  {openJobs.length > 1 && (
+                    <div className="space-y-2">
+                      <label
+                        className={`block font-black uppercase tracking-widest text-xs ${isHighContrast ? "text-black/60" : "text-white/40"}`}
+                      >
+                        Active Assignment ({openJobs.length} in queue)
+                      </label>
+                      <select
+                        value={activeJobId || ""}
+                        onChange={(e) => selectJob(e.target.value)}
+                        className={`w-full p-4 rounded-2xl border-4 outline-none font-black text-base uppercase tracking-tight ${isHighContrast ? "bg-white border-black text-black" : "bg-zinc-900 border-white/20 text-white focus:border-forest-500/50"}`}
+                      >
+                        {openJobs.map((j: any) => (
+                          <option key={j.id} value={j.id}>
+                            {(j.title || "Untitled Job")}{" — "}{j.status === "IN_PROGRESS" ? "In Progress" : "Scheduled"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Start Job — only when the active job hasn't begun. */}
+                  {activeJob.status === "SCHEDULED" && (
+                    <button
+                      onClick={handleStartJob}
+                      disabled={isStarting}
+                      className={`w-full flex items-center justify-center gap-3 p-5 rounded-3xl border-4 font-black uppercase tracking-widest text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:grayscale ${isHighContrast ? "bg-black border-black text-white shadow-[6px_6px_0_0_#000]" : "bg-forest-600 border-forest-500 text-white shadow-[0_0_20px_rgba(5,168,69,0.4)]"}`}
+                    >
+                      {isStarting ? (
+                        <div className="w-6 h-6 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Play size={24} />
+                      )}
+                      Start Job
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -375,6 +536,7 @@ export default function FieldModeInterface() {
               </span>
             </button>
             <button
+              onClick={() => setActiveTab("documentation")}
               className={`flex flex-col items-center justify-center p-5 sm:p-8 min-h-[120px] gap-2 rounded-3xl border-4 transition-transform hover:scale-105 active:scale-95 ${isHighContrast ? "bg-white border-black text-black shadow-[6px_6px_0_0_#000]" : "bg-white/5 border-white/20 text-white/60 hover:bg-white/10 hover:text-white"}`}
             >
               <Camera size={32} />
@@ -630,11 +792,39 @@ export default function FieldModeInterface() {
                                  <span className="font-bold text-sm uppercase">Complete</span>
                                </label>
                              ) : field.type === "image" ? (
-                               <label className={`w-full max-w-sm aspect-video rounded-xl border-4 border-dashed flex flex-col items-center justify-center cursor-pointer ${isHighContrast ? "border-black bg-black/5" : "border-white/20 bg-white/5"}`}>
-                                 <Camera size={24} className="mb-2 opacity-50" />
-                                 <span className="font-bold uppercase text-[10px] opacity-70 px-2 text-center">Capture specific photo</span>
-                                 {/* Mock logic, actual would store local state like photo uploading */}
-                               </label>
+                               formResponses[`${form.id}_${field.id}`] ? (
+                                 <div className="relative w-full max-w-sm aspect-video rounded-xl overflow-hidden border-4 border-forest-500">
+                                   <img src={formResponses[`${form.id}_${field.id}`]} alt={field.label} className="w-full h-full object-cover" />
+                                   <button
+                                     onClick={() => setFormResponses({ ...formResponses, [`${form.id}_${field.id}`]: undefined })}
+                                     className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full hover:bg-rose-500 transition-colors"
+                                   >
+                                     <X size={16} />
+                                   </button>
+                                 </div>
+                               ) : (
+                                 <label className={`w-full max-w-sm aspect-video rounded-xl border-4 border-dashed flex flex-col items-center justify-center cursor-pointer ${isHighContrast ? "border-black bg-black/5" : "border-white/20 bg-white/5"}`}>
+                                   <Camera size={24} className="mb-2 opacity-50" />
+                                   <span className="font-bold uppercase text-[10px] opacity-70 px-2 text-center">Capture specific photo</span>
+                                   <input
+                                     type="file"
+                                     accept="image/*"
+                                     capture="environment"
+                                     className="hidden"
+                                     onChange={async (e) => {
+                                       const file = e.target.files?.[0];
+                                       if (file) {
+                                         try {
+                                           const base64 = await compressImage(file, 1200, 1200, 0.8);
+                                           setFormResponses((prev) => ({ ...prev, [`${form.id}_${field.id}`]: base64 }));
+                                         } catch (err) {
+                                           console.error("Compression error:", err);
+                                         }
+                                       }
+                                     }}
+                                   />
+                                 </label>
+                               )
                              ) : (
                                <input
                                  type={field.type === "number" ? "number" : "text"}
@@ -663,20 +853,54 @@ export default function FieldModeInterface() {
                   Comms Log
                 </h2>
                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-6">
-                  <div
-                    className={`p-6 rounded-3xl border-4 ${isHighContrast ? "bg-white border-black" : "bg-white/5 border-white/10"}`}
-                  >
-                    <p className="font-bold text-lg uppercase">
-                      System: Unit dispatched to waypoint.
-                    </p>
-                  </div>
+                  {(() => {
+                    const notes = ((activeJob?.data as any)?.fieldNotes || (activeJob?.fieldNotes as any[])) || [];
+                    if (!notes.length) {
+                      return (
+                        <div
+                          className={`p-8 text-center rounded-3xl border-4 border-dashed ${isHighContrast ? "border-black bg-black/5" : "border-white/20 bg-white/5"}`}
+                        >
+                          <h3 className="font-black uppercase tracking-widest text-lg opacity-50">
+                            No Field Notes Yet
+                          </h3>
+                          <p className="font-bold uppercase text-xs opacity-40 mt-2">
+                            Tap the mic below to dictate a note for this job.
+                          </p>
+                        </div>
+                      );
+                    }
+                    return notes.map((n: any, i: number) => (
+                      <div
+                        key={n.ts || i}
+                        className={`p-6 rounded-3xl border-4 ${isHighContrast ? "bg-white border-black" : "bg-white/5 border-white/10"}`}
+                      >
+                        <p className="font-bold text-lg uppercase">{n.text}</p>
+                        {n.ts && (
+                          <p
+                            className={`text-[10px] font-black uppercase tracking-widest mt-2 ${isHighContrast ? "text-black/50" : "text-white/30"}`}
+                          >
+                            {n.author || "Field"} · {new Date(n.ts).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    ));
+                  })()}
+                  {isRecordingNote && (
+                    <div
+                      className={`p-6 rounded-3xl border-4 border-dashed animate-pulse ${isHighContrast ? "bg-white border-black" : "bg-forest-500/10 border-forest-500/40"}`}
+                    >
+                      <p className="font-bold text-lg uppercase">
+                        {noteTranscript || "Listening..."}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div
                   className={`rounded-3xl border-4 p-4 flex items-center gap-4 ${isHighContrast ? "bg-white border-black shadow-[8px_8px_0_0_#000]" : "bg-zinc-900 border-white/20"}`}
                 >
                   <div className="flex-1">
                     <h3 className="font-black uppercase text-lg">
-                      Leave Audio Note
+                      {isRecordingNote ? "Listening — Tap to Save" : "Leave Audio Note"}
                     </h3>
                     <p
                       className={`text-xs md:text-[10px] font-bold uppercase tracking-widest ${isHighContrast ? "text-black/60" : "text-white/40"}`}
@@ -685,9 +909,17 @@ export default function FieldModeInterface() {
                     </p>
                   </div>
                   <button
-                    className={`flex items-center justify-center w-16 h-16 rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 ${isHighContrast ? "bg-forest-400 border-black text-black" : "bg-forest-600 border-forest-400 text-white"}`}
+                    onClick={toggleVoiceNote}
+                    disabled={isSavingNote || !activeJob}
+                    className={`flex items-center justify-center w-16 h-16 rounded-2xl border-4 transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 ${isRecordingNote ? "bg-rose-500 border-rose-400 text-white animate-pulse" : isHighContrast ? "bg-forest-400 border-black text-black" : "bg-forest-600 border-forest-400 text-white"}`}
                   >
-                    <MessageSquare size={28} />
+                    {isSavingNote ? (
+                      <div className="w-7 h-7 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : isRecordingNote ? (
+                      <Square size={28} fill="currentColor" />
+                    ) : (
+                      <Mic size={28} />
+                    )}
                   </button>
                 </div>
               </div>

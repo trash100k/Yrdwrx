@@ -1,17 +1,33 @@
-import React, { useState, useEffect } from "react";
-import { Sparkles, Loader2, Workflow, Play, Download, Search } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Sparkles, Loader2, Workflow, Play, Download, Search, AlertTriangle } from "lucide-react";
 import { fetchApi } from "../lib/api";
+import { useToast } from "../contexts/ToastContext";
+
+// Stop polling after this many attempts so a stuck/never-completing operation
+// doesn't poll forever (10s interval => ~5 minutes of polling).
+const MAX_POLL_ATTEMPTS = 30;
 
 export function DeepResearchTab() {
+    const { showToast } = useToast();
     const [prompt, setPrompt] = useState("");
     const [status, setStatus] = useState<"idle" | "pending" | "completed" | "failed">("idle");
     const [report, setReport] = useState("");
+    const [errorMsg, setErrorMsg] = useState("");
     const [interactionId, setInteractionId] = useState("");
+    const attemptsRef = useRef(0);
 
     useEffect(() => {
         let interval: NodeJS.Timeout;
         if (status === "pending" && interactionId) {
+            attemptsRef.current = 0;
             interval = setInterval(async () => {
+                attemptsRef.current += 1;
+                if (attemptsRef.current > MAX_POLL_ATTEMPTS) {
+                    setStatus("failed");
+                    setErrorMsg("Research timed out before it finished. Please try again.");
+                    clearInterval(interval);
+                    return;
+                }
                 try {
                     const res = await fetchApi("/api/research/status", {
                         method: "POST",
@@ -25,6 +41,7 @@ export function DeepResearchTab() {
                         clearInterval(interval);
                     } else if (data.status === "failed") {
                         setStatus("failed");
+                        setErrorMsg(data.error || "The research agent reported a failure.");
                         clearInterval(interval);
                     }
                 } catch(e) { console.error(e); }
@@ -36,16 +53,29 @@ export function DeepResearchTab() {
     const startResearch = async () => {
         if (!prompt) return;
         setStatus("pending");
+        setErrorMsg("");
+        setReport("");
         try {
             const res = await fetchApi("/api/research/start", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ prompt })
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            // Mock mode / unconfigured backend returns 503 (or no interactionId). Fail fast
+            // instead of spinning forever waiting on a status that will never arrive.
+            if (!res.ok || !data.interactionId) {
+                setStatus("failed");
+                setErrorMsg(
+                    data.error ||
+                    "Deep Research is unavailable right now (the AI backend is not configured)."
+                );
+                return;
+            }
             setInteractionId(data.interactionId);
         } catch(e) {
             setStatus("failed");
+            setErrorMsg("Could not reach the research service. Please try again.");
         }
     };
 
@@ -80,6 +110,17 @@ export function DeepResearchTab() {
                             </p>
                         </div>
                     )}
+                    {status === "failed" && (
+                        <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+                            <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+                            <div>
+                                <p className="text-xs font-bold text-red-400 uppercase tracking-widest mb-1">Research Failed</p>
+                                <p className="text-sm text-red-200/80">
+                                    {errorMsg || "Something went wrong while running deep research."}
+                                </p>
+                            </div>
+                        </div>
+                    )}
                     {status === "completed" && (
                         <div className="mt-6">
                             <h4 className="text-forest-400 font-bold uppercase tracking-widest text-xs mb-3">Research Findings</h4>
@@ -95,14 +136,25 @@ export function DeepResearchTab() {
 }
 
 export function VideoMarketingTab() {
+    const { showToast } = useToast();
     const [prompt, setPrompt] = useState("");
     const [status, setStatus] = useState<"idle" | "pending" | "completed" | "failed">("idle");
+    const [errorMsg, setErrorMsg] = useState("");
     const [operationName, setOperationName] = useState("");
+    const attemptsRef = useRef(0);
 
     useEffect(() => {
         let interval: NodeJS.Timeout;
         if (status === "pending" && operationName) {
+            attemptsRef.current = 0;
             interval = setInterval(async () => {
+                attemptsRef.current += 1;
+                if (attemptsRef.current > MAX_POLL_ATTEMPTS) {
+                    setStatus("failed");
+                    setErrorMsg("Video generation timed out before it finished. Please try again.");
+                    clearInterval(interval);
+                    return;
+                }
                 try {
                     const res = await fetchApi("/api/marketing/video-status", {
                         method: "POST",
@@ -110,7 +162,11 @@ export function VideoMarketingTab() {
                         body: JSON.stringify({ operationName })
                     });
                     const data = await res.json();
-                    if (data.done) {
+                    if (data.error) {
+                        setStatus("failed");
+                        setErrorMsg(typeof data.error === "string" ? data.error : "Video generation failed.");
+                        clearInterval(interval);
+                    } else if (data.done) {
                         setStatus("completed");
                         clearInterval(interval);
                     }
@@ -123,16 +179,28 @@ export function VideoMarketingTab() {
     const startVideo = async () => {
         if (!prompt) return;
         setStatus("pending");
+        setErrorMsg("");
         try {
             const res = await fetchApi("/api/marketing/generate-video", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ prompt })
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            // Mock mode / unconfigured backend returns 503 (or no operationName). Fail fast
+            // instead of polling a status endpoint that will never report done.
+            if (!res.ok || !data.operationName) {
+                setStatus("failed");
+                setErrorMsg(
+                    data.error ||
+                    "Video generation is unavailable right now (the AI backend is not configured)."
+                );
+                return;
+            }
             setOperationName(data.operationName);
         } catch(e) {
             setStatus("failed");
+            setErrorMsg("Could not reach the video service. Please try again.");
         }
     };
 
@@ -143,13 +211,24 @@ export function VideoMarketingTab() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ operationName })
             });
+            const contentType = res.headers.get("content-type") || "";
+            // Only treat the response as a video if the request succeeded and the payload
+            // is actually a video (an error response is JSON, not a playable MP4).
+            if (!res.ok || !contentType.includes("video")) {
+                showToast("Could not download the video. Please try generating it again.", "error");
+                return;
+            }
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
             a.download = "promo_video.mp4";
             a.click();
-        } catch(e) { console.error(e); }
+            URL.revokeObjectURL(url);
+        } catch(e) {
+            console.error(e);
+            showToast("Could not download the video. Please try again.", "error");
+        }
     };
 
     return (
@@ -161,11 +240,11 @@ export function VideoMarketingTab() {
                         <h3 className="text-xl font-bold text-white">Veo Video Marketing</h3>
                     </div>
                     <span className="px-3 py-1 bg-amber-500/10 text-amber-500 font-bold uppercase tracking-widest text-[9px] rounded-full border border-amber-500/20">
-                        Veo 3.1
+                        AI Video
                     </span>
                 </div>
                 <div className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-6">
-                    <p className="text-sm text-zinc-400 mb-4">Generate 1080p promotional video clips for ad campaigns using Veo 3.1.</p>
+                    <p className="text-sm text-zinc-400 mb-4">Generate promotional video clips for ad campaigns using AI video generation.</p>
                     <textarea 
                         className="w-full h-24 bg-black/50 border border-forest-500/30 rounded-xl p-4 text-white resize-none focus:outline-none"
                         placeholder="e.g. A cinematic drone shot flying over a newly landscaped green lawn with perfect stripes"

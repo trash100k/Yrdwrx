@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Bell, CheckCircle, Clock, AlertTriangle, MessageSquare, X, Receipt, Package } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useNavigate } from "react-router-dom";
 import { invoicesRepo, inventoryRepo, leadsRepo, jobsRepo } from "../lib/repos";
 
 // Severity → visual treatment (matches the forest/zinc/amber aesthetic).
@@ -125,14 +126,29 @@ async function buildNotifications() {
   return out;
 }
 
-export const NotificationsCenter = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+export const NotificationsCenter = ({
+  isOpen,
+  onClose,
+  onUnreadCountChange,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onUnreadCountChange?: (count: number) => void;
+}) => {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [dismissed, setDismissed] = useState(() => new Set());
   const [loading, setLoading] = useState(false);
 
-  // Load once each time the panel opens (keeps it simple; data is fresh on open).
+  // Navigate to the notification's target screen, then close the panel.
+  const openNotification = (n) => {
+    if (n?.link) navigate(n.link);
+    onClose();
+  };
+
+  // Load on mount (so the bell's unread dot reflects reality before the panel is ever
+  // opened) and refresh each time the panel opens (keeps the data fresh on open).
   useEffect(() => {
-    if (!isOpen) return;
     let alive = true;
     setLoading(true);
     buildNotifications()
@@ -145,6 +161,12 @@ export const NotificationsCenter = ({ isOpen, onClose }: { isOpen: boolean; onCl
   }, [isOpen]);
 
   const visible = useMemo(() => items.filter((n) => !dismissed.has(n.id)), [items, dismissed]);
+
+  // Report the live unread count up so the bell dot can derive "has unread" from the
+  // real notifications source instead of a hardcoded always-on dot.
+  useEffect(() => {
+    onUnreadCountChange?.(visible.length);
+  }, [visible.length, onUnreadCountChange]);
 
   const dismiss = (id) => setDismissed((prev) => new Set(prev).add(id));
   const clearAll = () => setDismissed(new Set(items.map((n) => n.id)));
@@ -197,7 +219,19 @@ export const NotificationsCenter = ({ isOpen, onClose }: { isOpen: boolean; onCl
                   const style = SEVERITY_STYLES[n.severity] ?? SEVERITY_STYLES.info;
                   const Icon = ICONS[n.type] ?? AlertTriangle;
                   return (
-                    <div key={n.id} className="p-4 border-b border-white/5 hover:bg-white/5 transition-colors group flex gap-4">
+                    <div
+                      key={n.id}
+                      role={n.link ? "button" : undefined}
+                      tabIndex={n.link ? 0 : undefined}
+                      onClick={() => openNotification(n)}
+                      onKeyDown={(e) => {
+                        if (n.link && (e.key === "Enter" || e.key === " ")) {
+                          e.preventDefault();
+                          openNotification(n);
+                        }
+                      }}
+                      className={`p-4 border-b border-white/5 hover:bg-white/5 transition-colors group flex gap-4 ${n.link ? "cursor-pointer" : ""}`}
+                    >
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${style.bg} ${style.border}`}>
                         <Icon size={18} className={style.color} />
                       </div>

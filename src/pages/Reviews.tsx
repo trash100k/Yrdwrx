@@ -1,7 +1,7 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
-import { useState, useEffect } from "react";
-import { reviewsRepo } from "../lib/repos";
+import { useState, useEffect, useMemo } from "react";
+import { reviewsRepo, jobsRepo } from "../lib/repos";
 import {
   handleFirestoreError,
   OperationType,
@@ -23,11 +23,13 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
+import { useToast } from "../contexts/ToastContext";
 import { syncService } from "../services/syncService";
 import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 
 export default function Reviews() {
   const { tenant } = useTenant();
+  const { showToast } = useToast();
   const { addLog } = useWorkspaceOutbox();
   const [reviews, setReviews] = useState<
     {
@@ -50,6 +52,13 @@ export default function Reviews() {
   const [activeTab, setActiveTab] = useState("All");
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Edited reply text, keyed by review id, so "Deploy Response" persists what the
+  // user actually typed in the textarea (it was previously discarded).
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  // Recently completed jobs (real) that drive the review-solicitation hub, replacing
+  // the hardcoded "4 clients".
+  const [recentCompletedJobs, setRecentCompletedJobs] = useState<any[]>([]);
+  const [soliciting, setSoliciting] = useState(false);
 
   // Surface non-column Firestore-era fields (customerName, platform, source,
   // autoReplyDraft, summary, isReplied, repliedAt, priority) that now live in the
@@ -63,6 +72,57 @@ export default function Reviews() {
     });
     return () => unsubscribe();
   }, [tenant]);
+
+  // Pull real recently-completed jobs so the outreach hub targets actual clients
+  // (best-effort; non-fatal if it fails).
+  useEffect(() => {
+    let active = true;
+    jobsRepo
+      .list()
+      .then((rows) => {
+        if (!active) return;
+        const jobs = (rows || []).map((r: any) => ({ ...(r.data || {}), ...r }));
+        const completed = jobs
+          .filter((j: any) => ["completed", "complete", "done", "closed"].includes(String(j.status || "").toLowerCase()))
+          .sort(
+            (a: any, b: any) =>
+              new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime(),
+          )
+          .slice(0, 10);
+        setRecentCompletedJobs(completed);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [tenant]);
+
+  // Dispatch a personalized review-solicitation message to the outbox for each
+  // recently-completed job's client (real targets, real count).
+  const solicitRecentJobs = () => {
+    if (!recentCompletedJobs.length) {
+      showToast("No recently completed jobs to solicit.", "info");
+      return;
+    }
+    setSoliciting(true);
+    try {
+      let dispatched = 0;
+      for (const job of recentCompletedJobs) {
+        const client =
+          job.client || job.clientName || job.customerName || job.customer || "Client";
+        addLog({
+          type: "email",
+          recipient: client,
+          subject: "How did we do?",
+          content: `Hi ${client}, thanks for choosing us for "${job.title || "your recent service"}". We'd love a quick review of your experience.`,
+        });
+        dispatched++;
+      }
+      showToast(`Queued ${dispatched} review request${dispatched === 1 ? "" : "s"} to the outbox.`, "success");
+    } finally {
+      setSoliciting(false);
+    }
+  };
 
   const analyzeReview = async (review: {
     id: string;
@@ -132,39 +192,34 @@ export default function Reviews() {
     platform: string;
     priority?: boolean;
     aiDraft?: string;
+    autoReplyDraft?: string;
     action?: string;
     data?: any;
   }) => {
     const tenantId = tenant?.id || "genesis-1";
+    // Persist the EDITED textarea content (falls back to the AI draft if untouched).
+    const reply =
+      replyDrafts[review.id] ?? review.autoReplyDraft ?? review.data?.autoReplyDraft ?? "";
+    const patch = {
+      data: {
+        ...(review.data || {}),
+        reply,
+        isReplied: true,
+        repliedAt: new Date().toISOString(),
+      },
+    };
     try {
       if (navigator.onLine) {
-        // isReplied/repliedAt have no columns -> merge into the `data` jsonb.
-        await reviewsRepo.update(review.id, {
-          data: {
-            ...(review.data || {}),
-            isReplied: true,
-            repliedAt: new Date().toISOString(),
-          },
-        });
+        // reply/isReplied/repliedAt have no columns -> merge into the `data` jsonb.
+        await reviewsRepo.update(review.id, patch);
       } else {
-        await syncService.queueAction(
-          "UPDATE",
-          "reviews",
-          {
-            data: {
-              ...(review.data || {}),
-              isReplied: true,
-              repliedAt: new Date().toISOString(),
-            },
-          },
-          tenantId,
-          review.id,
-        );
+        await syncService.queueAction("UPDATE", "reviews", patch, tenantId, review.id);
       }
       await logSystemEvent("REVIEW_REPLY_SENT", {
         reviewId: review.id,
         tenantId,
       });
+      showToast("Response deployed.", "success");
     } catch (err) {
       handleFirestoreError(
         err,
@@ -180,6 +235,39 @@ export default function Reviews() {
       (activeTab === "Pending" && !r.isReplied) ||
       (activeTab === "Negative" && r.sentiment === "Negative"),
   );
+
+  // Sentiment Delta — computed from real reviews[].sentiment (and star rating as a
+  // fallback for un-analyzed rows) instead of the previously fabricated 92/5/3%.
+  const sentimentStats = useMemo(() => {
+    let pos = 0,
+      neg = 0,
+      neu = 0;
+    for (const r of reviews) {
+      const s = (r.sentiment || "").toString().toLowerCase();
+      if (s === "positive") pos++;
+      else if (s === "negative") neg++;
+      else if (s === "neutral") neu++;
+      else if (typeof r.rating === "number") {
+        // Un-analyzed: infer from stars.
+        if (r.rating >= 4) pos++;
+        else if (r.rating <= 2) neg++;
+        else neu++;
+      } else neu++;
+    }
+    const total = reviews.length || 0;
+    const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+    return { total, pos: pct(pos), neu: pct(neu), neg: pct(neg) };
+  }, [reviews]);
+
+  // Real-derived tags: surface the platforms/sources actually present in the feed.
+  const cognitiveTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of reviews) {
+      const src = r.source || r.platform;
+      if (src) set.add(String(src));
+    }
+    return Array.from(set).slice(0, 8);
+  }, [reviews]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-10 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -313,7 +401,10 @@ export default function Reviews() {
                       <textarea
                         id={`reply-draft-${review.id}`}
                         className="w-full min-w-0 bg-zinc-900 border border-forest-500/20 rounded-2xl p-5 sm:p-8 text-base sm:text-sm text-forest-100 leading-relaxed focus:outline-none focus:bg-white/5 transition-all shadow-inner placeholder:text-zinc-500 italic"
-                        defaultValue={review.autoReplyDraft}
+                        value={replyDrafts[review.id] ?? review.autoReplyDraft ?? ""}
+                        onChange={(e) =>
+                          setReplyDrafts((d) => ({ ...d, [review.id]: e.target.value }))
+                        }
                         rows={3}
                       />
                       <div className="flex justify-end gap-4 mt-6">
@@ -381,13 +472,13 @@ export default function Reviews() {
                     Alpha (Pos)
                   </span>
                   <span className="text-2xl sm:text-3xl sm:text-4xl font-black italic tracking-normal md:tracking-tighter">
-                    92%
+                    {sentimentStats.pos}%
                   </span>
                 </div>
                 <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: "92%" }}
+                    animate={{ width: `${sentimentStats.pos}%` }}
                     className="h-full bg-forest-500 rounded-full shadow-glow"
                   />
                 </div>
@@ -398,13 +489,13 @@ export default function Reviews() {
                     Neutral
                   </span>
                   <span className="text-xl sm:text-2xl font-black italic tracking-normal md:tracking-tighter opacity-60">
-                    5%
+                    {sentimentStats.neu}%
                   </span>
                 </div>
                 <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: "5%" }}
+                    animate={{ width: `${sentimentStats.neu}%` }}
                     className="h-full bg-celtic-400 rounded-full opacity-40 shadow-glow"
                   />
                 </div>
@@ -415,45 +506,45 @@ export default function Reviews() {
                     Deviation (Neg)
                   </span>
                   <span className="text-xl sm:text-2xl font-black italic tracking-normal md:tracking-tighter text-red-400">
-                    3%
+                    {sentimentStats.neg}%
                   </span>
                 </div>
                 <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: "3%" }}
+                    animate={{ width: `${sentimentStats.neg}%` }}
                     className="h-full bg-red-400 rounded-full shadow-glow"
                   />
                 </div>
               </div>
             </div>
             <p className="mt-12 micro-label text-zinc-500 italic leading-relaxed font-black uppercase tracking-widest border-t border-white/10 pt-8">
-              "Hyper-Performance observed in horticultural precision categories.
-              Strategic engagement optimal."
+              {sentimentStats.total === 0
+                ? "No reviews yet — sentiment delta populates as feedback arrives."
+                : `Based on ${sentimentStats.total} review${sentimentStats.total === 1 ? "" : "s"} across your connected platforms.`}
             </p>
           </div>
 
           <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-6 sm:p-10">
             <h3 className="micro-label font-black uppercase tracking-[0.3em] text-white/20 mb-8 italic">
-              Cognitive Tags
+              Active Platforms
             </h3>
-            <div className="flex flex-wrap gap-3">
-              {[
-                "Precision",
-                "Hyper-Punctual",
-                "Asset Integrity",
-                "Status Quo+",
-                "Clean Room Outbound",
-                "Southern Logic",
-              ].map((tag) => (
-                <span
-                  key={tag}
-                  className="px-5 py-2.5 bg-white/5 border border-white/5 rounded-[20px] micro-label font-black text-white/60 hover:text-white hover:bg-white/10 transition-all cursor-crosshair"
-                >
-                  #{tag.replace(" ", "_").toUpperCase()}
-                </span>
-              ))}
-            </div>
+            {cognitiveTags.length === 0 ? (
+              <p className="micro-label text-white/20 italic font-black uppercase tracking-widest">
+                No review sources yet.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                {cognitiveTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-5 py-2.5 bg-white/5 border border-white/5 rounded-[20px] micro-label font-black text-white/60 hover:text-white hover:bg-white/10 transition-all cursor-crosshair"
+                  >
+                    #{String(tag).replace(/\s+/g, "_").toUpperCase()}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="bg-celtic-900/10 border-4 border-celtic-500/20 shadow-2xl rounded-2xl p-6 sm:p-10 relative overflow-hidden">
@@ -466,13 +557,11 @@ export default function Reviews() {
                  Automatically dispatch personalized review solicitation emails to clients upon job completion via your connected Google Workspace (Gmail).
              </p>
              <div className="space-y-4 relative z-10">
-                 <button 
-                  onClick={() => {
-                      const ans = window.confirm("Deploy optimized review requests to 4 recently completed clients via Gmail?");
-                      if(ans) addLog({ type: "email", recipient: "Client", subject: "How did we do?", content: "Please leave us a review." });
-                  }}
-                  className="w-full bg-celtic-600 hover:bg-celtic-500 text-white font-black uppercase tracking-widest text-[9px] py-4 rounded-xl transition-all flex items-center justify-center gap-2">
-                     <Send size={14} /> Solicit Recent Jobs (4)
+                 <button
+                  onClick={solicitRecentJobs}
+                  disabled={soliciting || recentCompletedJobs.length === 0}
+                  className="w-full bg-celtic-600 hover:bg-celtic-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest text-[9px] py-4 rounded-xl transition-all flex items-center justify-center gap-2">
+                     <Send size={14} /> Solicit Recent Jobs ({recentCompletedJobs.length})
                  </button>
              </div>
           </div>

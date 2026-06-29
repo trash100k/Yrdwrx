@@ -104,11 +104,35 @@ export function WorkflowBuilderSection() {
     if (expandedId === id) setExpandedId(null);
   };
 
+  // Persist a workflow list to tenant.settings.workflows. Shared by the explicit
+  // "Save Workflows" button and the inline Active/Paused toggle so a toggle survives
+  // navigating away before the user hits Save.
+  const persistWorkflows = async (next: AutomationRule[]) => {
+    if (!tenant) return false;
+    await tenantsRepo.updateSettings({ workflows: next });
+    return true;
+  };
+
+  // Flip Active/Paused and immediately persist just that change (optimistic local update
+  // first so the toggle feels instant, rollback on failure).
+  const handleToggleActive = async (id: string) => {
+    const next = workflows.map(w => w.id === id ? { ...w, active: !w.active } : w);
+    const prev = workflows;
+    setWorkflows(next);
+    try {
+      await persistWorkflows(next);
+    } catch (error) {
+      console.error("Error saving workflow status", error);
+      setWorkflows(prev);
+      showToast("Failed to update workflow status", "error");
+    }
+  };
+
   const handleSave = async () => {
     if (!tenant) return;
     setIsSaving(true);
     try {
-      await tenantsRepo.updateSettings({ workflows });
+      await persistWorkflows(workflows);
       showToast("Workflows saved successfully", "success");
     } catch (error) {
       console.error("Error saving workflows", error);
@@ -200,7 +224,7 @@ export function WorkflowBuilderSection() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleUpdateWorkflow(workflow.id, "active", !workflow.active);
+                        handleToggleActive(workflow.id);
                       }}
                       className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-all ${
                         workflow.active ? "bg-forest-500/20 text-forest-400" : "bg-white/5 text-white/40 hover:bg-white/10"

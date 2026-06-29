@@ -1,13 +1,20 @@
 import React from "react";
-import { User, Settings, LogOut, Moon, Activity, X } from "lucide-react";
+import { User, Settings, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useNavigate } from "react-router-dom";
 import { getCurrentUser, signOutUser } from "../lib/supabase";
 
 export const UserProfileMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
 
+  const navigate = useNavigate();
   const currentUser = getCurrentUser();
   const displayName = currentUser?.displayName || "Supervisor";
   const displayEmail = currentUser?.email || "supervisor@yardworx.com";
+
+  const goToSettings = () => {
+    onClose();
+    navigate("/admin/settings");
+  };
 
   const handleSignOut = async () => {
     onClose();
@@ -33,19 +40,11 @@ export const UserProfileMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
             </div>
             
             <div className="p-2 space-y-1">
-              <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors">
+              <button onClick={goToSettings} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors">
                 <User size={16} className="text-zinc-400" /> My Profile
               </button>
-              <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors">
+              <button onClick={goToSettings} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors">
                 <Settings size={16} className="text-zinc-400" /> Preferences
-              </button>
-              <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Moon size={16} className="text-zinc-400" /> Dark Mode
-                </div>
-                <div className="w-8 h-4 bg-forest-500 rounded-full relative">
-                   <div className="absolute right-1 top-1 w-2 h-2 bg-black rounded-full" />
-                </div>
               </button>
             </div>
             

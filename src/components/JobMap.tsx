@@ -84,6 +84,27 @@ export default function JobMap({
       </div>
     );
   }
+  // Graceful empty state: we have job(s) to plot but none carry coordinates, so the
+  // map would render blank. Show a placeholder instead of a confusing empty map.
+  // (No geocoding here — we just surface that the location is missing.)
+  if (!drawingMode && jobs.length > 0 && !jobs.some((j) => j.coords)) {
+    return (
+      <div className="w-full h-full min-h-[400px] bg-white/5 rounded-[48px] flex items-center justify-center p-12 text-center border border-white/10">
+        <div className="max-w-md space-y-6">
+          <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mx-auto border border-white/5">
+            <Navigation2 size={32} className="text-white/20" />
+          </div>
+          <h3 className="text-xl sm:text-2xl font-black italic tracking-normal md:tracking-tighter text-white uppercase">
+            Location Not Set
+          </h3>
+          <p className="text-sm font-medium text-white/60 leading-relaxed">
+            Location not set for this job. Add an address with coordinates to plot it on
+            the map.
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="w-full h-full min-h-[400px] bg-black rounded-[48px] overflow-hidden relative border border-white/10 shadow-2xl ">
       {" "}

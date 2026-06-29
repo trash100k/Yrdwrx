@@ -145,19 +145,12 @@ export default function Settings() {
     requireCompletionPhoto: true,
     enableGeofencing: true,
     exifVerification: true,
-    aiExpenseOcr: true,
     aiProposals: true,
-    automatedFollowUps: true,
     liveEarAlwaysOn: true,
     visionAnalysis: true,
     aiSafetyCheck: true,
     requireSignature: true,
-    autoCacheEstimates: true,
-    autoCacheOcr: true,
-    feedbackLoopLearning: true,
     autoTranslateChat: true,
-    voiceMemoDubbing: true,
-    clientFacingUiSpecs: true,
   };
 
   const featureConfigs = [
@@ -167,8 +160,7 @@ export default function Settings() {
       icon: Users,
       description: "Manage client details, property specifics, and history.",
       subSettings: [
-        { id: "aiProposals", label: "AI Automated Proposals", desc: "Generate professional proposals instantly." },
-        { id: "automatedFollowUps", label: "Automated Follow-ups", desc: "Voice AI follows up with prospects." }
+        { id: "aiProposals", label: "AI Automated Proposals", desc: "Generate professional proposals instantly." }
       ]
     },
     {
@@ -216,9 +208,6 @@ export default function Settings() {
       label: "Invoicing & Billing",
       icon: ReceiptText,
       description: "Manage payments, track outstanding balances, and send invoices.",
-      subSettings: [
-        { id: "aiExpenseOcr", label: "AI Receipt Scanning", desc: "Upload photos of receipts to auto-categorize expenses." }
-      ]
     },
     {
       id: "reports",
@@ -243,9 +232,7 @@ export default function Settings() {
       description: "Interactive visual planner for property layouts.",
       subSettings: [
         { id: "requireBlueprintDeposit", label: "Blueprint Lock (Deposit)", desc: "Blur material lists for clients until a deposit is paid." },
-        { id: "semanticStyleLearning", label: "Semantic Style Learning", desc: "Allow Gemini to learn your preferred plant selections and spacing rules over time." },
-        { id: "enableHardscapeBidding", label: "Complex Hardscape Spec", desc: "Prompt AI to generate deep infrastructural math for excavation, base, and stone cuts." },
-        { id: "enableWaterFeatureBidding", label: "Water Feature Logic", desc: "Require AI to spec ecosystem parameters like pump GPH, EPDM liners, and skimmer boxes." }
+        { id: "semanticStyleLearning", label: "Semantic Style Learning", desc: "Allow Gemini to learn your preferred plant selections and spacing rules over time." }
       ]
     },
     {
@@ -253,11 +240,6 @@ export default function Settings() {
       label: "Semantic Knowledge Base",
       icon: Database,
       description: "Automatically cache AI responses and estimations to save on inference costs.",
-      subSettings: [
-        { id: "autoCacheEstimates", label: "Auto-Cache Material Specs", desc: "Save common property material lists to standard database instead of re-prompting AI." },
-        { id: "autoCacheOcr", label: "Receipt & OCR Caching", desc: "Log repeated vendor templates to bypass OCR tokens on subsequent scans." },
-        { id: "feedbackLoopLearning", label: "Feedback Loop Savings", desc: "Allow system to learn from manual crew overrides to prevent future AI mistakes." }
-      ]
     },
     {
       id: "aiOmnilingual",
@@ -265,9 +247,7 @@ export default function Settings() {
       icon: Globe,
       description: "Real-time AI-native translation engine for chat, ui, and voice memos.",
       subSettings: [
-        { id: "autoTranslateChat", label: "Auto-Translate Team Chat", desc: "Detect and translate messages to the native language of the user." },
-        { id: "voiceMemoDubbing", label: "Voice Memo Dubbing", desc: "Synthesize transcriptions to the listener's target language automatically." },
-        { id: "clientFacingUiSpecs", label: "Client-Facing Translations", desc: "Translate proposals & portals instantly for foreign clients." }
+        { id: "autoTranslateChat", label: "Auto-Translate Team Chat", desc: "Detect and translate messages to the native language of the user." }
       ]
     },
   ];

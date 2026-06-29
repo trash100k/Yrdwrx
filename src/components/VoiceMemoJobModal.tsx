@@ -51,11 +51,14 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
                 const combined = [...prev, ...data.checklist];
                 // basic dedupe by exact text (not perfect but OK)
                 const seen = new Set();
-                return combined.filter(item => {
-                    const duplicate = seen.has(item.text);
-                    seen.add(item.text);
-                    return !duplicate;
-                });
+                return combined
+                    .filter(item => {
+                        const duplicate = seen.has(item.text);
+                        seen.add(item.text);
+                        return !duplicate;
+                    })
+                    // AI-generated items may lack a stable id; assign one so toggling works.
+                    .map(item => (item.id ? item : { ...item, id: crypto.randomUUID() }));
             });
         }
       }

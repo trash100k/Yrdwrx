@@ -184,6 +184,10 @@ export default function Layout() {
   // QoL States
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  // Real unread count, reported up from NotificationsCenter, so the bell dot reflects
+  // actual overdue invoices / low stock / new leads / upcoming jobs rather than being
+  // hardcoded always-on.
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
@@ -712,7 +716,9 @@ export default function Layout() {
                   aria-label="Notifications"
                 >
                   <Bell size={20} />
-                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
+                  {unreadNotifications > 0 && (
+                    <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
+                  )}
                 </button>
 
                 <button
@@ -722,7 +728,6 @@ export default function Layout() {
                   aria-label="Get Help"
                 >
                   <Brain size={20} />
-                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-forest-500 rounded-full border-2 border-black" />
                 </button>
 
                 <div 
@@ -954,7 +959,7 @@ export default function Layout() {
             }}
           />
           <QuickCreateMenu isOpen={isQuickCreateOpen} onClose={() => setIsQuickCreateOpen(false)} />
-          <NotificationsCenter isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
+          <NotificationsCenter isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} onUnreadCountChange={setUnreadNotifications} />
           <UserProfileMenu isOpen={isUserMenuOpen} onClose={() => setIsUserMenuOpen(false)} />
           <KeyboardShortcutsModal isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
         </main>

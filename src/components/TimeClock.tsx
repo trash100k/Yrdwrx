@@ -60,7 +60,16 @@ export function TimeClock() {
     const durationMins = minutesBetween(open.clockIn, clockOutISO);
     setLocalEntries((e) => e.map((x) => (x.id === open.id || x.clockIn === open.clockIn ? { ...x, clockOut: clockOutISO, durationMins } : x)));
     setServerEntries((e) => e.map((x) => (x.id === open.id ? { ...x, clockOut: clockOutISO, durationMins } : x)));
-    try { if (open.id && !String(open.id).startsWith("local-")) await timesheetsRepo.update(open.id, { clockOut: clockOutISO, durationMins }); } catch { /* optimistic only */ }
+    try {
+      if (open.id && !String(open.id).startsWith("local-")) {
+        // Server-backed entry — patch it closed.
+        await timesheetsRepo.update(open.id, { clockOut: clockOutISO, durationMins });
+      } else {
+        // Offline-created (local-) entry never reached the server — persist the
+        // completed row in full so the hours still land in payroll.
+        await timesheetsRepo.create({ userId, userName, clockIn: open.clockIn, clockOut: clockOutISO, durationMins });
+      }
+    } catch { /* optimistic only */ }
     setBusy(false);
   };
 

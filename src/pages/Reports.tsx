@@ -2,7 +2,6 @@ import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import {
   BarChart3,
-  TrendingUp,
   TrendingDown,
   Users,
   DollarSign,
@@ -179,6 +178,50 @@ export default function Reports() {
     }
   };
 
+  // Client-side CSV export of the currently active view (revenue breakdown for
+  // analytics, audit feed for the activity log). Uses a Blob download — no server.
+  const exportCsv = () => {
+    const esc = (v: any) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    let rows: string[][] = [];
+    let filename = "report.csv";
+
+    if (activeView === "audit") {
+      filename = "activity-log.csv";
+      rows = [["Timestamp", "Action", "User", "Details"]];
+      for (const log of auditLogs) {
+        const details = Object.entries(log.metadata || {})
+          .map(([k, val]) => `${k}=${typeof val === "object" ? JSON.stringify(val) : val}`)
+          .join("; ");
+        rows.push([
+          new Date(log.timestamp).toISOString(),
+          log.action,
+          log.user || "system",
+          details,
+        ]);
+      }
+    } else {
+      filename = "revenue-breakdown.csv";
+      rows = [["Service", "Completed Jobs", "Revenue"]];
+      for (const p of performanceData) {
+        rows.push([p.service, String(p.count), String(p.revenue)]);
+      }
+    }
+
+    const csv = rows.map((r) => r.map(esc).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const fetchInventoryForecast = async () => {
     setIsInventoryLoading(true);
     const tenantId = tenant?.id || "genesis-1";
@@ -227,28 +270,40 @@ export default function Reports() {
           </p>
         </div>
 
-        <div
-          className="flex bg-black p-2 rounded-2xl border border-white/5 shrink-0 overflow-x-auto max-w-full shadow-inner"
-          role="tablist"
-        >
-          {[
-            { id: "analytics", label: "Stats", icon: BarChart3 },
-            { id: "loss-leaders", label: "Loss-Leader Analysis", icon: TrendingDown },
-            { id: "audit", label: "Activity Log", icon: ShieldCheck },
-          ].map((tab) => (
+        <div className="flex items-center gap-4 flex-wrap">
+          <div
+            className="flex bg-black p-2 rounded-2xl border border-white/5 shrink-0 overflow-x-auto max-w-full shadow-inner"
+            role="tablist"
+          >
+            {[
+              { id: "analytics", label: "Stats", icon: BarChart3 },
+              { id: "loss-leaders", label: "Loss-Leader Analysis", icon: TrendingDown },
+              { id: "audit", label: "Activity Log", icon: ShieldCheck },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveView(tab.id as "analytics" | "audit" | "loss-leaders")}
+                className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-transform whitespace-nowrap border-4 ${
+                  activeView === tab.id
+                    ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105"
+                    : "border-transparent text-white/40 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <tab.icon size={20} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {activeView !== "loss-leaders" && (
             <button
-              key={tab.id}
-              onClick={() => setActiveView(tab.id as "analytics" | "audit" | "loss-leaders")}
-              className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-transform whitespace-nowrap border-4 ${
-                activeView === tab.id
-                  ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105"
-                  : "border-transparent text-white/40 hover:text-white hover:bg-white/5"
-              }`}
+              onClick={exportCsv}
+              className="flex items-center gap-3 px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest whitespace-nowrap border-4 border-transparent bg-forest-500/10 text-forest-400 hover:bg-forest-500/20 transition-colors shrink-0"
+              title="Export current view as CSV"
             >
-              <tab.icon size={20} />
-              {tab.label}
+              <Download size={20} />
+              Export CSV
             </button>
-          ))}
+          )}
         </div>
       </header>
 
@@ -261,46 +316,6 @@ export default function Reports() {
             exit={{ opacity: 0, y: -10 }}
             className="space-y-10"
           >
-            {/* Property Value Impact Section */}
-            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-10 text-white relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-br from-forest-500/10 to-transparent pointer-events-none group-hover:from-forest-500/20 transition-all duration-700" />
-              <header className="flex items-center justify-between mb-12 relative z-10">
-                <div>
-                  <h3 className="text-2xl sm:text-3xl font-black italic tracking-normal md:tracking-tighter leading-none mb-2">
-                    Value Added.
-                  </h3>
-                  <p className="micro-label font-black text-white/20 uppercase tracking-[0.3em]">
-                    Property Value
-                  </p>
-                </div>
-                <div className="w-16 h-16 bg-white/10 rounded-[24px] flex items-center justify-center text-forest-400 border border-white/5 shadow-glow group-hover:bg-white group-hover:text-black transition-all duration-700">
-                  <TrendingUp size={32} />
-                </div>
-              </header>
-
-              <div className="space-y-8 relative z-10">
-                <div className="flex items-end justify-between border-b border-white/10 pb-6">
-                  <p className="micro-label font-black text-white/40 uppercase tracking-widest italic">
-                    Curb Appeal
-                  </p>
-                  <p className="text-2xl sm:text-3xl font-black text-forest-400 italic tracking-normal md:tracking-tighter shadow-glow">
-                    +5.2%
-                  </p>
-                </div>
-                <div className="flex items-end justify-between border-b border-white/10 pb-6">
-                  <p className="micro-label font-black text-white/40 uppercase tracking-widest italic">
-                    Maintenance Premium
-                  </p>
-                  <p className="text-2xl sm:text-3xl font-black text-forest-400 italic tracking-normal md:tracking-tighter shadow-glow">
-                    +$28k
-                  </p>
-                </div>
-                <p className="micro-label font-black text-white/10 uppercase tracking-widest italic leading-relaxed pt-4">
-                  Based on local property data.
-                </p>
-              </div>
-            </div>
-
             {/* Predictive Maintenance */}
             <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-10 text-white relative overflow-hidden group">
               <div className="flex items-center justify-between mb-10">

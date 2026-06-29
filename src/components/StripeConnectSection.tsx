@@ -23,7 +23,7 @@ export function StripeConnectSection() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId: tenant.id })
       });
-      
+
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -31,13 +31,11 @@ export function StripeConnectSection() {
         throw new Error(data.error || "Failed to generate connect link.");
       }
     } catch (err) {
+      // Surface the real failure and stay disconnected — never fabricate a fake
+      // acct_demo_ account, which made the UI claim a working Stripe connection.
       console.error(err);
-      
-      // Fallback for demo environments if backend is not perfectly configured yet
-      showToast("Backend connection simulated: Using Demo Stripe Connect.");
-      const demoStripeId = `acct_demo_${Math.random().toString(36).substring(7)}`;
-      await tenantsRepo.updateFields({ stripe_account_id: demoStripeId });
-      showToast(`Stripe Account Connected! ID: ${demoStripeId}`);
+      const message = err instanceof Error ? err.message : "Could not start Stripe Connect onboarding.";
+      showToast(message, "error");
     } finally {
       setIsConnecting(false);
     }

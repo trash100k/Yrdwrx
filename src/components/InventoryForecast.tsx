@@ -69,10 +69,11 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
       });
     });
 
-    // Determine runout
+    // Determine runout. Inventory persists `quantity`; fall back to legacy `stock`.
     items.forEach(item => {
       if (forecastMap[item.id]) {
-        if (forecastMap[item.id].used > item.stock) {
+        const onHand = Number(item.quantity ?? item.stock ?? 0);
+        if (forecastMap[item.id].used > onHand) {
           forecastMap[item.id].runout = true;
         }
       }
@@ -131,8 +132,9 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
           ) : (
             sortedItems.map(item => {
               const forecast = forecastData[item.id] || { used: 0, runout: false };
-              const percentUsed = item.stock > 0 ? (forecast.used / (item.stock + forecast.used)) * 100 : 100;
-              const remaining = item.stock - forecast.used;
+              const onHand = Number(item.quantity ?? item.stock ?? 0);
+              const percentUsed = onHand > 0 ? (forecast.used / (onHand + forecast.used)) * 100 : 100;
+              const remaining = onHand - forecast.used;
 
               return (
                 <div 
@@ -154,7 +156,7 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
                     <div>
                       <h3 className="text-xl font-black text-white uppercase tracking-wider">{item.name}</h3>
                       <p className="text-xs font-bold text-white/50 uppercase tracking-widest mt-1">
-                        Current Stock: {item.stock} {item.category || "UNIT"}
+                        Current Stock: {onHand} {item.category || "UNIT"}
                       </p>
                     </div>
                   </div>
@@ -165,9 +167,9 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
                       <span className={forecast.runout ? "text-red-400" : "text-white"}>{forecast.used} needed</span>
                     </div>
                     <div className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/10">
-                      <div 
-                        className={`h-full rounded-full ${forecast.runout ? "bg-red-500" : "bg-celtic-500"}`} 
-                        style={{ width: `${Math.min(100, (forecast.used / (item.stock === 0 ? 1 : item.stock)) * 100)}%` }} 
+                      <div
+                        className={`h-full rounded-full ${forecast.runout ? "bg-red-500" : "bg-celtic-500"}`}
+                        style={{ width: `${Math.min(100, (forecast.used / (onHand === 0 ? 1 : onHand)) * 100)}%` }}
                       />
                     </div>
                   </div>

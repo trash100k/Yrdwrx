@@ -7,7 +7,7 @@ import {
   logSystemEvent,
   auth
 } from "../lib/firebase";
-import { invoicesRepo, expensesRepo, jobsRepo } from "../lib/repos";
+import { invoicesRepo, expensesRepo, jobsRepo, contractsRepo } from "../lib/repos";
 import { runAutomations } from "../lib/automations";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
@@ -32,6 +32,7 @@ import {
   Zap,
   Printer,
   Repeat,
+  FileSignature,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
@@ -359,6 +360,7 @@ export default function Invoices() {
           accessToken,
           merchant: inv.client || "Client",
           amount: inv.amount || 0,
+          items: inv.items || [],
           clientEmail: inv.clientEmail || inv.email || "",
         }),
       });
@@ -434,6 +436,66 @@ export default function Invoices() {
       showToast(data?.simulated ? `Recurring plan ready (${data.interval}). Connect Stripe to go live.` : "Recurring billing set up.", "success");
     } catch (err: any) {
       showToast(err?.message || "Could not set up recurring billing.", "error");
+    }
+  };
+
+  // Close out a cash/check/card invoice that was settled offline. Flipping the row to
+  // "paid" lets the subscribe() handler above fire the invoice_paid automations exactly
+  // once on the transition.
+  const handleMarkPaid = async (inv: any) => {
+    const tenantId = tenant?.id || "genesis-1";
+    try {
+      if (navigator.onLine) {
+        await invoicesRepo.update(inv.id, { status: "paid" });
+      } else {
+        await syncService.queueAction("UPDATE", "invoices", { status: "paid" }, tenantId, inv.id);
+      }
+      await logSystemEvent("INVOICE_MARKED_PAID", {
+        invoiceId: inv.id,
+        client: inv.client,
+        tenantId,
+      });
+      showToast(`Invoice for ${inv.client || "client"} marked paid.`, "success");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `invoices/${inv.id}`);
+      showToast(err?.message || "Could not mark invoice paid.", "error");
+    }
+  };
+
+  // Turn an accepted estimate (a sent/draft invoice) into a recurring contract row and
+  // fire the quote_approved automation trigger. Defaults to a monthly cadence — the user
+  // can adjust the cycle/dates afterward on the Contracts page.
+  const handleConvertToContract = async (inv: any) => {
+    try {
+      await contractsRepo.create({
+        name: inv.client || "New Contract",
+        status: "active",
+        mrr: Number(inv.amount) || 0,
+        customer_id: inv.customerId || inv.clientId || null,
+        data: {
+          cycle: "Monthly",
+          start_date: new Date().toISOString().split("T")[0],
+          end_date: null,
+          services: (inv.items || [])
+            .map((it: any) => it.description)
+            .filter(Boolean)
+            .join(", "),
+          sourceInvoiceId: inv.id,
+        },
+      });
+      runAutomations("quote_approved", {
+        clientName: inv.client,
+        customerId: inv.customerId || inv.clientId,
+        amount: inv.amount,
+      }).catch(() => {});
+      await logSystemEvent("INVOICE_CONVERTED_TO_CONTRACT", {
+        invoiceId: inv.id,
+        client: inv.client,
+      });
+      showToast(`Contract created for ${inv.client || "client"} (monthly).`, "success");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, "contracts");
+      showToast(err?.message || "Could not convert to contract.", "error");
     }
   };
 
@@ -641,6 +703,26 @@ export default function Invoices() {
                     >
                       <Repeat size={18} aria-hidden="true" />
                     </button>
+                    {inv.status !== "paid" && (
+                      <button
+                        onClick={() => handleConvertToContract(inv)}
+                        className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-md transition-all"
+                        aria-label={`Convert estimate for ${inv.client} into a contract`}
+                        title="Convert to recurring contract"
+                      >
+                        <FileSignature size={18} aria-hidden="true" />
+                      </button>
+                    )}
+                    {inv.status !== "paid" && (
+                      <button
+                        onClick={() => handleMarkPaid(inv)}
+                        className="p-2.5 text-forest-400 hover:bg-forest-500/10 rounded-md transition-all"
+                        aria-label={`Mark invoice for ${inv.client} as paid`}
+                        title="Mark Paid"
+                      >
+                        <CheckCircle2 size={18} aria-hidden="true" />
+                      </button>
+                    )}
                     <button
                       onClick={async () => {
                         const tenantId = tenant?.id || "genesis-1";
@@ -661,6 +743,7 @@ export default function Invoices() {
                             client: inv.client,
                             tenantId,
                           });
+                          showToast(`Invoice for ${inv.client || "client"} marked sent.`, "success");
                         } catch (err) {
                           handleFirestoreError(
                             err,
@@ -670,7 +753,8 @@ export default function Invoices() {
                         }
                       }}
                       className="p-2.5 text-forest-400 hover:bg-forest-500/10 rounded-md transition-all"
-                      aria-label={`Send invoice to ${inv.client}`}
+                      aria-label={`Mark invoice for ${inv.client} as sent`}
+                      title="Mark Sent"
                     >
                       <Send size={18} aria-hidden="true" />
                     </button>

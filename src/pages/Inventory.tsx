@@ -115,7 +115,51 @@ export default function Inventory() {
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [manualBarcode, setManualBarcode] = useState("");
 
+  // Per-item edit modal (name / threshold / unit / cost) — wired to the gear button.
+  const [editItem, setEditItem] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ name: "", minThreshold: "", unit: "", unitCost: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const openEdit = (item: any) => {
+    setEditItem(item);
+    setEditForm({
+      name: item.name || "",
+      minThreshold: String(item.minThreshold ?? ""),
+      unit: item.unit || "",
+      unitCost: String(item.unitCost ?? item.unitPrice ?? ""),
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editItem?.id) return;
+    if (!editForm.name.trim()) {
+      showToast("Item name is required.", "error");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await inventoryRepo.update(editItem.id, {
+        name: editForm.name.trim(),
+        minThreshold: Number(editForm.minThreshold) || 0,
+        unit: editForm.unit.trim() || "units",
+        unitCost: Number(editForm.unitCost) || 0,
+      });
+      logAction("Inventory", "Edit Item", `Updated details for ${editForm.name}`);
+      await logSystemEvent("INVENTORY_ITEM_EDITED", {
+        itemId: editItem.id,
+        itemName: editForm.name,
+      });
+      showToast(`Updated ${editForm.name}.`, "success");
+      setEditItem(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `inventory/${editItem.id}`);
+      showToast(err?.message || "Could not update item.", "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   useEffect(() => {
     const handleVoiceAction = async (e: CustomEvent) => {
@@ -541,7 +585,17 @@ export default function Inventory() {
             </p>
           </div>
           <div className="pt-8 border-t border-white/10">
-            <button className="w-full text-left micro-label font-black uppercase tracking-widest text-white/20 hover:text-white transition-colors flex items-center justify-between group/btn">
+            <button
+              onClick={() => {
+                const tracked = logs.filter((l) => l.jobId && l.type === "out").length;
+                const untracked = logs.filter((l) => l.type === "out" && !l.jobId).length;
+                showToast(
+                  `Loss report: ${quantities.leakage.toFixed(1)}% leakage • ${tracked} job-tracked vs ${untracked} untracked allocations • $${quantities.recoveryVal.toLocaleString()} recovered.`,
+                  untracked > tracked ? "warning" : "info",
+                );
+              }}
+              className="w-full text-left micro-label font-black uppercase tracking-widest text-white/20 hover:text-white transition-colors flex items-center justify-between group/btn"
+            >
               <span>Loss Identification Report</span>
               <ChevronRight
                 size={16}
@@ -728,7 +782,14 @@ export default function Inventory() {
                   Activity Log
                 </h4>
               </div>
-              <button className="micro-label font-black uppercase text-white/10 hover:text-white transition-colors">
+              <button
+                onClick={() => {
+                  if (!logs.length) return;
+                  setLogs([]);
+                  showToast("Activity log view cleared.", "info");
+                }}
+                className="micro-label font-black uppercase text-white/10 hover:text-white transition-colors"
+              >
                 Clear
               </button>
             </div>
@@ -815,8 +876,9 @@ export default function Inventory() {
                         <Plus size={18} aria-hidden="true" />
                       </button>
                       <button
+                        onClick={() => openEdit(item)}
                         className="p-3 bg-white/5 text-white/20 hover:text-white hover:bg-white/10 rounded-xl transition-all border border-white/5"
-                        aria-label={`Settings for ${item.name}`}
+                        aria-label={`Edit ${item.name}`}
                       >
                         <Settings2 size={18} aria-hidden="true" />
                       </button>
@@ -984,7 +1046,28 @@ export default function Inventory() {
                         Depletion Risk Critical
                       </span>
                     </div>
-                    <button className="micro-label font-black text-white underline underline-offset-4 hover:text-white/80 transition-colors">
+                    <button
+                      onClick={async () => {
+                        const threshold = item.minThreshold || 5;
+                        const reorderQty = Math.max(threshold * 2 - (item.quantity || 0), threshold);
+                        try {
+                          await ingestKnowledge(
+                            `REORDER REQUEST: ${item.name} is at ${item.quantity || 0} ${item.unit || "units"} (below ${threshold}). Suggested reorder: ${reorderQty} ${item.unit || "units"}.`,
+                            { type: "inventory", subType: "reorder", itemId: item.id },
+                          );
+                          logAction("Inventory", "Initiate Recovery", `Reorder requested for ${item.name} (${reorderQty})`);
+                          await logSystemEvent("INVENTORY_REORDER_REQUESTED", {
+                            itemId: item.id,
+                            itemName: item.name,
+                            reorderQty,
+                          });
+                          showToast(`Reorder logged: ${reorderQty} ${item.unit || "units"} of ${item.name}.`, "success");
+                        } catch (err: any) {
+                          showToast(err?.message || "Could not initiate recovery.", "error");
+                        }
+                      }}
+                      className="micro-label font-black text-white underline underline-offset-4 hover:text-white/80 transition-colors"
+                    >
                       Initiate Recovery
                     </button>
                   </div>
@@ -1035,6 +1118,103 @@ export default function Inventory() {
           )}
         </div>
       </div>
+
+      {/* Item Edit Modal */}
+      <AnimatePresence>
+        {editItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0"
+              onClick={() => !savingEdit && setEditItem(null)}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-forest-500/10 rounded-xl flex items-center justify-center text-forest-400">
+                    <Settings2 size={20} />
+                  </div>
+                  <h2 className="text-xl font-black text-white italic uppercase tracking-tight">Edit Asset</h2>
+                </div>
+                <button
+                  onClick={() => !savingEdit && setEditItem(null)}
+                  className="text-zinc-500 hover:text-white transition-colors"
+                  aria-label="Close edit"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Name</label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Low Stock Threshold</label>
+                    <input
+                      type="number"
+                      value={editForm.minThreshold}
+                      onChange={(e) => setEditForm((f) => ({ ...f, minThreshold: e.target.value }))}
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Unit</label>
+                    <input
+                      type="text"
+                      value={editForm.unit}
+                      onChange={(e) => setEditForm((f) => ({ ...f, unit: e.target.value }))}
+                      placeholder="units"
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500 placeholder:text-zinc-600"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Unit Cost ($)</label>
+                  <input
+                    type="number"
+                    value={editForm.unitCost}
+                    onChange={(e) => setEditForm((f) => ({ ...f, unitCost: e.target.value }))}
+                    placeholder="0.00"
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500 placeholder:text-zinc-600"
+                  />
+                </div>
+                <div className="pt-2 flex gap-3">
+                  <button
+                    onClick={() => setEditItem(null)}
+                    disabled={savingEdit}
+                    className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveEdit}
+                    disabled={savingEdit}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-forest-600 hover:bg-forest-500 text-white rounded-xl font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
+                  >
+                    {savingEdit ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+                    Save
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Vision Scanner Modal */}
       <AnimatePresence>

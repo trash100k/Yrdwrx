@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, Map, Users, Calendar, Truck, Terminal, Sparkles, X, Activity, Send } from "lucide-react";
+import { Search, Map, Users, Calendar, Truck, Terminal, Sparkles, X, Activity, Send, ReceiptText, BarChart3, Settings as SettingsIcon, Shield, Palette, Package, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { useRole } from "../hooks/useRole";
@@ -23,6 +23,13 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
     { id: "CRM", icon: Users, path: `${rolePrefix}/crm` },
     { id: "Scheduler", icon: Calendar, path: `${rolePrefix}/scheduler` },
     { id: "Crew Suite", icon: Truck, path: `${rolePrefix}/crew-suite` },
+    { id: "Invoices", icon: ReceiptText, path: `${rolePrefix}/invoices` },
+    { id: "Inventory", icon: Package, path: `${rolePrefix}/inventory` },
+    { id: "Contracts", icon: FileText, path: `${rolePrefix}/contracts` },
+    { id: "Design Studio", icon: Palette, path: `${rolePrefix}/design-studio` },
+    { id: "Compliance", icon: Shield, path: `${rolePrefix}/compliance` },
+    { id: "Reports", icon: BarChart3, path: `${rolePrefix}/reports` },
+    { id: "Settings", icon: SettingsIcon, path: `${rolePrefix}/settings` },
     { id: "YardPilot (AI)", icon: Sparkles, path: `${rolePrefix}/agent` },
     ...(onOutreach ? [{ id: "Agentic Outreach", icon: Send, action: () => onOutreach() }] : []),
   ], [rolePrefix, onOutreach]);
@@ -90,7 +97,7 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
               <input
                 autoFocus
                 type="text"
-                placeholder="Search commands, clients, or navigate (Cmd + K)..."
+                placeholder="Jump to a section (Cmd + K)..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="flex-1 bg-transparent border-none text-xl text-white focus:outline-none placeholder:text-zinc-600 font-medium"
