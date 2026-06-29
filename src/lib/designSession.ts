@@ -5,7 +5,8 @@
 // their inputs). Timestamps are passed IN so behavior stays deterministic/testable.
 
 export interface RenderSnapshot {
-  image: string;                 // the composited render data-url (the "HEAD")
+  image: string;                 // the badged display data-url
+  composite?: string;            // the pre-badge composite (the iteration HEAD)
   regions?: any[];
   labels?: Record<string, string>;
   provenance?: any;

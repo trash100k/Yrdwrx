@@ -36,7 +36,10 @@ import {
   Send,
   RefreshCw,
   Users,
-  Download
+  Download,
+  Undo2,
+  Redo2,
+  Leaf
 } from "lucide-react";
 import MarkupCanvas from "../components/MarkupCanvas";
 import BeforeAfterSlider from "../components/BeforeAfterSlider";
@@ -47,6 +50,17 @@ import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { playVoice } from "../lib/playVoice";
 import { burnAiVizBadge } from "../lib/aiVizBadge";
 import { resolveZone } from "../lib/plantIntelligence";
+import SuggestedPalette from "../components/design/SuggestedPalette";
+import {
+  historyInit,
+  historyPush,
+  historyUndo,
+  historyRedo,
+  historyCurrent,
+  canUndo,
+  canRedo,
+  buildProvenance,
+} from "../lib/designSession";
 
 interface DesignResult {
   identifiedAreas: Array<{
@@ -245,6 +259,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   // Pre-badge composite of the latest render, so "Refine" iterates on the clean result
   // (the spec's invariant: feed the composited HEAD back, never the badged display image).
   const [lastComposite, setLastComposite] = useState<string | null>(null);
+  // Render history for undo/redo across iterations.
+  const [history, setHistory] = useState(() => historyInit());
   const [designZone, setDesignZone] = useState<number | "">("");
   const [isPdfing, setIsPdfing] = useState(false);
 
@@ -367,6 +383,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
             setLastComposite(composited);
             const badged = await burnAiVizBadge(composited).catch(() => composited);
             setMockupImage(badged);
+            setHistory((h) => historyPush(h, { image: badged, composite: composited, regions: regs, labels: regionLabels, ts: Date.now() }));
             setActiveTab("compare");
             showToast("Render ready — swipe to compare.", "success");
           } else {
@@ -393,6 +410,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           const finalImg = data.mock ? data.imageUrl : await burnAiVizBadge(data.imageUrl).catch(() => data.imageUrl);
           setLastComposite(data.imageUrl);
           setMockupImage(finalImg);
+          if (!data.mock) setHistory((h) => historyPush(h, { image: finalImg, composite: data.imageUrl, ts: Date.now() }));
           setActiveTab("compare");
           if (!data.mock) showToast("Render ready — swipe the slider to compare.", "success");
         } else {
@@ -544,7 +562,16 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
       await designVisionsRepo.create({
         customer_id: activeCustomer?.id ?? null,
         summary: result.visionSummary,
-        proposal: result,
+        proposal: {
+          ...result,
+          provenance: buildProvenance({
+            model: "gemini-2.5-flash-image",
+            prompt: transcript,
+            zone: designZone || null,
+            regionCount: (regions || []).length,
+            ts: Date.now(),
+          }),
+        },
         before_url: image,
         after_url: mockupImage,
       });
@@ -638,6 +665,40 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     setResult((prev: any) => prev); // keep the analysis/materials context
     setActiveTab("scribble");
     showToast("Mark new spots on this design to keep refining.", "info");
+  };
+
+  const stepHistory = (dir: "undo" | "redo") => {
+    const nh = dir === "undo" ? historyUndo(history) : historyRedo(history);
+    setHistory(nh);
+    const snap = historyCurrent(nh);
+    if (snap) {
+      setMockupImage(snap.image);
+      setLastComposite(snap.composite || null);
+      setActiveTab("compare");
+    }
+  };
+
+  // Apply a zone-grounded palette: fill empty marked spots with the picks (in order) and
+  // merge the priced items into the materials list so the estimate reflects the design.
+  const applyPalette = (palette: any) => {
+    const addRegs = (regions || []).filter((r: any) => r.intent === "add");
+    setRegionLabels((prev) => {
+      const next = { ...prev };
+      (palette?.labels || []).forEach((lbl: string, i: number) => {
+        const r = addRegs[i];
+        if (r && !next[r.id]) next[r.id] = lbl;
+      });
+      return next;
+    });
+    const palItems = (palette?.items || []).map(({ item, qty }: any) => ({
+      item: item.name,
+      quantity: `${qty} ${item.unit || "each"}`,
+      estimatedCost: (Number(item.unitPrice) || 0) * qty,
+    }));
+    setResult((prev: any) =>
+      prev ? { ...prev, estimatedMaterials: [...(prev.estimatedMaterials || []), ...palItems] } : prev,
+    );
+    showToast("Palette applied to your spots + materials.", "success");
   };
 
   // Branded before/after + itemized proposal PDF the contractor hands the client.
@@ -1197,6 +1258,17 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                   </div>
                                 ),
                               )}
+                              <details className="pt-1">
+                                <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-forest-400 flex items-center gap-1.5">
+                                  <Leaf size={12} /> Suggest a zone-fit palette
+                                </summary>
+                                <div className="pt-3">
+                                  <SuggestedPalette
+                                    zone={designZone || null}
+                                    onApply={applyPalette}
+                                  />
+                                </div>
+                              </details>
                             </div>
                           )}
 
@@ -1218,7 +1290,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                   <button
                                     onClick={generateMockup}
                                     disabled={isGeneratingMockup}
-                                    title="Generate a fresh render"
+                                    title="Generate a fresh variation"
                                     className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 disabled:opacity-50"
                                   >
                                     {isGeneratingMockup ? (
@@ -1226,8 +1298,26 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                     ) : (
                                       <RefreshCw size={12} />
                                     )}
-                                    Redo
+                                    Variation
                                   </button>
+                                  {canUndo(history) && (
+                                    <button
+                                      onClick={() => stepHistory("undo")}
+                                      title="Undo to the previous render"
+                                      className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5"
+                                    >
+                                      <Undo2 size={12} /> Undo
+                                    </button>
+                                  )}
+                                  {canRedo(history) && (
+                                    <button
+                                      onClick={() => stepHistory("redo")}
+                                      title="Redo"
+                                      className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5"
+                                    >
+                                      <Redo2 size={12} /> Redo
+                                    </button>
+                                  )}
                                   <button
                                     onClick={downloadMockup}
                                     title="Download the after image"
