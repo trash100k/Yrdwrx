@@ -17,6 +17,10 @@ import helmet from "helmet";
 import { validateSafeUrl } from "./src/lib/securityUtils.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 
+// Load .env.local first (the conventional, gitignored local override) so its values win,
+// then .env for any base defaults. dotenv.config() does not override already-set vars, so
+// the order matters: real env (Cloud Run) > .env.local > .env.
+dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 // Thrown by AI surfaces that cannot be meaningfully mocked (audio/video/image bytes,
