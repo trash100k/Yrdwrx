@@ -73,6 +73,88 @@ interface DesignResult {
   };
 }
 
+// Load an <img> for canvas compositing (anonymous CORS only for remote URLs).
+function loadImageEl(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    if (!src.startsWith("data:")) img.crossOrigin = "anonymous";
+    img.src = src;
+  });
+}
+
+// Map a free w/h ratio to the nearest aspect-ratio enum the image model accepts.
+function nearestAspect(ratio: number): string {
+  const opts: Array<[string, number]> = [
+    ["1:1", 1], ["4:3", 4 / 3], ["3:4", 3 / 4], ["3:2", 3 / 2], ["2:3", 2 / 3],
+    ["16:9", 16 / 9], ["9:16", 9 / 16], ["5:4", 5 / 4], ["4:5", 4 / 5],
+  ];
+  let best = "4:3", bestD = Infinity;
+  for (const [label, val] of opts) {
+    const d = Math.abs(Math.log(ratio / val));
+    if (d < bestD) { bestD = d; best = label; }
+  }
+  return best;
+}
+
+// THE GUARANTEE: composite the full-frame model output back over the byte-identical
+// original through a feathered mask of the marked regions — so everything OUTSIDE the
+// regions stays pixel-identical (no scene drift). Client-side; no server dependency.
+async function compositeRegions(cleanUrl: string, renderUrl: string, regs: any[]): Promise<string> {
+  const [base, gen] = await Promise.all([loadImageEl(cleanUrl), loadImageEl(renderUrl)]);
+  const W = base.naturalWidth || base.width;
+  const H = base.naturalHeight || base.height;
+  if (!W || !H) return renderUrl;
+  const out = document.createElement("canvas");
+  out.width = W; out.height = H;
+  const ctx = out.getContext("2d");
+  if (!ctx) return renderUrl;
+  // 1) the untouched original underneath
+  ctx.drawImage(base, 0, 0, W, H);
+  // 2) a feathered white mask of all regions
+  const mask = document.createElement("canvas");
+  mask.width = W; mask.height = H;
+  const mctx = mask.getContext("2d");
+  if (!mctx) return renderUrl;
+  const feather = Math.max(8, Math.round(Math.max(W, H) * 0.012));
+  for (const r of regs || []) {
+    const cx = (r.cx ?? ((r.x ?? 0) + (r.w ?? 0) / 2)) * W;
+    const cy = (r.cy ?? ((r.y ?? 0) + (r.h ?? 0) / 2)) * H;
+    if (r.shape === "circle") {
+      const rad = Math.max(6, (r.r || 0.08) * Math.max(W, H));
+      const g = mctx.createRadialGradient(cx, cy, Math.max(1, rad - feather), cx, cy, rad + feather);
+      g.addColorStop(0, "rgba(255,255,255,1)");
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      mctx.fillStyle = g;
+      mctx.beginPath();
+      mctx.arc(cx, cy, rad + feather, 0, Math.PI * 2);
+      mctx.fill();
+    } else {
+      const w = (r.w || 0.2) * W;
+      const h = (r.h || 0.2) * H;
+      const x = (r.x ?? (r.cx - (r.w || 0.2) / 2)) * W;
+      const y = (r.y ?? (r.cy - (r.h || 0.2) / 2)) * H;
+      mctx.save();
+      (mctx as any).filter = `blur(${feather}px)`;
+      mctx.fillStyle = "white";
+      mctx.fillRect(x, y, w, h);
+      mctx.restore();
+    }
+  }
+  // 3) model output, clipped to the mask
+  const layer = document.createElement("canvas");
+  layer.width = W; layer.height = H;
+  const lctx = layer.getContext("2d");
+  if (!lctx) return renderUrl;
+  lctx.drawImage(gen, 0, 0, W, H);
+  lctx.globalCompositeOperation = "destination-in";
+  lctx.drawImage(mask, 0, 0);
+  // 4) masked model output over the original
+  ctx.drawImage(layer, 0, 0);
+  return out.toDataURL("image/jpeg", 0.9);
+}
+
 export default function DesignStudio() {
   const location = useLocation();
   const { tenant } = useTenant();
@@ -153,6 +235,11 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   // the agent navigates in with a preloaded customer).
   const [allCustomers, setAllCustomers] = useState<any[]>([]);
   const [isSendingToClient, setIsSendingToClient] = useState(false);
+  // Region-aware placement: the clean photo + the semantic regions the user marked, plus a
+  // per-region label ("what goes here"). Drives the /api/design/place-objects render.
+  const [cleanImage, setCleanImage] = useState<string | null>(null);
+  const [regions, setRegions] = useState<any[]>([]);
+  const [regionLabels, setRegionLabels] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!tenant) return;
@@ -229,6 +316,46 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     setIsGeneratingMockup(true);
     try {
         const description = (result.identifiedAreas || []).map(a => a.suggestion).join(". ");
+        const placeRegions = (regions || []).filter((r: any) => r.intent === "add" || r.intent === "remove");
+
+        // Region-aware path: place each marked object exactly where it was drawn, then
+        // composite client-side so the rest of the scene stays pixel-identical.
+        if (placeRegions.length) {
+          const base = cleanImage || image;
+          const regs = placeRegions.map((r: any) => ({ ...r, label: regionLabels[r.id] || "" }));
+          const response = await fetchApi("/api/design/place-objects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              image: base,
+              regions: regs,
+              description: transcript || description,
+              aspectRatio: imageAspectRatio ? nearestAspect(imageAspectRatio) : undefined,
+            }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data?.error) {
+            showToast(data?.error || "Couldn't render the placement. Try again.", "error");
+            return;
+          }
+          if (data.mock) {
+            showToast("Preview echoes your photo — AI rendering needs a Gemini key.", "info");
+            setMockupImage(base);
+            setActiveTab("compare");
+            return;
+          }
+          if (data.imageUrl) {
+            const composited = await compositeRegions(base, data.imageUrl, regs).catch(() => data.imageUrl);
+            setMockupImage(composited);
+            setActiveTab("compare");
+            showToast("Render ready — swipe to compare.", "success");
+          } else {
+            showToast("No preview image was returned.", "error");
+          }
+          return;
+        }
+
+        // Fallback: whole-image restyle when no regions were marked.
         const response = await fetchApi("/api/design/generate-mockup", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -255,6 +382,14 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     } finally {
         setIsGeneratingMockup(false);
     }
+  };
+
+  // MarkupCanvas finalize: stash the clean photo + semantic regions for the placement
+  // render, then run the analysis pass on the annotated composite (unchanged behavior).
+  const handleFinalize = (payload: any) => {
+    setCleanImage(payload?.clean || image);
+    setRegions(Array.isArray(payload?.regions) ? payload.regions : []);
+    processDesign(payload?.composite || image);
   };
 
   const processDesign = async (markedUpImage: string) => {
@@ -743,7 +878,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                   ) : activeTab === "compare" && mockupImage ? (
                     <BeforeAfterSlider beforeImage={image} afterImage={mockupImage} imageAspectRatio={imageAspectRatio} />
                   ) : (
-                    <MarkupCanvas backgroundImage={image} onSave={processDesign} imageAspectRatio={imageAspectRatio} />
+                    <MarkupCanvas backgroundImage={image} onSave={handleFinalize} imageAspectRatio={imageAspectRatio} />
                   )}
 
                   <AnimatePresence>
@@ -940,6 +1075,37 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
 
                       {(!result.botanicalViolations || result.botanicalViolations.length === 0 || overriddenViolations) && (
                         <>
+                          {regions.filter((r: any) => r.intent === "add").length > 0 && !mockupImage && (
+                            <div className="p-4 bg-black/40 border border-white/5 rounded-2xl space-y-3">
+                              <p className="micro-label text-forest-400 uppercase tracking-widest font-black flex items-center gap-2">
+                                <Target size={14} /> Place In Each Spot
+                              </p>
+                              <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold leading-relaxed">
+                                Name what goes in each marked spot, then hit Reveal — we place it exactly there and keep the rest of the photo untouched.
+                              </p>
+                              {regions.map((r: any, i: number) =>
+                                r.intent === "add" ? (
+                                  <input
+                                    key={r.id}
+                                    value={regionLabels[r.id] || ""}
+                                    onChange={(e) =>
+                                      setRegionLabels((p) => ({ ...p, [r.id]: e.target.value }))
+                                    }
+                                    placeholder={`Spot ${i + 1}: e.g. Japanese Maple, 6ft`}
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs font-bold text-white/90 placeholder:text-zinc-600 focus:border-forest-500/40 focus:outline-none"
+                                  />
+                                ) : (
+                                  <div
+                                    key={r.id}
+                                    className="text-[10px] text-red-400/80 uppercase tracking-widest font-black flex items-center gap-2"
+                                  >
+                                    <X size={12} /> Remove area {i + 1}
+                                  </div>
+                                ),
+                              )}
+                            </div>
+                          )}
+
                           {/* Reveal mockup rendering */}
                           <div className="flex flex-col gap-4">
                             {mockupImage ? (
@@ -1197,7 +1363,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
       {/* Floating Action Node */}
       {activeView === "studio" && (
         <button
-          onClick={() => image && processDesign(image)}
+          onClick={() => { if (image) { setRegions([]); setCleanImage(image); processDesign(image); } }}
           aria-label="Process design transformation"
           className={`fixed bottom-12 right-12 w-20 h-20 bg-forest-500 text-black rounded-3xl shadow-2xl flex items-center justify-center transition-all ${image ? "scale-100 opacity-100 rotate-0" : "scale-0 opacity-0 rotate-180"}`}
         >

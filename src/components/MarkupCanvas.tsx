@@ -14,14 +14,25 @@ import {
 import { motion } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { regionFromBBox } from "../lib/canvasGeometry";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Emitted on finalize: the clean photo, a flattened composite (for the analysis pass),
+// and the SEMANTIC regions the user marked (normalized 0..1) — circles/boxes = "add",
+// the X tool = "remove". The placement engine uses `clean` + `regions`, never the
+// annotation-burned composite.
+export interface MarkupPayload {
+  clean: string | null;
+  composite: string;
+  regions: Array<{ id: string; shape: "circle" | "rect"; cx: number; cy: number; r?: number; x?: number; y?: number; w?: number; h?: number; intent: "add" | "remove" }>;
+}
+
 interface MarkupCanvasProps {
   backgroundImage: string | null;
-  onSave: (dataUrl: string) => void;
+  onSave: (payload: MarkupPayload) => void;
   imageAspectRatio?: number | null;
 }
 
@@ -95,6 +106,7 @@ export default function MarkupCanvas({
           rx: 10,
           ry: 10,
         });
+        (rect as any).regionMeta = { shape: "rect", intent: "add" };
         fabricCanvas.add(rect);
         fabricCanvas.setActiveObject(rect);
         setActiveTool("select");
@@ -111,6 +123,7 @@ export default function MarkupCanvas({
           stroke: "#3b82f6", // Blue for "that"
           strokeWidth: 4,
         });
+        (circle as any).regionMeta = { shape: "circle", intent: "add" };
         fabricCanvas.add(circle);
         fabricCanvas.setActiveObject(circle);
         setActiveTool("select");
@@ -126,6 +139,7 @@ export default function MarkupCanvas({
            left: pointer.x,
            top: pointer.y,
         });
+        (group as any).regionMeta = { shape: "rect", intent: "remove" };
         fabricCanvas.add(group);
         fabricCanvas.setActiveObject(group);
         setActiveTool("select");
@@ -164,10 +178,36 @@ export default function MarkupCanvas({
       // 2) markup drawings on top (fabric's canvas element, transparent bg)
       const drawEl = (fabricCanvas as any).lowerCanvasEl || canvasRef.current;
       if (drawEl) ctx.drawImage(drawEl, 0, 0, W, H);
-      onSave(out.toDataURL("image/jpeg", 0.85));
+      const composite = out.toDataURL("image/jpeg", 0.85);
+
+      // Build SEMANTIC regions from the tagged shapes (normalized to the displayed photo).
+      const regions: MarkupPayload["regions"] = [];
+      try {
+        const natW = imgEl?.naturalWidth || W;
+        const natH = imgEl?.naturalHeight || H;
+        let idx = 0;
+        for (const o of fabricCanvas.getObjects()) {
+          const meta = (o as any).regionMeta;
+          if (!meta) continue; // freehand pencil = sketch only, not a placement region
+          const br = o.getBoundingRect();
+          const nr = regionFromBBox(
+            meta.shape,
+            { left: br.left, top: br.top, width: br.width, height: br.height },
+            natW,
+            natH,
+            W,
+            H,
+          );
+          regions.push({ id: `r${++idx}`, intent: meta.intent, ...nr });
+        }
+      } catch (e) {
+        console.warn("Region extraction failed:", e);
+      }
+
+      onSave({ clean: backgroundImage, composite, regions });
     } catch (err) {
       console.warn("Composite export failed; falling back to the original photo:", err);
-      if (backgroundImage) onSave(backgroundImage);
+      if (backgroundImage) onSave({ clean: backgroundImage, composite: backgroundImage, regions: [] });
     }
   };
 

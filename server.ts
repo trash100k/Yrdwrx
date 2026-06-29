@@ -3352,6 +3352,123 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // ===========================================================================
+  // REGION-AWARE OBJECT PLACEMENT — the "draw a circle -> place THAT thing there"
+  // engine. Verified contract (2026): no first-party Google mask-inpaint exists;
+  // gemini-2.5-flash-image is INSTRUCTION-ONLY. We send the CLEAN photo (no burned-in
+  // marks) + a numbered, per-region instruction built from normalized coordinates, and
+  // the client composites the model output back over the original through a feathered
+  // mask so everything OUTSIDE the regions stays pixel-identical (the real guarantee).
+  // Reference images (a specific catalog plant) go FIRST, the yard photo LAST (so the
+  // output adopts the yard's aspect ratio), text LAST.
+  // ===========================================================================
+  function describeRegionServer(cx: number, cy: number): string {
+    const col = cx < 0.34 ? "left" : cx > 0.66 ? "right" : "center";
+    const row = cy < 0.34 ? "top" : cy > 0.66 ? "bottom" : "middle";
+    const vert = row === "top" ? "upper" : row === "bottom" ? "lower" : "center";
+    const where =
+      col === "center" && vert === "center"
+        ? "the center"
+        : `the ${vert}${col === "center" ? "" : "-" + col}`;
+    return `in ${where} of the image (about ${Math.round(cx * 100)}% from the left, ${Math.round(
+      cy * 100,
+    )}% from the top)`;
+  }
+
+  app.post("/api/design/place-objects", aiLimiter, async (req, res) => {
+    try {
+      const { image, regions, description, aspectRatio } = req.body || {};
+      if (!image || typeof image !== "string") {
+        return res.status(400).json({ error: "Missing or invalid 'image' (clean base64 photo required)." });
+      }
+      const regs: any[] = Array.isArray(regions) ? regions : [];
+      if (!regs.length && !description) {
+        return res.status(400).json({ error: "Provide at least one region or a description." });
+      }
+
+      const base64Data = image.includes(",") ? image.split(",")[1] : image;
+      const mimeType = image.includes(";") ? image.split(";")[0].split(":")[1] : "image/jpeg";
+
+      // Mock mode (no GEMINI_API_KEY): echo the clean photo back + the regions so the
+      // client can overlay placement proxies — keeps the flow testable offline.
+      if (isMockMode) {
+        return res.json({ imageUrl: image, regions: regs, mock: true });
+      }
+
+      // Build the per-region instruction. Spatial language aims INSIDE each region; the
+      // client-side feathered mask, not the words, defines the hard boundary.
+      const regionLines = regs.map((rg: any, i: number) => {
+        const cx = Number(rg?.cx ?? 0.5);
+        const cy = Number(rg?.cy ?? 0.5);
+        const where = describeRegionServer(cx, cy);
+        if (rg?.intent === "remove") {
+          return `${i + 1}. Remove whatever is ${where}, and fill the space naturally with the surrounding ground/landscape.`;
+        }
+        const what = (rg?.label || description || "an appropriate landscaping element").toString().slice(0, 160);
+        return (
+          `${i + 1}. Place ${what} ${where}. Size it correctly for the scene's perspective; the base must sit ` +
+          `on the ground (no floating), with a realistic contact shadow matching the existing sunlight.`
+        );
+      });
+
+      const instruction = [
+        "Edit this photo of a yard with photorealistic results.",
+        regionLines.join(" "),
+        description ? `Overall intent: ${String(description).slice(0, 400)}.` : "",
+        "Keep everything else in the image EXACTLY the same — preserve the house, hardscape, sky, " +
+          "composition, lighting, and the input aspect ratio. Add nothing else; no extra objects, people, or text.",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      // Reference images for specific catalog items go FIRST; the yard photo LAST (last
+      // image wins the output aspect ratio); the instruction text LAST. Cap refs at 2.
+      const parts: any[] = [];
+      let refCount = 0;
+      for (const rg of regs) {
+        if (refCount >= 2) break;
+        const ref = rg?.refImage;
+        if (ref && typeof ref === "string") {
+          const rData = ref.includes(",") ? ref.split(",")[1] : ref;
+          const rMime = ref.includes(";") ? ref.split(";")[0].split(":")[1] : "image/jpeg";
+          parts.push({ inlineData: { mimeType: rMime, data: rData } });
+          refCount++;
+        }
+      }
+      parts.push({ inlineData: { mimeType, data: base64Data } }); // yard LAST
+      parts.push({ text: instruction }); // text LAST
+
+      const config: any = { responseModalities: ["IMAGE", "TEXT"] };
+      if (aspectRatio && typeof aspectRatio === "string") {
+        config.imageConfig = { aspectRatio };
+      }
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: [{ role: "user", parts }],
+        config,
+      });
+
+      let generatedImageUrl: string | null = null;
+      const outParts = response.candidates?.[0]?.content?.parts || [];
+      for (const part of outParts) {
+        if (part.inlineData?.data) {
+          const mType = part.inlineData.mimeType || "image/png";
+          generatedImageUrl = `data:${mType};base64,${part.inlineData.data}`;
+          break;
+        }
+      }
+
+      if (!generatedImageUrl) {
+        return res.status(502).json({ error: "The model did not return an image. Try simplifying the request." });
+      }
+      res.json({ imageUrl: generatedImageUrl, regions: regs });
+    } catch (e: any) {
+      console.error("[design/place-objects]", e?.message);
+      return handleAiError(res, e, "Object placement failed");
+    }
+  });
+
   // --- DEEP RESEARCH EXPERT ---
   // "Deep research" is just a single strong, web-grounded model call (gemini-2.5-pro +
   // Google Search grounding) — NOT the fabricated ai.interactions background-agent API that
