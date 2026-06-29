@@ -2,7 +2,7 @@
 // Crew time clock — clock in/out with a live elapsed timer and a week-hours rollup.
 // Persists to the `timesheets` collection (best-effort) and stays usable with optimistic
 // local state in demo / offline, so the field flow never blocks.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { getCurrentUser } from "../lib/supabase";
 import { timesheetsRepo } from "../lib/repos";
 import { Clock, Play, Square } from "lucide-react";

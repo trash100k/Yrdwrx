@@ -19,7 +19,8 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
-import { getCurrentUser, supabase } from "../lib/supabase";
+import { getCurrentUser } from "../lib/supabase";
+import { tenantsRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
@@ -369,10 +370,10 @@ export default function BrainChat({
         currentQuery.includes("ok")
       ) {
          if (tenant && !tenant.id.startsWith("demo-")) {
-            supabase
-              .from("tenants")
-              .update({ legal: { aiDisclaimerAccepted: true, acceptedAt: new Date().toISOString() } })
-              .eq("id", tenant.id)
+            // Merge into the legal JSONB (read-modify-write) so we don't clobber other
+            // legal fields; RLS scopes the write to the caller's tenant.
+            tenantsRepo
+              .updateLegal({ aiDisclaimerAccepted: true, acceptedAt: new Date().toISOString() })
               .then(() => {}, (err) => console.error(err));
          }
          

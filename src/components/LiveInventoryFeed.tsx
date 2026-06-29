@@ -33,11 +33,12 @@ export function LiveInventoryFeed() {
 
       <div className="flex px-6 sm:px-12 h-full items-center gap-6 overflow-x-auto custom-scrollbar-hide scroll-smooth">
         {items.map((item) => {
-          // Normalize across real Firestore docs ({stock, minThreshold, unit}) and the
-          // demo mock shape ({quantity, minQuantity, unit}) so the big number + low-stock
-          // styling work with REAL data (was reading only item.quantity -> undefined/NaN).
+          // Normalize across the Supabase inventory row ({stock, minThreshold, unit};
+          // repos camelize top-level columns) and any legacy demo shape ({quantity,
+          // minQuantity, unit}) so the big number + low-stock styling work with REAL data
+          // (was reading only item.quantity -> undefined/NaN).
           const qty = Number(item.quantity ?? item.stock ?? 0);
-          const min = Number(item.minQuantity ?? item.minThreshold ?? item.min_threshold ?? 0);
+          const min = Number(item.minQuantity ?? item.minThreshold ?? 0);
           const unit = item.unit || "units";
           const low = min > 0 && qty < min;
           return (
