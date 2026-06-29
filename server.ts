@@ -355,22 +355,31 @@ function saveGeminiCache() {
 const originalGenerateContent = ai.models.generateContent.bind(ai.models);
 // @ts-ignore
 ai.models.generateContent = async (request: any) => {
+  // IMAGE responses must NEVER use this cache: it stores only `.text`, so a cache HIT
+  // would return { text } with no `candidates` and blank the generated image (imageUrl: null).
+  // Bypass entirely when the caller asks for IMAGE output (e.g. design renders).
+  const modalities = request?.config?.responseModalities;
+  const isImageRequest = Array.isArray(modalities) && modalities.includes("IMAGE");
+  if (isImageRequest) {
+    return originalGenerateContent(request);
+  }
+
   const requestString = JSON.stringify(request);
   const hash = crypto.createHash("sha256").update(requestString).digest("hex");
-  
+
   if (geminiCache[hash]) {
     console.log(`[Gemini Cache HIT] ${hash.substring(0, 8)} - Saving compute costs.`);
     return { text: geminiCache[hash] };
   }
-  
+
   console.log(`[Gemini Cache MISS] ${hash.substring(0, 8)} - Calling LLM API...`);
   const response = await originalGenerateContent(request);
-  
+
   if (response && response.text) {
     geminiCache[hash] = response.text;
     saveGeminiCache();
   }
-  
+
   return response;
 };
 // =================================================
