@@ -384,6 +384,14 @@ export default function Layout() {
       allowedRoles: ["owner", "admin"],
     },
     {
+      id: "inbox",
+      icon: MessageSquare,
+      label: "Inbox",
+      path: `${rolePrefix}/inbox`,
+      group: "BUSINESS",
+      allowedRoles: ["owner", "admin"],
+    },
+    {
       id: "referrals",
       icon: Gift,
       label: "Referrals",

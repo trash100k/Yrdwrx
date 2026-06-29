@@ -66,6 +66,7 @@ const CustomerIntelligence = lazy(() => import("./pages/CustomerIntelligence"));
 const OwnerDigest = lazy(() => import("./pages/OwnerDigest"));
 const Referrals = lazy(() => import("./pages/Referrals"));
 const Equipment = lazy(() => import("./pages/Equipment"));
+const Inbox = lazy(() => import("./pages/Inbox"));
 
 const PageLoader = () => (
   <div className="flex h-screen w-full items-center justify-center bg-zinc-950">
@@ -377,6 +378,7 @@ useEffect(() => {
                                 <Route path="owner-digest" element={<OwnerDigest />} />
                                 <Route path="referrals" element={<Referrals />} />
                                 <Route path="equipment" element={<Equipment />} />
+                                <Route path="inbox" element={<Inbox />} />
                                 <Route
                                   path="*"
                                   element={<Navigate to="/admin" replace />}
