@@ -4,6 +4,7 @@ import { Customer } from "../types";
 import { fetchApi } from "../lib/api";
 import { motion, AnimatePresence } from "motion/react";
 import { useToast } from "../contexts/ToastContext";
+import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 
 interface OutboundDraft {
   customerId: string;
@@ -13,6 +14,7 @@ interface OutboundDraft {
 
 export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
   const { showToast } = useToast();
+  const { addLog } = useWorkspaceOutbox();
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [targetService, setTargetService] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
@@ -66,6 +68,26 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
   };
 
   const handleApprove = () => {
+      // Persist the approved draft to the workspace outbox as a tracked item.
+      const approved = drafts[currentReviewIndex];
+      if (approved) {
+          const customer = customers.find(c => c.id === approved.customerId);
+          const recipient =
+              customer?.email ||
+              (customer ? `${customer.firstName || ""} ${customer.lastName || ""}`.trim() : "") ||
+              approved.customerId ||
+              "the selected client";
+          try {
+              addLog({
+                  type: "email",
+                  recipient,
+                  subject: approved.subject || "Outbound campaign",
+                  content: approved.body || "",
+              });
+          } catch {
+              // Non-fatal: still advance the review queue.
+          }
+      }
       showToast("Email Scheduled for Sending!");
       if (currentReviewIndex < drafts.length - 1) {
           setCurrentReviewIndex(prev => prev + 1);

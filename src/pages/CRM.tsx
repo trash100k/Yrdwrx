@@ -49,7 +49,7 @@ import {
 import Papa from "papaparse";
 import { motion, AnimatePresence } from "motion/react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ingestKnowledge, fetchRelevantMemory } from "../services/brainService";
 import { z } from "zod";
 import { useTenant } from "../contexts/TenantContext";
@@ -152,6 +152,7 @@ export default function CRM() {
   const { tenant, userRole } = useTenant();
   const { showToast } = useToast();
   const { addLog } = useWorkspaceOutbox();
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [knowledge, setKnowledge] = useState<Record<string, any>[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -856,9 +857,16 @@ export default function CRM() {
         .map((l) => l.trim())
         .filter(Boolean);
 
+      // Deterministic lead score from the new client's real fields (same as CSV import).
+      // Segment filters / AI-rating badges key off aiScore, so set it on create.
+      const aiScore = computeLeadScore({
+        ...validated.data,
+        isHOA: !!newCustomer.isHOA,
+      });
+
       const addPromise = customersRepo
-        .create(
-          toRow({
+        .create({
+          ...toRow({
             ...validated.data,
             status: "lead",
             isHOA: !!newCustomer.isHOA,
@@ -867,7 +875,9 @@ export default function CRM() {
               gateCode: newCustomer.gateCode || "",
             },
           }),
-        )
+          aiScore,
+          aiScoreLabel: "Evaluating",
+        })
         .then(async (row) => {
           await logSystemEvent("CUSTOMER_CREATED", {
             customerId: row?.id,
@@ -1393,14 +1403,11 @@ export default function CRM() {
                           <span>Name & Contact</span>
                         </div>
                       </th>
-                      <th className="px-6 py-5 text-sm font-bold tracking-wider uppercase text-zinc-300">
-                        Latest Updates
-                      </th>
                       <th className="px-6 py-5 text-sm font-bold tracking-wider uppercase text-zinc-300 text-center">
                         AI Rating
                       </th>
                       <th className="px-6 py-5 text-sm font-bold tracking-wider uppercase text-zinc-300 text-center">
-                        Service Status
+                        Status
                       </th>
                       <th className="pr-10 py-5 text-sm font-bold tracking-wider uppercase text-zinc-300 text-right">
                         Settings
@@ -1443,17 +1450,6 @@ export default function CRM() {
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-8">
-                          <div className="flex flex-col gap-1 max-w-[240px]">
-                            <p className="text-xs md:text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1 italic">
-                              Latest Memory
-                            </p>
-                            <p className="text-xs text-zinc-400 group-hover:text-white/80 transition-colors line-clamp-2 italic leading-relaxed">
-                              "Shared project brief for property development at{" "}
-                              {client.address.split(",")[0]}."
-                            </p>
                           </div>
                         </td>
                         <td className="px-6 py-8">
@@ -1504,20 +1500,6 @@ export default function CRM() {
                               }`}
                             >
                               {client.aiScoreLabel || "Evaluating"}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-8">
-                          <div className="flex flex-col items-start">
-                            <span className="text-xs md:text-[10px] font-black text-zinc-700 uppercase tracking-widest mb-1 italic">
-                              Channel
-                            </span>
-                            <span className="micro-label px-3 py-1 bg-white/5 rounded-lg border border-white/5 uppercase">
-                              {
-                                ["Inbound SMS", "Direct Link", "Referral"][
-                                  stableIndexFromId(client.id, 3)
-                                ]
-                              }
                             </span>
                           </div>
                         </td>
@@ -2272,7 +2254,22 @@ export default function CRM() {
                               value={proposalDraft}
                               onChange={(e) => setProposalDraft(e.target.value)}
                             />
-                            <button className="w-full bg-forest-500 text-black rounded-3xl py-5 font-bold text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-forest-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                            <button
+                              onClick={() => {
+                                addLog({
+                                  type: "email",
+                                  recipient: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`.trim(),
+                                  subject: "Proposal / Quote",
+                                  content: proposalDraft,
+                                });
+                                showToast(
+                                  `Proposal queued to ${selectedCustomer.firstName}.`,
+                                  "success",
+                                );
+                                setProposalDraft("");
+                              }}
+                              className="w-full bg-forest-500 text-black rounded-3xl py-5 font-bold text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-forest-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                            >
                               <Send size={18} /> Send to{" "}
                               {selectedCustomer.firstName}
                             </button>
@@ -2396,29 +2393,29 @@ export default function CRM() {
                          )
                       })}
 
-                      <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-8">
-                        <div className="flex justify-between items-center mb-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center">
-                              <MessageSquare
-                                size={14}
-                                className="text-forest-400"
-                              />
+                      {smsHistory.length > 0 && (
+                        <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-8">
+                          <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center">
+                                <MessageSquare
+                                  size={14}
+                                  className="text-forest-400"
+                                />
+                              </div>
+                              <span className="text-sm font-black italic uppercase tracking-tight">
+                                SMS Messages
+                              </span>
                             </div>
-                            <span className="text-sm font-black italic uppercase tracking-tight">
-                              SMS Messages
+                            <span className="micro-label opacity-40">
+                              {new Date(smsHistory[0].date).toLocaleString()}
                             </span>
                           </div>
-                          <span className="micro-label opacity-40">
-                            24.0 hours ago
-                          </span>
+                          <p className="text-sm text-white/60 font-medium leading-relaxed italic border-l-4 border-forest-500/20 pl-6 py-2">
+                            "{smsHistory[0].body}"
+                          </p>
                         </div>
-                        <p className="text-sm text-white/60 font-medium leading-relaxed italic border-l-4 border-forest-500/20 pl-6 py-2">
-                          "Discussed the upcoming fertilization schedule. Client
-                          indicated high satisfaction with the precision hedge
-                          trimming."
-                        </p>
-                      </div>
+                      )}
                     </div>
                   </section>
                   </>
@@ -2515,7 +2512,17 @@ export default function CRM() {
                          </div>
                          <h4 className="text-lg font-black tracking-tight text-white uppercase mb-2">No Open Estimates</h4>
                          <p className="text-sm text-white/40 mb-8 max-w-sm">Use the AI Property analyzer or Design Studio to easily generate a new proposal to sync to QuickBooks/Stripe.</p>
-                         <button className="px-6 py-3 bg-white text-black text-xs font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all">
+                         <button
+                           onClick={() =>
+                             navigate("../invoices", {
+                               state: {
+                                 client: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`.trim(),
+                                 customer: selectedCustomer,
+                               },
+                             })
+                           }
+                           className="px-6 py-3 bg-white text-black text-xs font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all"
+                         >
                            Create Blank Quote
                          </button>
                        </div>
@@ -2523,40 +2530,7 @@ export default function CRM() {
                   )}
 
                   {customerViewTab === "tasks" && (
-                    <div className="space-y-6">
-                      <div className="bg-zinc-900 border border-white/5 molten-edge p-6 shadow-2xl flex items-center gap-4">
-                        <input
-                          type="text"
-                          placeholder="Quick add a follow-up task..."
-                          className="flex-1 bg-transparent border-none text-white font-medium focus:outline-none text-sm placeholder:text-white/20"
-                        />
-                        <button className="px-4 py-2 bg-forest-500 text-black rounded-lg text-xs font-black uppercase tracking-widest hover:bg-forest-400">Add</button>
-                      </div>
-                      
-                      <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl">
-                         <h4 className="text-xs font-black text-white/40 uppercase tracking-widest mb-6">Upcoming Tasks</h4>
-                         <div className="space-y-3">
-                           <div className="flex items-start gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors cursor-pointer group">
-                             <div className="w-5 h-5 rounded border border-white/20 mt-0.5 group-hover:border-forest-500/50 flex items-center justify-center transition-colors">
-                               <CheckSquare size={12} className="opacity-0 group-hover:opacity-100 text-forest-500" />
-                             </div>
-                             <div>
-                               <p className="text-sm font-bold text-white mb-1">Follow up on Fall Cleanup proposal</p>
-                               <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-400/10 px-2 py-0.5 rounded border border-rose-400/20">Due Today</span>
-                             </div>
-                           </div>
-                           <div className="flex items-start gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors cursor-pointer group">
-                             <div className="w-5 h-5 rounded border border-white/20 mt-0.5 group-hover:border-forest-500/50 flex items-center justify-center transition-colors">
-                               <CheckSquare size={12} className="opacity-0 group-hover:opacity-100 text-forest-500" />
-                             </div>
-                             <div>
-                               <p className="text-sm font-bold text-white mb-1">Check irrigation system leaks</p>
-                               <span className="text-[10px] uppercase font-bold text-white/40">Next Week</span>
-                             </div>
-                           </div>
-                         </div>
-                      </div>
-                    </div>
+                    <CRMTasks customers={selectedCustomer ? [selectedCustomer] : []} />
                   )}
 
                   {customerViewTab === "jobs" && (
@@ -2564,30 +2538,7 @@ export default function CRM() {
                   )}
 
                   {customerViewTab === "documents" && (
-                    <div className="space-y-6">
-                      <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl">
-                        <div className="flex items-center justify-between mb-8">
-                          <h4 className="text-sm font-black uppercase tracking-widest text-white">Files & Photos</h4>
-                          <label className="px-4 py-2 bg-white/10 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all cursor-pointer border border-white/10">
-                            Upload File
-                            <input type="file" className="hidden" accept="image/*,.pdf,.doc" />
-                          </label>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          <div className="aspect-square bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center justify-center p-4 hover:bg-white/10 transition-colors cursor-pointer group relative overflow-hidden">
-                             <FileText size={24} className="text-white/40 mb-3 group-hover:scale-110 transition-transform" />
-                             <span className="text-[10px] font-bold text-white text-center truncate w-full">Contract.pdf</span>
-                          </div>
-                          <div className="aspect-square bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center justify-center p-4 hover:bg-white/10 transition-colors cursor-pointer group relative overflow-hidden">
-                             <img src="https://images.unsplash.com/photo-1558904541-efa843a96f09?w=800&q=80" alt="Lawn" className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-opacity" />
-                             <div className="relative z-10 w-full h-full flex flex-col justify-end">
-                               <span className="text-[10px] font-bold text-white bg-black/60 px-2 py-1 rounded truncate w-full">Backyard_Before.jpg</span>
-                             </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <CRMDocuments customers={selectedCustomer ? [selectedCustomer] : []} />
                   )}
 
                 </div>
@@ -2688,7 +2639,14 @@ export default function CRM() {
                     </div>
                     <button
                       onClick={() => {
-                        showToast(`Drafting email to ${item.supplierEmail}...`);
+                        const supplier = item.supplierEmail || "Supplier";
+                        addLog({
+                          type: "email",
+                          recipient: supplier,
+                          subject: `Restock Request: ${item.name}`,
+                          content: `Low stock alert for ${item.name}. Current: ${item.current ?? "?"} ${item.unit ?? ""} (Min: ${item.min ?? "?"}). Please send a replenishment quote.`,
+                        });
+                        showToast(`Restock request drafted to ${supplier}.`, "success");
                         setShowLowStockModal(false);
                       }}
                       className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-xs md:text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"

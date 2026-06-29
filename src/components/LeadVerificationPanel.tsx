@@ -18,7 +18,7 @@ export function LeadVerificationPanel({ leads }: LeadVerificationPanelProps) {
   const handleApprove = async (lead: Customer) => {
     try {
       await customersRepo.update(lead.id!, {
-        status: "ACTIVE", // or leave it without status if not required
+        status: "active", // lowercase pipeline status — lands in the "Active" column
         priority: true, // we could default priority or let them configure
       });
       showToast(`${lead.firstName} ${lead.lastName} has been approved and added to CRM.`, "success");

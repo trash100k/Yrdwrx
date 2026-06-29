@@ -67,6 +67,11 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeView, setActiveView] = useState<"list" | "calendar">("list");
+  // First day of the month currently shown in the Calendar view.
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
 
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm());
@@ -117,6 +122,42 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
 
   const pendingTasks = sorted.filter((t) => t.status !== "completed");
   const completedTasks = sorted.filter((t) => t.status === "completed");
+
+  // Tasks bucketed by their due-date day-key (yyyy-mm-dd) for the calendar grid.
+  const tasksByDay = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const t of sorted) {
+      const key = toDateInput(t.due_date);
+      if (!key) continue;
+      (m[key] = m[key] || []).push(t);
+    }
+    return m;
+  }, [sorted]);
+
+  // 6-week grid (Sun-first) covering the displayed month.
+  const calendarCells = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const start = new Date(firstDay);
+    start.setDate(1 - firstDay.getDay()); // back up to the Sunday of the first week
+    const cells: { date: Date; key: string; inMonth: boolean }[] = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      cells.push({ date: d, key, inMonth: d.getMonth() === month });
+    }
+    return cells;
+  }, [calendarMonth]);
+
+  const shiftMonth = (delta: number) =>
+    setCalendarMonth((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+
+  const todayKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
 
   const openNew = () => {
     setForm(emptyForm());
@@ -376,15 +417,81 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
           </div>
         </div>
       ) : (
-        <div className="flex-1 bg-zinc-900 rounded-3xl border border-white/5 mt-4 p-8 flex flex-col items-center justify-center text-center">
-          <Calendar size={64} className="text-white/10 mb-6" />
-          <h3 className="text-xl font-black text-white uppercase tracking-widest mb-2">Calendar Integration</h3>
-          <p className="text-sm text-white/50 max-w-md">
-            Full calendar view requires Google Workspace integration. Connect your Google account in Settings to view and manage appointments directly on your calendar.
-          </p>
-          <button className="mt-8 bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-widest px-6 py-3 rounded-lg transition-colors border border-white/10">
-            Connect Google Calendar
-          </button>
+        <div className="flex-1 bg-zinc-900 rounded-3xl border border-white/5 mt-4 p-6 flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-black text-white uppercase tracking-widest flex items-center gap-2">
+              <Calendar size={18} className="text-purple-400" />
+              {calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => shiftMonth(-1)}
+                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors"
+              >
+                ‹ Prev
+              </button>
+              <button
+                onClick={() => setCalendarMonth(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })}
+                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => shiftMonth(1)}
+                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors"
+              >
+                Next ›
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-7 gap-px mb-1">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+              <div key={d} className="text-[10px] font-black uppercase tracking-widest text-white/40 text-center py-2">
+                {d}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-px flex-1 bg-white/5 rounded-xl overflow-hidden">
+            {calendarCells.map((cell) => {
+              const dayTasks = tasksByDay[cell.key] || [];
+              const isToday = cell.key === todayKey;
+              return (
+                <div
+                  key={cell.key}
+                  className={`bg-zinc-900 min-h-[88px] p-2 flex flex-col gap-1 ${cell.inMonth ? "" : "opacity-40"}`}
+                >
+                  <span
+                    className={`text-[11px] font-bold w-6 h-6 flex items-center justify-center rounded-full shrink-0 ${
+                      isToday ? "bg-purple-500 text-white" : "text-white/60"
+                    }`}
+                  >
+                    {cell.date.getDate()}
+                  </span>
+                  <div className="flex flex-col gap-1 overflow-hidden">
+                    {dayTasks.slice(0, 3).map((t) => {
+                      const pri = PRIORITY_META[t.priority] || PRIORITY_META.medium;
+                      const done = t.status === "completed";
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => openEdit(t)}
+                          title={t.title}
+                          className={`text-left text-[10px] font-bold truncate px-1.5 py-0.5 rounded border transition-colors ${pri.cls} ${done ? "line-through opacity-50" : "hover:brightness-125"}`}
+                        >
+                          {t.title}
+                        </button>
+                      );
+                    })}
+                    {dayTasks.length > 3 && (
+                      <span className="text-[9px] text-white/40 font-bold pl-1">+{dayTasks.length - 3} more</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

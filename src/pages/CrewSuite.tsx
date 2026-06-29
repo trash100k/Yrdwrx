@@ -2,7 +2,7 @@
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 import React, { useState, useEffect } from "react";
-import { crewsRepo } from "../lib/repos";
+import { crewsRepo, jobsRepo } from "../lib/repos";
 import {
   logSystemEvent,
   auth
@@ -99,6 +99,8 @@ export default function CrewSuite() {
     "all" | "active" | "incidents" | "late"
   >("all");
   const [viewMode, setViewMode] = useState<"cards" | "timeline">("cards");
+  // Real recent jobs powering the Daily Field Logs feed (replaces hardcoded entries).
+  const [recentJobs, setRecentJobs] = useState<any[]>([]);
 
   // Recruit modal states
   const [isRecruitOpen, setIsRecruitOpen] = useState(false);
@@ -139,6 +141,21 @@ export default function CrewSuite() {
       setCrews((rows || []).map(adaptCrew));
     });
 
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    // Drive the Daily Field Logs feed from real jobs (flatten the jsonb `data` bag
+    // first, then let real columns win), keeping the most recently-updated few.
+    const unsub = jobsRepo.subscribe((rows) => {
+      const jobs = (rows || []).map((r: any) => ({ ...(r?.data || {}), ...r }));
+      const sorted = [...jobs].sort((a, b) => {
+        const ta = new Date(a.updatedAt || a.createdAt || a.date || 0).getTime();
+        const tb = new Date(b.updatedAt || b.createdAt || b.date || 0).getTime();
+        return tb - ta;
+      });
+      setRecentJobs(sorted.slice(0, 5));
+    });
     return () => unsub();
   }, []);
 
@@ -593,9 +610,16 @@ export default function CrewSuite() {
               </p>
             </div>
           </div>
-          <button 
-onClick={() => {
-                showToast("Voice Log Submitted to feed (Simulated Voice Log)", "success");
+          <button
+            onClick={() => {
+              // Capture a quick field note via the browser prompt, log it to the
+              // workspace outbox feed, then confirm with a 2-arg toast.
+              const note = (typeof window !== "undefined" && window.prompt)
+                ? window.prompt("Field note / voice transcription")
+                : "";
+              if (!note || !note.trim()) return;
+              addLog({ type: "chat", recipient: "Operations Channel", subject: "Field Log", content: note.trim() });
+              showToast("Field log submitted to feed", "success");
             }}
             className="px-6 py-3 bg-white text-black rounded-xl font-black text-[9px] uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center gap-2">
             <Mic size={14} /> Voice Transcription Log
@@ -614,7 +638,7 @@ onClick={() => {
            onClick={async () => {
              const activeState = safeStorage.getItem("cutty_workspace_active");
              if (activeState !== "live") {
-               addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Field Report - Job #" + selectedJob.id, content: "Job completed successfully. Please review notes and photos." });
+               addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Field Report", content: "Job completed successfully. Please review notes and photos." });
                return;
              }
              const token = safeStorage.getItem("cutty_workspace_token");
@@ -685,36 +709,41 @@ onClick={() => {
         </div>
 
         <div className="space-y-4 relative z-10">
-          <div className="p-5 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex items-start gap-4">
-              <div className="w-10 h-10 rounded-full bg-forest-500/20 text-forest-500 flex items-center justify-center shrink-0">
-                  <CheckCircle2 size={18} />
-              </div>
-              <div>
-                  <p className="text-sm font-bold text-white mb-1"><span className="text-zinc-500 font-medium">Alpha Squadron •</span> Arrived on Site: 114 Maple Street</p>
-                  <p className="text-xs text-zinc-400">All crew members accounted for. Gate code 4492 verified and functional.</p>
-                  <span className="text-xs md:text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2 block">10 mins ago</span>
-              </div>
-          </div>
-          <div className="p-5 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex items-start gap-4">
-              <div className="w-10 h-10 rounded-full bg-celtic-500/20 text-celtic-500 flex items-center justify-center shrink-0">
-                  <MessageSquare size={18} />
-              </div>
-              <div>
-                  <p className="text-sm font-bold text-white mb-1"><span className="text-zinc-500 font-medium">Beta Team •</span> Client Request Update</p>
-                  <p className="text-xs text-zinc-400">Mrs. Johnson requested we skip the side yard today due to new grass seed. Adjusted invoice pending.</p>
-                  <span className="text-xs md:text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2 block">45 mins ago</span>
-              </div>
-          </div>
-          <div className="p-5 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex items-start gap-4 opacity-70">
-              <div className="w-10 h-10 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-                  <AlertTriangle size={18} />
-              </div>
-              <div>
-                  <p className="text-sm font-bold text-white mb-1"><span className="text-zinc-500 font-medium">Gamma Forces •</span> Equipment Note (Voice Transcribed)</p>
-                  <p className="text-xs text-zinc-400">"The primary string trimmer needs new line and the spark plug is misfiring. Need maintenance tonight."</p>
-                  <span className="text-xs md:text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2 block">2 hours ago</span>
-              </div>
-          </div>
+          {recentJobs.length === 0 ? (
+            <div className="p-8 bg-zinc-950 border border-white/5 border-dashed molten-edge rounded-2xl text-center">
+              <p className="text-sm font-bold text-zinc-500 uppercase tracking-widest">No field activity yet</p>
+              <p className="text-xs text-zinc-600 mt-2">Job arrivals, status changes, and site notes will appear here as crews work.</p>
+            </div>
+          ) : (
+            recentJobs.map((job) => {
+              const status = (job.status || "").toUpperCase();
+              const Icon = status === "COMPLETED" ? CheckCircle2 : status === "IN_PROGRESS" ? Clock : AlertTriangle;
+              const tone = status === "COMPLETED"
+                ? "bg-forest-500/20 text-forest-500"
+                : status === "IN_PROGRESS"
+                  ? "bg-celtic-500/20 text-celtic-500"
+                  : "bg-amber-500/20 text-amber-500";
+              const ts = job.updatedAt || job.createdAt || job.date;
+              const when = ts ? new Date(ts).toLocaleString() : "—";
+              const label = (job.client || job.title || "Job").toString();
+              return (
+                <div key={job.id} className="p-5 bg-zinc-950 border border-white/5 molten-edge rounded-2xl flex items-start gap-4">
+                  <div className={`w-10 h-10 rounded-full ${tone} flex items-center justify-center shrink-0`}>
+                    <Icon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white mb-1">
+                      <span className="text-zinc-500 font-medium">{label} •</span> {job.title || "Field Job"}{job.address ? ` — ${job.address}` : ""}
+                    </p>
+                    <p className="text-xs text-zinc-400">
+                      Status: {status || "SCHEDULED"}{typeof job.progress === "number" ? ` · ${Math.round(job.progress)}% complete` : ""}{job.notes ? ` · ${job.notes}` : ""}
+                    </p>
+                    <span className="text-xs md:text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2 block">{when}</span>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 

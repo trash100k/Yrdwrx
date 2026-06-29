@@ -188,7 +188,7 @@ export default function AgenticOutreachDrawer({
         subject: emailSubject || "Outreach campaign",
         content: emailBody || "",
       });
-      showToast("Outreach saved to your outbox as a draft.", recipient, "success");
+      showToast(`Outreach to ${recipient} saved to your outbox as a draft.`, "success");
     } catch {
       showToast("Couldn't save the outreach draft.", "error");
     }

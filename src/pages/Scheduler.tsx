@@ -87,6 +87,9 @@ export default function Scheduler() {
   const [activeJobs, setActiveJobs] = useState<Job[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  // Lightweight reschedule control: holds the job being re-dated + its draft date/time.
+  const [reschedulingJob, setReschedulingJob] = useState<any>(null);
+  const [rescheduleDraft, setRescheduleDraft] = useState<{ date: string; time: string }>({ date: "", time: "" });
   const [newJob, setNewJob] = useState<Partial<Job>>({
     title: "",
     status: "SCHEDULED",
@@ -206,6 +209,36 @@ export default function Scheduler() {
         jobId,
         title: job?.title,
       }).catch(() => {});
+    }
+  };
+
+  // Open the inline reschedule editor for a job, seeded with its current date/time.
+  const openReschedule = (job: any) => {
+    setReschedulingJob(job);
+    setRescheduleDraft({ date: job.date || "", time: job.time || "" });
+  };
+
+  // Persist a new date/time. `time` lives in the job's `data` jsonb (no column), so we
+  // merge it back into the existing data bag; `date` is a real column.
+  const handleReschedule = async () => {
+    if (!reschedulingJob || !rescheduleDraft.date) return;
+    const job = reschedulingJob;
+
+    // Reuse the HOA quiet-hours guardrail against the new time (warn, don't block).
+    await checkHoaQuietHours({ ...job, date: rescheduleDraft.date, time: rescheduleDraft.time });
+
+    try {
+      await jobsRepo.update(job.id, {
+        date: rescheduleDraft.date,
+        data: { ...(job.data || {}), client: job.client, invoiceId: job.invoiceId, time: rescheduleDraft.time || undefined },
+      });
+      showToast("Job rescheduled", "success");
+    } catch (err: any) {
+      console.error("Failed to reschedule job", err);
+      showToast(`Reschedule failed: ${err.message || "unknown error"}`, "error");
+    } finally {
+      setReschedulingJob(null);
+      setRescheduleDraft({ date: "", time: "" });
     }
   };
 
@@ -336,6 +369,17 @@ export default function Scheduler() {
                           )}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openReschedule(job);
+                            }}
+                            className="px-4 py-2 bg-black border border-white/10 hover:border-celtic-400/40 hover:text-white text-white/60 rounded-xl text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-1.5"
+                            title="Edit job date / time"
+                          >
+                            <CalendarIcon size={12} /> Reschedule
+                          </button>
                           <select
                             value={job.status}
                             onClick={(e) => e.stopPropagation()}
@@ -539,6 +583,60 @@ export default function Scheduler() {
                 className="px-8 py-3 bg-white text-black rounded-xl text-sm font-black uppercase tracking-widest hover:scale-105 transition-transform"
               >
                 Deploy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reschedule Modal */}
+      {reschedulingJob && (
+        <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
+          <div className="bg-zinc-950 border border-white/5 molten-edge p-10 rounded-2xl w-full max-w-md">
+            <h2 className="text-xl sm:text-2xl font-black text-white italic uppercase mb-2">
+              Reschedule Job
+            </h2>
+            <p className="text-sm font-bold text-white/40 mb-8 truncate">{reschedulingJob.title}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
+                  New Date
+                </label>
+                <input
+                  type="date"
+                  value={rescheduleDraft.date}
+                  onChange={(e) => setRescheduleDraft((d) => ({ ...d, date: e.target.value }))}
+                  className="w-full min-w-0 bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white/80 focus:border-celtic-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs md:text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">
+                  New Time
+                </label>
+                <input
+                  type="time"
+                  value={rescheduleDraft.time}
+                  onChange={(e) => setRescheduleDraft((d) => ({ ...d, time: e.target.value }))}
+                  className="w-full min-w-0 bg-black/50 border border-white/5 rounded-xl px-4 py-3 text-white/80 focus:border-celtic-500 outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-4 mt-10 pt-4 border-t border-white/10">
+              <button
+                onClick={() => {
+                  setReschedulingJob(null);
+                  setRescheduleDraft({ date: "", time: "" });
+                }}
+                className="px-8 py-3 text-sm font-black text-white/40 hover:text-white uppercase tracking-widest transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReschedule}
+                disabled={!rescheduleDraft.date}
+                className="px-8 py-3 bg-white text-black rounded-xl text-sm font-black uppercase tracking-widest hover:scale-105 transition-transform disabled:opacity-40 disabled:hover:scale-100"
+              >
+                Save
               </button>
             </div>
           </div>

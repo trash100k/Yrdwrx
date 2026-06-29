@@ -1,10 +1,45 @@
-import { fetchApi } from "../lib/api";
 // @ts-nocheck
+import { fetchApi } from "../lib/api";
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Truck, Map as MapIcon, Route, Play, Settings, CheckCircle2, Navigation2 } from "lucide-react";
 import { APIProvider, Map, AdvancedMarker } from "@vis.gl/react-google-maps";
+import { jobsRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
+
+// READ adapter: flatten the jsonb `data` bag first (carries client/time/coords),
+// then let real columns win on key collisions.
+const adaptJob = (r: any) => ({ ...(r?.data || {}), ...r });
+
+// Local YYYY-MM-DD for "today" (jobs store `date` as a date string).
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// Parse a routes-API duration ("1234s") into seconds.
+const parseDurationSeconds = (d: any): number | null => {
+  if (typeof d === "number") return d;
+  if (typeof d === "string") {
+    const m = d.match(/([\d.]+)\s*s?/);
+    if (m) return parseFloat(m[1]);
+  }
+  return null;
+};
+
+const fmtDuration = (secs: number | null): string => {
+  if (secs == null) return "--";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}m`;
+};
+
+const fmtMiles = (meters: number | null): string => {
+  if (meters == null) return "--";
+  return `${(meters / 1609.34).toFixed(1)} mi`;
+};
 
 export default function RouteOptimizer() {
   const { showToast } = useToast();
@@ -12,6 +47,7 @@ export default function RouteOptimizer() {
   const [complete, setComplete] = useState(false);
   const [routeData, setRouteData] = useState<any>(null);
   const [mapsApiKey, setMapsApiKey] = useState("");
+  const [stops, setStops] = useState<any[]>([]);
 
   useEffect(() => {
     fetchApi("/api/config/maps")
@@ -20,34 +56,70 @@ export default function RouteOptimizer() {
       .catch((err) => console.error("Failed to load maps config", err));
   }, []);
 
-  // Sample waypoints used only to demonstrate the optimizer map. Real scheduled-job
-  // coordinates are not yet wired into this screen, so these are clearly-labelled
-  // sample stops rather than fabricated "live" jobs.
-  const [waypoints] = useState([
-    { lat: 32.3643, lng: -88.7037, id: "W1" }, // Sample HQ (Origin)
-    { lat: 32.4100, lng: -88.6800, id: "W2" }, // Sample stop
-    { lat: 32.3200, lng: -88.7200, id: "W3" }, // Sample stop
-    { lat: 32.3800, lng: -88.6500, id: "W4" }, // Sample stop
-    { lat: 32.3500, lng: -88.6900, id: "W5" }  // Sample HQ (Destination)
-  ]);
-  const isSampleData = true;
+  // Real stop list: today's SCHEDULED jobs that have an address. Only jobs that also
+  // carry coordinates (`coords`/`lat`+`lng`) can be sent to the Routes API as waypoints.
+  useEffect(() => {
+    const unsub = jobsRepo.subscribe((rows) => {
+      const today = todayStr();
+      const list = (rows || [])
+        .map(adaptJob)
+        .filter((j: any) => (j.status || "").toUpperCase() === "SCHEDULED")
+        .filter((j: any) => !!j.address && j.date === today)
+        .map((j: any) => {
+          const lat = j.coords?.lat ?? j.lat;
+          const lng = j.coords?.lng ?? j.lng;
+          const hasCoords = typeof lat === "number" && typeof lng === "number";
+          return { id: j.id, title: j.title, client: j.client, address: j.address, lat, lng, hasCoords };
+        });
+      setStops(list);
+      // Invalidate any prior optimization when the underlying jobs change.
+      setComplete(false);
+      setRouteData(null);
+    });
+    return () => unsub();
+  }, []);
+
+  const waypoints = stops.filter((s) => s.hasCoords);
+  const route = routeData?.data?.routes?.[0];
+  const orderIndex: number[] = Array.isArray(route?.optimizedIntermediateWaypointIndex)
+    ? route.optimizedIntermediateWaypointIndex
+    : [];
+  const durationSecs = parseDurationSeconds(route?.duration);
+  const distanceMeters = typeof route?.distanceMeters === "number" ? route.distanceMeters : null;
+
+  // Ordered stop list to display after optimization: origin, optimized intermediates, destination.
+  const orderedStops = (() => {
+    if (!complete || waypoints.length < 2 || orderIndex.length === 0) return waypoints;
+    const intermediates = waypoints.slice(1, -1);
+    const reordered = orderIndex.map((idx) => intermediates[idx]).filter(Boolean);
+    return [waypoints[0], ...reordered, waypoints[waypoints.length - 1]];
+  })();
 
   const startOptimization = async () => {
+    if (waypoints.length < 2) {
+      showToast("Need at least 2 geocoded scheduled stops to optimize a route", "warning");
+      return;
+    }
     setOptimizing(true);
     try {
       const response = await fetchApi("/api/workflows/routing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ waypoints })
+        body: JSON.stringify({ waypoints: waypoints.map((w) => ({ lat: w.lat, lng: w.lng, id: w.id })) })
       });
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.error || "Failed to fetch route optimization");
       }
-      
+
       setRouteData(data);
       setComplete(true);
+      if (data.simulated) {
+        showToast("Route optimized (simulation — Maps key missing/restricted)", "info");
+      } else {
+        showToast("Route optimized via Google Maps Routes API", "success");
+      }
     } catch (err: any) {
       console.error(err);
       showToast(`Optimization error: ${err.message}`, "error");
@@ -56,6 +128,8 @@ export default function RouteOptimizer() {
     }
   };
 
+  const center = waypoints[0] ? { lat: waypoints[0].lat, lng: waypoints[0].lng } : { lat: 32.3643, lng: -88.7037 };
+
   return (
     <div className="p-5 sm:p-8 max-w-7xl mx-auto min-h-[100dvh]">
       <div className="flex items-center justify-between mb-8">
@@ -63,9 +137,9 @@ export default function RouteOptimizer() {
           <MapIcon size={32} className="text-forest-400" />
           <h1 className="text-2xl sm:text-3xl sm:text-4xl font-black text-white italic uppercase tracking-tight">Route Optimization</h1>
         </div>
-        <button 
+        <button
           onClick={startOptimization}
-          disabled={optimizing || complete}
+          disabled={optimizing || complete || waypoints.length < 2}
           className="bg-forest-500 text-black px-6 py-3 rounded-full font-black uppercase text-sm tracking-widest hover:scale-105 active:scale-95 transition-transform flex items-center gap-2 disabled:opacity-50"
         >
           {optimizing ? (
@@ -80,16 +154,22 @@ export default function RouteOptimizer() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-zinc-900 border border-white/5 molten-edge rounded-3xl overflow-hidden h-[600px] relative">
-          {isSampleData && (
-            <div className="absolute top-4 left-4 z-20 px-3 py-1.5 bg-black/70 backdrop-blur border border-amber-500/30 text-amber-400 rounded-full text-[10px] font-black uppercase tracking-widest">
-              Sample Stops
+          {waypoints.length === 0 && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-8 bg-black/40">
+              <Navigation2 size={32} className="text-white/20 mb-4" />
+              <h3 className="text-lg font-black italic text-white uppercase tracking-tight">No Routable Stops Today</h3>
+              <p className="text-sm text-white/50 max-w-sm mt-2">
+                {stops.length > 0
+                  ? `${stops.length} scheduled stop(s) found, but none have map coordinates yet. Geocoded jobs appear here as waypoints.`
+                  : "No SCHEDULED jobs with an address are set for today. Schedule jobs to plan a route."}
+              </p>
             </div>
           )}
           {mapsApiKey ? (
             <APIProvider apiKey={mapsApiKey}>
               <Map
                 defaultZoom={11}
-                defaultCenter={{ lat: 32.3643, lng: -88.7037 }} // Meridian, MS (from earlier context)
+                defaultCenter={center}
                 mapId="ROUTE_OPTIMIZER_MAP"
                 disableDefaultUI={true}
                 className="w-full h-full"
@@ -102,8 +182,9 @@ export default function RouteOptimizer() {
                       </div>
                     ) : (
                       <div className="w-5 h-5 bg-celtic-500 rounded-full border-2 border-black flex items-center justify-center text-xs md:text-[10px] text-white font-bold">
-                        {routeData?.data?.routes && routeData.data.routes[0]?.optimizedIntermediateWaypointIndex ? 
-                          routeData.data.routes[0].optimizedIntermediateWaypointIndex.indexOf(i - 1) + 1 : i}
+                        {complete && orderIndex.length > 0
+                          ? orderIndex.indexOf(i - 1) + 1
+                          : i}
                       </div>
                     )}
                   </AdvancedMarker>
@@ -127,65 +208,54 @@ export default function RouteOptimizer() {
         <div className="space-y-6">
           <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
             <h2 className="text-xl font-bold text-white mb-1 uppercase tracking-tight flex items-center gap-2">
-              <Truck size={20} className="text-zinc-400" /> Crew Manifest
+              <Truck size={20} className="text-zinc-400" /> Stop List
             </h2>
-            <p className="text-sm text-zinc-400 font-medium mb-6">Select crew to optimize daily route.</p>
+            <p className="text-sm text-zinc-400 font-medium mb-6">
+              {complete ? "Optimized order for today's scheduled stops." : "Today's scheduled jobs with an address."}
+            </p>
 
-            <div className="space-y-3">
-              <div className="p-4 rounded-xl bg-white/5 border border-forest-500/30 cursor-pointer">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-bold text-forest-400">Alpha Crew</span>
-                  <span className="text-xs bg-forest-500/10 text-forest-400 px-2 py-1 rounded font-black tracking-widest uppercase">Selected</span>
+            <div className="space-y-3 max-h-[280px] overflow-y-auto custom-scrollbar pr-1">
+              {stops.length === 0 ? (
+                <div className="p-4 rounded-xl bg-black border border-white/5 border-dashed text-center">
+                  <span className="text-xs font-bold text-zinc-600 uppercase tracking-widest">No scheduled stops today</span>
                 </div>
-                <div className="flex items-center gap-4 text-xs font-mono text-zinc-500">
-                  <span className="flex items-center gap-1"><Navigation2 size={12} /> 12 Stops</span>
-                  <span className="flex items-center gap-1"><Route size={12} /> 45 mi</span>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-black border border-white/5 opacity-50 cursor-pointer hover:opacity-100 transition-opacity">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-bold text-white">Bravo Crew</span>
-                </div>
-                <div className="flex items-center gap-4 text-xs font-mono text-zinc-500">
-                  <span className="flex items-center gap-1"><Navigation2 size={12} /> 8 Stops</span>
-                  <span className="flex items-center gap-1"><Route size={12} /> 32 mi</span>
-                </div>
-              </div>
+              ) : (
+                (complete ? orderedStops : stops).map((stop, i) => (
+                  <div key={stop.id} className="p-4 rounded-xl bg-white/5 border border-white/5">
+                    <div className="flex justify-between items-center mb-1 gap-2">
+                      <span className="font-bold text-white truncate">{stop.title || stop.client || "Stop"}</span>
+                      <span className="shrink-0 text-xs bg-forest-500/10 text-forest-400 px-2 py-1 rounded font-black tracking-widest uppercase">
+                        {complete ? `#${i + 1}` : stop.hasCoords ? "Mapped" : "No GPS"}
+                      </span>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-500 truncate">{stop.address}</div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
           <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6">
-            <h2 className="text-lg font-bold text-white mb-4 uppercase tracking-tight">Metrics Impact</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">
-                  <span>Drive Time</span>
-                  {complete ? <span className="text-forest-400">-22%</span> : <span>--</span>}
-                </div>
-                <div className="h-2 w-full bg-black rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: "80%" }}
-                    animate={{ width: complete ? "58%" : "80%" }}
-                    className="h-full bg-forest-500"
-                  />
-                </div>
-              </div>
+            <h2 className="text-lg font-bold text-white mb-4 uppercase tracking-tight">Route Metrics</h2>
 
-              <div>
-                <div className="flex justify-between text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">
-                  <span>Fuel Consumption</span>
-                  {complete ? <span className="text-forest-400">-15%</span> : <span>--</span>}
-                </div>
-                <div className="h-2 w-full bg-black rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: "70%" }}
-                    animate={{ width: complete ? "55%" : "70%" }}
-                    className="h-full bg-forest-500"
-                  />
-                </div>
+            <div className="space-y-4">
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Total Drive Time</span>
+                <span className="text-xl font-black text-forest-400 italic">{complete ? fmtDuration(durationSecs) : "--"}</span>
               </div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Total Distance</span>
+                <span className="text-xl font-black text-forest-400 italic">{complete ? fmtMiles(distanceMeters) : "--"}</span>
+              </div>
+              <div className="flex justify-between items-baseline pt-4 border-t border-white/10">
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Stops Routed</span>
+                <span className="text-xl font-black text-white italic">{waypoints.length || "--"}</span>
+              </div>
+              {complete && routeData?.simulated && (
+                <p className="text-[10px] font-bold text-amber-400/80 uppercase tracking-widest pt-2">
+                  Simulated result — set GOOGLE_MAPS_API_KEY for live metrics.
+                </p>
+              )}
             </div>
           </div>
 
