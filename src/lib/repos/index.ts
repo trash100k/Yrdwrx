@@ -82,3 +82,5 @@ export const complianceLogsRepo = makeRepo("compliance_logs", { orderBy: { colum
 export const equipmentRepo = makeRepo("equipment", { orderBy: { column: "created_at", ascending: false } });
 // Referral & advocacy engine (trackable referral offers + reward status).
 export const referralsRepo = makeRepo("referrals", { orderBy: { column: "created_at", ascending: false } });
+// Unified customer conversation thread (inbound/outbound SMS + portal posts).
+export const customerMessagesRepo = makeRepo("customer_messages", { orderBy: { column: "created_at", ascending: true } });
