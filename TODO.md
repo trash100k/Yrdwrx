@@ -13,7 +13,16 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (market + design research) — **ran a parallel market/design research
+> _Last updated: 2026-06-29 (feature wave SHIPPED) — **built & shipped six research-driven features
+> (gated green, 89 tests): outbound EMAIL send, the "Tailgate Closeout" flagship voice→actions flow,
+> real-time JOB COSTING, chemical/pesticide COMPLIANCE log (+ new `compliance_logs` Supabase table,
+> 0 advisories), public ONLINE BOOKING widget, and INSTANT ESTIMATE (property measurement).** New
+> server endpoints: `/api/email/send`, `/api/agent/closeout`, `/api/measure/property`. All wired into
+> routes + sidebar nav. A parallel "find more" agent surfaced 12 NEW high-value ideas (referral
+> engine, push notifications, On-My-Way ETA, churn radar, per-customer profitability, equipment
+> tracker, unified inbox, weather auto-reschedule, before/after gallery, card-on-file auto-charge, AI
+> owner digest, address enrichment) — logged under "Discovered backlog" below. Previously:
+> 2026-06-29 (market + design research) — **ran a parallel market/design research
 > sweep; see `PRODUCT_RESEARCH_2026.md`.** Competitor gap analysis, 2026–2027 SaaS UI/UX trends, and a
 > flagship UX case. Top table-stakes gaps: real outbound EMAIL (foundational), AERIAL PROPERTY
 > MEASUREMENT → instant estimate (#1 landscaping table-stake), real-time JOB COSTING, QuickBooks sync,
@@ -733,12 +742,12 @@ reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status 
 Core CRUD/screens are functionally present and crawl-clean. These are the genuinely
 MISSING functions a real contractor needs, in priority order:
 
-- [ ] **Outbound EMAIL delivery (highest leverage).** No real email sender exists
-      (no Resend/SendGrid/SMTP/nodemailer). Every "send" — invoice, estimate/proposal,
-      review request, outreach, team invite (no-SMTP) — only drafts into the in-app
-      WorkspaceOutbox; the lone wired path is the Gmail API behind the dead Firebase
-      popup. Wire one provider server-side (`/api/email/send`) + point the outbox,
-      invoice "send", and client portal at it. Lights up 5+ flows at once.
+- [x] **Outbound EMAIL delivery (highest leverage).** ✅ DONE — added `sendEmail()` +
+      `POST /api/email/send` (Resend via `RESEND_API_KEY`/`EMAIL_FROM`, honest
+      `{simulated:true}` fallback when unconfigured). WorkspaceOutbox now SENDS per-item
+      (and Send-All) through it with sent/draft/sending/failed states — no faked success.
+      _Remaining wiring: also point invoice "send" + client-portal proposal at it (today
+      they still draft to the outbox)._
 - [ ] **Address geocoding.** Zero geocoding in the codebase → customers/jobs never get
       lat/lng → the map + Route Optimizer can't plot real stops (optimization only runs
       for jobs that already have coords, which none do). Add geocode-on-save (Google
@@ -751,3 +760,82 @@ Already present (do NOT re-list as missing): recurring/seasonal billing
 (`/api/stripe/recurring/checkout`), SMS send (Twilio when configured), payments,
 client portal (view/pay/approve/PDF), AI agent (voice+text), automations engine,
 team invites, admin tenant console, account deletion, offline sync.
+
+---
+
+## Feature wave — SHIPPED 2026-06-29 (research-driven, gated green)
+
+Built off `PRODUCT_RESEARCH_2026.md`. All six landed lint+test+build green (89 tests),
+wired into routes (`App.tsx`) and the sidebar (`Layout.tsx`).
+
+- [x] **Outbound email** — `sendEmail()` + `POST /api/email/send` (Resend) + WorkspaceOutbox
+      send/Send-All with honest unconfigured fallback.
+- [x] **"Tailgate Closeout" flagship** (`src/pages/Closeout.tsx` + `src/components/closeout/*`)
+      — voice → `POST /api/agent/closeout` → risk-tiered `ActionCard` stack (low pre-checked,
+      high invoice = explicit confirm) → execute via repos → Gmail-style `UndoChip` (~12s).
+      Reusable `ActionCard` primitive discriminated by `action.type`.
+- [x] **Job Costing** (`src/pages/JobCosting.tsx`) — real-time estimate-vs-actual margins from
+      jobs/invoices/expenses/timesheets/material-logs; per-job margin table + blended summary;
+      honest "est." labels where per-job cost can't be resolved.
+- [x] **Chemical / pesticide application log** (Compliance tab + `complianceLogsRepo` + new
+      Supabase `compliance_logs` table w/ RLS, 0 advisories) — regulatory must-have for turf/tree.
+- [x] **Public online booking widget** (`src/pages/BookingIntake.tsx`, `/book/:tenantId`) —
+      branded form → `/api/public/tenant/:id` + `/api/public/lead-intake` (no-auth), with
+      503/loading/success states + validation.
+- [x] **Instant Estimate** (`src/components/InstantEstimate.tsx` + `src/pages/EstimateStudio.tsx`)
+      — address → `POST /api/measure/property` (provider-pluggable, honest AI-estimate badge) →
+      suggested quote → create draft estimate. _Aerial measurement provider still a config blocker._
+
+## Discovered backlog — "find more" pass (2026-06-29)
+
+Twelve genuinely-new, high-value ideas surfaced by a parallel gap-audit agent (grounded in repo
+greps + 2026 market data). NOT yet built; priority/sequencing TBD. Effort: S/M/L.
+
+- [ ] **Referral & advocacy engine** (M) — _Retention/growth (CRM + Reviews)._ Zero referral/
+      loyalty code exists; auto-fire a trackable referral offer + share-link when a customer
+      leaves 4–5★, credit the referrer on the referred customer's first paid invoice, leaderboard
+      in CRM. Near-free CAC reduction on top of the new outbound email/SMS.
+- [ ] **Real push notifications (web-push/FCM)** (M) — _PWA + server._ Only the FCM
+      `messagingSenderId` config string exists (`src/lib/firebase.ts:17`); no token registration,
+      SW push handler, or send path. Lights up crew dispatch, route-change, payment, low-stock,
+      arrival, and reminder flows at once.
+- [ ] **Crew "On My Way" arrival ETA to customer** (S) — _Field Mode + portal._ Field Mode +
+      CrewSuite have live location but no customer-facing arrival ping (only a hardcoded Dashboard
+      one-liner, `Dashboard.tsx:1054`). One-tap → text customer arrival window + crew + tracking
+      link. Reuses geofencing, Twilio, and the secured portal token.
+- [ ] **Customer health score + churn-risk radar** (M) — _CRM + Contracts._ `at_risk`/
+      `pending_renewal` are manual statuses nothing computes. Score from existing Supabase data
+      (days since last job, declined visits, overdue invoices, review sentiment, responsiveness)
+      → "who's about to leave" list + AI-drafted save play. Differentiated owner intelligence.
+- [ ] **Per-customer / per-route profitability + LTV (loss-leader detector)** (M) — _Reports/
+      JobCosting._ `LossLeaderAnalyzer` is aggregate-only; JobCosting is per-job. Roll up costing +
+      drive time + invoices per customer into LTV/margin ranking with fire/raise/keep guidance.
+      Justifies the Pro tier.
+- [ ] **Equipment & vehicle maintenance tracker** (M) — _new module._ Crews/equip are just strings
+      on the Crew type (`types.ts:9`); no asset model or service log. Hour/mileage logging (via
+      Field Mode + barcode scanner) + predictive "service due" reminders. Distinct from deferred GPS
+      telematics — this is the asset/maintenance ledger, and it feeds true job-costing.
+- [ ] **Unified two-way conversation inbox (SMS + email + portal)** (M) — _CRM._ Inbound SMS
+      (`customer_messages`, `server.ts:548`), portal posts, and outbound email are three fragmented
+      surfaces. One chronological per-customer thread + AI-suggested replies. Core daily-use surface
+      Jobber/Housecall ship.
+- [ ] **Weather-triggered auto-reschedule cascade** (M) — _automations + Scheduler._ Weather is
+      passive-advisory only (`server.ts:2867`). On high rain/wind forecast, propose one-tap bulk
+      reschedule of affected outdoor jobs to next open slot + notify customers. Reuses OPENWEATHER +
+      automations engine + Scheduler. Distinct from deferred snow-dispatch.
+- [ ] **Before/after property photo gallery + auto review prompt** (S) — _Portfolio + portal._
+      Departure photos (`departurePhotoUrl`) are captured but not assembled into a per-property
+      visual timeline. Reuse `BeforeAfterSlider` + Firebase Storage → retention proof, Design Studio
+      upsell hook, and the perfect attachment for the automated review request.
+- [ ] **Card-on-file + auto-charge for recurring maintenance** (M) — _Stripe/Contracts._ Recurring
+      checkout exists but bounces the customer to checkout each cycle; no SetupIntent/off-session
+      charge. Card-on-file is the biggest cash-flow/DSO win for mow routes; pairs with the Closeout
+      invoice action. Extends the existing Connect wiring.
+- [ ] **AI quarterly/weekly owner digest** (S) — _Reports + agent._ There's a DailyBriefing but no
+      periodic narrative "state of your business" (revenue vs last period, margin movers, at-risk
+      customers, upsell ops, crew utilization, overdue AR) emailed out. Gemini long-context over
+      existing aggregates; strong anti-churn-of-the-SaaS, gateable to Pro/Enterprise.
+- [ ] **Property enrichment + "first quote" pack from address** (M) — _CRM + Design Studio._ On new
+      lead, use Gemini Search + Maps grounding (already wired, `server.ts:1607`/`3187`) to enrich
+      property (lot-size band, HOA hints, hardiness zone, comparable jobs) and pre-draft a
+      good/better/best proposal. Reinforces "close in the driveway" without the heavy aerial build.
