@@ -3526,6 +3526,127 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // ===========================================================================
+  // DESIGN SEGMENT — turn a single click point into a snapped surface region.
+  // Uses gemini-2.5-flash-image segmentation (box_2d on a 0-1000 scale) so the
+  // client can replace a loose drawn region with the actual ground/landscape
+  // boundary it's pointing at. Falls back to the user's drawn region on miss.
+  // ===========================================================================
+  app.post("/api/design/segment", aiLimiter, async (req, res) => {
+    try {
+      const { image, cx, cy } = req.body || {};
+      if (!image || typeof image !== "string") {
+        return res.status(400).json({ error: "Missing or invalid 'image' (clean base64 photo required)." });
+      }
+
+      // Mock mode (no GEMINI_API_KEY): don't call the model — return a null box so
+      // the caller falls back to the user's drawn region and the flow stays testable.
+      if (isMockMode) {
+        return res.json({ box: null, mock: true });
+      }
+
+      const base64Data = image.includes(",") ? image.split(",")[1] : image;
+      const mimeType = image.includes(";") ? image.split(";")[0].split(":")[1] : "image/jpeg";
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inlineData: { mimeType, data: base64Data } },
+              {
+                text: `Segment the single ground/landscape surface at normalized point [x=${Math.round((cx || 0.5) * 1000)}, y=${Math.round((cy || 0.5) * 1000)}] on a 0-1000 scale. Return JSON ONLY: [{"box_2d":[ymin,xmin,ymax,xmax],"label":"..."}]`,
+              },
+            ],
+          },
+        ],
+        config: { responseModalities: ["TEXT"] },
+      });
+
+      const parsed = parseGeminiJson(response.text);
+      const first = Array.isArray(parsed) ? parsed[0] : null;
+      const b = first?.box_2d;
+      if (!Array.isArray(b) || b.length < 4) {
+        return res.json({ box: null });
+      }
+      const [ymin, xmin, ymax, xmax] = b.map((n: any) => Number(n));
+      const box = {
+        x: xmin / 1000,
+        y: ymin / 1000,
+        w: (xmax - xmin) / 1000,
+        h: (ymax - ymin) / 1000,
+        label: first?.label || "",
+      };
+      res.json({ box });
+    } catch (e: any) {
+      console.error("[design/segment]", e?.message);
+      return handleAiError(res, e, "Segmentation failed");
+    }
+  });
+
+  // ===========================================================================
+  // DESIGN JUDGE — strict QA on an AI render. Compares the original yard against
+  // the edited render and scores the requested edit so the client can auto-retry
+  // weak generations. Never blocks the user: unparseable output defaults to PASS.
+  // ===========================================================================
+  app.post("/api/design/judge", aiLimiter, async (req, res) => {
+    try {
+      const { beforeImage, afterImage, instruction } = req.body || {};
+      if (!beforeImage || typeof beforeImage !== "string") {
+        return res.status(400).json({ error: "Missing or invalid 'beforeImage' (clean base64 photo required)." });
+      }
+      if (!afterImage || typeof afterImage !== "string") {
+        return res.status(400).json({ error: "Missing or invalid 'afterImage' (clean base64 photo required)." });
+      }
+
+      // Mock mode (no GEMINI_API_KEY): pass everything so the render flow proceeds.
+      if (isMockMode) {
+        return res.json({ verdict: "PASS", scores: {}, mock: true });
+      }
+
+      const beforeData = beforeImage.includes(",") ? beforeImage.split(",")[1] : beforeImage;
+      const beforeMime = beforeImage.includes(";") ? beforeImage.split(";")[0].split(":")[1] : "image/jpeg";
+      const afterData = afterImage.includes(",") ? afterImage.split(",")[1] : afterImage;
+      const afterMime = afterImage.includes(";") ? afterImage.split(";")[0].split(":")[1] : "image/jpeg";
+
+      const rubric =
+        `You are a strict QA judge for an AI landscaping render. Image 1 is the ORIGINAL yard; ` +
+        `Image 2 is the EDITED render. The requested edit was: '${String(instruction || "").slice(0, 400)}'. ` +
+        `Score 0-5 each: object_present, correct_region, believable_scale, perspective_grounding, ` +
+        `scene_preserved (everything OUTSIDE the edit unchanged), no_hallucinations. ` +
+        `Return JSON ONLY: {"verdict":"PASS"|"RETRY"|"REJECT","scores":{...},"fixHint":"one short instruction to improve on retry"}. ` +
+        `PASS only if all scores >=4 (perspective >=3).`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inlineData: { mimeType: beforeMime, data: beforeData } },
+              { inlineData: { mimeType: afterMime, data: afterData } },
+              { text: rubric },
+            ],
+          },
+        ],
+        config: { responseMimeType: "application/json" },
+      });
+
+      let result: any = { verdict: "PASS" };
+      try {
+        const parsed = parseGeminiJson(response.text);
+        if (parsed && typeof parsed === "object") result = parsed;
+      } catch {
+        // Never block the user on a judge parse failure — default to PASS.
+      }
+      res.json(result);
+    } catch (e: any) {
+      console.error("[design/judge]", e?.message);
+      return handleAiError(res, e, "Judge failed");
+    }
+  });
+
   // --- DEEP RESEARCH EXPERT ---
   // "Deep research" is just a single strong, web-grounded model call (gemini-2.5-pro +
   // Google Search grounding) — NOT the fabricated ai.interactions background-agent API that
