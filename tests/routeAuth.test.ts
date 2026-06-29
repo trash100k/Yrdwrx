@@ -6,8 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { isExcludedApiPath, requiresAuth } from '../src/lib/routeAuth';
 
 describe('routeAuth.isExcludedApiPath', () => {
-  it('excludes the magic-link generate/validate routes', () => {
-    expect(isExcludedApiPath('/api/auth/magic-link/generate')).toBe(true);
+  it('excludes the magic-link validate route', () => {
     expect(isExcludedApiPath('/api/auth/magic-link/validate')).toBe(true);
   });
 
@@ -36,6 +35,7 @@ describe('routeAuth.isExcludedApiPath', () => {
   it('does NOT exclude ordinary protected API routes', () => {
     expect(isExcludedApiPath('/api/design/process')).toBe(false);
     expect(isExcludedApiPath('/api/crm/enrich')).toBe(false);
+    expect(isExcludedApiPath('/api/auth/magic-link/generate')).toBe(false);
   });
 });
 
@@ -53,10 +53,14 @@ describe('routeAuth.requiresAuth', () => {
     expect(requiresAuth('/api/playground/chat')).toBe(true);
   });
 
+  it('requires auth for /api/auth/magic-link/generate (security hardening)', () => {
+    expect(requiresAuth('/api/auth/magic-link/generate')).toBe(true);
+  });
+
   it('does NOT require auth for excluded routes', () => {
     expect(requiresAuth('/api/stripe/webhook')).toBe(false);
     expect(requiresAuth('/api/health')).toBe(false);
-    expect(requiresAuth('/api/auth/magic-link/generate')).toBe(false);
+    expect(requiresAuth('/api/auth/magic-link/validate')).toBe(false);
   });
 
   it('does NOT require auth for non-/api paths', () => {
