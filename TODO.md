@@ -203,6 +203,9 @@ Owner Digest, Inbox, Scheduler On-My-Way) prove the honest `simulated:true` patt
 - [ ] 2. Geocoding provider + caching at SMB scale (+ Google Route Optimization API/VRP) — gates routing/maps.
 - [ ] 3. Google restricted-scope / CASA security assessment (gmail/calendar/drive/contacts) — gates Workspace surface.
 - [ ] 4. SMS 10DLC/A2P + TCPA consent + two-party-consent (Live Ear) — gates Inbox/On-My-Way/CRM SMS/recording.
+      **Research done → see `TEXT_CAMPAIGN_RESEARCH.md`** (Text Campaign feature brief: reuse map of the
+      existing Twilio/outbound/agent code, A2P 10DLC + TCPA/CTIA compliance, SMS best practices, the
+      landscaping campaign playbook, agentic auto-reply via the Live Ear executor, RCS, and a phased build plan).
 - [ ] 5. Stripe Connect economics & onboarding (Express vs Standard, fees, ACH) — gates the money path.
 - [ ] 6. US sales-tax for landscaping + tax-engine buy decision (Avalara/TaxJar/Stripe Tax).
 - [ ] 7. Live-key validation pass of all Gemini features on Cloud Run (Design Studio flagship first).
