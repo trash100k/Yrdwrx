@@ -8,6 +8,7 @@ import {
   auth
 } from "../lib/firebase";
 import { invoicesRepo, expensesRepo, jobsRepo } from "../lib/repos";
+import { runAutomations } from "../lib/automations";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
   FileText,
@@ -107,6 +108,10 @@ export default function Invoices() {
   );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tracks which invoice ids were already "paid" on the last subscription push, so we can
+  // detect a transition into paid and fire the automation engine exactly once per flip.
+  const paidInvoiceIds = useRef<Set<string>>(new Set());
+  const sawFirstInvoiceSnapshot = useRef(false);
   
   const [printingInvoice, setPrintingInvoice] = useState<any>(null);
   const printComponentRef = useRef<HTMLDivElement>(null);
@@ -131,9 +136,31 @@ export default function Invoices() {
     // RLS scopes invoices/expenses to the caller's tenant, so no tenantId filter
     // is needed. subscribe() pushes a fresh full list on any change (onSnapshot
     // equivalent) and returns an unsubscribe fn.
-    const unsubscribeInv = invoicesRepo.subscribe((rows) =>
-      setInvoices((rows || []).map(adaptInvoice)),
-    );
+    const unsubscribeInv = invoicesRepo.subscribe((rows) => {
+      const adapted = (rows || []).map(adaptInvoice);
+
+      // Fire "invoice_paid" automations on any invoice that just transitioned into paid.
+      // adaptInvoice lowercases status, so "PAID"/"paid" both normalize to "paid".
+      // Skip the very first snapshot so we don't replay history on initial load.
+      const nextPaid = new Set<string>();
+      for (const inv of adapted) {
+        if (inv.status === "paid") {
+          nextPaid.add(inv.id);
+          if (sawFirstInvoiceSnapshot.current && !paidInvoiceIds.current.has(inv.id)) {
+            runAutomations("invoice_paid", {
+              clientName: inv.client,
+              customerId: inv.customerId || inv.clientId,
+              invoiceId: inv.id,
+              amount: inv.amount,
+            }).catch(() => {});
+          }
+        }
+      }
+      paidInvoiceIds.current = nextPaid;
+      sawFirstInvoiceSnapshot.current = true;
+
+      setInvoices(adapted);
+    });
     const unsubscribeExp = expensesRepo.subscribe((rows) =>
       setExpenses((rows || []).map(adaptExpense)),
     );

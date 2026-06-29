@@ -13,9 +13,6 @@ import {
   invoicesRepo,
   expensesRepo,
   inventoryRepo,
-  leadsRepo,
-  reviewsRepo,
-  designVisionsRepo,
   tasksRepo,
 } from "./repos";
 import { supabase } from "./supabase";
@@ -187,6 +184,35 @@ export async function executeAgentAction(
         };
       }
 
+      case "set_hoa_rules": {
+        const customer = await resolveCustomer(args, ctx);
+        if (!customer)
+          return { ok: false, message: "Tell me which client's HOA rules to save." };
+        const rules = parseRules(args.rules);
+        const quietHoursStart =
+          typeof args.quietHoursStart === "string" && args.quietHoursStart.trim()
+            ? args.quietHoursStart.trim()
+            : undefined;
+        const data = {
+          ...(customer.data || {}),
+          hoaRules: rules,
+          ...(quietHoursStart ? { quietHoursStart } : {}),
+        };
+        // is_hoa is a real boolean column — pass the snake_case key directly so the repo's
+        // snake-izer doesn't mangle it (isHOA would not map cleanly).
+        const updated = await customersRepo.update(customer.id, {
+          is_hoa: true,
+          data,
+        });
+        ctx.setLoadedCustomer?.(updated || { ...customer, is_hoa: true, data });
+        return {
+          ok: true,
+          message: `Saved HOA rules for ${fullName(customer)} (${rules.length} rule${rules.length === 1 ? "" : "s"}).`,
+          navigateTo: path(ctx, "crm"),
+          data: updated,
+        };
+      }
+
       case "log_expense": {
         const amount = Number(args.amount) || 0;
         const exp = await expensesRepo.create({
@@ -306,10 +332,20 @@ export async function executeAgentAction(
       case "create_design": {
         const customer = await resolveCustomer(args, ctx);
         ctx.setLoadedCustomer?.(customer || null);
+        const designPath = path(ctx, "design-studio");
+        const message = `Opening Design Studio${customer ? ` for ${fullName(customer)}` : ""}.`;
+        // Navigate WITH router state so the studio opens pre-loaded with this customer.
+        // react-router's navigate(path, { state }) is the only way to pass state, so we
+        // call it here directly and tell the caller not to double-navigate (navigateTo
+        // would lose the state). Fall back to navigateTo if navigate isn't available.
+        if (typeof ctx.navigate === "function") {
+          ctx.navigate(designPath, { state: { customer } });
+          return { ok: true, message, navigateTo: undefined, data: customer };
+        }
         return {
           ok: true,
-          message: `Opening Design Studio${customer ? ` for ${fullName(customer)}` : ""}.`,
-          navigateTo: path(ctx, "design-studio"),
+          message,
+          navigateTo: designPath,
           data: customer,
         };
       }
@@ -337,6 +373,21 @@ async function stampTenant(row: any) {
   } catch {
     return row;
   }
+}
+
+// Normalize HOA rules into a clean string[]. Accepts an array already, or a single
+// string the model dictated as prose — split on commas, semicolons, newlines, and "and".
+function parseRules(input: any): string[] {
+  if (Array.isArray(input)) {
+    return input.map((r) => String(r).trim()).filter(Boolean);
+  }
+  if (typeof input === "string") {
+    return input
+      .split(/[;,\n]|\band\b/gi)
+      .map((r) => r.trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 function toDateOrNull(v: any): string | null {

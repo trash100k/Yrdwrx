@@ -256,46 +256,68 @@ let stream;
       toolCall.functionCalls.length === 0
     )
       return;
-    const call = toolCall.functionCalls[0];
-    if (!call || typeof call.name !== "string") return;
-    setLastAction(call);
+    // The model is told to chain related actions in one turn (e.g.
+    // load_client_data → schedule_job → create_invoice), so run EVERY function call
+    // in order, awaiting each so the loaded-customer state from one carries into the
+    // next. A single call (the common case) just runs the one-element loop.
+    const calls = toolCall.functionCalls.filter(
+      (c: any) => c && typeof c.name === "string",
+    );
+    if (calls.length === 0) return;
+
+    setLastAction(calls[0]);
     setActionLog((prev) =>
       [
-        {
-          id: Date.now() + Math.random(),
-          name: call.name,
-          args: call.args || {},
+        ...calls.map((c: any, i: number) => ({
+          id: Date.now() + Math.random() + i,
+          name: c.name,
+          args: c.args || {},
           at: Date.now(),
-        },
+        })),
         ...prev,
       ].slice(0, 6),
     );
-    setJobStatus(`${prettyActionName(call.name)}…`);
 
-    // Run the detected tool-call through the shared executor: real Supabase mutation,
-    // a confirmation message, and a navigation hint so the owner can click to verify.
+    // Run the detected tool-calls through the shared executor: real Supabase mutations,
+    // a confirmation message per call, and a navigation hint so the owner can verify.
     void (async () => {
-      const result = await executeAgentAction(call, {
-        navigate,
-        rolePrefix,
-        showToast,
-        toggleFieldMode,
-        getLoadedCustomer: () => loadedCustomer,
-        setLoadedCustomer,
-      });
-      setLastResult(result.message);
-      if (result.navigateTo && location.pathname !== result.navigateTo) {
-        navigate(result.navigateTo);
+      let navTarget: string | undefined; // last action's nav target wins
+      // Local mirror of the loaded customer so chained calls see prior resolutions
+      // synchronously (React state updates are async and wouldn't be visible mid-loop).
+      let currentCustomer = loadedCustomer;
+      for (const call of calls) {
+        setJobStatus(`${prettyActionName(call.name)}…`);
+        const result = await executeAgentAction(call, {
+          navigate,
+          rolePrefix,
+          showToast,
+          toggleFieldMode,
+          getLoadedCustomer: () => currentCustomer,
+          setLoadedCustomer: (c) => {
+            currentCustomer = c;
+            setLoadedCustomer(c);
+          },
+        });
+        setLastResult(result.message);
+        if (result.navigateTo) navTarget = result.navigateTo;
+        try {
+          showToast(
+            prettyActionName(call.name),
+            result.message,
+            result.ok ? "success" : "info",
+          );
+        } catch {}
+        // Mirror a confirmation line into the text agent's transcript.
+        setTimeout(() => {
+          window.dispatchEvent(
+            new CustomEvent("cutty-action", { detail: { ...call, _result: result } }),
+          );
+        }, 200);
       }
-      try {
-        showToast(prettyActionName(call.name), result.message, result.ok ? "success" : "info");
-      } catch {}
-      // Mirror a confirmation line into the text agent's transcript.
-      setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent("cutty-action", { detail: { ...call, _result: result } }),
-        );
-      }, 200);
+      // Navigate once, after all calls — the last action's target wins.
+      if (navTarget && location.pathname !== navTarget) {
+        navigate(navTarget);
+      }
     })();
 
     setTimeout(() => {
@@ -316,6 +338,10 @@ let stream;
     enter_field_mode: "Enter field mode",
     log_expense: "Log expense",
     log_inventory_usage: "Log inventory usage",
+    set_hoa_rules: "Save HOA rules",
+    set_gate_code: "Save gate code",
+    build_design_vision: "Open design studio",
+    create_design: "Open design studio",
   };
 
   const prettyActionName = (name: string) =>

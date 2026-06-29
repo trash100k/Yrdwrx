@@ -72,6 +72,12 @@ export interface Customer {
   magicLinkSentAt?: string;
   magicLinkSentCount?: number;
   isHOA?: boolean;
+  // HOA specifics (persisted in the customers.data jsonb; surfaced to crews + the agent).
+  hoaRules?: string[];
+  gateCode?: string;
+  quietHoursStart?: string; // e.g. "09:00" — no service before this (HOA noise window)
+  boardContacts?: { name?: string; role?: string; email?: string; phone?: string }[];
+  parentCustomerId?: string; // optional HOA parent → per-property child link (multi-property)
   priority?: boolean;
   segment?: string;
   aiScore?: number;

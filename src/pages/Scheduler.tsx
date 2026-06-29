@@ -9,8 +9,10 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { jobsRepo, invoicesRepo } from "../lib/repos";
+import { jobsRepo, invoicesRepo, customersRepo } from "../lib/repos";
+import { runAutomations } from "../lib/automations";
 import { useTenant } from "../contexts/TenantContext";
+import { useToast } from "../contexts/ToastContext";
 import { Job } from "../types";
 
 // Surface Firestore-only job fields (client/time/invoiceId) that live in the `data`
@@ -39,9 +41,49 @@ import { useRole } from "../hooks/useRole";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { INITIAL_SERVICE_CATALOG } from "../lib/constants";
 
+// Parse an "HH:MM" string into minutes-since-midnight, or null if unparseable.
+const timeToMinutes = (t?: string): number | null => {
+  if (!t || typeof t !== "string") return null;
+  const m = t.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (isNaN(h) || isNaN(min)) return null;
+  return h * 60 + min;
+};
+
+// Format minutes-since-midnight as a friendly "9:00 AM".
+const minutesToLabel = (mins: number): string => {
+  const h24 = Math.floor(mins / 60);
+  const min = mins % 60;
+  const period = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(min).padStart(2, "0")} ${period}`;
+};
+
+// Resolve the earliest-allowed service time (in minutes) for an HOA customer's `data`.
+// Prefers an explicit quietHoursStart ("HH:MM"); otherwise scans hoaRules for a
+// "...before 9 am..." style phrase and parses the hour.
+const hoaEarliestStartMinutes = (data: any): number | null => {
+  if (!data) return null;
+  const explicit = timeToMinutes(data.quietHoursStart);
+  if (explicit != null) return explicit;
+  const rules: string[] = Array.isArray(data.hoaRules) ? data.hoaRules : [];
+  for (const rule of rules) {
+    if (typeof rule !== "string") continue;
+    const m = rule.match(/before\s+(\d{1,2})\s*(am)?/i);
+    if (m) {
+      let hour = parseInt(m[1], 10);
+      if (!isNaN(hour) && hour >= 0 && hour <= 23) return hour * 60;
+    }
+  }
+  return null;
+};
+
 export default function Scheduler() {
   const { tenant } = useTenant();
   const { hasPermission } = useRole();
+  const { showToast } = useToast();
   const [activeJobs, setActiveJobs] = useState<Job[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -88,8 +130,47 @@ export default function Scheduler() {
     return () => window.removeEventListener("cutty-action", handleVoiceAction as EventListener);
   }, []);
 
+  // HOA quiet-hours guardrail: warn (don't block) when a job is being scheduled for an
+  // HOA customer before their earliest-allowed service window. Reuses customer data the
+  // job already carries, or fetches via customersRepo.getById when only customerId is known.
+  const checkHoaQuietHours = async (job: Partial<Job>) => {
+    const startTime = job.time;
+    if (!startTime) return; // no chosen start time -> nothing to compare
+    const chosenMinutes = timeToMinutes(startTime);
+    if (chosenMinutes == null) return;
+
+    // Prefer customer data already on the job; otherwise fetch by customerId.
+    let customer: any = null;
+    if (job.customerId) {
+      try {
+        customer = await customersRepo.getById(job.customerId);
+      } catch {
+        customer = null;
+      }
+    }
+    if (!customer) return; // free-text client with no linked customer record -> can't verify HOA status
+    if (!customer.isHoa) return;
+
+    const earliest = hoaEarliestStartMinutes(customer.data);
+    const threshold = earliest != null ? earliest : 9 * 60; // default no-service-before 9:00 AM
+    if (chosenMinutes < threshold) {
+      const who =
+        customer.companyName ||
+        [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim() ||
+        job.client ||
+        "This client";
+      showToast(
+        `⚠ ${who} is an HOA — no service before ${minutesToLabel(threshold)}`,
+        "warning",
+      );
+    }
+  };
+
   const handleAddJob = async () => {
     if (!newJob.title) return;
+
+    // Warn (non-blocking) about HOA quiet-hours before scheduling.
+    await checkHoaQuietHours(newJob);
 
     let invoiceId = "";
     if (autoInvoice) {
@@ -114,6 +195,18 @@ export default function Scheduler() {
     newStatus: Job["status"],
   ) => {
     await jobsRepo.update(jobId, { status: newStatus });
+
+    // When a job is marked COMPLETED, fire the automation engine (fire-and-forget;
+    // must never throw into this code path).
+    if (newStatus === "COMPLETED") {
+      const job = activeJobs.find((j) => j.id === jobId);
+      runAutomations("job_completed", {
+        clientName: job?.client,
+        customerId: job?.customerId,
+        jobId,
+        title: job?.title,
+      }).catch(() => {});
+    }
   };
 
   const statusColors = {

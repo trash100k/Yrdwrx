@@ -148,7 +148,14 @@ export default function FieldModeInterface() {
 
   useEffect(() => {
     // jobs has no columns for photos/notes/gate code — those live in the job's `data` jsonb.
-    const adaptJob = (r) => ({ ...(r?.data || {}), ...r });
+    // Flatten the job's own `data` jsonb (so job.gateCode / job.hoaRules from the job work),
+    // then map the snake_case `customer_id` column to camelCase `customerId` for the
+    // customer backfill below (the raw row spread can carry the snake_case key only).
+    const adaptJob = (r) => {
+      const j = { ...(r?.data || {}), ...r };
+      if (j.customerId == null && r?.customer_id != null) j.customerId = r.customer_id;
+      return j;
+    };
     // RLS scopes to tenant — no tenantId filter needed.
     const unsub = jobsRepo.subscribe((rows) => {
       const open = (rows || []).map(adaptJob)
@@ -157,10 +164,20 @@ export default function FieldModeInterface() {
       const job = open[0] || null;
       setActiveJob(job);
       setIsLoading(false);
-      // Surface the client's gate code (the agent's set_gate_code writes it to the customer's data.gateCode).
+      // Surface the client's gate code + HOA rules from the linked customer.
+      // (The agent's set_gate_code writes the code to the customer's data.gateCode; HOA
+      // rules live in data.hoaRules and is_hoa is a real column camelized to isHoa.)
       if (job?.customerId) {
-        customersRepo.getById(job.customerId).then((c) => {
-          if (c) setActiveJob((prev) => (prev && prev.id === job.id) ? { ...prev, gateCode: prev.gateCode || c?.data?.gateCode || c?.gateCode || null } : prev);
+        customersRepo.getById(job.customerId).then((row) => {
+          if (!row) return;
+          // Flatten: data jsonb fields + camelCase top-level columns.
+          const c = { ...(row.data || {}), ...row };
+          setActiveJob((prev) => (prev && prev.id === job.id) ? {
+            ...prev,
+            gateCode: prev.gateCode || c.gateCode || null,
+            hoaRules: (Array.isArray(prev.hoaRules) && prev.hoaRules.length) ? prev.hoaRules : (c.hoaRules || null),
+            isHOA: prev.isHOA || c.isHoa || false,
+          } : prev);
         }).catch(() => {});
       }
     });
@@ -286,10 +303,23 @@ export default function FieldModeInterface() {
                           Active HOA
                         </h3>
                       </div>
-                      <p className="font-bold text-lg leading-tight uppercase">
-                        Strict noise and parking rules apply. Stay within
-                        boundary lines.
-                      </p>
+                      {Array.isArray(activeJob.hoaRules) && activeJob.hoaRules.length > 0 ? (
+                        <ul className="space-y-2">
+                          {activeJob.hoaRules.map((rule, i) => (
+                            <li
+                              key={i}
+                              className="font-bold text-lg leading-tight uppercase flex items-start gap-2"
+                            >
+                              <span className="mt-1.5 shrink-0">&bull;</span>
+                              <span>{rule}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="font-bold text-lg leading-tight uppercase">
+                          HOA property. Observe community rules.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

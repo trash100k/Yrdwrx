@@ -25,6 +25,7 @@ import { useTenant } from "../contexts/TenantContext";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 import { useRole } from "../hooks/useRole";
+import { useFieldMode } from "../contexts/FieldModeContext";
 import { executeAgentAction } from "../lib/agentActions";
 
 
@@ -78,6 +79,54 @@ function detectAgentIntent(text: string): { name: string; args: any } | null {
   if (/\b(field mode|start (the )?route|heading out|start my day|on my way)\b/.test(low)) {
     return { name: "enter_field_mode", args: {} };
   }
+  // HOA rules — conservative: only when "hoa" is present OR an explicit "set ... rules for"
+  // pattern is used, so ordinary notes never misfire. Sits BEFORE add_client_note so HOA
+  // phrasing wins. The rules clause is split on commas / semicolons / " and ".
+  if (/\bhoa\b/.test(low) || /\bset\b.+\brules\s+for\b/.test(low)) {
+    const clientName =
+      grab(/(?:rules for|for)\s+([A-Za-z0-9 .'&-]+?)(?:'s| is\b|:|,|\.|$)/i) ||
+      grab(/\bmark\s+([A-Za-z0-9 .'&-]+?)\s+as\b/i) ||
+      grab(/^([A-Za-z0-9 .'&-]+?)\s+is an? hoa\b/i);
+    // Rules live after a colon, or after "is an HOA," , or after "no/electric/..." clause.
+    const rulesClause =
+      grab(/:\s*(.+)$/) ||
+      grab(/\bis an? hoa[,;]?\s*(.+)$/i) ||
+      grab(/\bhoa[,;]?\s*(.+)$/i) ||
+      grab(/\brules?\s+for\s+[A-Za-z0-9 .'&-]+?\s+(?:are|is|to)\s*[:]?\s*(.+)$/i);
+    const rules = (rulesClause || "")
+      .split(/\s*(?:,|;|\band\b)\s*/i)
+      .map((r) => r.trim())
+      .filter(Boolean);
+    return { name: "set_hoa_rules", args: { clientName, rules } };
+  }
+  // Add a note to a client. Gated on the word "note" so it doesn't shadow create_contact
+  // ("add a lead/contact"). The note text is whatever follows the colon, or follows the
+  // client name when there is no colon.
+  if (/\bnote\b/.test(low) && /\b(add|make|note that|leave|put)\b/.test(low)) {
+    const clientName =
+      grab(/(?:note (?:for|on|about)|for|on|about)\s+([A-Za-z0-9 .'&-]+?)(?:'s|:|,|\.|$)/i) ||
+      grab(/\bnote that\s+([A-Za-z0-9 .'&-]+?)\s+(?:is|has|wants|needs|likes|prefers|said|asked)\b/i);
+    const note =
+      grab(/:\s*(.+)$/) ||
+      (clientName
+        ? grab(new RegExp(`${clientName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+(.+)$`, "i"))
+        : undefined) ||
+      grab(/\bnote that\s+(.+)$/i);
+    return { name: "add_client_note", args: { clientName, note } };
+  }
+  // Look up a crew member / employee. Requires an employee keyword (or "who is") so it
+  // never collides with load_client_data (which keys off client/customer keywords).
+  if (
+    (/\b(look up|pull up|find|show me|open|search for)\b/.test(low) &&
+      /\b(crew member|crew|employee|worker|tech|technician|staff)\b/.test(low)) ||
+    /\bwho is\b/.test(low)
+  ) {
+    const employeeName =
+      grab(/(?:crew member|crew|employee|worker|tech|technician|staff)\s+(?:named |called )?([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) ||
+      grab(/\bwho is\s+([A-Za-z .'-]+?)(?:'s|\?|,|\.|$)/i) ||
+      grab(/(?:look up|pull up|find|show me|open|search for)\s+([A-Za-z .'-]+?)(?:'s|,|\.|$)/i);
+    return { name: "load_employee_data", args: { employeeName } };
+  }
   if (/\b(add|create|new)\b/.test(low) && /\b(lead|contact|customer|client|prospect)\b/.test(low)) {
     const nm = grab(/(?:named|called|:) ([A-Za-z .'-]+?)(?:,|\.| at | on |$)/i) || grab(/\b(?:lead|contact|customer|client|prospect)\s+(?:named |called )?([A-Za-z]+(?: [A-Za-z]+)?)/i);
     const parts = (nm || "").split(/\s+/);
@@ -114,6 +163,7 @@ export default function BrainChat({
   const { startTour, setFocus } = useCuttyGuide();
   const { tenant } = useTenant();
   const { role } = useRole();
+  const { toggleFieldMode } = useFieldMode();
   const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
 
   const loadingMessages = [
@@ -534,6 +584,7 @@ export default function BrainChat({
         const result = await executeAgentAction(intent, {
           navigate,
           rolePrefix,
+          toggleFieldMode,
           getLoadedCustomer: () => loadedCustomerRef.current,
           setLoadedCustomer: (c) => {
             loadedCustomerRef.current = c;

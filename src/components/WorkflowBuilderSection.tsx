@@ -4,7 +4,6 @@ import { Workflow, Plus, Trash2, ArrowRight, Save, Zap, Play, Activity, ChevronD
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { tenantsRepo } from "../lib/repos";
-import { BarChart, Bar, ResponsiveContainer, Tooltip } from "recharts";
 
 export interface AutomationRule {
   id: string;
@@ -15,6 +14,9 @@ export interface AutomationRule {
   active: boolean;
   lastRunTime?: string;
   enableRetries?: boolean;
+  // Real run metadata recorded by the automation engine (src/lib/automations.ts).
+  runCount?: number;
+  lastError?: string | null;
 }
 
 const AVAILABLE_TRIGGERS = [
@@ -30,21 +32,22 @@ const AVAILABLE_ACTIONS = [
   { id: "flag_for_review", label: "Flag for Manager Review" },
 ];
 
-const generateDataForWorkflow = (id: string) => {
-  const data = [];
-  let seed = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  for (let i = 29; i >= 0; i--) {
-    const randomSuccess = Math.floor(((seed * (i + 1)) % 40)) + 5;
-    const randomFailure = Math.floor(((seed * (i + 1) * 3) % 8));
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    data.push({
-      day: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      success: randomSuccess,
-      failure: randomFailure
-    });
-  }
-  return data;
+// Humanize an ISO timestamp into a short relative string ("just now", "5m ago",
+// "3h ago", "2d ago"), falling back to a locale date for older runs.
+const humanizeRunTime = (iso?: string): string => {
+  if (!iso) return "Never";
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return iso === "Never" ? "Never" : iso;
+  const diffMs = Date.now() - then;
+  if (diffMs < 0) return "just now";
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(then).toLocaleDateString();
 };
 
 const getTriggerIcon = (id: string) => {
@@ -191,7 +194,7 @@ export function WorkflowBuilderSection() {
                     {workflow.lastRunTime && (
                       <div className="hidden md:flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/30 mr-2">
                         <Clock size={12} />
-                        Ran {workflow.lastRunTime}
+                        Ran {humanizeRunTime(workflow.lastRunTime)}
                       </div>
                     )}
                     <button
@@ -302,33 +305,40 @@ export function WorkflowBuilderSection() {
                       </div>
                     )}
 
-                    {workflow.active && (
-                      <div className="pt-6 mt-4 border-t border-white/5">
-                        <div className="flex items-center justify-between mb-4">
-                          <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">
-                            30-Day Activity
-                          </label>
-                          <div className="flex items-center gap-3 text-[10px] uppercase font-bold tracking-widest">
-                            <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-forest-500"></div> Success</span>
-                            <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-red-500"></div> Failed</span>
+                    <div className="pt-6 mt-4 border-t border-white/5">
+                      <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-4 block">
+                        Run Stats
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-black/30 rounded-xl border border-white/5 p-4">
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">
+                            <Zap size={12} className="text-forest-400" /> Total Runs
+                          </div>
+                          <div className="text-2xl font-black text-white tabular-nums">
+                            {workflow.runCount || 0}
                           </div>
                         </div>
-                        <div className="h-28 w-full p-2 bg-black/30 rounded-xl border border-white/5">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={generateDataForWorkflow(workflow.id)} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                              <Tooltip 
-                                contentStyle={{ backgroundColor: '#18181b', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px' }}
-                                itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
-                                labelStyle={{ color: 'rgba(255,255,255,0.5)', marginBottom: '4px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-                                cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                              />
-                              <Bar dataKey="success" name="Success" stackId="a" fill="#10b981" />
-                              <Bar dataKey="failure" name="Failure" stackId="a" fill="#ef4444" radius={[2, 2, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
+                        <div className="bg-black/30 rounded-xl border border-white/5 p-4">
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">
+                            <Clock size={12} className="text-celtic-400" /> Last Run
+                          </div>
+                          <div className="text-sm font-bold text-white">
+                            {humanizeRunTime(workflow.lastRunTime)}
+                          </div>
                         </div>
                       </div>
-                    )}
+                      {workflow.lastError && (
+                        <div className="mt-3 flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-xs text-red-300">
+                          <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-400" />
+                          <div>
+                            <span className="font-bold uppercase tracking-widest text-[10px] text-red-400 block mb-0.5">
+                              Last Error
+                            </span>
+                            <span className="font-mono break-all">{workflow.lastError}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

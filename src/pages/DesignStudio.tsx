@@ -152,11 +152,31 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     return unsub;
   }, [tenant]);
 
+  // Preload the customer handed in via router state (e.g. from the agent's
+  // "design for <client>" action, which navigates here with { state: { customer } }).
+  // The agent passes a repo-shaped customer (snake_case top-level + a `.data` jsonb),
+  // so normalize to the camelCase shape activeCustomer/the header expect.
   useEffect(() => {
-    if (location.state?.customer) {
-      setActiveCustomer(location.state.customer);
+    const c = location.state?.customer;
+    if (c) {
+      const firstName = c.firstName || c.first_name || "";
+      const lastName = c.lastName || c.last_name || "";
+      const normalized = {
+        ...c,
+        id: c.id,
+        firstName,
+        lastName,
+        name:
+          c.name ||
+          `${firstName} ${lastName}`.trim() ||
+          c.company_name ||
+          c.companyName ||
+          "",
+        address: c.address || c.data?.address || "",
+      };
+      setActiveCustomer(normalized);
       setTranscript(
-        `Suggest a design for ${location.state.customer.firstName}'s yard...`,
+        `Suggest a design for ${firstName || "this client"}'s yard...`,
       );
     }
   }, [location.state]);

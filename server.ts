@@ -4285,7 +4285,35 @@ export async function createApp({ startListening = false } = {}) {
     });
   }
 
-  
+  // Automation webhook proxy — fires a tenant's "send_webhook" automation action
+  // server-side (avoids browser CORS on Zapier/Make hooks) with SSRF protection on the
+  // tenant-supplied URL and optional retries. Called by src/lib/automations.ts.
+  app.post("/api/automations/webhook", async (req: any, res) => {
+    try {
+      const { url, event, payload, retries } = req.body || {};
+      if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
+      if (!(await validateSafeUrl(url))) return res.status(400).json({ error: "Invalid or restricted URL." });
+      const body = JSON.stringify({ event, payload, firedAt: new Date().toISOString() });
+      const maxAttempts = retries === false ? 1 : 3;
+      let lastErr: any = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const r = await Promise.race([
+            fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
+            new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+          ]) as Response;
+          if (r.ok) return res.json({ delivered: true, status: r.status, attempts: attempt });
+          lastErr = `HTTP ${r.status}`;
+        } catch (e: any) {
+          lastErr = e?.message || "fetch failed";
+        }
+      }
+      return res.status(502).json({ delivered: false, error: lastErr, attempts: maxAttempts });
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message || "Webhook dispatch failed" });
+    }
+  });
+
   // Twilio SMS
   app.post("/api/sms/send", async (req: any, res) => {
     try {
@@ -4748,19 +4776,6 @@ export async function createApp({ startListening = false } = {}) {
                   },
                 },
                 {
-                  name: "log_expense",
-                  description: "Log an out of pocket expense or receipt.",
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      amount: { type: Type.NUMBER },
-                      vendor: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                    },
-                    required: ["amount"],
-                  },
-                },
-                {
                   name: "load_employee_data",
                   description:
                     "Find and display data for a specific employee or crew member.",
@@ -4814,6 +4829,23 @@ export async function createApp({ startListening = false } = {}) {
                       gateCode: { type: Type.STRING },
                     },
                     required: ["gateCode"],
+                  },
+                },
+                {
+                  name: "set_hoa_rules",
+                  description:
+                    "Mark a client as an HOA and save their community rules (e.g. 'no mowing before 9 AM', 'electric equipment only', 'badge ID required') so crews and scheduling respect them. Pass each rule as a separate string.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      clientName: { type: Type.STRING },
+                      rules: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      quietHoursStart: {
+                        type: Type.STRING,
+                        description: "Optional earliest service time, e.g. '09:00'.",
+                      },
+                    },
+                    required: ["clientName", "rules"],
                   },
                 },
                 {

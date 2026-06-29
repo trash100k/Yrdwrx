@@ -67,6 +67,7 @@ import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Customer, Insight } from "../types";
 import { LeadVerificationPanel } from "../components/LeadVerificationPanel";
+import { runAutomations } from "../lib/automations";
 
 // Deterministic lead score (0-100) derived from a lead's real, on-file fields.
 // Stable across reloads (no Math.random) so the displayed score is meaningful.
@@ -191,6 +192,9 @@ export default function CRM() {
     phone: "",
     address: "",
     notes: "",
+    isHOA: false,
+    gateCode: "",
+    hoaRulesText: "",
   });
 
   const [lowStockAlert, setLowStockAlert] = useState<
@@ -205,7 +209,16 @@ export default function CRM() {
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
-  
+
+  // Inline "Edit Bylaws" editor on the Community Rules card (HOA only).
+  const [isEditingBylaws, setIsEditingBylaws] = useState(false);
+  const [bylawsForm, setBylawsForm] = useState({
+    isHOA: false,
+    hoaRulesText: "",
+    gateCode: "",
+  });
+  const [isSavingBylaws, setIsSavingBylaws] = useState(false);
+
   const [customerViewTab, setCustomerViewTab] = useState<"overview" | "sms" | "tasks" | "documents" | "estimates" | "jobs">("overview");
   
   const [smsMessage, setSmsMessage] = useState("");
@@ -530,6 +543,13 @@ export default function CRM() {
         return;
       }
       
+      // Merge HOA fields into the existing `data` jsonb so we never clobber other keys.
+      const existingData = (editCustomer as any).data || {};
+      const hoaRules = (editCustomer.hoaRulesText ?? "")
+        .split("\n")
+        .map((l: string) => l.trim())
+        .filter(Boolean);
+
       await customersRepo.update(editCustomer.id, {
         firstName: validated.data.firstName,
         lastName: validated.data.lastName,
@@ -537,16 +557,79 @@ export default function CRM() {
         phone: validated.data.phone,
         address: validated.data.address,
         notes: validated.data.notes,
+        // snake_case real boolean column (camelCase isHOA would be mangled by the repo).
+        is_hoa: !!editCustomer.isHOA,
+        data: {
+          ...existingData,
+          hoaRules,
+          gateCode: editCustomer.gateCode ?? "",
+        },
       });
 
       showToast("Client profile updated securely.", "success");
       setShowEditModal(false);
-      setSelectedCustomer({ ...selectedCustomer, ...validated.data } as Customer);
+      setSelectedCustomer({
+        ...selectedCustomer,
+        ...validated.data,
+        isHOA: !!editCustomer.isHOA,
+        gateCode: editCustomer.gateCode ?? "",
+        hoaRules,
+      } as Customer);
     } catch (err: any) {
       console.error(err);
       setFormErrors({ _form: "Failed to update profile due to an unexpected error." });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Open the inline "Edit Bylaws" editor on the Community Rules card, seeded from the
+  // currently-selected customer's HOA data.
+  const openBylawsEditor = () => {
+    if (!selectedCustomer) return;
+    setBylawsForm({
+      isHOA: !!selectedCustomer.isHOA,
+      hoaRulesText: (selectedCustomer.hoaRules || []).join("\n"),
+      gateCode: (selectedCustomer as any).gateCode ?? "",
+    });
+    setIsEditingBylaws(true);
+  };
+
+  // Persist HOA bylaws / gate code. HOA fields live in customers.data jsonb; is_hoa is a
+  // real boolean column. We merge into the existing data so other keys survive.
+  const handleSaveBylaws = async () => {
+    if (!selectedCustomer?.id) return;
+    setIsSavingBylaws(true);
+    try {
+      const existingData = (selectedCustomer as any).data || {};
+      const hoaRules = bylawsForm.hoaRulesText
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      await customersRepo.update(selectedCustomer.id, {
+        is_hoa: !!bylawsForm.isHOA,
+        data: {
+          ...existingData,
+          hoaRules,
+          gateCode: bylawsForm.gateCode,
+        },
+      });
+
+      // Reflect the saved values immediately (the repo subscription also refreshes the list).
+      setSelectedCustomer({
+        ...selectedCustomer,
+        isHOA: !!bylawsForm.isHOA,
+        gateCode: bylawsForm.gateCode,
+        hoaRules,
+      } as Customer);
+      setIsEditingBylaws(false);
+      showToast("Community rules updated.", "success");
+    } catch (err: any) {
+      console.error(err);
+      showToast("Failed to update community rules.", "error");
+    } finally {
+      setIsSavingBylaws(false);
     }
   };
 
@@ -766,8 +849,25 @@ export default function CRM() {
         return;
       }
 
+      // HOA fields aren't part of customerSchema, so pull them straight from the form.
+      // toRow writes isHOA -> isHoa column and merges anything in `data` into the jsonb.
+      const newHoaRules = (newCustomer.hoaRulesText || "")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+
       const addPromise = customersRepo
-        .create(toRow({ ...validated.data, status: "lead" }))
+        .create(
+          toRow({
+            ...validated.data,
+            status: "lead",
+            isHOA: !!newCustomer.isHOA,
+            data: {
+              hoaRules: newHoaRules,
+              gateCode: newCustomer.gateCode || "",
+            },
+          }),
+        )
         .then(async (row) => {
           await logSystemEvent("CUSTOMER_CREATED", {
             customerId: row?.id,
@@ -777,10 +877,17 @@ export default function CRM() {
           return row;
         });
 
-      await Promise.race([
+      const createdRow: any = await Promise.race([
         addPromise,
         new Promise((_, reject) => setTimeout(() => reject(new Error("Network timeout saving client")), 8000))
       ]);
+
+      // Fire the automation engine for the "new client created" trigger. Fire-and-forget:
+      // it must never block or break the UI flow.
+      runAutomations("client_created", {
+        clientName: `${validated.data.firstName} ${validated.data.lastName}`.trim(),
+        customerId: createdRow?.id,
+      }).catch(() => {});
 
       setShowAddModal(false);
       setNewCustomer({
@@ -790,6 +897,9 @@ export default function CRM() {
         phone: "",
         address: "",
         notes: "",
+        isHOA: false,
+        gateCode: "",
+        hoaRulesText: "",
       });
     } catch (err: any) {
       console.error(err);
@@ -1628,7 +1738,12 @@ export default function CRM() {
                     )}
                     <button
                       onClick={() => {
-                        setEditCustomer(selectedCustomer);
+                        setEditCustomer({
+                          ...selectedCustomer,
+                          isHOA: !!selectedCustomer.isHOA,
+                          gateCode: (selectedCustomer as any).gateCode ?? "",
+                          hoaRulesText: (selectedCustomer.hoaRules || []).join("\n"),
+                        });
                         setShowEditModal(true);
                       }}
                       className="px-6 py-4 bg-white/5 text-white hover:bg-white hover:text-black rounded-2xl transition-all micro-label font-black uppercase tracking-widest flex items-center gap-2 border-4 border-white/10"
@@ -1891,31 +2006,114 @@ export default function CRM() {
                                 Community Rules
                               </h4>
                             </div>
-                            <button className="text-[9px] font-black text-ember-400/40 hover:text-ember-400 uppercase tracking-widest transition-colors decoration-ember-500/20 underline underline-offset-4">
-                              Edit Bylaws
+                            <button
+                              type="button"
+                              onClick={() =>
+                                isEditingBylaws
+                                  ? setIsEditingBylaws(false)
+                                  : openBylawsEditor()
+                              }
+                              className="text-[9px] font-black text-ember-400/40 hover:text-ember-400 uppercase tracking-widest transition-colors decoration-ember-500/20 underline underline-offset-4"
+                            >
+                              {isEditingBylaws ? "Cancel" : "Edit Bylaws"}
                             </button>
                           </div>
-                          <div className="grid grid-cols-1 gap-3">
-                            {selectedCustomer.hoaRules?.map(
-                              (rule: string, i: number) => (
-                                <div
-                                  key={i}
-                                  className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group-hover/hoa:border-ember-500/20 transition-all"
-                                >
+
+                          {isEditingBylaws ? (
+                            <div className="space-y-4">
+                              <label className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={bylawsForm.isHOA}
+                                  onChange={(e) =>
+                                    setBylawsForm({
+                                      ...bylawsForm,
+                                      isHOA: e.target.checked,
+                                    })
+                                  }
+                                  className="w-4 h-4 accent-ember-500"
+                                />
+                                <span className="text-xs font-black text-white/70 uppercase tracking-widest">
+                                  Is HOA Property
+                                </span>
+                              </label>
+
+                              <div className="space-y-2">
+                                <label className="text-[9px] font-black uppercase tracking-widest text-ember-400/60 ml-1">
+                                  Community Rules (one per line)
+                                </label>
+                                <textarea
+                                  value={bylawsForm.hoaRulesText}
+                                  onChange={(e) =>
+                                    setBylawsForm({
+                                      ...bylawsForm,
+                                      hoaRulesText: e.target.value,
+                                    })
+                                  }
+                                  placeholder={"No gas mowers before 8am\nBag all clippings\nNo signage on lawn"}
+                                  className="w-full min-h-[120px] bg-white/5 border border-white/5 rounded-2xl px-4 py-3 text-xs font-bold text-white/80 focus:bg-white/10 focus:border-ember-500/30 focus:outline-none transition-all resize-none custom-scrollbar"
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-[9px] font-black uppercase tracking-widest text-ember-400/60 ml-1">
+                                  Gate Code
+                                </label>
+                                <input
+                                  type="text"
+                                  value={bylawsForm.gateCode}
+                                  onChange={(e) =>
+                                    setBylawsForm({
+                                      ...bylawsForm,
+                                      gateCode: e.target.value,
+                                    })
+                                  }
+                                  placeholder="#1234"
+                                  className="w-full bg-white/5 border border-white/5 rounded-2xl px-4 py-3 text-xs font-bold text-white/80 focus:bg-white/10 focus:border-ember-500/30 focus:outline-none transition-all"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={handleSaveBylaws}
+                                disabled={isSavingBylaws}
+                                className="w-full bg-ember-500/20 text-ember-300 hover:bg-ember-500 hover:text-black transition-all text-[9px] px-4 py-3 font-black uppercase tracking-widest rounded-2xl border-2 border-ember-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
+                              >
+                                <Save size={14} />
+                                {isSavingBylaws ? "Saving..." : "Save Bylaws"}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-3">
+                              {(selectedCustomer as any).gateCode && (
+                                <div className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group-hover/hoa:border-ember-500/20 transition-all">
                                   <div className="w-1.5 h-1.5 rounded-full bg-ember-500 shadow-[0_0_10px_#a855f7]" />
                                   <span className="text-xs font-bold text-white/70 uppercase tracking-tight">
-                                    {rule}
+                                    Gate Code: {(selectedCustomer as any).gateCode}
                                   </span>
                                 </div>
-                              ),
-                            )}
-                            {(!selectedCustomer.hoaRules ||
-                              selectedCustomer.hoaRules.length === 0) && (
-                              <p className="text-xs text-white/20 italic p-4">
-                                No specific ordinances synced for this location.
-                              </p>
-                            )}
-                          </div>
+                              )}
+                              {selectedCustomer.hoaRules?.map(
+                                (rule: string, i: number) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group-hover/hoa:border-ember-500/20 transition-all"
+                                  >
+                                    <div className="w-1.5 h-1.5 rounded-full bg-ember-500 shadow-[0_0_10px_#a855f7]" />
+                                    <span className="text-xs font-bold text-white/70 uppercase tracking-tight">
+                                      {rule}
+                                    </span>
+                                  </div>
+                                ),
+                              )}
+                              {(!selectedCustomer.hoaRules ||
+                                selectedCustomer.hoaRules.length === 0) && (
+                                <p className="text-xs text-white/20 italic p-4">
+                                  No specific ordinances synced for this location.
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1976,7 +2174,11 @@ export default function CRM() {
                                 For Board Presentation
                               </p>
                             </div>
-                            <button className="bg-forest-500/10 text-forest-400 hover:bg-forest-500 hover:text-black transition-all text-[9px] px-4 py-2 font-black uppercase tracking-widest rounded-full border-2 border-forest-500/20 hover:border-forest-500">
+                            <button
+                              type="button"
+                              onClick={() => window.print()}
+                              className="bg-forest-500/10 text-forest-400 hover:bg-forest-500 hover:text-black transition-all text-[9px] px-4 py-2 font-black uppercase tracking-widest rounded-full border-2 border-forest-500/20 hover:border-forest-500"
+                            >
                               Export PDF
                             </button>
                           </div>
@@ -2712,6 +2914,69 @@ export default function CRM() {
                   />
                 </div>
 
+                {/* HOA / Community details */}
+                <div className="space-y-4 rounded-3xl border border-ember-500/10 bg-ember-500/5 p-6">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newCustomer.isHOA}
+                      onChange={(e) =>
+                        setNewCustomer({ ...newCustomer, isHOA: e.target.checked })
+                      }
+                      className="w-4 h-4 accent-ember-500"
+                    />
+                    <span className="text-xs md:text-[10px] font-black uppercase tracking-widest text-ember-400">
+                      HOA / Managed Community
+                    </span>
+                  </label>
+
+                  {newCustomer.isHOA && (
+                    <>
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="new-hoa-rules"
+                          className="text-xs md:text-[10px] font-black uppercase tracking-widest text-ember-400/60 ml-2"
+                        >
+                          Community Rules (one per line)
+                        </label>
+                        <textarea
+                          id="new-hoa-rules"
+                          className="w-full min-w-0 bg-white/5 border border-white/5 rounded-2xl px-6 py-4 text-base sm:text-sm font-bold focus:bg-white/10 focus:border-ember-500/30 transition-all min-h-[100px] resize-none custom-scrollbar"
+                          placeholder={"No gas mowers before 8am\nBag all clippings"}
+                          value={newCustomer.hoaRulesText}
+                          onChange={(e) =>
+                            setNewCustomer({
+                              ...newCustomer,
+                              hoaRulesText: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="new-gate-code"
+                          className="text-xs md:text-[10px] font-black uppercase tracking-widest text-ember-400/60 ml-2"
+                        >
+                          Gate Code
+                        </label>
+                        <input
+                          id="new-gate-code"
+                          type="text"
+                          placeholder="#1234"
+                          className="w-full bg-white/5 border border-white/5 rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-ember-500/30 transition-all"
+                          value={newCustomer.gateCode}
+                          onChange={(e) =>
+                            setNewCustomer({
+                              ...newCustomer,
+                              gateCode: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <div className="flex flex-col sm:flex-row gap-4 mt-6">
                   <button
                     type="submit"
@@ -2869,6 +3134,64 @@ export default function CRM() {
                       </p>
                     )}
                   </div>
+                </div>
+
+                {/* HOA / Community details */}
+                <div className="space-y-4 rounded-2xl border border-ember-500/10 bg-ember-500/5 p-6">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!editCustomer.isHOA}
+                      onChange={(e) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          isHOA: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 accent-ember-500"
+                    />
+                    <span className="text-xs md:text-[10px] font-black uppercase tracking-widest text-ember-400">
+                      HOA / Managed Community
+                    </span>
+                  </label>
+
+                  {editCustomer.isHOA && (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-xs md:text-[10px] font-black uppercase tracking-widest text-ember-400/60 ml-2">
+                          Community Rules (one per line)
+                        </label>
+                        <textarea
+                          className="w-full min-w-0 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-ember-500/30 transition-all min-h-[100px] resize-none custom-scrollbar"
+                          placeholder={"No gas mowers before 8am\nBag all clippings"}
+                          value={editCustomer.hoaRulesText ?? ""}
+                          onChange={(e) =>
+                            setEditCustomer({
+                              ...editCustomer,
+                              hoaRulesText: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs md:text-[10px] font-black uppercase tracking-widest text-ember-400/60 ml-2">
+                          Gate Code
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="#1234"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-ember-500/30 transition-all"
+                          value={editCustomer.gateCode ?? ""}
+                          onChange={(e) =>
+                            setEditCustomer({
+                              ...editCustomer,
+                              gateCode: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 mt-8">
