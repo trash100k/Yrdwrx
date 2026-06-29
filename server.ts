@@ -4212,7 +4212,7 @@ export async function createApp({ startListening = false } = {}) {
       // We will just return the link so the frontend can show it or simulate sending
       const magicLink = req.protocol + '://' + req.get('host') + '/portal/auth/' + token;
       
-      res.json({ success: true, token, magicLink });
+      res.json({ success: true, magicLink });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

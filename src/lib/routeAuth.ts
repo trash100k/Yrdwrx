@@ -11,7 +11,6 @@
 // /api/security/threats is NO LONGER excluded (admin-only; checked in the handler).
 
 export const AUTH_EXCLUDED_ROUTES: string[] = [
-  "/api/auth/magic-link/generate",
   "/api/auth/magic-link/validate",
   "/api/stripe/webhook",
   "/api/health",
