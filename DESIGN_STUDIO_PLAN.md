@@ -318,39 +318,43 @@ content-addressed by sha256. Add `designSessions` to `firestore.rules` with
 - **`BeforeAfterSlider` aspect/a11y fix** — `object-contain` on both layers (no
   stretch), accessible labels.
 
-### In progress — Phase 0 (placement engine, no new provider)
+### Phase 0 — placement engine — ✅ SHIPPED
 
-- **Semantic `regions[]` from `MarkupCanvas`** — emit normalized region geometry +
-  the **clean** original instead of a flattened JPEG. _Fixes contamination._
-- **`src/lib/canvasGeometry.ts`** — the contain→normalized pure fn (file exists,
-  untracked) **+ Vitest fixtures** (letterbox/DPR/EXIF — not yet written).
-- **New `POST /api/design/place-objects`** in `server.ts` — clean image + numbered
-  per-region prompt; parts order refs→yard→text; mock-mode parity (echo HEAD).
-  _Fixes per-region binding._
-- **CLIENT-SIDE feathered composite** — the guarantee, Phase 0 (§3.3, §6).
-- **Per-region item binding** — each pin carries its own `CatalogItem`.
+- **Semantic `regions[]` from `MarkupCanvas`** (clean photo, not a flattened JPEG).
+- **`src/lib/canvasGeometry.ts`** contain→normalized pure fns **+14 Vitest cases**.
+- **`POST /api/design/place-objects`** — clean image + numbered per-region prompt;
+  parts order refs→yard→text + `imageConfig.aspectRatio`; mock-mode parity.
+- **CLIENT-SIDE feathered composite** — the guarantee (§3.3, §6).
+- **Per-region item binding** ("what goes in each spot") + Refine/iterate-on-render.
+- **Money path:** zone-aware plants, AI-viz badge, branded proposal PDF, `plantIntelligence`.
 
-### Remaining phases (deep spec §7)
+### Phase 1 — snap, verify, iterate — ✅ SHIPPED (buildable parts)
 
-**Phase 1 — Snap, verify, iterate.**
-Gemini-native segmentation for surface-snap + auto-mask (fall back to drawn mask);
-VLM-judge + retry loop with the deterministic SCENE_PRESERVED gate, escalate to
-`gemini-3-pro-image`, mock judge → PASS; `DesignSession`/`PlacementLayer` append-only
-model with Storage snapshots + cursor undo/redo (**iteration invariant: feed the
-composited HEAD**) and `designSessions` in `firestore.rules`; Firestore/Storage image
-cache + async job + WebSocket push + per-tenant image budget.
+- **Gemini-native segmentation surface-snap** — `POST /api/design/segment` + the
+  "Smart Snap" toggle (mock/no-box → keep drawn region).
+- **VLM-judge + retry** — `POST /api/design/judge` + a bounded retry loop folding the
+  judge's `fixHint` into the prompt (mock judge → PASS, never blocks).
+- **Undo/redo** via `src/lib/designSession.ts` (+13 tests), iteration invariant =
+  feed the **composited HEAD**. _Session-local; Storage-backed `DesignSession`
+  persistence + `designSessions` firestore.rules + per-tenant image budget remain
+  follow-ups (need Firestore wiring)._
 
-**Phase 2 — Grounding & economics.**
-Catalog: Perenual (paid/commercial) snapshot → Firestore + USDA-PLANTS native-by-state
-join + curated deer/invasive overlay, isolated reference images; rules engine
-`selectPlants` + zone resolver (geocode→raster, phzmapi fallback); selection→cost
-quantity math + line items routed through `isRestrictedRole`, render constrained to the
-computed count; delivery — "AI Visualization" badge burned on image, disclaimer in
-portal + PDF, provenance doc.
+### Phase 2 — grounding & economics — ✅ SHIPPED (no-key parts)
 
-**Phase 3 — Max realism (optional).**
-Crop-and-paste-back v2 path; Depth Anything V2 (self-host) for occlusion/scale priors;
-shadow/intrinsic harmonization pass.
+- **Catalog seed** `src/lib/plantCatalogSeed.ts` (36 zone/sun/size/spacing/priced
+  entries, invasives excluded) + `selectPlants` rules engine + `resolveZone`.
+- **`SuggestedPalette`** — zone → priced zone-fit palette → Apply (fills spots +
+  merges deterministic line items into the estimate).
+- **Delivery** — AI-viz badge + disclaimer in the proposal PDF; **provenance**
+  persisted with saved visions (`buildProvenance`). _Perenual/USDA-PLANTS commercial
+  catalog import remains a `[key]` follow-up; the seed covers common species now._
+
+### Phase 3 — max realism — ◑ PARTIAL
+
+- ✅ **Crop-and-paste-back v2** — the "Precise" toggle (`cropPlaceRender`): single-region
+  crop → place → region-composite within the crop → paste back (less drift, lower cost).
+- ⛔ **Depth Anything V2** (occlusion/scale priors) and **shadow/intrinsic harmonization**
+  — PROVIDER-GATED (need a self-hosted depth model / GPU); not built. Documented only.
 
 **Acceptance gates (Definition of Done):** placement accuracy (CORRECT_REGION PASS
 rate), seam-invisibility pass rate, SCENE_PRESERVED diff ≈0, drift bounded over N

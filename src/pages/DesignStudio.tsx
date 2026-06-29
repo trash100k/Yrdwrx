@@ -171,6 +171,56 @@ async function compositeRegions(cleanUrl: string, renderUrl: string, regs: any[]
   return out.toDataURL("image/jpeg", 0.9);
 }
 
+// Phase 3 "Precise" mode (crop-and-paste-back v2): send only the cropped neighborhood
+// around a single region to the model, region-composite within the crop, then paste the
+// crop back into the original. Less global drift + lower token cost than full-frame.
+async function cropPlaceRender(base: string, region: any, opts: { description?: string; zone?: number }): Promise<any> {
+  const baseImg = await loadImageEl(base);
+  const W = baseImg.naturalWidth || baseImg.width;
+  const H = baseImg.naturalHeight || baseImg.height;
+  if (!W || !H) return null;
+  const cx = (region.cx ?? 0.5) * W;
+  const cy = (region.cy ?? 0.5) * H;
+  const rPx = region.r ? region.r * Math.max(W, H) : region.w ? (region.w * W) / 2 : 0.12 * Math.max(W, H);
+  const pad = Math.max(rPx * 2.2, Math.min(W, H) * 0.18);
+  const x0 = Math.max(0, Math.round(cx - pad));
+  const y0 = Math.max(0, Math.round(cy - pad));
+  const x1 = Math.min(W, Math.round(cx + pad));
+  const y1 = Math.min(H, Math.round(cy + pad));
+  const cw = x1 - x0, ch = y1 - y0;
+  if (cw < 8 || ch < 8) return null;
+
+  const cropCanvas = document.createElement("canvas");
+  cropCanvas.width = cw; cropCanvas.height = ch;
+  const cctx = cropCanvas.getContext("2d");
+  if (!cctx) return null;
+  cctx.drawImage(baseImg, x0, y0, cw, ch, 0, 0, cw, ch);
+  const cropUrl = cropCanvas.toDataURL("image/jpeg", 0.92);
+
+  // The object goes at the crop's center; radius relative to the crop.
+  const cropRegion = { id: "c", intent: "add", shape: "circle", cx: (cx - x0) / cw, cy: (cy - y0) / ch, r: rPx / Math.max(cw, ch), label: region.label };
+  const res = await fetchApi("/api/design/place-objects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: cropUrl, regions: [cropRegion], description: opts.description, zone: opts.zone }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error || !data.imageUrl) return null;
+  if (data.mock) return { mock: true };
+
+  // Region-composite within the crop so only the marked area changes, then hard-paste the
+  // crop back (its non-region pixels equal the original base at that location, so edges align).
+  const editedCrop = await compositeRegions(cropUrl, data.imageUrl, [cropRegion]).catch(() => data.imageUrl);
+  const editedImg = await loadImageEl(editedCrop);
+  const out = document.createElement("canvas");
+  out.width = W; out.height = H;
+  const octx = out.getContext("2d");
+  if (!octx) return null;
+  octx.drawImage(baseImg, 0, 0, W, H);
+  octx.drawImage(editedImg, 0, 0, editedImg.naturalWidth || cw, editedImg.naturalHeight || ch, x0, y0, cw, ch);
+  return { image: out.toDataURL("image/jpeg", 0.92) };
+}
+
 export default function DesignStudio() {
   const location = useLocation();
   const { tenant } = useTenant();
@@ -263,6 +313,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   const [history, setHistory] = useState(() => historyInit());
   const [designZone, setDesignZone] = useState<number | "">("");
   const [designSnap, setDesignSnap] = useState(true);
+  const [designPrecise, setDesignPrecise] = useState(false);
   const [isPdfing, setIsPdfing] = useState(false);
 
   // Resolve a working USDA zone (contractor can override) so the AI places zone-appropriate
@@ -356,6 +407,25 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
         // composite client-side so the rest of the scene stays pixel-identical.
         if (placeRegions.length) {
           const base = cleanImage || image;
+
+          // Phase 3 Precise mode: single-region crop-and-paste-back (less drift, lower cost).
+          if (designPrecise && placeRegions.length === 1 && placeRegions[0].intent === "add") {
+            const r0 = { ...placeRegions[0], label: regionLabels[placeRegions[0].id] || "" };
+            const cp = await cropPlaceRender(base, r0, { description: transcript || description, zone: designZone || undefined });
+            if (!cp) { showToast("Couldn't render the precise placement. Try again.", "error"); return; }
+            if (cp.mock) {
+              showToast("Preview echoes your photo — AI rendering needs a Gemini key.", "info");
+              setMockupImage(base); setActiveTab("compare"); return;
+            }
+            setLastComposite(cp.image);
+            const badgedCp = await burnAiVizBadge(cp.image).catch(() => cp.image);
+            setMockupImage(badgedCp);
+            setHistory((h) => historyPush(h, { image: badgedCp, composite: cp.image, regions: [r0], labels: regionLabels, ts: Date.now() }));
+            setActiveTab("compare");
+            showToast("Precise render ready — swipe to compare.", "success");
+            return;
+          }
+
           let regs = placeRegions.map((r: any) => ({ ...r, label: regionLabels[r.id] || "" }));
 
           // Smart snap: refine each "add" region to the real surface under its center
@@ -1293,6 +1363,14 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                   className={`ml-auto px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${designSnap ? "bg-forest-500 text-black" : "bg-white/5 text-white/50 border border-white/10"}`}
                                 >
                                   Smart Snap {designSnap ? "On" : "Off"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDesignPrecise((s) => !s)}
+                                  title="Precise mode: edit only a crop around a single spot (less drift). Single spot only."
+                                  className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${designPrecise ? "bg-forest-500 text-black" : "bg-white/5 text-white/50 border border-white/10"}`}
+                                >
+                                  Precise {designPrecise ? "On" : "Off"}
                                 </button>
                               </div>
                               {regions.map((r: any, i: number) =>
