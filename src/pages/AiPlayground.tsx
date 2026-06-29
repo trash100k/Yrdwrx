@@ -1,13 +1,45 @@
+// @ts-nocheck
 import React, { useState } from "react";
-import { Sparkles, Brain, Search, MapPin, Database, Camera, Image, Mic, Play, Settings } from "lucide-react";
+import { Sparkles, Brain, Search, MapPin, Camera, Image, Mic, Play } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Tabs } from "../components/Tabs";
-import { auth, db } from "../lib/firebase";
-import { doc, setDoc } from "firebase/firestore";
+import { fetchApi } from "../lib/api";
+import { useToast } from "../contexts/ToastContext";
+
+// Friendly copy shown when an AI media surface can't run because no Gemini key is
+// configured in this environment (server returns 503 with a "requires GEMINI_API_KEY"
+// / unavailable / { configured: false } style error). We surface this honestly instead
+// of presenting a raw error so the tab doesn't look "ready" when it isn't.
+const KEYLESS_NOTE = "Needs a Gemini key — not available in this environment.";
+
+// Detect the keyless/unavailable signal from a parsed server error payload.
+function isUnavailable(status: number, data: any): boolean {
+  if (status === 503) return true;
+  if (!data) return false;
+  if (data.configured === false) return true;
+  const msg = String(data.error || data.message || "").toLowerCase();
+  const code = String(data.code || "").toLowerCase();
+  return (
+    code.includes("unavailable") ||
+    msg.includes("gemini_api_key") ||
+    msg.includes("requires gemini") ||
+    msg.includes("unavailable")
+  );
+}
+
+// Safely read a JSON body without throwing when the response isn't OK / isn't JSON.
+async function safeJson(res: Response): Promise<any> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
 
 export default function AiPlayground() {
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState("Chat");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -21,23 +53,35 @@ export default function AiPlayground() {
     if (!prompt) return;
     setLoading(true);
     setResult("Typing...");
-    
+
     const newHistory = [...chatHistory];
-    
+
     try {
       const isLite = mode === "lite";
       const enableThinking = mode === "thinking";
       const enableSearch = mode === "search";
       const enableMaps = mode === "maps";
-      
-      const res = await fetch("/api/playground/chat", {
+
+      const res = await fetchApi("/api/playground/chat", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ message: prompt, history: newHistory, isLite, enableThinking, enableSearch, enableMaps })
       });
-      const data = await res.json();
-      
-      const updatedHistory = [...newHistory, 
+      const data = await safeJson(res);
+      if (!res.ok) {
+        if (isUnavailable(res.status, data)) {
+          showToast(KEYLESS_NOTE, "info");
+          setResult(KEYLESS_NOTE);
+        } else {
+          const msg = "Error: " + (data?.error || res.statusText);
+          showToast(msg, "error");
+          setResult(msg);
+        }
+        setLoading(false);
+        return;
+      }
+
+      const updatedHistory = [...newHistory,
          { role: "user", parts: [{ text: prompt }] },
          { role: "model", parts: [{ text: data.text }] }
       ];
@@ -45,6 +89,7 @@ export default function AiPlayground() {
       setResult(data.text);
       setPrompt("");
     } catch (e: any) {
+      showToast("Error: " + e.message, "error");
       setResult("Error: " + e.message);
     }
     setLoading(false);
@@ -54,14 +99,27 @@ export default function AiPlayground() {
     setLoading(true);
     setResult(null);
     try {
-      const res = await fetch("/api/playground/generate-music", {
+      const res = await fetchApi("/api/playground/generate-music", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ prompt: prompt || "A relaxing acoustic guitar melody", isPro })
       });
-      const data = await res.json();
+      const data = await safeJson(res);
+      if (!res.ok) {
+        if (isUnavailable(res.status, data)) {
+          showToast(KEYLESS_NOTE, "info");
+          setResult(KEYLESS_NOTE);
+        } else {
+          const msg = "Error: " + (data?.error || res.statusText);
+          showToast(msg, "error");
+          setResult(msg);
+        }
+        setLoading(false);
+        return;
+      }
       setResult(data.text || data.error);
     } catch (e: any) {
+      showToast("Error: " + e.message, "error");
       setResult("Error: " + e.message);
     }
     setLoading(false);
@@ -71,18 +129,32 @@ export default function AiPlayground() {
     setLoading(true);
     setResult(null);
     try {
-      const res = await fetch("/api/playground/generate-image", {
+      const res = await fetchApi("/api/playground/generate-image", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ prompt: prompt || "A beautiful serene landscape", aspectRatio: imageRatio, quality: imageQuality })
       });
-      const data = await res.json();
+      const data = await safeJson(res);
+      if (!res.ok) {
+        if (isUnavailable(res.status, data)) {
+          showToast(KEYLESS_NOTE, "info");
+          setResult(KEYLESS_NOTE);
+        } else {
+          const msg = "Error: " + (data?.error || res.statusText);
+          showToast(msg, "error");
+          setResult(msg);
+        }
+        setLoading(false);
+        return;
+      }
       if (data.imageBase64) {
         setResult(<img src={`data:image/jpeg;base64,${data.imageBase64}`} className="rounded-xl mt-4 w-full" />);
       } else {
-        setResult("Error: " + data.error);
+        showToast(KEYLESS_NOTE, "info");
+        setResult(KEYLESS_NOTE);
       }
     } catch (e: any) {
+      showToast("Error: " + e.message, "error");
       setResult("Error: " + e.message);
     }
     setLoading(false);
@@ -96,14 +168,27 @@ export default function AiPlayground() {
     reader.onload = async () => {
       const base64 = (reader.result as string).split(',')[1];
       try {
-        const res = await fetch("/api/playground/transcribe", {
+        const res = await fetchApi("/api/playground/transcribe", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({ mimeType: file.type, data: base64 })
         });
-        const data = await res.json();
+        const data = await safeJson(res);
+        if (!res.ok) {
+          if (isUnavailable(res.status, data)) {
+            showToast(KEYLESS_NOTE, "info");
+            setResult(KEYLESS_NOTE);
+          } else {
+            const msg = "Error: " + (data?.error || res.statusText);
+            showToast(msg, "error");
+            setResult(msg);
+          }
+          setLoading(false);
+          return;
+        }
         setResult(data.text);
       } catch (err: any) {
+        showToast("Error: " + err.message, "error");
         setResult("Error: " + err.message);
       }
       setLoading(false);
@@ -117,7 +202,7 @@ export default function AiPlayground() {
     try {
       let imageBase64 = undefined;
       let mimeType = undefined;
-      
+
       if (e?.target?.files?.[0]) {
         const file = e.target.files[0];
         mimeType = file.type;
@@ -128,18 +213,32 @@ export default function AiPlayground() {
         });
       }
 
-      const res = await fetch("/api/playground/generate-video", {
+      const res = await fetchApi("/api/playground/generate-video", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ prompt: prompt || "A sweeping cinematic shot", aspectRatio: imageRatio, imageData: imageBase64, imageMimeType: mimeType })
       });
-      const data = await res.json();
+      const data = await safeJson(res);
+      if (!res.ok) {
+        if (isUnavailable(res.status, data)) {
+          showToast(KEYLESS_NOTE, "info");
+          setResult(KEYLESS_NOTE);
+        } else {
+          const msg = "Error: " + (data?.error || res.statusText);
+          showToast(msg, "error");
+          setResult(msg);
+        }
+        setLoading(false);
+        return;
+      }
       if (data.operationName) {
          setResult(`Video generation started successfully.\nOperation Name: ${data.operationName}\nYou can poll the Gemini API to check status.`);
       } else {
-         setResult("Error: " + data.error);
+         showToast(KEYLESS_NOTE, "info");
+         setResult(KEYLESS_NOTE);
       }
     } catch (err: any) {
+      showToast("Error: " + err.message, "error");
       setResult("Error: " + err.message);
     }
     setLoading(false);
@@ -153,38 +252,32 @@ export default function AiPlayground() {
     reader.onload = async () => {
       const base64 = (reader.result as string).split(',')[1];
       try {
-        const res = await fetch("/api/playground/analyze-media", {
+        const res = await fetchApi("/api/playground/analyze-media", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({ mimeType: file.type, data: base64, prompt: prompt || "Analyze this media." })
         });
-        const data = await res.json();
+        const data = await safeJson(res);
+        if (!res.ok) {
+          if (isUnavailable(res.status, data)) {
+            showToast(KEYLESS_NOTE, "info");
+            setResult(KEYLESS_NOTE);
+          } else {
+            const msg = "Error: " + (data?.error || res.statusText);
+            showToast(msg, "error");
+            setResult(msg);
+          }
+          setLoading(false);
+          return;
+        }
         setResult(data.text);
       } catch (err: any) {
+        showToast("Error: " + err.message, "error");
         setResult("Error: " + err.message);
       }
       setLoading(false);
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleTestDatabase = async () => {
-    setLoading(true);
-    if (!auth?.currentUser) {
-       setResult("Please log in using Google Auth first to test database.");
-       setLoading(false);
-       return;
-    }
-    try {
-      await setDoc(doc(db, "telemetry", auth?.currentUser?.uid), {
-        lastInteraction: new Date().toISOString(),
-        testData: "Firebase functionality successfully confirmed."
-      });
-      setResult("Database connection successful. Wrote test data to Firestore under your user ID.");
-    } catch (e: any) {
-      setResult("Database Error: " + e.message);
-    }
-    setLoading(false);
   };
 
   return (
@@ -197,15 +290,15 @@ export default function AiPlayground() {
         </div>
       </div>
 
-      <Tabs 
-        tabs={["Chat", "Grounding", "Vision & Video", "Audio", "Infrastructure"]} 
-        activeTab={activeTab} 
-        onChange={setActiveTab} 
+      <Tabs
+        tabs={["Chat", "Grounding", "Vision & Video", "Audio"]}
+        activeTab={activeTab}
+        onChange={setActiveTab}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
         <div className="space-y-6">
-          
+
           {activeTab === "Chat" && (
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><Brain size={18}/> Gemini Chatbot & Intelligence</CardTitle></CardHeader>
@@ -239,7 +332,7 @@ export default function AiPlayground() {
               <CardContent className="space-y-4">
                 <Input placeholder="Describe an image..." value={prompt} onChange={e => setPrompt(e.target.value)} />
                 <div className="flex gap-2 items-center text-sm text-zinc-400">
-                  Ratio: 
+                  Ratio:
                   <select value={imageRatio} onChange={(e) => setImageRatio(e.target.value)} className="bg-zinc-900 border border-white/10 p-2 rounded-lg text-white">
                     <option value="1:1">1:1</option>
                     <option value="2:3">2:3</option>
@@ -250,7 +343,7 @@ export default function AiPlayground() {
                     <option value="16:9">16:9</option>
                     <option value="21:9">21:9</option>
                   </select>
-                  Quality: 
+                  Quality:
                   <select value={imageQuality} onChange={(e) => setImageQuality(e.target.value)} className="bg-zinc-900 border border-white/10 p-2 rounded-lg text-white">
                     <option value="standard">Standard (Flash)</option>
                     <option value="high">High Quality (Pro)</option>
@@ -268,6 +361,7 @@ export default function AiPlayground() {
                      <input type="file" className="hidden" accept="image/*,video/*" onChange={handleAnalyzeMedia} />
                    </label>
                 </div>
+                <p className="text-xs text-zinc-500 mt-2">Image, video and media analysis require a configured GEMINI_API_KEY and aren't available in keyless environments.</p>
               </CardContent>
             </Card>
           )}
@@ -288,19 +382,7 @@ export default function AiPlayground() {
                      <input type="file" className="hidden" accept="audio/*" onChange={handleTranscribe} />
                    </label>
                 </div>
-                <p className="text-xs text-zinc-500 mt-2">Live API Voice Conversations are natively integrated via the global "Live Ear" menu toggle in the sidebar.</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === "Infrastructure" && (
-            <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><Database size={18}/> Firebase Auth & Firestore</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-zinc-400">User Identity: {auth?.currentUser ? auth?.currentUser?.email : "Not Authenticated"}</p>
-                <div className="flex gap-2">
-                   <Button onClick={handleTestDatabase} isLoading={loading} variant="secondary">Test Firestore Write</Button>
-                </div>
+                <p className="text-xs text-zinc-500 mt-2">Live API Voice Conversations are natively integrated via the global "Live Ear" menu toggle in the sidebar. Music generation requires a configured GEMINI_API_KEY.</p>
               </CardContent>
             </Card>
           )}

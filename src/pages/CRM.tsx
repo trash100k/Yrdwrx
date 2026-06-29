@@ -48,7 +48,6 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 import { motion, AnimatePresence } from "motion/react";
-import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Link, useNavigate } from "react-router-dom";
 import { ingestKnowledge, fetchRelevantMemory } from "../services/brainService";
 import { z } from "zod";
@@ -139,17 +138,8 @@ const customerSchema = z.object({
   notes: z.string().optional(),
 });
 
-const generatePropertyGrowthData = (baseValue = 450000) => {
-  return [
-    { year: "2020", value: baseValue },
-    { year: "2021", value: baseValue * 1.05 },
-    { year: "2022", value: baseValue * 1.15 },
-    { year: "2023", value: baseValue * 1.25 },
-    { year: "2024", value: baseValue * 1.35 },
-    { year: "2025", value: baseValue * 1.45 },
-    { year: "2027", value: baseValue * 1.60 }, // projected
-  ];
-};
+// Removed: generatePropertyGrowthData — it fabricated static property-value growth
+// numbers (fixed base + hard-coded multipliers) that were charted as if real.
 
 export default function CRM() {
   const { tenant, userRole } = useTenant();
@@ -527,11 +517,19 @@ export default function CRM() {
       });
       
       if (!res.ok) throw new Error("Failed to send SMS");
-      const data = await res.json();
-      
-      showToast("SMS sent securely via Twilio.", "success");
+      const data = await res.json().catch(() => ({}));
+
+      // Honesty policy: the server tells us whether it actually sent via Twilio or
+      // just simulated (Twilio not configured). Don't claim a secure send when it
+      // was only simulated — mirror the client portal / Inbox branching.
+      const wasSimulated = data?.simulated === true || data?.mock === true;
+      if (wasSimulated) {
+        showToast("Saved — SMS isn't configured yet (not actually sent).", "info");
+      } else {
+        showToast("SMS sent securely via Twilio.", "success");
+      }
       setSmsMessage("");
-      
+
       // Update local history for preview
       setSmsHistory(prev => [{
         id: Date.now().toString(),
@@ -539,9 +537,9 @@ export default function CRM() {
         date: new Date().toISOString(),
         direction: "outbound"
       }, ...prev]);
-      
+
       // Also log it
-      await logSystemEvent("TWILIO_SMS_SENT", { customerId: selectedCustomer.id });
+      await logSystemEvent(wasSimulated ? "TWILIO_SMS_SIMULATED" : "TWILIO_SMS_SENT", { customerId: selectedCustomer.id });
     } catch (err: any) {
       console.error(err);
       showToast("Failed to send SMS.", "error");
@@ -2268,78 +2266,11 @@ export default function CRM() {
                       <CustomerPortalCard customer={selectedCustomer} />
                       <CRMCustomFields customer={selectedCustomer} onUpdate={() => {}} />
 
-                      {/* Property Value Growth (HOA Board Presentation) */}
-                      {selectedCustomer.isHOA && (
-                        <div className="bg-black/40 rounded-2xl p-10 border border-white/5 shadow-2xl relative">
-                          <div className="flex items-center justify-between mb-8">
-                            <div>
-                              <h4 className="text-xs md:text-[10px] text-forest-400 font-black uppercase tracking-widest flex items-center gap-2">
-                                <TrendingUp size={16} /> Estimated Value Growth
-                              </h4>
-                              <p className="text-xs md:text-[10px] text-white/40 uppercase mt-1">
-                                For Board Presentation
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => window.print()}
-                              className="bg-forest-500/10 text-forest-400 hover:bg-forest-500 hover:text-black transition-all text-[9px] px-4 py-2 font-black uppercase tracking-widest rounded-full border-2 border-forest-500/20 hover:border-forest-500"
-                            >
-                              Export PDF
-                            </button>
-                          </div>
-                          <div className="h-[200px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <AreaChart
-                                data={generatePropertyGrowthData()}
-                                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                              >
-                                <defs>
-                                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                                  </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                                <XAxis 
-                                  dataKey="year" 
-                                  stroke="#ffffff40" 
-                                  fontSize={10} 
-                                  tickLine={false} 
-                                  axisLine={false} 
-                                  dy={10}
-                                />
-                                <YAxis 
-                                  stroke="#ffffff40" 
-                                  fontSize={10} 
-                                  tickLine={false} 
-                                  axisLine={false} 
-                                  tickFormatter={(value) => `${value / 1000}k`}
-                                />
-                                <RechartsTooltip 
-                                  contentStyle={{ 
-                                    backgroundColor: '#000', 
-                                    border: '2px solid #3f3f46', 
-                                    borderRadius: '12px',
-                                    padding: '12px' 
-                                  }}
-                                  itemStyle={{ color: '#10b981', fontSize: '14px', fontWeight: 'bold' }}
-                                  labelStyle={{ color: '#ffffff80', fontSize: '10px', textTransform: 'uppercase' }}
-                                  formatter={(value: number) => [`${value.toLocaleString()}`, 'Est. Value']}
-                                />
-                                <Area 
-                                  type="monotone" 
-                                  dataKey="value" 
-                                  stroke="#10b981" 
-                                  strokeWidth={3}
-                                  fillOpacity={1} 
-                                  fill="url(#colorValue)" 
-                                />
-                              </AreaChart>
-                            </ResponsiveContainer>
-                          </div>
-                        </div>
-                      )}
+                      {/* Property Value Growth chart removed: it rendered fabricated,
+                          hard-coded growth numbers (generatePropertyGrowthData) presented
+                          as real "Estimated Value Growth" for HOA board presentations.
+                          Real, labeled property numbers live in the enrichmentbacked
+                          "Property Intelligence" card above. */}
 
                       <AnimatePresence>
                         {proposalDraft && (

@@ -408,8 +408,8 @@ export default function Dashboard() {
     }
 
     fetchApi("/api/weather")
-      .then((res) => res.json())
-      .then((data) => setWeather(data))
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data) setWeather(data); })
       .catch(() => {});
   }, []);
 
@@ -568,20 +568,25 @@ export default function Dashboard() {
     const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
 
-    // Quick helper to simulate a delay for responsiveness
-    await new Promise((r) => setTimeout(r, 1200));
-
     if (!token) {
-      // Sandbox Simulator Success
-      setGoogleCalendarSyncStatus("success");
+      // No live Google connection — be honest that nothing was actually pushed.
+      setGoogleCalendarSyncStatus("idle");
       showToast(
-        "Calendar Synced! 3 Crew dispatches added to Google Calendar template.",
+        "Google Calendar isn't connected with a live account — nothing was actually synced. Connect Workspace to push crew jobs.",
+        "warning",
       );
+      return;
+    }
+
+    if (!crews.length) {
+      setGoogleCalendarSyncStatus("idle");
+      showToast("No crew jobs to push to Google Calendar.", "info");
       return;
     }
 
     try {
       // Create active dispatches for today in their genuine Google Calendar!
+      let pushed = 0;
       for (const crew of crews) {
         const eventPayload = {
           summary: `YardWorx Job: ${crew.job} (${crew.name})`,
@@ -611,16 +616,21 @@ export default function Dashboard() {
         if (!response.ok) {
           throw new Error(`Calendar API returned code ${response.status}`);
         }
+        pushed++;
       }
 
       setGoogleCalendarSyncStatus("success");
-      showToast("Schedules live-pushed directly to Google Calendar!");
-    } catch (err) {
-      console.error("Failed to sync to live Google Calendar:", err);
-      // Healing behavior: fall back gracefully!
-      setGoogleCalendarSyncStatus("success");
       showToast(
-        "Sync accomplished! Schedules are saved to Google Calendar templating.",
+        `Schedules live-pushed to Google Calendar — ${pushed} event${pushed === 1 ? "" : "s"} created.`,
+        "success",
+      );
+    } catch (err: any) {
+      console.error("Failed to sync to live Google Calendar:", err);
+      // Honest failure — do NOT claim success.
+      setGoogleCalendarSyncStatus("error");
+      showToast(
+        `Calendar sync failed: ${err?.message || "the Google Calendar API rejected the request."}`,
+        "error",
       );
     }
   };
@@ -640,7 +650,36 @@ export default function Dashboard() {
     const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
 
-    await new Promise((r) => setTimeout(r, 1500));
+    // Build the crew-assignment list from REAL live crew data when we have it.
+    // If there are no crews yet, clearly flag the section as a sample rather than
+    // presenting hardcoded placeholders as real assignments.
+    const escapeHtml = (s: any) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const hasRealCrews = crews.length > 0;
+    const crewRows = hasRealCrews
+      ? crews
+          .map(
+            (c) =>
+              `<li><strong>${escapeHtml(c.name)}:</strong> ${escapeHtml(c.job || "Unassigned")}${c.leader ? ` ( ${escapeHtml(c.leader)} )` : ""}</li>`,
+          )
+          .join("\n")
+      : [
+          `<li style="color:#9ca3af;font-style:italic;">No crews on the board yet — the entries below are sample data, not real assignments.</li>`,
+          `<li><strong>Sample Crew A:</strong> Arbor Lakes HOA ( Sample Lead )</li>`,
+          `<li><strong>Sample Crew B:</strong> Sample Residence ( Sample Lead )</li>`,
+        ].join("\n");
+    const crewHeading = hasRealCrews
+      ? "Crew Assignments"
+      : "Crew Assignments (Sample — no live crew data)";
+
+    const weatherLine =
+      weather?.forecast ||
+      (weather?.temp != null
+        ? `Current conditions: ${weather.temp}°F${weather.condition ? `, ${weather.condition}` : ""}.`
+        : "Live weather forecast unavailable.");
 
     const htmlBody = `
       <div style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 24px; border-radius: 12px;">
@@ -648,14 +687,12 @@ export default function Dashboard() {
         <h1 style="font-size: 24px; margin-top: 0; margin-bottom: 20px;">Active Daily Dispatch Overview</h1>
         <p>Operational summary dispatched for today's weather threshold.</p>
         <div style="background-color: #f9fafb; border-left: 4px solid #10b981; padding: 16px; margin-bottom: 20px;">
-          <p style="margin: 0; font-weight: bold; color: #374151;">Weather Shield Delay Risk: LOW</p>
-          <p style="margin: 4px 0 0 0; font-size: 14px; color: #6b7280;">Clear microclimate active. Rain probability is low, optimal threshold for fertilizer and lawn treatments.</p>
+          <p style="margin: 0; font-weight: bold; color: #374151;">Weather Update</p>
+          <p style="margin: 4px 0 0 0; font-size: 14px; color: #6b7280;">${escapeHtml(weatherLine)}</p>
         </div>
-        <h3 style="font-size: 16px; margin-bottom: 10px;">Crew Assignments</h3>
+        <h3 style="font-size: 16px; margin-bottom: 10px;">${escapeHtml(crewHeading)}</h3>
         <ul style="padding-left: 20px;">
-          <li><strong>Alpha Crew:</strong> Arbor Lakes HOA ( Davis )</li>
-          <li><strong>Beta Crew:</strong> Schmidt Residence ( Miller )</li>
-          <li><strong>Gamma Crew:</strong> Hillside Manor ( Wilson )</li>
+          ${crewRows}
         </ul>
         <hr style="border: 0; border-top: 1px solid #eee; margin: 24px 0;" />
         <p style="font-size: 11px; color: #9ca3af; text-align: center;">YardWorx AI • Simple Software for Smart Landscaping</p>
@@ -663,8 +700,12 @@ export default function Dashboard() {
     `;
 
     if (!token || token === "offline_mode_authorized") {
-      setGoogleGmailDraftStatus("success");
-      showToast("Email dispatched! Check your Gmail outbox.");
+      // No live Gmail connection — nothing was actually sent.
+      setGoogleGmailDraftStatus("idle");
+      showToast(
+        "Gmail isn't connected with a live account — nothing was actually sent. Connect Workspace to dispatch the briefing.",
+        "warning",
+      );
       return;
     }
 
@@ -701,11 +742,15 @@ export default function Dashboard() {
       }
 
       setGoogleGmailDraftStatus("success");
-      showToast("Briefing successfully dispatched via Gmail!");
-    } catch (err) {
+      showToast("Briefing successfully dispatched via Gmail!", "success");
+    } catch (err: any) {
       console.error("Failed to transmit via live Gmail:", err);
-      setGoogleGmailDraftStatus("success");
-      showToast("Dispatched briefing summary to foremen emails.");
+      // Honest failure — do NOT claim the briefing was sent.
+      setGoogleGmailDraftStatus("error");
+      showToast(
+        `Gmail dispatch failed: ${err?.message || "the Gmail API rejected the request."}`,
+        "error",
+      );
     }
   };
 
@@ -716,30 +761,39 @@ export default function Dashboard() {
   ) => {
     setIntegrationStatuses((prev) => ({ ...prev, [key]: "working" }));
 
-    // Attempt real API if live, else mock Wait
+    // Attempt real API only if we have a live Google token.
     const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
 
-    await new Promise((r) => setTimeout(r, 1500));
-
-    // Sandbox execution fallback
+    // No live connection — be honest that nothing was actually sent.
     if (!token) {
-      setIntegrationStatuses((prev) => ({ ...prev, [key]: "success" }));
-      showToast(`${actionLabel} completed successfully via Sandbox mode!`);
+      setIntegrationStatuses((prev) => ({ ...prev, [key]: "idle" }));
+      showToast(
+        `${actionLabel}: Google Workspace isn't connected with a live account — nothing was actually sent. Connect Workspace to run this.`,
+        "warning",
+      );
       return;
     }
 
+    // Throws on a non-OK response so the catch block reports an honest failure.
+    const ensureOk = async (res: Response, label: string) => {
+      if (!res || !res.ok) {
+        throw new Error(`${label} returned status ${res?.status ?? "unknown"}`);
+      }
+      return res;
+    };
+
     try {
-      // 10 separate API executions depending on `key`
+      // One real API execution per `key`. Every response is guarded by res.ok.
       if (key === "drive") {
         const boundary = "foo_bar_baz";
         const metadata = {
           name: `YardWorx Inspection Report - ${new Date().toLocaleDateString()}.txt`,
           mimeType: "text/plain",
         };
-        const content = `MERIDIAN GREEN\nInspection Report\nDate: ${new Date().toLocaleDateString()}\nStatus: All clear.`;
+        const content = `YARDWORX\nInspection Report\nDate: ${new Date().toLocaleDateString()}\nStatus: All clear.`;
         const multipartRequestBody = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--`;
-        await fetchApi(
+        const res = await fetchApi(
           "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
           {
             method: "POST",
@@ -750,15 +804,14 @@ export default function Dashboard() {
             body: multipartRequestBody,
           },
         );
+        await ensureOk(res, "Drive API");
       } else if (key === "chat") {
-        // Space lookup is hard, let's just show an error if they don't have spaces or use a generalized rest approach
-        // We'll simulate success since creating a space via script needs special auth or we just make an HTTP call that could fail
-        await fetchApi("https://chat.googleapis.com/v1/spaces/setup", {
+        const res = await fetchApi("https://chat.googleapis.com/v1/spaces/setup", {
           headers: { Authorization: `Bearer ${token}` },
-        }).catch(() => {});
-        throw new Error("Fallback triggered"); // Chat API often requires existing spaces and bot setup
+        });
+        await ensureOk(res, "Chat API");
       } else if (key === "docs") {
-        await fetchApi("https://docs.googleapis.com/v1/documents", {
+        const res = await fetchApi("https://docs.googleapis.com/v1/documents", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -766,8 +819,9 @@ export default function Dashboard() {
           },
           body: JSON.stringify({ title: "Standard Operational Procedure" }),
         });
+        await ensureOk(res, "Docs API");
       } else if (key === "forms") {
-        await fetchApi("https://forms.googleapis.com/v1/forms", {
+        const res = await fetchApi("https://forms.googleapis.com/v1/forms", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -777,8 +831,9 @@ export default function Dashboard() {
             info: { title: "Pre-Trip Vehicle Inspection" },
           }),
         });
+        await ensureOk(res, "Forms API");
       } else if (key === "meet") {
-        await fetchApi("https://meet.googleapis.com/v2/spaces", {
+        const res = await fetchApi("https://meet.googleapis.com/v2/spaces", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -786,8 +841,9 @@ export default function Dashboard() {
           },
           body: JSON.stringify({}),
         });
+        await ensureOk(res, "Meet API");
       } else if (key === "sheets") {
-        await fetchApi("https://sheets.googleapis.com/v4/spreadsheets", {
+        const res = await fetchApi("https://sheets.googleapis.com/v4/spreadsheets", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -797,8 +853,9 @@ export default function Dashboard() {
             properties: { title: "Q2 Route Profitability" },
           }),
         });
+        await ensureOk(res, "Sheets API");
       } else if (key === "slides") {
-        await fetchApi("https://slides.googleapis.com/v1/presentations", {
+        const res = await fetchApi("https://slides.googleapis.com/v1/presentations", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -806,8 +863,9 @@ export default function Dashboard() {
           },
           body: JSON.stringify({ title: "HOA Pitch Deck Template" }),
         });
+        await ensureOk(res, "Slides API");
       } else if (key === "tasks") {
-        await fetchApi("https://tasks.googleapis.com/tasks/v1/users/@me/lists", {
+        const res = await fetchApi("https://tasks.googleapis.com/tasks/v1/users/@me/lists", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -815,6 +873,7 @@ export default function Dashboard() {
           },
           body: JSON.stringify({ title: "Weekly Maintenance Reminders" }),
         });
+        await ensureOk(res, "Tasks API");
       } else if (key === "contacts") {
         const res = await fetchApi(
           "https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses",
@@ -822,16 +881,19 @@ export default function Dashboard() {
             headers: { Authorization: `Bearer ${token}` },
           },
         );
-        if (!res.ok) throw new Error("Contacts fail");
+        await ensureOk(res, "Contacts API");
       }
 
       setIntegrationStatuses((prev) => ({ ...prev, [key]: "success" }));
-      showToast(`${actionLabel} completed successfully via Google API!`);
-    } catch (e) {
-      console.warn(`Integration [${String(key)}] warning:`, e);
-      // Gracefully fall back to success to avoid throwing error modals in the interface during aggressive testing
-      setIntegrationStatuses((prev) => ({ ...prev, [key]: "success" }));
-      showToast(`${actionLabel} triggered (Simulated via Graceful Fallback)`);
+      showToast(`${actionLabel} completed successfully via Google API!`, "success");
+    } catch (e: any) {
+      console.error(`Integration [${String(key)}] failed:`, e);
+      // Honest failure — do NOT pretend the action succeeded.
+      setIntegrationStatuses((prev) => ({ ...prev, [key]: "idle" }));
+      showToast(
+        `${actionLabel} failed: ${e?.message || "the Google API rejected the request."}`,
+        "error",
+      );
     }
   };
 
@@ -1047,6 +1109,7 @@ export default function Dashboard() {
           weather: weather || { temp: 82 },
         }),
       });
+      if (!res.ok) throw new Error(`Draft API returned status ${res.status}`);
       const data = await res.json();
       setSmsDraft(data.text);
     } catch (e) {
@@ -1072,6 +1135,7 @@ export default function Dashboard() {
           context: lead.matchReason,
         }),
       });
+      if (!res.ok) throw new Error(`Simulate-call API returned status ${res.status}`);
       const data = await res.json();
       setCallOutcome(data);
     } catch (err) {
@@ -1097,29 +1161,54 @@ export default function Dashboard() {
 
     setIsProcessing(true);
     try {
+      // Local sample shown only if the real vision extraction can't be reached —
+      // clearly distinct from a genuine scan result.
+      const sampleResult = {
+        text: "Sample scan (no live result)",
+        name: "Sample: Double Shredded Pine Mulch",
+        brand: "Sample data",
+        category: "Bulk",
+        suggestedUnit: "Yards",
+        barcode: "SAMPLE-0000",
+      };
       const reader = new FileReader();
       reader.onloadend = async () => {
-        const base64Data = reader.result?.toString().split(",")[1];
-        if (!base64Data) return;
+        try {
+          const base64Data = reader.result?.toString().split(",")[1];
+          if (!base64Data) {
+            setIsProcessing(false);
+            return;
+          }
 
-        const res = await fetchApi("/api/inventory/process-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageData: base64Data }),
-        });
-        const data = await res.json();
-        setParsedScanResult(data);
+          const res = await fetchApi("/api/inventory/process-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageData: base64Data }),
+          });
+          if (!res.ok) throw new Error(`Vision API returned status ${res.status}`);
+          const data = await res.json();
+          setParsedScanResult(data);
+        } catch (innerErr) {
+          console.error("Image scan failed, showing labeled sample:", innerErr);
+          setParsedScanResult(sampleResult);
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+      reader.onerror = () => {
+        setParsedScanResult(sampleResult);
         setIsProcessing(false);
       };
       reader.readAsDataURL(file);
     } catch (err) {
+      console.error("Image scan setup failed:", err);
       setParsedScanResult({
-        text: "Scan complete",
-        name: "Dark Double Shredded Pine Mulch",
-        brand: "Premium Bulk aggregate",
+        text: "Sample scan (no live result)",
+        name: "Sample: Double Shredded Pine Mulch",
+        brand: "Sample data",
         category: "Bulk",
         suggestedUnit: "Yards",
-        barcode: "BAR-ML9821",
+        barcode: "SAMPLE-0000",
       });
       setIsProcessing(false);
     }
@@ -1688,11 +1777,12 @@ export default function Dashboard() {
 
                         <button
                           onClick={async () => {
-                            try {
-                              showToast(`Simulated dispatch to ${selectedCrewForSMS.job} via App Portal Notification!`);
-                            } catch (error) {
-                              showToast(`Failed to dispatch Notification.`, "error");
-                            }
+                            // No real notification transport is wired up here yet — say so
+                            // plainly rather than claiming the message was sent.
+                            showToast(
+                              `Preview only — notification to ${selectedCrewForSMS.job} was NOT sent (crew messaging isn't connected yet).`,
+                              "info",
+                            );
                             setSelectedCrewForSMS(null);
                           }}
                           className="w-full py-3.5 bg-white text-black font-bold text-sm rounded-xl transition-all hover:bg-zinc-200 flex items-center justify-center gap-2"
@@ -1938,7 +2028,8 @@ export default function Dashboard() {
                             <button
                               onClick={() =>
                                 showToast(
-                                  `Initiating automated order dispatch with ${vendor.name}`,
+                                  `Automated vendor ordering isn't connected yet — no order was sent to ${vendor.name}.`,
+                                  "info",
                                 )
                               }
                               className="shrink-0 px-4 py-2.5 bg-forest-700 hover:bg-forest-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"

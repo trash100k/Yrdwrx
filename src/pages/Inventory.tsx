@@ -20,7 +20,6 @@ import {
   Search,
   Trash2,
   Edit2,
-  AlertTriangle,
   Check,
   X,
   Camera,
@@ -423,30 +422,42 @@ export default function Inventory() {
 
   const [quantities, setQuantities] = useState({
     totalVal: 0,
+    valuedItemCount: 0,
     recoveryVal: 0,
-    leakage: 4.2,
   });
 
   useEffect(() => {
-    // Strategic Valuation logic for Enterprise Tier
-    // Based on industry averages: 3-5% of revenue is lost to untracked consumables
-    const total = items.reduce(
-      (acc, i) => acc + Number(i.quantity) * (i.unitPrice || 65),
-      0,
-    );
+    // Valuation uses each item's real per-unit cost (unitCost / unitPrice).
+    // Items with no recorded cost are excluded from the total rather than
+    // having a fabricated value assumed for them.
+    const unitCostOf = (i: any) => {
+      const c = Number(i?.unitCost ?? i?.unitPrice);
+      return Number.isFinite(c) && c > 0 ? c : null;
+    };
+    let total = 0;
+    let valuedItemCount = 0;
+    for (const i of items) {
+      const cost = unitCostOf(i);
+      if (cost == null) continue;
+      total += Number(i.quantity || 0) * cost;
+      valuedItemCount += 1;
+    }
 
-    // Revenue Recovery: Quantifying materials logged to specific jobs vs baseline 'untracked' state
+    // Revenue Recovery: value of materials logged to specific jobs, using the
+    // matching item's real per-unit cost. Logs without a known-cost item are
+    // skipped so we never count fabricated dollars.
+    const itemById = new Map(items.map((i) => [i.id, i]));
     const recovery = logs
       .filter((l) => l.jobId && l.type === "out")
-      .reduce((acc, l) => acc + Number(l.quantity) * 65, 0);
+      .reduce((acc, l) => {
+        const cost = unitCostOf(itemById.get((l as any).itemId));
+        return cost == null ? acc : acc + Number(l.quantity || 0) * cost;
+      }, 0);
 
     setQuantities({
       totalVal: total,
+      valuedItemCount,
       recoveryVal: recovery,
-      leakage:
-        logs.length > 0
-          ? Math.max(0.8, 4.2 - logs.filter((l) => l.jobId).length * 0.1)
-          : 4.2,
     });
   }, [items, logs]);
 
@@ -581,8 +592,10 @@ export default function Inventory() {
           </div>
           <div className="pt-8 border-t border-white/10">
             <div className="flex items-center justify-between micro-label font-black uppercase text-white/60 tracking-widest">
-              <span>Audit Integrity</span>
-              <span className="text-forest-500">100% SECURE</span>
+              <span>Costed Assets</span>
+              <span className="text-forest-500">
+                {quantities.valuedItemCount} of {items.length}
+              </span>
             </div>
           </div>
         </div>
@@ -591,20 +604,24 @@ export default function Inventory() {
           <div>
             <div className="flex items-center justify-between mb-10">
               <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-black shadow-inner">
-                <AlertTriangle size={24} />
+                <Package size={24} />
               </div>
-              <span className="micro-label font-black text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-full uppercase tracking-widest border border-amber-500/20 shadow-glow">
-                Leakage Index
+              <span className="micro-label font-black text-forest-400 bg-forest-500/10 px-3 py-1.5 rounded-full uppercase tracking-widest border border-forest-500/20 shadow-glow">
+                On-Hand Value
               </span>
             </div>
             <p className="micro-label opacity-80 font-black uppercase tracking-widest mb-2 italic">
-              Calculated Shrinkage
+              Inventory Valuation
             </p>
             <h3 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black text-white italic tracking-normal md:tracking-tighter leading-none mb-4">
-              {quantities.leakage.toFixed(1)}%
+              {quantities.valuedItemCount > 0
+                ? `$${quantities.totalVal.toLocaleString()}`
+                : "—"}
             </h3>
-            <p className="micro-label text-amber-400 font-black italic lowercase tracking-widest opacity-80">
-              Benchmark Variance: 0.8%
+            <p className="micro-label text-forest-400 font-black italic lowercase tracking-widest opacity-80">
+              {quantities.valuedItemCount > 0
+                ? `From ${quantities.valuedItemCount} costed item${quantities.valuedItemCount === 1 ? "" : "s"}`
+                : "Add unit costs to value stock"}
             </p>
           </div>
           <div className="pt-8 border-t border-white/10">
@@ -613,13 +630,13 @@ export default function Inventory() {
                 const tracked = logs.filter((l) => l.jobId && l.type === "out").length;
                 const untracked = logs.filter((l) => l.type === "out" && !l.jobId).length;
                 showToast(
-                  `Loss report: ${quantities.leakage.toFixed(1)}% leakage • ${tracked} job-tracked vs ${untracked} untracked allocations • $${quantities.recoveryVal.toLocaleString()} recovered.`,
+                  `Material allocation: ${tracked} job-tracked vs ${untracked} untracked • $${quantities.recoveryVal.toLocaleString()} of job-tracked usage costed.`,
                   untracked > tracked ? "warning" : "info",
                 );
               }}
               className="w-full text-left micro-label font-black uppercase tracking-widest text-white/20 hover:text-white transition-colors flex items-center justify-between group/btn"
             >
-              <span>Loss Identification Report</span>
+              <span>Allocation Report</span>
               <ChevronRight
                 size={16}
                 className="group-hover:translate-x-1 transition-transform"

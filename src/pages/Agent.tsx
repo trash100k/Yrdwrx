@@ -9,7 +9,6 @@ import {
   Sparkles,
   Terminal,
   Workflow,
-  Cpu,
   BrainCircuit,
   MessageSquare,
   Settings,
@@ -302,26 +301,6 @@ export default function Agent() {
               SOC Security Guard
             </button>
 
-          </div>
-
-          <div className="mt-auto p-5 bg-forest-500/5 border border-forest-500/10 rounded-2xl">
-            <h4 className="text-sm border-b border-forest-500/10 pb-2 mb-3 text-forest-400 font-bold uppercase tracking-wider flex items-center gap-2">
-              <Cpu size={16} /> Runtime Stats
-            </h4>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-zinc-400">Context Window</span>
-                <span className="text-white font-mono">1.2m tokens</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-zinc-400">Memory Usage</span>
-                <span className="text-forest-400 font-mono">Normal</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-zinc-400">Active Plugins</span>
-                <span className="text-white">4 Modules</span>
-              </div>
-            </div>
           </div>
         </div>
 

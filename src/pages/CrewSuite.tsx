@@ -653,16 +653,15 @@ export default function CrewSuite() {
             </button>
           )}
           
-          <button 
+          <button
            onClick={async () => {
              const activeState = safeStorage.getItem("cutty_workspace_active");
-             if (activeState !== "live") {
-               addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Field Report", content: "Job completed successfully. Please review notes and photos." });
-               return;
-             }
              const token = safeStorage.getItem("cutty_workspace_token");
-             if (!token) {
-
+             if (activeState !== "live" || !token) {
+               // No live Google Workspace connection — we cannot actually send the email.
+               // Queue it to the outbox so it isn't lost, but be honest that nothing was dispatched.
+               addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Field Report", content: "Job completed successfully. Please review notes and photos." }, "failed");
+               showToast("Google Workspace isn't connected — report queued but not sent to owner.", "warning");
                return;
              }
              try {
@@ -676,31 +675,36 @@ export default function CrewSuite() {
                   "- Beta Team: Client requested extra mulch on south beds.",
                   "- Delta Crew: Departure completed. Equipment secured."
                 ].join("\n");
-                
+
                 const encodedMessage = btoa(unescape(encodeURIComponent(messageParts)))
                   .replace(/\+/g, "-")
                   .replace(/\//g, "_")
                   .replace(/=+$/, "");
-                  
+
                 const res = await fetchApi("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
                   method: "POST",
                   headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
                   body: JSON.stringify({ raw: encodedMessage })
                 });
-                if (res.ok) {
-                   addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Crew Check-In Alert", content: "Crew member has checked in at site." });
-                } else {
+                if (!res.ok) {
+                   const reason = await res.text().catch(() => "");
                    addLog({ type: "email", recipient: "owner", subject: "Check-In Alert", content: "Failed to dispatch" }, "failed");
+                   showToast(`Failed to dispatch report to owner (${res.status})${reason ? `: ${reason.slice(0, 140)}` : ""}.`, "error");
+                   return;
                 }
-             } catch (e) {
+                addLog({ type: "email", recipient: "owner@yardworx.io", subject: "Field Operations Check-in Report", content: "Daily field operations check-in report sent to owner." });
+                showToast("Field report dispatched to owner.", "success");
+             } catch (e: any) {
                 console.error(e);
+                addLog({ type: "email", recipient: "owner", subject: "Check-In Alert", content: "Failed to dispatch" }, "failed");
+                showToast(`Failed to dispatch report: ${e?.message || "network error"}.`, "error");
              }
            }}
            className="px-6 py-3 bg-white/5 text-forest-400 border border-forest-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-forest-500/10 transition-all flex items-center gap-2">
             <Mail size={14} /> Dispatch to Owner
           </button>
 
-          <button 
+          <button
                onClick={async () => {
                  if (!auth) {
                    showToast("Google integration isn't configured yet.", "error");
@@ -711,18 +715,29 @@ export default function CrewSuite() {
                    provider.addScope("https://www.googleapis.com/auth/chat.messages");
                    const result = await signInWithPopup(auth, provider);
                    const credential = GoogleAuthProvider.credentialFromResult(result);
-                   if (!credential?.accessToken) throw new Error("No token");
-                   
+                   if (!credential?.accessToken) throw new Error("No Google access token returned");
+
                    const res = await fetchApi("/api/integration/chat", {
                      method: "POST",
                      headers: { "Content-Type": "application/json" },
                      body: JSON.stringify({ accessToken: credential.accessToken, spaceName: "spaces/dispatch", message: "New alert from Crew Suite!" })
                    });
-                   if (!res.ok) throw new Error("Chat failed");
+                   if (!res.ok) {
+                     const reason = await res.text().catch(() => "");
+                     throw new Error(`${res.status}${reason ? `: ${reason.slice(0, 140)}` : ""}`);
+                   }
+                   const result2 = await res.json().catch(() => ({}));
+                   if (result2?.simulated === true || result2?.configured === false) {
+                     addLog({ type: "chat", recipient: "Operations Channel", subject: "Urgent Ping", content: "Crew requires assistance at site." }, "failed");
+                     showToast("Chat integration not configured — crew wasn't actually pinged.", "warning");
+                     return;
+                   }
                    addLog({ type: "chat", recipient: "Operations Channel", subject: "Urgent Ping", content: "Crew requires assistance at site." });
                    logSystemEvent("CHAT_DISPATCHED", { target: "dispatch" });
+                   showToast("Dispatch ping sent to chat.", "success");
                  } catch (err: any) {
                    console.error(err);
+                   showToast(`Failed to dispatch to chat: ${err?.message || "unknown error"}.`, "error");
                  }
                }}
                className="px-6 py-3 bg-celtic-500/10 text-celtic-500 border border-celtic-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-celtic-500/20 transition-all shadow-[0_0_20px_rgba(193, 41, 46,0.1)] flex items-center gap-2"

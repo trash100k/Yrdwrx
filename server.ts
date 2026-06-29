@@ -1136,6 +1136,18 @@ export async function createApp({ startListening = false } = {}) {
   });
   app.use("/api/public/", publicLimiter);
 
+  // Tighter cap on the lead-intake write itself: a public, unauthenticated insert is a
+  // spam/abuse magnet, so layer a stricter per-IP limiter on top of the broad publicLimiter.
+  const leadIntakeLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, // 10 minutes
+    limit: 10, // 10 submissions / 10 min per IP
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    keyGenerator: (req) => ipKeyGenerator((req as any).ip),
+    message: { error: "Too many submissions. Please try again in a few minutes." },
+  });
+
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   // Minimal public tenant info so the booking page can show the company name (Supabase).
@@ -1154,7 +1166,7 @@ export async function createApp({ startListening = false } = {}) {
   });
 
   // Customer submits a booking / quote request → creates a NEW lead in the pipeline (Supabase).
-  app.post("/api/public/lead-intake", async (req, res) => {
+  app.post("/api/public/lead-intake", leadIntakeLimiter, async (req, res) => {
     try {
       const { tenantId, name, email, phone, address, serviceInterest, message } = req.body || {};
       if (!tenantId || typeof tenantId !== "string") return res.status(400).json({ error: "Missing tenant." });
@@ -1339,6 +1351,42 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       console.error("weather error", e?.message);
       res.json({ configured: false, temp: null, condition: "Weather unavailable" });
+    }
+  });
+
+  // Geocode a street address → { lat, lng, formatted }. Returns real coordinates when
+  // GOOGLE_MAPS_PLATFORM_KEY is set; otherwise reports unconfigured (no fabricated coords).
+  // Body: { address }. Covered by globalLimiter via the /api/ mount.
+  app.post("/api/geocode", async (req: any, res: any) => {
+    const key = process.env.GOOGLE_MAPS_PLATFORM_KEY;
+    if (!key) {
+      return res.json({ configured: false });
+    }
+    const address = String(req.body?.address ?? "").trim().slice(0, 500);
+    if (!address) return res.status(400).json({ error: "address required" });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
+      const r = await fetch(url, { signal: controller.signal });
+      if (!r.ok) throw new Error("geocode upstream " + r.status);
+      const d: any = await r.json();
+      const first = d?.results?.[0];
+      if (!first) {
+        return res.json({ configured: true, lat: null, lng: null });
+      }
+      const loc = first?.geometry?.location || {};
+      res.json({
+        configured: true,
+        lat: typeof loc?.lat === "number" ? loc.lat : null,
+        lng: typeof loc?.lng === "number" ? loc.lng : null,
+        formatted: first?.formatted_address || null,
+      });
+    } catch (e: any) {
+      console.error("geocode error", e?.message);
+      res.status(500).json({ error: "Geocoding failed." });
+    } finally {
+      clearTimeout(timer);
     }
   });
 
@@ -2865,20 +2913,6 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
-  // Weather API Proxy (Mocked or real)
-  app.all("/api/weather", cacheApiResponse(60), async (req, res) => {
-    // Simulate real-time weather disruption for demo purposes
-    const isRaining = Math.random() < 0.3;
-    res.json({
-      location: "Local Area",
-      temp: isRaining ? 72 : 82,
-      condition: isRaining ? "Rain" : "Sunny",
-      forecast: isRaining
-        ? "Rain expected. Recommend rescheduling outdoor jobs."
-        : "Clear skies. Optimal window for outdoor work.",
-    });
-  });
-
   // SECURE & COMPLIANT TELEMETRY EXPORT - Strips PII before sharing with partners
   app.get("/api/analytics/telemetry-export", cacheApiResponse(60), (req, res) => {
     // Validate an internal token here in a real scenario
@@ -2917,10 +2951,6 @@ export async function createApp({ startListening = false } = {}) {
       aggregateData: mockTelemetryPool,
       timestamp: new Date().toISOString(),
     });
-  });
-
-  app.all("/api/crm/clients", cacheApiResponse(30), (req, res) => {
-    res.json({ status: "ok", message: "Registry active and synced." });
   });
 
   app.get("/api/revenue/audit", cacheApiResponse(300), async (req, res) => {
@@ -5312,8 +5342,49 @@ OUTPUT JSON ONLY, shape:
   // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale.
   // Native node WS is sufficient for UI preview but crashes under heavy client multiplexing.
   const wss = new WebSocketServer({ server, path: "/api/live" });
+  let liveConnections = 0;
+  const LIVE_CAP = Number(process.env.LIVE_MAX_CONNECTIONS) || 50;
 
-  wss.on("connection", async (clientWs) => {
+  wss.on("connection", async (clientWs, req) => {
+    // Global connection cap — this socket bridges to a paid Gemini Live session and runs
+    // client-driven tool calls, so an unbounded open socket is a DoS/cost hole.
+    if (liveConnections >= LIVE_CAP) {
+      try { clientWs.close(1013, "Live capacity reached"); } catch {}
+      return;
+    }
+    // Auth gate — enforced in production (REQUIRE_AUTH); demo mode bypasses to match the rest
+    // of the app. The browser WebSocket API can't set headers, so the Supabase access token
+    // arrives as ?token= on the URL; verify it and best-effort meter one credit per session.
+    if (REQUIRE_AUTH) {
+      let authed = false;
+      try {
+        const token = new URL(req.url || "", "http://localhost").searchParams.get("token");
+        const sb = getServiceSupabase();
+        if (token && sb) {
+          const { data } = await sb.auth.getUser(token);
+          if (data?.user) {
+            authed = true;
+            try {
+              const { data: prof } = await sb.from("profiles").select("tenant_id").eq("firebase_uid", data.user.id).maybeSingle();
+              const tid = prof?.tenant_id;
+              if (tid) {
+                const period = new Date().toISOString().slice(0, 7);
+                const { data: t } = await sb.from("tenants").select("ai_credits_used,ai_credits_period").eq("id", tid).maybeSingle();
+                const used = t?.ai_credits_period === period ? (t?.ai_credits_used || 0) : 0;
+                sb.from("tenants").update({ ai_credits_used: used + 1, ai_credits_period: period }).eq("id", tid).then(() => {}, () => {});
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+      if (!authed) {
+        try { clientWs.close(1008, "Unauthorized"); } catch {}
+        return;
+      }
+    }
+    liveConnections++;
+    clientWs.on("close", () => { liveConnections = Math.max(0, liveConnections - 1); });
+
     console.log("Live Ear Client Connected");
 
     // Mock mode (no GEMINI_API_KEY): the Live API isn't available, so stream a short

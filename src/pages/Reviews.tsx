@@ -44,6 +44,7 @@ export default function Reviews() {
       aiDraft?: string;
       action?: string;
       isReplied?: boolean;
+      replyPosted?: boolean;
       sentiment?: "positive" | "negative" | "neutral" | string;
       source?: string;
       createdAt?: string;
@@ -101,26 +102,111 @@ export default function Reviews() {
 
   // Dispatch a personalized review-solicitation message to the outbox for each
   // recently-completed job's client (real targets, real count).
-  const solicitRecentJobs = () => {
+  const solicitRecentJobs = async () => {
     if (!recentCompletedJobs.length) {
       showToast("No recently completed jobs to solicit.", "info");
       return;
     }
     setSoliciting(true);
     try {
-      let dispatched = 0;
+      let sent = 0; // genuinely delivered via Resend
+      let simulated = 0; // accepted by the server but NOT actually emailed (unconfigured)
+      let failed = 0; // send errored
+      let noEmail = 0; // no address on the job -> can't send
+
       for (const job of recentCompletedJobs) {
         const client =
           job.client || job.clientName || job.customerName || job.customer || "Client";
-        addLog({
-          type: "email",
-          recipient: client,
-          subject: "How did we do?",
-          content: `Hi ${client}, thanks for choosing us for "${job.title || "your recent service"}". We'd love a quick review of your experience.`,
-        });
-        dispatched++;
+        const to =
+          job.clientEmail ||
+          job.email ||
+          job.customerEmail ||
+          job.contactEmail ||
+          job.data?.email ||
+          "";
+        const subject = "How did we do?";
+        const content = `Hi ${client}, thanks for choosing us for "${job.title || "your recent service"}". We'd love a quick review of your experience.`;
+
+        if (!to) {
+          // No address — we can't actually send, so log it as a draft, not "sent".
+          noEmail++;
+          addLog({ type: "email", recipient: client, subject, content }, "draft");
+          continue;
+        }
+
+        try {
+          const res = await fetchApi("/api/email/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to, subject, text: content }),
+          });
+          // Guard res.ok BEFORE reading the body.
+          if (!res.ok) {
+            let reason = `HTTP ${res.status}`;
+            try {
+              const errBody = await res.json();
+              reason = errBody?.error || reason;
+            } catch {
+              /* non-JSON error body */
+            }
+            failed++;
+            addLog(
+              { type: "email", recipient: `${client} <${to}>`, subject, content: `${content}\n\n[failed: ${reason}]` },
+              "failed",
+            );
+            continue;
+          }
+          let body: any = {};
+          try {
+            body = await res.json();
+          } catch {
+            /* tolerate empty/non-JSON body */
+          }
+          // A genuine send: server says sent !== false and not simulated/unconfigured.
+          const reallySent =
+            body?.sent !== false &&
+            body?.simulated !== true &&
+            body?.configured !== false;
+          if (reallySent) {
+            sent++;
+            addLog({ type: "email", recipient: `${client} <${to}>`, subject, content }, "sent");
+          } else {
+            simulated++;
+            addLog({ type: "email", recipient: `${client} <${to}>`, subject, content }, "draft");
+          }
+        } catch (e: any) {
+          failed++;
+          addLog(
+            { type: "email", recipient: `${client} <${to}>`, subject, content: `${content}\n\n[error: ${e?.message || "send failed"}]` },
+            "failed",
+          );
+        }
       }
-      showToast(`Queued ${dispatched} review request${dispatched === 1 ? "" : "s"} to the outbox.`, "success");
+
+      // Report honestly, leading with the most severe outcome.
+      if (failed > 0) {
+        showToast(
+          `${failed} review request${failed === 1 ? "" : "s"} failed to send.${sent ? ` ${sent} sent.` : ""}${simulated || noEmail ? ` ${simulated + noEmail} saved as draft.` : ""}`,
+          "error",
+        );
+      } else if (sent > 0 && simulated === 0 && noEmail === 0) {
+        showToast(
+          `Sent ${sent} review request${sent === 1 ? "" : "s"}.`,
+          "success",
+        );
+      } else if (sent === 0) {
+        // Nothing actually went out — don't pretend it did.
+        showToast(
+          `Email isn't configured yet — ${simulated + noEmail} review request${simulated + noEmail === 1 ? "" : "s"} weren't actually sent (saved as drafts). Set RESEND_API_KEY and client emails to deliver.`,
+          "info",
+        );
+      } else {
+        // Mixed: some real, some not.
+        showToast(
+          `Sent ${sent}; ${simulated + noEmail} saved as draft (not configured / no email).`,
+          "info",
+        );
+      }
     } finally {
       setSoliciting(false);
     }
@@ -145,6 +231,18 @@ export default function Reviews() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ review: review.text }),
       });
+      // Guard res.ok BEFORE parsing — a failed analysis must not be swallowed.
+      if (!res.ok) {
+        let reason = `HTTP ${res.status}`;
+        try {
+          const errBody = await res.json();
+          reason = errBody?.error || reason;
+        } catch {
+          /* non-JSON error body */
+        }
+        showToast(`Couldn't draft a reply: ${reason}`, "error");
+        return;
+      }
       const data = await res.json();
 
       if (navigator.onLine) {
@@ -202,26 +300,91 @@ export default function Reviews() {
     // Persist the EDITED textarea content (falls back to the AI draft if untouched).
     const reply =
       replyDrafts[review.id] ?? review.autoReplyDraft ?? review.data?.autoReplyDraft ?? "";
+    if (!reply.trim()) {
+      showToast("Nothing to deploy — write a response first.", "info");
+      return;
+    }
+    // Whether the reply actually reached the platform. There is currently NO
+    // review-platform posting integration (no Google/Yelp reply API wired up),
+    // so a "Deploy" only SAVES the reply — it does not publish it. Be honest
+    // about that instead of toasting a fabricated "deployed".
+    let posted = false;
+    let postError = "";
+    try {
+      const res = await fetchApi("/api/reviews/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviewId: review.id,
+          platform: review.platform || (review as any).source,
+          reply,
+        }),
+      });
+      if (res.ok) {
+        let body: any = {};
+        try {
+          body = await res.json();
+        } catch {
+          /* tolerate empty/non-JSON body */
+        }
+        // A genuine post requires the platform send to be real, not simulated.
+        posted =
+          body?.posted === true ||
+          (body?.sent !== false &&
+            body?.simulated !== true &&
+            body?.configured !== false &&
+            (body?.success === true || body?.posted === true));
+        if (!posted) {
+          postError =
+            body?.reason ||
+            "review-platform posting isn't configured";
+        }
+      } else {
+        // Endpoint missing (404) or errored — fall through to draft-only save.
+        try {
+          const errBody = await res.json();
+          postError = errBody?.error || `HTTP ${res.status}`;
+        } catch {
+          postError = `HTTP ${res.status}`;
+        }
+      }
+    } catch (e: any) {
+      // No reply-posting endpoint reachable — treat as draft-only, report below.
+      postError = e?.message || "no posting integration available";
+    }
+
+    // reply/isReplied/repliedAt/replyPosted have no columns -> merge into `data` jsonb.
+    // `replyPosted` records whether this reply was genuinely published vs. saved as a
+    // draft, so the status badge can stay honest after a reload.
     const patch = {
       data: {
         ...(review.data || {}),
         reply,
         isReplied: true,
+        replyPosted: posted,
         repliedAt: new Date().toISOString(),
       },
     };
+
     try {
       if (navigator.onLine) {
-        // reply/isReplied/repliedAt have no columns -> merge into the `data` jsonb.
         await reviewsRepo.update(review.id, patch);
       } else {
         await syncService.queueAction("UPDATE", "reviews", patch, tenantId, review.id);
       }
-      await logSystemEvent("REVIEW_REPLY_SENT", {
+      await logSystemEvent("REVIEW_REPLY_SAVED", {
         reviewId: review.id,
+        posted,
         tenantId,
       });
-      showToast("Response deployed.", "success");
+      if (posted) {
+        showToast("Response posted to the review platform.", "success");
+      } else {
+        showToast(
+          `Saved as a draft reply — not posted yet (${postError}). Connect a review platform to publish.`,
+          "info",
+        );
+      }
     } catch (err) {
       handleFirestoreError(
         err,
@@ -456,14 +619,22 @@ export default function Reviews() {
                 </div>
               )}
 
-              {review.isReplied && (
-                <div className="flex items-center gap-4 text-forest-400 bg-forest-500/5 px-8 py-5 rounded-[24px] border border-forest-500/20 shadow-glow relative z-10">
-                  <CheckCircle2 size={24} />
-                  <span className="micro-label font-black uppercase tracking-[0.3em] leading-none">
-                    Review Sent • Sentiment Stabilized
-                  </span>
-                </div>
-              )}
+              {review.isReplied &&
+                (review.replyPosted ?? review.data?.replyPosted ? (
+                  <div className="flex items-center gap-4 text-forest-400 bg-forest-500/5 px-8 py-5 rounded-[24px] border border-forest-500/20 shadow-glow relative z-10">
+                    <CheckCircle2 size={24} />
+                    <span className="micro-label font-black uppercase tracking-[0.3em] leading-none">
+                      Reply Posted • Sentiment Stabilized
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-4 text-amber-400 bg-amber-500/5 px-8 py-5 rounded-[24px] border border-amber-500/20 relative z-10">
+                    <AlertCircle size={24} />
+                    <span className="micro-label font-black uppercase tracking-[0.3em] leading-none">
+                      Reply Saved As Draft • Not Yet Posted
+                    </span>
+                  </div>
+                ))}
             </motion.div>
             ))}
           {!loading && filteredReviews.length === 0 && (

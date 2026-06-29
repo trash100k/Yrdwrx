@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
+import { getAccessToken } from "../lib/supabase";
 import {
   Mic,
   MicOff,
@@ -112,8 +113,11 @@ let stream;
       processorRef.current = processor;
 
       const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      // Pass the Supabase access token so the server can authenticate the Live socket
+      // (enforced when REQUIRE_AUTH is on; omitted/ignored in demo mode).
+      const liveToken = await getAccessToken().catch(() => null);
       const ws = new WebSocket(
-        `${wsProtocol}//${window.location.host}/api/live`,
+        `${wsProtocol}//${window.location.host}/api/live${liveToken ? `?token=${encodeURIComponent(liveToken)}` : ""}`,
       );
       wsRef.current = ws;
 
