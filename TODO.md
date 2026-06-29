@@ -13,7 +13,18 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-28 (cutover wave 2) — **finished the Firestore→Supabase cutover + killed
+> _Last updated: 2026-06-29 (HOA + automations) — **deepened HOA features and made the "agent
+> workflows" real.** Two audits (HOA depth, agentic-function completeness) drove a wave: Field Mode
+> now shows the crew the REAL gate code + the property's actual HOA rules (was hardcoded); CRM got a
+> real "Edit Bylaws" editor + HOA fields in add/edit modals (is_hoa + data.{hoaRules,gateCode});
+> Scheduler warns on HOA quiet-hours violations (no service before 9 AM). The big one: a new
+> `src/lib/automations.ts` engine that actually EXECUTES the rules stored in
+> tenant.settings.workflows (webhook proxy / flag-for-review task / AI follow-up draft) with real
+> run metadata — previously rules were saved but never ran. Triggers wired on client_created /
+> job_completed / invoice_paid; WorkflowBuilder now shows honest run stats. Design/annotate verified
+> end-to-end (build_design_vision → DesignStudio MarkupCanvas). Gates green (tsc, 89 tests, build).
+> Previously:_
+> _2026-06-28 (cutover wave 2) — **finished the Firestore→Supabase cutover + killed
 > silent data loss / fake data.** Three audits (frontend data paths, server.ts, fake/stub content)
 > found ~25 components + several server routes still wrote to a dead Firestore project (writes lost;
 > some screens showed FABRICATED business data as the user's own). Migrated all to `src/lib/repos/*`
