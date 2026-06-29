@@ -78,3 +78,7 @@ export const timesheetsRepo = makeRepo("timesheets", { orderBy: { column: "clock
 export const systemLogsRepo = makeRepo("system_logs", { orderBy: { column: "created_at", ascending: false } });
 // Chemical / pesticide application compliance logs (turf/tree regulatory requirement).
 export const complianceLogsRepo = makeRepo("compliance_logs", { orderBy: { column: "application_date", ascending: false } });
+// Equipment & vehicle maintenance ledger (hours/mileage service tracking).
+export const equipmentRepo = makeRepo("equipment", { orderBy: { column: "created_at", ascending: false } });
+// Referral & advocacy engine (trackable referral offers + reward status).
+export const referralsRepo = makeRepo("referrals", { orderBy: { column: "created_at", ascending: false } });

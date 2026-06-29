@@ -40,6 +40,8 @@ import {
   ListChecks,
   Sun,
   Moon,
+  Gift,
+  Wrench,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
