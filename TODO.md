@@ -13,7 +13,15 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-28 (later still) — **first-run experience hardened by mobile simulation.**
+> _Last updated: 2026-06-28 (cutover wave 2) — **finished the Firestore→Supabase cutover + killed
+> silent data loss / fake data.** Three audits (frontend data paths, server.ts, fake/stub content)
+> found ~25 components + several server routes still wrote to a dead Firestore project (writes lost;
+> some screens showed FABRICATED business data as the user's own). Migrated all to `src/lib/repos/*`
+> (new `tenantsRepo`/`timesheetsRepo`/`systemLogsRepo`), removed the fake fallbacks, moved server
+> lead-intake/inbound-SMS/booking-name to Supabase, added the real GDPR account-deletion endpoint,
+> removed the Stripe Firestore mirror, replaced random inventory alerts, capped cluster workers, and
+> added a global error handler. Gates green (tsc, 89 tests, build). See **Part F+** below. Previously:_
+> _2026-06-28 (later still) — **first-run experience hardened by mobile simulation.**
 > Caught + fixed a production boot crash (Firebase init threw `auth/invalid-api-key` at module load
 > when running Supabase-only → blank screen); made the guided walkthrough **tappable** (quick-reply
 > chips so a tech-illiterate contractor never types during onboarding); fixed the onboarding progress
@@ -619,16 +627,42 @@ reads/writes (RLS handles it) and `serverTimestamp()` (DB defaults). Job status 
 - [ ] **Live-key tour pass** — re-run the sim against a real Gemini/Supabase key to confirm the tour
       tooltips render the step copy (sim showed the spotlight; a stray demo toast overlapped it).
 
-### Auth follow-ups (post-switch)
+### Part F+ — second cutover wave (audit-driven) — DONE this session
+> Three audits (frontend data paths, server.ts, fake/stub content) found the real remaining
+> production gap was **silent data loss**: ~25 components + several server routes still wrote
+> to / read from the dead Firestore project, and some screens fell back to FABRICATED business
+> data shown as the user's own. All migrated to `src/lib/repos/*`; fake fallbacks removed.
+- [x] **tenant-settings writers** — Settings, ServicePricingCatalog, IntegrationSettings,
+      WorkflowBuilderSection, StripeConnectSection, DisclaimerModal -> `tenantsRepo` (JSONB merge; no Firestore dot-paths).
+- [x] **CRM writers** — LeadSubmissionModal/LeadVerificationPanel/Pipeline/CRMCustomFields -> `customersRepo`;
+      VoiceMemoJobModal -> `jobsRepo`; CuttyChat dead firebase imports removed.
+- [x] **TimeClock -> `timesheetsRepo`** (payroll no longer dropped); **Reports** -> systemLogs/customers/jobs repos;
+      **FormBuilder/DesignStudio/DesignDatabasePanel** -> inspectionForms/designCatalog repos.
+- [x] **Inventory/analytics** — ResourceAssignmentModal/InventoryForecast/LiveInventoryFeed,
+      LossLeaderAnalyzer/AgenticOutreachDrawer/brainService -> real repos.
+- [x] **Removed fabricated data** shown as the user's own: LossLeader P&L, outreach sample leads,
+      LiveInventory mock ticker, DailyBriefing fake earnings, Dashboard "3 crews"/fake vendor invoices/
+      disruption shields, CRM "Mrs. Gable" note-seeding button.
+- [x] **Server**: lead-intake + inbound SMS + public booking name moved Firestore->Supabase (with tenant
+      validation); Stripe webhook Firestore mirror removed; outbound SMS persists; real inventory low-stock
+      query (was `Math.random()`); cluster workers capped to CPU grant; global error handler + process guards.
+- [x] **Account deletion** — `POST /api/account/delete` (owner-only, cascade + `auth.admin.deleteUser`)
+      wired to the Settings delete button (was a no-op that falsely claimed success). GDPR/CCPA.
+- [x] New repos: `tenantsRepo` (JSONB merge), `timesheetsRepo`, `systemLogsRepo`.
+
+### Auth follow-ups (post-switch) — still open
 - [ ] **"Connect Google" buttons** still call Firebase `signInWithPopup` for Calendar/Gmail scopes
-      (CRM `:382/:415/:898`, DesignStudio `:339`, Dashboard `:515`, Invoices `:324`, CrewSuite `:663`).
-      Rework via Supabase OAuth or a direct Google OAuth flow, or hide until ready.
-- [ ] **ClientPortal** `:35` still uses `auth.onAuthStateChanged` (Firebase) — vestigial; the portal
-      uses magic-link token auth. Remove.
-- [~] **Server webhook Firestore writes** — invoice-paid now writes Supabase (Firestore mirror only);
-      remaining Twilio `:530` + other `initFirebaseAdmin` side-paths still write Firestore — move to Supabase.
-- [ ] **Account deletion** — add a server endpoint (service role `auth.admin.deleteUser`) wired to
-      Settings (currently signs out + TODO).
+      (CRM, DesignStudio, Dashboard, Invoices, CrewSuite). Rework via Google OAuth, or hide until ready.
+- [ ] **ClientPortal** still uses `auth.onAuthStateChanged` (Firebase) — vestigial (portal uses token auth). Remove.
+- [ ] **`src/services/syncService.ts` offline queue still targets Firestore** — offline mutations won't flush
+      to Supabase. Rework to dispatch per-collection repo writes (the one deferred Medium from this wave).
+- [ ] **Multi-tenant Twilio inbound routing** — inbound SMS now persists to `customer_messages` by matching
+      the sender phone to a UNIQUE customer; multi-number/by-`To` tenant routing needs a phone→tenant registry.
+- [ ] **Stripe webhook idempotency** is per-worker in-memory — fine for tier flips; a `stripe_events` table
+      would make it correct across cluster workers.
+- [ ] **Low-value server stubs** — `/api/analytics/telemetry-export` (mock pool) + `/api/revenue/audit`
+      (fabricated) have no confirmed app consumers; wire to real Supabase aggregates or remove.
+- [ ] **AiPlayground "Test Database"** telemetry write (dev diagnostic) — drop or repoint.
 
 ### Human-only (you)
 - [ ] Supabase dashboard → **Auth → Email**: turn off "Confirm email" (or set SMTP) for instant signup.
