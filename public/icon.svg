@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="YardWorx">
+  <rect width="512" height="512" rx="112" fill="#05a845"/>
+  <g fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round">
+    <path d="M256 392 C 256 300, 196 236, 140 212" />
+    <path d="M256 392 C 256 288, 256 196, 256 140" />
+    <path d="M256 392 C 256 300, 316 236, 372 212" />
+  </g>
+  <circle cx="256" cy="404" r="22" fill="#ffffff"/>
+</svg>
