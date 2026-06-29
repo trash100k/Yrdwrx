@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useState, useRef } from "react";
-import { MapPin, Calendar, CreditCard, Leaf, CheckCircle2, Lock, Send, AlertCircle, Clock, Image as ImageIcon } from "lucide-react";
+import { MapPin, Calendar, CreditCard, Leaf, CheckCircle2, Lock, Send, AlertCircle, Clock, Image as ImageIcon, Download, ThumbsUp } from "lucide-react";
 import { safeStorage } from "../lib/storage";
 import ClientDashboard from "../components/ClientDashboard";
 
@@ -29,6 +29,15 @@ export default function ClientPortal() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
+
+  // Locally-approved design ids (so the button flips to "Approved ✓" immediately
+  // without waiting for a re-fetch). Server source of truth stays proposal.approved.
+  const [approvedDesignIds, setApprovedDesignIds] = useState<string[]>([]);
+  const [approvingDesignId, setApprovingDesignId] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
+
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const portalFetch = (path: string, init: RequestInit = {}) =>
     fetch(path, {
@@ -116,6 +125,75 @@ export default function ClientPortal() {
     } finally {
       setPaymentLoading(false);
       setPayingInvoiceId(null);
+    }
+  };
+
+  // Re-fetch portal data (used after an approval so the approval message the server
+  // posts to the thread shows up in the Messages tab).
+  const refreshPortalData = async () => {
+    try {
+      const res = await portalFetch("/api/portal/data");
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setData(json);
+        setMessages(json.messages || []);
+      }
+    } catch {
+      /* keep current data; non-fatal */
+    }
+  };
+
+  const handleApproveProposal = async (design: any) => {
+    if (!design?.id || approvingDesignId) return;
+    setApprovingDesignId(design.id);
+    setApproveError(null);
+    try {
+      const res = await portalFetch("/api/portal/proposal/approve", {
+        method: "POST",
+        body: JSON.stringify({ designId: design.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) {
+        setApproveError(json.error || "Couldn't approve this proposal. Please try again.");
+        return;
+      }
+      // Mark approved locally and re-fetch so the approval message appears in the thread.
+      setApprovedDesignIds((prev) => (prev.includes(design.id) ? prev : [...prev, design.id]));
+      await refreshPortalData();
+    } catch (e: any) {
+      setApproveError(e?.message || "Network error approving proposal.");
+    } finally {
+      setApprovingDesignId(null);
+    }
+  };
+
+  const handleDownloadInvoicePdf = async (invoice: any) => {
+    if (!invoice?.id || downloadingInvoiceId) return;
+    setDownloadingInvoiceId(invoice.id);
+    setDownloadError(null);
+    try {
+      // PDF binary (not JSON) — same x-portal-token header the rest of the portal uses.
+      const res = await portalFetch("/api/portal/invoice-pdf", {
+        method: "POST",
+        body: JSON.stringify({ invoiceId: invoice.id }),
+      });
+      if (!res.ok) {
+        setDownloadError("Couldn't generate the invoice PDF. Please try again.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${invoice.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setDownloadError(e?.message || "Network error downloading invoice.");
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   };
 
@@ -269,9 +347,9 @@ export default function ClientPortal() {
                       <h3 className="text-rose-400 font-black uppercase tracking-widest text-xs mb-1">Outstanding Balance</h3>
                       <p className="text-2xl sm:text-3xl sm:text-4xl font-black italic tracking-normal md:tracking-tighter text-white">${money(outstanding)}</p>
                     </div>
-                    {paymentError && (
+                    {(paymentError || downloadError) && (
                       <div className="bg-rose-500/20 text-rose-400 text-xs px-3 py-2 rounded-lg flex items-center gap-2 max-w-sm">
-                        <AlertCircle size={14} /> {paymentError}
+                        <AlertCircle size={14} /> {paymentError || downloadError}
                       </div>
                     )}
                   </div>
@@ -289,6 +367,13 @@ export default function ClientPortal() {
                               <p className="font-black">${money(inv.amount)}</p>
                               <p className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${paid ? "text-forest-400" : "text-rose-400"}`}>{paid ? "Paid" : inv.status || "Unpaid"}</p>
                             </div>
+                            <button
+                              onClick={() => handleDownloadInvoicePdf(inv)}
+                              disabled={downloadingInvoiceId === inv.id}
+                              className="bg-white/5 text-white border-2 border-white/10 font-black uppercase tracking-widest text-[10px] sm:text-xs py-3 px-5 rounded-xl hover:bg-white/10 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
+                            >
+                              <Download size={14} /> {downloadingInvoiceId === inv.id ? "Generating..." : "Download PDF"}
+                            </button>
                             {!paid && (
                               <button
                                 onClick={() => handlePayment(inv)}
@@ -323,6 +408,7 @@ export default function ClientPortal() {
                   const p = d.proposal || {};
                   const materials = p.estimatedMaterials || [];
                   const total = materials.reduce((a: number, m: any) => a + (Number(m.estimatedCost) || 0), 0);
+                  const isApproved = p.approved === true || approvedDesignIds.includes(d.id);
                   return (
                     <div key={d.id} className="bg-zinc-900 border-4 border-forest-500/10 rounded-2xl p-5 sm:p-8 shadow-2xl">
                       <div className="inline-block px-3 py-1 bg-forest-500/10 text-forest-400 font-bold uppercase tracking-widest text-xs md:text-[10px] rounded-lg mb-4">
@@ -358,6 +444,29 @@ export default function ClientPortal() {
                           </div>
                         </div>
                       )}
+
+                      <div className="mt-6 pt-6 border-t border-white/10">
+                        {isApproved ? (
+                          <div className="inline-flex items-center gap-2 bg-forest-500/10 text-forest-400 font-black uppercase tracking-widest text-xs py-3 px-5 rounded-xl">
+                            <CheckCircle2 size={16} /> Approved ✓
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleApproveProposal(d)}
+                              disabled={approvingDesignId === d.id}
+                              className="bg-forest-500 hover:bg-forest-400 text-black font-black uppercase tracking-widest text-xs py-3 px-6 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
+                            >
+                              <ThumbsUp size={16} /> {approvingDesignId === d.id ? "Approving..." : "Approve Proposal"}
+                            </button>
+                            {approveError && approvingDesignId !== d.id && (
+                              <div className="mt-3 bg-rose-500/20 text-rose-400 text-xs px-3 py-2 rounded-lg inline-flex items-center gap-2">
+                                <AlertCircle size={14} /> {approveError}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })

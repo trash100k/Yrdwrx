@@ -1,6 +1,17 @@
-import React, { useState } from "react";
-import { Users, Mail, Shield, UserPlus, Check, X } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Users, Mail, Shield, UserPlus, Check, X, Trash2, Copy, Loader2, AlertCircle } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { fetchApi } from "../lib/api";
+
+interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  active: boolean;
+  isSelf: boolean;
+}
 
 export function TeamManagement() {
   const { showToast } = useToast();
@@ -8,17 +19,110 @@ export function TeamManagement() {
   const [role, setRole] = useState("employee");
   const [isSending, setIsSending] = useState(false);
 
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [provisionUnavailable, setProvisionUnavailable] = useState(false);
+
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+
+  const [pendingRemove, setPendingRemove] = useState<TeamMember | null>(null);
+
+  const loadMembers = useCallback(async () => {
+    setLoadingMembers(true);
+    try {
+      const res = await fetchApi("/api/team");
+      if (res.status === 503) {
+        setProvisionUnavailable(true);
+        setMembers([]);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data?.error || "Failed to load team members", "error");
+        setMembers([]);
+        return;
+      }
+      setProvisionUnavailable(false);
+      setMembers(Array.isArray(data?.members) ? data.members : []);
+    } catch (err) {
+      showToast("Failed to load team members", "error");
+      setMembers([]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
 
     setIsSending(true);
-    // Simulate sending invite
-    setTimeout(() => {
-      showToast(`Invitation sent to ${email} as ${role}!`);
+    setInviteLink(null);
+    try {
+      const res = await fetchApi("/api/team/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, role }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        showToast(data?.error || "Failed to send invite", "error");
+        return;
+      }
+
+      if (data?.emailed) {
+        showToast(`Invite sent to ${email}`, "success");
+      } else if (data?.inviteLink) {
+        setInviteLink(data.inviteLink);
+        showToast("Invite link created — copy & send it", "success");
+      } else {
+        showToast(`Invite sent to ${email}`, "success");
+      }
+
       setEmail("");
+      setRole("employee");
+      loadMembers();
+    } catch (err) {
+      showToast("Failed to send invite", "error");
+    } finally {
       setIsSending(false);
-    }, 1200);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      showToast("Invite link copied", "success");
+    } catch (err) {
+      showToast("Could not copy — select the link manually", "error");
+    }
+  };
+
+  const confirmRemove = async () => {
+    if (!pendingRemove) return;
+    const member = pendingRemove;
+    try {
+      const res = await fetchApi("/api/team/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: member.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data?.error || "Failed to remove member", "error");
+        return;
+      }
+      showToast(`${member.name || member.email} removed`, "success");
+      loadMembers();
+    } catch (err) {
+      showToast("Failed to remove member", "error");
+    }
   };
 
   return (
@@ -64,10 +168,98 @@ export function TeamManagement() {
             disabled={isSending || !email}
             className="w-full sm:w-auto bg-celtic-500 hover:bg-celtic-600 text-white px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {isSending ? <Users size={18} className="animate-pulse" /> : <UserPlus size={18} />}
+            {isSending ? <Loader2 size={18} className="animate-spin" /> : <UserPlus size={18} />}
             Send Invite
           </button>
         </form>
+
+        {inviteLink && (
+          <div className="bg-black/30 border border-celtic-500/20 p-4 rounded-xl space-y-2">
+            <label className="text-xs font-bold text-celtic-400 uppercase tracking-widest flex items-center gap-2">
+              <Mail size={14} /> Invite Link
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                readOnly
+                value={inviteLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white/80 text-sm focus:outline-none focus:border-celtic-500 transition-colors"
+              />
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="w-full sm:w-auto bg-white/5 hover:bg-white/10 text-white px-4 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shrink-0"
+              >
+                <Copy size={16} /> Copy
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500">No email was sent — share this link with the invitee.</p>
+          </div>
+        )}
+
+        <div className="mt-8">
+          <h4 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Team Members</h4>
+
+          {provisionUnavailable ? (
+            <div className="bg-black/30 border border-amber-500/20 p-4 rounded-xl flex items-start gap-3">
+              <AlertCircle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-zinc-400">Team management needs the server service key.</p>
+            </div>
+          ) : loadingMembers ? (
+            <div className="bg-black/30 border border-white/5 p-6 rounded-xl flex items-center justify-center gap-3 text-zinc-400">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="text-sm">Loading team…</span>
+            </div>
+          ) : members.length === 0 ? (
+            <div className="bg-black/30 border border-white/5 p-6 rounded-xl text-center">
+              <Users size={24} className="text-zinc-600 mx-auto mb-2" />
+              <p className="text-sm text-zinc-400">No team members yet. Invite your first employee above.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {members.map((member) => (
+                <div
+                  key={member.id}
+                  className="bg-black/30 border border-white/5 p-4 rounded-xl flex items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-celtic-500/10 text-celtic-400 flex items-center justify-center shrink-0 border border-celtic-500/20 font-bold uppercase">
+                      {(member.name || member.email || "?").charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-bold truncate">{member.name || member.email}</span>
+                        {member.isSelf && (
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-celtic-400 bg-celtic-500/10 border border-celtic-500/20 px-2 py-0.5 rounded-full shrink-0">
+                            you
+                          </span>
+                        )}
+                      </div>
+                      {member.name && <p className="text-xs text-zinc-500 truncate">{member.email}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-300 bg-white/5 border border-white/10 px-3 py-1 rounded-full flex items-center gap-1.5">
+                      <Shield size={11} className="text-celtic-400" />
+                      {member.role}
+                    </span>
+                    {!member.isSelf && (
+                      <button
+                        type="button"
+                        onClick={() => setPendingRemove(member)}
+                        title="Remove member"
+                        className="w-9 h-9 rounded-xl bg-white/5 hover:bg-rose-500/10 text-zinc-400 hover:text-rose-500 border border-white/10 hover:border-rose-500/20 flex items-center justify-center transition-all"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="mt-8">
           <h4 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Role Privileges</h4>
@@ -97,6 +289,16 @@ export function TeamManagement() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={!!pendingRemove}
+        onClose={() => setPendingRemove(null)}
+        onConfirm={confirmRemove}
+        title="Remove team member?"
+        description={`This will revoke access for ${pendingRemove?.name || pendingRemove?.email || "this member"}. They will no longer be able to sign in.`}
+        confirmText="Remove"
+        danger
+      />
     </div>
   );
 }

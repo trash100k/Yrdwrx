@@ -1,11 +1,32 @@
 import { fetchApi } from "../lib/api";
-import React, { useState, useEffect } from 'react';
-import { Shield, Activity, Database, AlertOctagon, Lock } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Shield, Activity, Database, AlertOctagon, Lock, Building2, CreditCard, Crown } from 'lucide-react';
+import { EmptyState } from "../components/EmptyState";
+import { Skeleton } from "../components/Skeleton";
+import { useToast } from "../contexts/ToastContext";
+
+interface Tenant {
+  id: string;
+  name: string;
+  tier: "free" | "pro" | "enterprise";
+  createdAt?: string | number;
+  members?: number;
+  stripeConnected?: boolean;
+  aiCreditsUsed?: number;
+}
+
+type TenantTier = "free" | "pro" | "enterprise";
 
 export default function SaaSAdminDashboard() {
   const [threats, setThreats] = useState<any[]>([]);
   const [health, setHealth] = useState<{ status?: string; aiMode?: string; supabase?: boolean } | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
+
+  const { showToast } = useToast();
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenantsLoading, setTenantsLoading] = useState(true);
+  const [tenantsError, setTenantsError] = useState<string | null>(null);
+  const [savingTier, setSavingTier] = useState<string | null>(null);
 
   useEffect(() => {
     // Poll the backend memory log every 5 seconds
@@ -48,6 +69,84 @@ export default function SaaSAdminDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    const fetchTenants = async () => {
+      setTenantsLoading(true);
+      setTenantsError(null);
+      try {
+        const res = await fetchApi('/api/admin/tenants');
+        if (res.status === 403) {
+          setTenantsError("Platform admin access required");
+          setTenants([]);
+          return;
+        }
+        if (res.status === 503) {
+          setTenantsError("Tenant console needs the server service key");
+          setTenants([]);
+          return;
+        }
+        if (!res.ok) {
+          setTenantsError("Unable to load tenants");
+          setTenants([]);
+          return;
+        }
+        const data = await res.json();
+        setTenants(Array.isArray(data?.tenants) ? data.tenants : []);
+      } catch (err) {
+        console.error("Failed to fetch tenants", err);
+        setTenantsError("Unable to load tenants");
+        setTenants([]);
+      } finally {
+        setTenantsLoading(false);
+      }
+    };
+    fetchTenants();
+  }, []);
+
+  const handleTierChange = async (tenantId: string, nextTier: TenantTier) => {
+    const previous = tenants.find(t => t.id === tenantId)?.tier;
+    if (previous === nextTier) return;
+    // Optimistic update
+    setTenants(prev => prev.map(t => (t.id === tenantId ? { ...t, tier: nextTier } : t)));
+    setSavingTier(tenantId);
+    try {
+      const res = await fetchApi(`/api/admin/tenants/${tenantId}/tier`, {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier: nextTier }),
+      });
+      if (!res.ok) {
+        let msg = "Failed to update tier";
+        if (res.status === 403) msg = "Platform admin access required";
+        else if (res.status === 503) msg = "Tenant console needs the server service key";
+        throw new Error(msg);
+      }
+      const data = await res.json().catch(() => ({}));
+      if (data && data.success === false) throw new Error("Failed to update tier");
+      showToast(`Tier updated to ${nextTier}`, "success");
+    } catch (err: any) {
+      // Roll back optimistic update
+      setTenants(prev => prev.map(t => (t.id === tenantId ? { ...t, tier: (previous as TenantTier) ?? t.tier } : t)));
+      showToast(err?.message || "Failed to update tier", "error");
+    } finally {
+      setSavingTier(null);
+    }
+  };
+
+  const tenantStats = useMemo(() => {
+    const total = tenants.length;
+    const paid = tenants.filter(t => t.tier === 'pro' || t.tier === 'enterprise').length;
+    const stripe = tenants.filter(t => t.stripeConnected).length;
+    return { total, paid, stripe };
+  }, [tenants]);
+
+  const formatDate = (value?: string | number) => {
+    if (!value && value !== 0) return '—';
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString();
+  };
+
   const apiOk = health?.status === 'ok';
 
   return (
@@ -78,10 +177,22 @@ export default function SaaSAdminDashboard() {
                 <p className="text-xs text-white/40 font-semibold">Active Environments</p>
               </div>
            </div>
-           <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white/40">
-             &mdash;
-           </div>
-           <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-2">No count source wired</p>
+           {tenantsLoading ? (
+             <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white/30 animate-pulse">
+               &middot;&middot;&middot;
+             </div>
+           ) : tenantsError ? (
+             <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white/40">
+               &mdash;
+             </div>
+           ) : (
+             <div className="text-5xl font-black italic tracking-normal md:tracking-tighter text-white">
+               {tenantStats.total}
+             </div>
+           )}
+           <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-2">
+             {tenantsError ? 'Source unavailable' : 'Live tenant count'}
+           </p>
         </div>
 
         <div className="bg-zinc-950 border border-white/5 molten-edge p-6 rounded-2xl">
@@ -129,6 +240,124 @@ export default function SaaSAdminDashboard() {
            </div>
         </div>
       </div>
+
+      {/* Tenant Console */}
+      <section className="space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="bg-zinc-950 border border-white/5 molten-edge p-6 rounded-2xl">
+             <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-celtic-500/10 text-celtic-400 rounded-xl">
+                   <Building2 size={20} />
+                </div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-white/60">Total Tenants</h3>
+             </div>
+             {tenantsLoading ? (
+               <Skeleton className="h-10 w-20" />
+             ) : (
+               <div className="text-4xl font-black italic tracking-normal md:tracking-tighter text-white">{tenantStats.total}</div>
+             )}
+          </div>
+
+          <div className="bg-zinc-950 border border-white/5 molten-edge p-6 rounded-2xl">
+             <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl">
+                   <Crown size={20} />
+                </div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-white/60">Pro / Enterprise</h3>
+             </div>
+             {tenantsLoading ? (
+               <Skeleton className="h-10 w-20" />
+             ) : (
+               <div className="text-4xl font-black italic tracking-normal md:tracking-tighter text-white">{tenantStats.paid}</div>
+             )}
+          </div>
+
+          <div className="bg-zinc-950 border border-white/5 molten-edge p-6 rounded-2xl">
+             <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-forest-500/10 text-forest-400 rounded-xl">
+                   <CreditCard size={20} />
+                </div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-white/60">Stripe Connected</h3>
+             </div>
+             {tenantsLoading ? (
+               <Skeleton className="h-10 w-20" />
+             ) : (
+               <div className="text-4xl font-black italic tracking-normal md:tracking-tighter text-white">{tenantStats.stripe}</div>
+             )}
+          </div>
+        </div>
+
+        <div className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl overflow-hidden">
+           <div className="p-6 border-b border-white/5 molten-edge bg-white/[0.02]">
+              <h3 className="text-lg font-black uppercase tracking-widest text-white flex items-center gap-3">
+                <Building2 className="text-celtic-400" /> Tenant Console
+              </h3>
+              <p className="text-xs text-white/40 font-semibold mt-1">Platform-wide environment registry & plan control</p>
+           </div>
+           <div className="p-6 overflow-x-auto">
+              {tenantsLoading ? (
+                 <div className="space-y-3">
+                    {[0, 1, 2, 3].map(i => (
+                       <Skeleton key={i} className="h-12 w-full" />
+                    ))}
+                 </div>
+              ) : tenantsError ? (
+                 <div className="text-center py-12 text-amber-400 uppercase tracking-widest text-xs font-bold flex flex-col items-center gap-3">
+                    <Lock size={28} className="text-amber-400/70" />
+                    {tenantsError}
+                 </div>
+              ) : tenants.length === 0 ? (
+                 <EmptyState
+                    icon={Building2}
+                    title="No tenants yet"
+                    description="No tenant environments have been provisioned on this platform. New tenants will appear here as they onboard."
+                 />
+              ) : (
+                 <table className="w-full text-left min-w-[760px]">
+                    <thead>
+                       <tr className="text-xs md:text-[10px] text-white/40 uppercase tracking-widest border-b border-white/5 molten-edge">
+                         <th className="pb-4 font-bold">Tenant</th>
+                         <th className="pb-4 font-bold">Tier</th>
+                         <th className="pb-4 font-bold text-right">Members</th>
+                         <th className="pb-4 font-bold">Created</th>
+                         <th className="pb-4 font-bold text-center">Stripe</th>
+                         <th className="pb-4 font-bold text-right">AI Credits</th>
+                       </tr>
+                    </thead>
+                    <tbody className="text-sm text-white/80">
+                       {tenants.map(t => (
+                          <tr key={t.id} className="border-b border-white/5 molten-edge hover:bg-white/5 transition-colors">
+                             <td className="py-4 font-bold text-white">{t.name || t.id}</td>
+                             <td className="py-4">
+                                <select
+                                   value={t.tier}
+                                   disabled={savingTier === t.id}
+                                   onChange={(e) => handleTierChange(t.id, e.target.value as TenantTier)}
+                                   className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-widest text-white focus:outline-none focus:border-celtic-400/50 disabled:opacity-50 cursor-pointer"
+                                >
+                                   <option value="free">Free</option>
+                                   <option value="pro">Pro</option>
+                                   <option value="enterprise">Enterprise</option>
+                                </select>
+                             </td>
+                             <td className="py-4 text-right font-mono text-white/60">{t.members ?? 0}</td>
+                             <td className="py-4 text-white/50">{formatDate(t.createdAt)}</td>
+                             <td className="py-4 text-center">
+                                {t.stripeConnected ? (
+                                   <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border text-forest-400 border-forest-500/30 bg-forest-500/5">Yes</span>
+                                ) : (
+                                   <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border text-white/40 border-white/10 bg-white/5">No</span>
+                                )}
+                             </td>
+                             <td className="py-4 text-right font-mono text-white/60">{(t.aiCreditsUsed ?? 0).toLocaleString()}</td>
+                          </tr>
+                       ))}
+                    </tbody>
+                 </table>
+              )}
+           </div>
+        </div>
+      </section>
 
       <div className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl overflow-hidden">
          <div className="p-6 border-b border-white/5 molten-edge bg-white/[0.02]">
