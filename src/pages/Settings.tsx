@@ -3,8 +3,7 @@ import { safeStorage } from '../lib/storage';
 // @ts-nocheck
 import React, { useState } from "react";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { tenantsRepo } from "../lib/repos";
 import { getCurrentUser, signOutUser } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
 import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain } from "lucide-react";
@@ -284,13 +283,12 @@ export default function Settings() {
     try {
       const targetObj = isSubFeature ? subFeatures : features;
       const newObj = { ...targetObj, [featureId]: !currentValue };
-      
-      const payload = isSubFeature 
-        ? { "settings.subFeatures": newObj }
-        : { "settings.features": newObj };
 
-      const tenantRef = doc(db, "tenants", tenant.id);
-      await updateDoc(tenantRef, payload);
+      const payload = isSubFeature
+        ? { subFeatures: newObj }
+        : { features: newObj };
+
+      await tenantsRepo.updateSettings(payload);
       showToast("Feature toggled successfully.");
     } catch (err: any) {
       console.error(err);
@@ -314,17 +312,29 @@ export default function Settings() {
 
     setIsDeleting(true);
     try {
-      // Deleting a Supabase Auth user requires service-role/admin privileges that are
-      // not available to the browser client. Sign the user out here; the actual account
-      // + data deletion must be performed by a privileged server endpoint.
-      // TODO: server-side account deletion endpoint
-      showToast("You have been signed out. Account deletion has been requested.", "success");
+      // Real, irreversible deletion via the privileged server endpoint: it removes the
+      // tenant (all data cascades), every member profile, and the underlying Supabase Auth
+      // users. Only then do we sign out. If the server rejects (e.g. not the owner), we
+      // surface the error instead of falsely claiming the account was deleted.
+      const res = await fetchApi("/api/account/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "DELETE" }),
+      });
+      if (!res.ok) {
+        let msg = "Failed to delete your account.";
+        try { msg = (await res.json())?.error || msg; } catch {}
+        showToast(msg, "error");
+        setIsDeleting(false);
+        return;
+      }
+      showToast("Your account and all data have been permanently deleted.", "success");
       setShowDeleteModal(false);
       await signOutUser();
       window.location.href = "/";
     } catch (err: any) {
-      console.error("Error deleting data:", err);
-      showToast(err.message || "Failed to delete your data.", "error");
+      console.error("Error deleting account:", err);
+      showToast(err.message || "Failed to delete your account.", "error");
     } finally {
       setIsDeleting(false);
     }
@@ -426,8 +436,7 @@ export default function Settings() {
                                     showToast("Settings updates are disabled in Demo mode.");
                                     return;
                                   }
-                                  const tenantRef = doc(db, "tenants", tenant.id);
-                                  updateDoc(tenantRef, { "settings.customInstallRules": e.target.value });
+                                  tenantsRepo.updateSettings({ customInstallRules: e.target.value });
                                 }}
                                 className="w-full bg-zinc-900 border-2 border-white/10 rounded-xl p-4 text-sm text-white/80 focus:border-forest-500/50 outline-none resize-y min-h-[100px]"
                                 placeholder="Describe heuristic..."

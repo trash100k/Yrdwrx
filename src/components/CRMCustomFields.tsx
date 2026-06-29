@@ -2,8 +2,7 @@
 import React, { useState } from "react";
 import { Customer } from "../types";
 import { Plus, X, Tag, FileText } from "lucide-react";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { customersRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
 
 // Field types are encoded inline within the existing Record<string,string> map
@@ -59,7 +58,7 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
   const handleSave = async (updatedFields: Record<string, string>) => {
     try {
       if(customer.id) {
-         await updateDoc(doc(db, "customers", customer.id), { customFields: updatedFields });
+         await customersRepo.update(customer.id, { customFields: updatedFields });
          setFields(updatedFields);
          if(onUpdate) onUpdate();
          showToast("Custom fields updated", "success");

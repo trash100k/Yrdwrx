@@ -3,7 +3,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 
 // Public online-booking intake: unauthenticated by design (auth-excluded), but validated +
-// rate-limited. In mock/no-Firebase-creds mode the write simulates so the UX still completes.
+// rate-limited. Leads persist to Supabase; when the service role isn't configured the
+// endpoint returns 503 (booking unavailable) rather than faking success and dropping the lead.
 
 describe('Public lead intake (/api/public/*)', () => {
   let app: any;
@@ -29,12 +30,14 @@ describe('Public lead intake (/api/public/*)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('accepts a valid submission (simulated write in mock mode)', async () => {
+  it('503s (does not fake success) when persistence is unavailable', async () => {
+    // No SUPABASE_SERVICE_ROLE_KEY in the test env -> the lead cannot be saved, so the
+    // endpoint must NOT pretend to succeed (the old behavior silently dropped the lead).
     const res = await request(app)
       .post('/api/public/lead-intake')
       .send({ tenantId: 't1', name: 'Jane Doe', email: 'jane@example.com', serviceInterest: 'Mowing', message: 'Weekly please' });
-    expect(res.status).toBe(200);
-    expect(res.body?.success).toBe(true);
+    expect(res.status).toBe(503);
+    expect(res.body?.success).not.toBe(true);
   });
 
   it('returns a tenant name for the booking page', async () => {

@@ -4,8 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, Loader2, Play, Square, FileText, CheckSquare, X, Wand2 } from "lucide-react";
 
 import { Job } from "../types";
-import { updateDoc, doc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { jobsRepo } from "../lib/repos";
 
 interface Props {
   job: Job;
@@ -70,7 +69,7 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
 
   const saveJobData = async () => {
     try {
-      await updateDoc(doc(db, "jobs", job.id), {
+      await jobsRepo.update(job.id, {
         notes,
         checklist,
       });

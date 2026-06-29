@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { useTenant } from "../contexts/TenantContext";
+import { inventoryRepo, crewsRepo } from "../lib/repos";
 import { InventoryItem } from "../types";
 import { useToast } from "../contexts/ToastContext";
 import { X, Package, Plus, Trash2, CheckCircle, Truck, Box } from "lucide-react";
@@ -16,7 +14,6 @@ export const ResourceAssignmentModal = ({
   onClose: () => void;
   crews: any[];
 }) => {
-  const { tenant } = useTenant();
   const { showToast } = useToast();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [selectedCrewRef, setSelectedCrewRef] = useState<string>("");
@@ -26,23 +23,13 @@ export const ResourceAssignmentModal = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    const tenantId = tenant?.id || "genesis-1";
-    const q = query(
-      collection(db, "inventory"),
-      where("tenantId", "==", tenantId),
-    );
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as InventoryItem);
-        setInventory(docs);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "inventory");
-      }
-    );
+    // RLS scopes inventory to the caller's tenant; subscribe pushes a fresh full list on any change.
+    const unsubscribe = inventoryRepo.subscribe((rows) => {
+      const docs = (rows || []).map((r: any) => ({ ...(r.data || {}), ...r }) as InventoryItem);
+      setInventory(docs);
+    });
     return () => unsubscribe();
-  }, [isOpen, tenant]);
+  }, [isOpen]);
 
   const activeCrew = crews.find(c => c.id === selectedCrewRef);
 
@@ -71,14 +58,15 @@ export const ResourceAssignmentModal = ({
          assignedAt: new Date().toISOString()
       }];
 
-      await updateDoc(doc(db, "crews", selectedCrewRef), {
-        assignedResources: updatedResources
+      // assignedResources is freeform per-crew extras -> store in the jsonb `data` blob.
+      await crewsRepo.update(selectedCrewRef, {
+        data: { ...(crew.data || {}), assignedResources: updatedResources }
       });
 
       // Optionally deduct from stock (not stringently requested but conceptually valid)
       if (selectedItem.stock !== undefined) {
          const newStock = Math.max(0, selectedItem.stock - quantity);
-         await updateDoc(doc(db, "inventory", selectedItemRef), {
+         await inventoryRepo.update(selectedItemRef, {
            stock: newStock
          });
       }
@@ -98,15 +86,15 @@ export const ResourceAssignmentModal = ({
     if (!activeCrew) return;
     try {
       const updatedResources = (activeCrew.assignedResources || []).filter((r: any) => r.id !== resourceId);
-      
-      await updateDoc(doc(db, "crews", activeCrew.id), {
-        assignedResources: updatedResources
+
+      await crewsRepo.update(activeCrew.id, {
+        data: { ...(activeCrew.data || {}), assignedResources: updatedResources }
       });
 
       // Add back to inventory
       const item = inventory.find(i => i.id === itemId);
       if (item && item.stock !== undefined) {
-         await updateDoc(doc(db, "inventory", itemId), {
+         await inventoryRepo.update(itemId, {
            stock: item.stock + returnQty
          });
       }

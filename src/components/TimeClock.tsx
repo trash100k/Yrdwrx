@@ -3,16 +3,12 @@
 // Persists to the `timesheets` collection (best-effort) and stays usable with optimistic
 // local state in demo / offline, so the field flow never blocks.
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, orderBy } from "firebase/firestore";
-import { db } from "../lib/firebase";
 import { getCurrentUser } from "../lib/supabase";
-import { useTenant } from "../contexts/TenantContext";
+import { timesheetsRepo } from "../lib/repos";
 import { Clock, Play, Square } from "lucide-react";
 import { activeEntry, weekMinutes, formatDuration, minutesBetween } from "../lib/timesheets";
 
 export function TimeClock() {
-  const { tenant } = useTenant();
-  const tenantId = tenant?.id || "demo-tenant-1";
   const userId = getCurrentUser()?.uid || "demo-user";
   const userName = getCurrentUser()?.displayName || getCurrentUser()?.email || "You";
 
@@ -28,24 +24,19 @@ export function TimeClock() {
     return () => clearInterval(id);
   }, []);
 
-  // Best-effort live subscription to this user's timesheets.
+  // Best-effort live subscription to this user's timesheets. The repo is tenant-scoped
+  // by RLS and pushes a fresh full list on any change; we filter to the current user
+  // client-side (the rollup + open-entry state are per-user).
   useEffect(() => {
     try {
-      const q = query(
-        collection(db, "timesheets"),
-        where("tenantId", "==", tenantId),
-        where("userId", "==", userId),
-      );
-      const unsub = onSnapshot(
-        q,
-        (snap) => setServerEntries(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-        () => {},
+      const unsub = timesheetsRepo.subscribe((rows) =>
+        setServerEntries((rows || []).filter((r) => r.userId === userId)),
       );
       return unsub;
     } catch {
-      /* firestore unavailable in demo — local state carries the UX */
+      /* supabase unavailable in demo — local state carries the UX */
     }
-  }, [tenantId, userId]);
+  }, [userId]);
 
   const entries = serverEntries.length ? serverEntries : localEntries;
   const open = activeEntry(entries);
@@ -56,9 +47,9 @@ export function TimeClock() {
   const clockIn = async () => {
     if (open || busy) return;
     setBusy(true);
-    const entry = { tenantId, userId, userName, clockIn: new Date().toISOString(), clockOut: null };
+    const entry = { userId, userName, clockIn: new Date().toISOString(), clockOut: null };
     setLocalEntries((e) => [...e, { id: `local-${e.length}`, ...entry }]);
-    try { await addDoc(collection(db, "timesheets"), entry); } catch { /* optimistic only */ }
+    try { await timesheetsRepo.create(entry); } catch { /* optimistic only */ }
     setBusy(false);
   };
 
@@ -69,7 +60,7 @@ export function TimeClock() {
     const durationMins = minutesBetween(open.clockIn, clockOutISO);
     setLocalEntries((e) => e.map((x) => (x.id === open.id || x.clockIn === open.clockIn ? { ...x, clockOut: clockOutISO, durationMins } : x)));
     setServerEntries((e) => e.map((x) => (x.id === open.id ? { ...x, clockOut: clockOutISO, durationMins } : x)));
-    try { if (open.id && !String(open.id).startsWith("local-")) await updateDoc(doc(db, "timesheets", open.id), { clockOut: clockOutISO, durationMins }); } catch { /* optimistic only */ }
+    try { if (open.id && !String(open.id).startsWith("local-")) await timesheetsRepo.update(open.id, { clockOut: clockOutISO, durationMins }); } catch { /* optimistic only */ }
     setBusy(false);
   };
 

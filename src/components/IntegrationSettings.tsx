@@ -3,8 +3,7 @@ import React, { useState } from "react";
 import { Link, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { tenantsRepo } from "../lib/repos";
 
 export function IntegrationSettings() {
   const { tenant } = useTenant();
@@ -58,9 +57,12 @@ export function IntegrationSettings() {
 
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, "tenants", tenant.id), {
-        "settings.integrations.zapierWebhook": zapierWebhook,
-        "settings.integrations.zapierNewJobWebhook": zapierNewJobWebhook,
+      await tenantsRepo.updateSettings({
+        integrations: {
+          ...(tenant?.settings?.integrations || {}),
+          zapierWebhook,
+          zapierNewJobWebhook,
+        },
       });
       showToast("Integration settings saved", "success");
     } catch (error) {

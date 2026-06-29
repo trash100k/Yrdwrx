@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { Customer } from "../types";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { customersRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
 import { Phone, Mail, MoreVertical, CreditCard } from "lucide-react";
 
@@ -21,7 +20,7 @@ export const Pipeline = ({ customers, onSelectCustomer }: { customers: Customer[
     const customerId = e.dataTransfer.getData("customerId");
     if (!customerId) return;
     try {
-      await updateDoc(doc(db, "customers", customerId), { status: statusId });
+      await customersRepo.update(customerId, { status: statusId });
       showToast(`Moved to ${statusId}`, "success");
     } catch(err) {
       console.error(err);

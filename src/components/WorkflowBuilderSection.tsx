@@ -3,8 +3,7 @@ import React, { useState, useMemo } from "react";
 import { Workflow, Plus, Trash2, ArrowRight, Save, Zap, Play, Activity, ChevronDown, ChevronUp, CheckCircle, UserPlus, DollarSign, FileText, Send, Mail, AlertTriangle, Pause, Clock } from "lucide-react";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { tenantsRepo } from "../lib/repos";
 import { BarChart, Bar, ResponsiveContainer, Tooltip } from "recharts";
 
 export interface AutomationRule {
@@ -106,9 +105,7 @@ export function WorkflowBuilderSection() {
     if (!tenant) return;
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, "tenants", tenant.id), {
-        "settings.workflows": workflows,
-      });
+      await tenantsRepo.updateSettings({ workflows });
       showToast("Workflows saved successfully", "success");
     } catch (error) {
       console.error("Error saving workflows", error);

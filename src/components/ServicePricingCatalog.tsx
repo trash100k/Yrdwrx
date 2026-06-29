@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { INITIAL_SERVICE_CATALOG } from "../lib/constants";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { tenantsRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
 import { Plus, X, Save } from "lucide-react";
 
@@ -32,10 +31,7 @@ export function ServicePricingCatalog() {
     
     setSaving(true);
     try {
-      const tenantRef = doc(db, "tenants", tenant!.id);
-      await updateDoc(tenantRef, {
-        "settings.serviceCatalog": newCatalog
-      });
+      await tenantsRepo.updateSettings({ serviceCatalog: newCatalog });
       showToast("Rates updated successfully.");
     } catch (err) {
       console.error(err);

@@ -453,53 +453,24 @@ export async function createApp({ startListening = false } = {}) {
       processedStripeEvents.add(event.id);
       if (processedStripeEvents.size > 5000) processedStripeEvents.clear();
 
-      const admin = require("firebase-admin");
-      if (!admin.apps.length) {
-          const fs = require("fs");
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-             const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-             config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
-      }
-      const fdb = admin.firestore();
+      // Supabase is the system of record. (The legacy Firestore mirror was removed —
+      // it wrote to a dead project and added latency/failure surface inside the ack window.)
+      const sb = getServiceSupabase();
 
       // Map a Stripe subscription's price/metadata to a tenant tier.
       const setTenantTier = async (tenantId: string, tier: string) => {
-        if (!tenantId || !tier) return;
-        try { await fdb.collection("tenants").doc(String(tenantId)).update({ tier }); } catch (e) {}
-        // Also reflect into Supabase (system of record) when service-role is configured.
-        try {
-          const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-          const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-          if (url && key) {
-            const { createClient } = require("@supabase/supabase-js");
-            await createClient(url, key, { auth: { persistSession: false } }).from("tenants").update({ tier }).eq("id", tenantId);
-          }
-        } catch (e) {}
+        if (!tenantId || !tier || !sb) return;
+        try { await sb.from("tenants").update({ tier }).eq("id", tenantId); } catch (e) {}
       };
 
       switch (event.type) {
         case 'checkout.session.completed': {
           const session = event.data.object;
           if (session.metadata && session.metadata.invoiceId) {
-            // Mark paid in Supabase (system of record). Best-effort Firestore mirror too.
+            // Mark paid in Supabase (system of record).
             try {
-              const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-              const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-              if (url && key) {
-                const { createClient } = require("@supabase/supabase-js");
-                await createClient(url, key, { auth: { persistSession: false } })
-                  .from("invoices").update({ status: "paid" }).eq("id", session.metadata.invoiceId);
-              }
+              if (sb) await sb.from("invoices").update({ status: "paid" }).eq("id", session.metadata.invoiceId);
             } catch (e) { console.warn("Supabase invoice mark-paid failed:", (e as any)?.message); }
-            try {
-              await fdb.collection("invoices").doc(session.metadata.invoiceId).update({
-                status: "paid",
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              });
-            } catch (e) { /* Firestore mirror is best-effort post-cutover */ }
           }
           // SaaS subscription checkout → set tenant tier.
           if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
@@ -553,25 +524,35 @@ export async function createApp({ startListening = false } = {}) {
           }
         } catch (e) { /* twilio sdk unavailable — fall through */ }
       }
+      // Persist the inbound reply into Supabase customer_messages (what the CRM + client
+      // portal actually read). customer_messages.customer_id is NOT NULL, so we resolve the
+      // sender's phone -> a customer row via the service role. Multi-tenant routing by the
+      // Twilio "To" number isn't wired yet, so we match on phone digits; if exactly one
+      // customer matches we attribute the message, otherwise we skip (and still ack Twilio).
       try {
-        const admin = require("firebase-admin");
-        if (!admin.apps.length) {
-          let config = {};
-          if (fs.existsSync('./firebase-applet-config.json')) {
-            const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-            config = { projectId: appletConfig.projectId };
-          }
-          admin.initializeApp(config);
+        const sb = getServiceSupabase();
+        const digits = String(From || "").replace(/\D/g, "");
+        if (sb && digits.length >= 7) {
+          const last10 = digits.slice(-10);
+          const persist = (async () => {
+            const { data: matches } = await sb
+              .from("customers")
+              .select("id, tenant_id, phone")
+              .ilike("phone", `%${last10}%`)
+              .limit(2);
+            if (matches && matches.length === 1) {
+              await sb.from("customer_messages").insert({
+                tenant_id: matches[0].tenant_id,
+                customer_id: matches[0].id,
+                sender: "client",
+                text: String(Body || "").slice(0, 2000),
+              });
+            } else {
+              console.warn(`[SMS inbound] no unique customer for ${last10} (${matches?.length || 0} matches); dropped`);
+            }
+          })();
+          await Promise.race([persist, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000))]);
         }
-        const write = admin.firestore().collection("inbound_messages").add({
-          from: String(From || "").slice(0, 40),
-          to: String(To || "").slice(0, 40),
-          body: String(Body || "").slice(0, 2000),
-          direction: "inbound",
-          status: "unread",
-          receivedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        await Promise.race([write, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000))]);
       } catch (e) { /* best-effort persistence; still ack to Twilio */ }
       return xml();
     } catch (e) {
@@ -1054,6 +1035,51 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // GDPR Art. 17 / CCPA right-to-erasure. Owner-only, irreversible workspace deletion:
+  // removes the tenant (all tenant-scoped data tables cascade from its FK), every member
+  // profile + business_settings (which don't cascade), and the underlying Supabase Auth
+  // users. Requires an explicit { confirm: "DELETE" } so a stray call can't wipe an account.
+  // This is what the Settings "Delete Account" control actually calls (it previously only
+  // signed the user out while claiming deletion).
+  app.post("/api/account/delete", async (req: any, res) => {
+    try {
+      if (REQUIRE_AUTH && !req.user?.uid) return res.status(401).json({ error: "Unauthorized" });
+      if ((req.body || {}).confirm !== "DELETE") {
+        return res.status(400).json({ error: "Confirmation required", code: "CONFIRM_REQUIRED" });
+      }
+      const sb = getServiceSupabase();
+      if (!sb) return res.status(503).json({ error: "Account deletion unavailable: SUPABASE_SERVICE_ROLE_KEY not configured", code: "PROVISION_UNAVAILABLE" });
+      const tenant = await resolveTenant(req);
+      if (!tenant) return res.status(404).json({ error: "No workspace found for this account." });
+      if (tenant.role !== "owner") return res.status(403).json({ error: "Only the workspace owner can delete the account." });
+      const tenantId = tenant.id;
+
+      // Collect every member's auth uid BEFORE we remove their profiles.
+      const { data: members } = await sb.from("profiles").select("firebase_uid").eq("tenant_id", tenantId);
+      const uids = (members || []).map((m: any) => m.firebase_uid).filter(Boolean);
+
+      // Identity rows that don't cascade from tenants (profiles.tenant_id is ON DELETE SET NULL).
+      try { await sb.from("business_settings").delete().eq("tenant_id", tenantId); } catch (e) {}
+      try { await sb.from("profiles").delete().eq("tenant_id", tenantId); } catch (e) {}
+
+      // Delete the tenant — all tenant-scoped data tables cascade from its FK.
+      const { error: delTenantErr } = await sb.from("tenants").delete().eq("id", tenantId);
+      if (delTenantErr) throw delTenantErr;
+
+      // Finally remove the underlying Supabase Auth users.
+      let authDeleted = 0;
+      for (const uid of uids) {
+        try { await sb.auth.admin.deleteUser(uid); authDeleted++; }
+        catch (e: any) { console.warn("[account/delete] auth.admin.deleteUser failed for", uid, e?.message); }
+      }
+
+      return res.json({ success: true, tenantId, membersRemoved: uids.length, authDeleted });
+    } catch (e: any) {
+      console.error("Account deletion error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "Account deletion failed" });
+    }
+  });
+
   // AI credit wallet status for the current period (powers the AiUsage screen).
   app.get("/api/usage/credits", async (req: any, res) => {
     if (!REQUIRE_AUTH) return res.json({ tier: "enterprise", used: 0, creditsRemaining: 999999, limit: 999999, unmetered: true });
@@ -1096,71 +1122,61 @@ export async function createApp({ startListening = false } = {}) {
   });
   app.use("/api/public/", publicLimiter);
 
-  const initFirebaseAdmin = () => {
-    const admin = require("firebase-admin");
-    if (!admin.apps.length) {
-      let config = {};
-      if (fs.existsSync('./firebase-applet-config.json')) {
-        const appletConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
-        config = { projectId: appletConfig.projectId };
-      }
-      admin.initializeApp(config);
-    }
-    return admin;
-  };
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  // Public endpoints must never hang on a slow/credential-less Firestore (without ADC the
-  // admin SDK does a multi-second metadata lookup before failing). Race every admin call so
-  // the endpoint always responds fast and degrades to a safe default.
-  const withTimeout = (promise: Promise<any>, ms: number) =>
-    Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-
-  // Minimal public tenant info so the booking page can show the company name.
+  // Minimal public tenant info so the booking page can show the company name (Supabase).
   app.get("/api/public/tenant/:tenantId", async (req, res) => {
     const id = String(req.params.tenantId || "").slice(0, 64);
     if (!id) return res.status(400).json({ error: "tenantId required" });
     try {
-      const admin = initFirebaseAdmin();
-      const snap: any = await withTimeout(admin.firestore().collection("tenants").doc(id).get(), 2500);
-      return res.json({ id, name: (snap.exists && snap.data()?.name) || "YardWorx" });
+      const sb = getServiceSupabase();
+      if (!sb || !UUID_RE.test(id)) return res.json({ id, name: "YardWorx", simulated: true });
+      const { data } = await sb.from("tenants").select("name").eq("id", id).maybeSingle();
+      return res.json({ id, name: data?.name || "YardWorx" });
     } catch (e: any) {
-      // No admin creds (demo) or slow Firestore → safe generic name so the page still renders.
+      // No service role (demo) → safe generic name so the page still renders.
       return res.json({ id, name: "YardWorx", simulated: true });
     }
   });
 
-  // Customer submits a booking / quote request → creates a NEW lead in the pipeline.
+  // Customer submits a booking / quote request → creates a NEW lead in the pipeline (Supabase).
   app.post("/api/public/lead-intake", async (req, res) => {
     try {
       const { tenantId, name, email, phone, address, serviceInterest, message } = req.body || {};
       if (!tenantId || typeof tenantId !== "string") return res.status(400).json({ error: "Missing tenant." });
       if (!name || (!email && !phone)) return res.status(400).json({ error: "Please provide your name and an email or phone." });
       const cap = (s: any, n: number) => String(s ?? "").trim().slice(0, n);
-      const lead = {
-        tenantId: cap(tenantId, 64),
-        name: cap(name, 120),
-        email: cap(email, 160),
-        phone: cap(phone, 40),
-        address: cap(address, 240),
-        serviceInterest: cap(serviceInterest, 120),
-        notes: cap(message, 2000),
-        source: "online_booking",
-        status: "NEW",
-      };
-      try {
-        const admin = initFirebaseAdmin();
-        await withTimeout(admin.firestore().collection("leads").add({
-          ...lead,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        }), 3000);
-        return res.json({ success: true });
-      } catch (e: any) {
-        // No admin creds (demo / no Firebase) or slow write → acknowledge so the UX completes;
-        // lights up live with creds.
-        console.warn("[lead-intake] persistence unavailable, simulating:", e?.message);
-        return res.json({ success: true, simulated: true });
+      const id = cap(tenantId, 64);
+      const sb = getServiceSupabase();
+      if (!sb) {
+        console.warn("[lead-intake] Supabase service role not configured; cannot persist lead");
+        return res.status(503).json({ error: "Online booking is temporarily unavailable. Please call us directly." });
       }
+      // tenant_id is a NOT NULL FK; a public endpoint must not be able to spray leads at
+      // arbitrary/garbage tenant ids, so validate the tenant exists before inserting.
+      if (!UUID_RE.test(id)) return res.status(404).json({ error: "We couldn't find that business. Please check your link." });
+      const { data: tenant } = await sb.from("tenants").select("id").eq("id", id).maybeSingle();
+      if (!tenant) return res.status(404).json({ error: "We couldn't find that business. Please check your link." });
+      // public.leads columns: name, address, prop_size, match_reason, score, notes, data(jsonb).
+      // Contact details that have no dedicated column live in the data jsonb.
+      const { error } = await sb.from("leads").insert({
+        tenant_id: tenant.id,
+        name: cap(name, 120),
+        address: cap(address, 240),
+        notes: cap(message, 2000),
+        match_reason: cap(serviceInterest, 120),
+        data: {
+          email: cap(email, 160),
+          phone: cap(phone, 40),
+          serviceInterest: cap(serviceInterest, 120),
+          source: "online_booking",
+          status: "NEW",
+        },
+      });
+      if (error) throw error;
+      return res.json({ success: true });
     } catch (e: any) {
+      console.error("[lead-intake] failed:", e?.message);
       res.status(500).json({ error: "Could not submit your request. Please try again." });
     }
   });
@@ -3072,22 +3088,31 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
-  app.post("/api/inventory/check-and-alert", cacheApiResponse(60), async (req, res) => {
+  // Real low-stock check against the tenant's inventory (quantity < min_threshold).
+  // NOT URL-cached: the result is tenant-specific and a shared cache would leak one
+  // tenant's stock levels to another.
+  app.post("/api/inventory/check-and-alert", async (req: any, res) => {
     try {
-      const { items } = req.body;
-      // FIXME(Management): Replace mock DB with actual inventory count queries
-      const lowStock = items.filter(() => Math.random() < 0.2); // Demoted from 0.5 to 0.2 for realistic mock threshold
-
-      res.json({
-        lowStockItems: lowStock.map((name: string) => ({
-          name,
-          current: Math.floor(Math.random() * 5), // Mock current levels below min
-          min: 10,
-          unit: "Yards",
-          supplierEmail: "supply@meridian-aggregate.com",
-        })),
-      });
-    } catch (error) {
+      const sb = getServiceSupabase();
+      const tenant = sb ? await resolveTenant(req) : null;
+      if (!tenant) return res.json({ lowStockItems: [] }); // demo / unconfigured: nothing real to check
+      const { data, error } = await sb
+        .from("inventory")
+        .select("name, quantity, min_threshold, unit, vendor")
+        .eq("tenant_id", tenant.id);
+      if (error) throw error;
+      const lowStockItems = (data || [])
+        .filter((it: any) => it.min_threshold != null && Number(it.quantity) < Number(it.min_threshold))
+        .map((it: any) => ({
+          name: it.name,
+          current: Number(it.quantity) || 0,
+          min: Number(it.min_threshold) || 0,
+          unit: it.unit || "units",
+          vendor: it.vendor || null,
+        }));
+      res.json({ lowStockItems });
+    } catch (error: any) {
+      console.error("[inventory/check-and-alert]", error?.message);
       res.status(500).json({ error: "Inventory sync failed" });
     }
   });
@@ -4258,26 +4283,47 @@ export async function createApp({ startListening = false } = {}) {
 
   
   // Twilio SMS
-  app.post("/api/sms/send", async (req, res) => {
+  app.post("/api/sms/send", async (req: any, res) => {
     try {
-      const { to, message } = req.body;
+      const { to, message, customerId } = req.body;
+      // Persist the outbound text into customer_messages so it shows in the CRM thread and
+      // the client portal (pairs with the inbound webhook). Only when a customerId is given
+      // AND that customer belongs to the caller's tenant. Non-breaking when omitted.
+      const persistOutbound = async () => {
+        try {
+          const sb = getServiceSupabase();
+          if (!sb || !customerId) return;
+          const tenant = await resolveTenant(req);
+          if (!tenant) return;
+          const { data: cust } = await sb
+            .from("customers").select("id").eq("id", customerId).eq("tenant_id", tenant.id).maybeSingle();
+          if (cust) {
+            await sb.from("customer_messages").insert({
+              tenant_id: tenant.id, customer_id: customerId, sender: "business", text: String(message || "").slice(0, 2000),
+            });
+          }
+        } catch (e: any) { console.warn("[sms/send] persist failed:", e?.message); }
+      };
+
       if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
         // Return success for preview/development if Twilio is not configured
         console.warn("[TWILIO SIMULATION] Mocking SMS send because credentials are not set.");
+        await persistOutbound();
         return res.json({ success: true, simulated: true, to, message });
       }
-      
+
       const twilio = require("twilio");
       const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-      
+
       const result = await client.messages.create({
         body: message,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: to
       });
-      
+
+      await persistOutbound();
       res.json({ success: true, sid: result.sid });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Twilio error:", err);
       res.status(500).json({ error: err.message });
     }
@@ -4826,6 +4872,15 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Final error handler — registered last so it catches anything the per-route try/catch
+  // missed. Express 5 forwards rejected async route handlers here automatically, so an
+  // unexpected throw returns a sanitized 500 instead of hanging the request or leaking internals.
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    console.error("[express error]", err?.message || err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: "Internal server error" });
+  });
+
   return app;
 }
 
@@ -4833,19 +4888,35 @@ export async function createApp({ startListening = false } = {}) {
 if (process.env.VITEST) {
   // no-op: the test harness constructs the app explicitly.
 } else if (process.env.NODE_ENV === "production" && cluster.isPrimary) {
-  const numCPUs = os.cpus().length;
+  // os.cpus().length reports the HOST's core count, not the container's CPU quota. On
+  // Cloud Run (2 vCPU / 1Gi) forking one heavy Express+Puppeteer+Gemini worker per host
+  // core OOM-kills the instance and turns the respawn loop into a crash loop. Cap workers
+  // to the actual CPU grant (WEB_CONCURRENCY), defaulting to 2 to match cloudbuild.yaml.
+  const cap = Number(process.env.WEB_CONCURRENCY) || 2;
+  const numCPUs = Math.max(1, Math.min(os.cpus().length, cap));
   console.log(`Primary supervisor ${process.pid} is running`);
-  console.log(`Setting up ${numCPUs} highly-available workers across all available vCPUs...`);
+  console.log(`Setting up ${numCPUs} worker(s) (cap=${cap}, host cores=${os.cpus().length})...`);
 
   for (let i = 0; i < numCPUs; i++) {
     cluster.fork();
   }
 
-  // Self-healing: if a worker crashes, restart it immediately
+  // Self-healing: if a worker crashes, restart it (with a small backoff to avoid a tight
+  // respawn loop if a worker dies immediately on boot).
   cluster.on("exit", (worker, code, signal) => {
-    console.log(`Worker process ${worker.process.pid} encountered an error and died. Respawning...`);
-    cluster.fork();
+    console.log(`Worker ${worker.process.pid} died (code=${code}, signal=${signal}). Respawning in 1s...`);
+    setTimeout(() => cluster.fork(), 1000);
   });
 } else {
   createApp({ startListening: true });
 }
+
+// Last-resort process guards: a stray unhandled rejection / exception must not silently
+// take down a worker without a log line. In cluster mode the primary respawns; standalone
+// we log and keep serving (Express per-route try/catch handles the common cases).
+process.on("unhandledRejection", (reason: any) => {
+  console.error("[unhandledRejection]", reason?.message || reason);
+});
+process.on("uncaughtException", (err: any) => {
+  console.error("[uncaughtException]", err?.message || err);
+});

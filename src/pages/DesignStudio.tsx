@@ -37,10 +37,9 @@ import {
 import MarkupCanvas from "../components/MarkupCanvas";
 import BeforeAfterSlider from "../components/BeforeAfterSlider";
 import Design3D from "../components/Design3D";
-import { designVisionsRepo } from "../lib/repos";
-import { db, auth } from "../lib/firebase";
+import { designVisionsRepo, designCatalogRepo } from "../lib/repos";
+import { auth } from "../lib/firebase";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { playVoice } from "../lib/playVoice";
 
 interface DesignResult {
@@ -147,8 +146,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
 
   useEffect(() => {
     if (!tenant) return;
-    const unsub = onSnapshot(query(collection(db, "design_catalog"), where("tenantId", "==", tenant.id)), (snap) => {
-      setCatalogItems(snap.docs.map(doc => doc.data()));
+    const unsub = designCatalogRepo.subscribe((rows: any[]) => {
+      setCatalogItems(rows || []);
     });
     return unsub;
   }, [tenant]);

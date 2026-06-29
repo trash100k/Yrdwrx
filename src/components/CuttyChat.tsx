@@ -21,8 +21,6 @@ import {
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { getCurrentUser, supabase } from "../lib/supabase";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 import { useRole } from "../hooks/useRole";

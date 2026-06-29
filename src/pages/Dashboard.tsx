@@ -1549,7 +1549,7 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center gap-4 text-forest-400 bg-forest-500/5 border border-forest-500/10 w-fit px-5 py-3 rounded-2xl">
         <div className="w-2.5 h-2.5 bg-forest-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
         <span className="text-sm font-bold">
-          All systems normal: 3 working crews on-location in {tenant?.settings?.neighborhoodMask?.[0] || "your service area"}.
+          All systems normal: {crews.length} working crew{crews.length === 1 ? "" : "s"} on-location in {tenant?.settings?.neighborhoodMask?.[0] || "your service area"}.
         </span>
       </div>
 
@@ -1938,56 +1938,45 @@ export default function Dashboard() {
                         </div>
 
                         <div className="space-y-3">
-                          {[
-                            {
-                              id: "inv-8201",
-                              vendor: "Local Supply & Mulch",
-                              date: "May 01",
-                              amount: "$1,204.00",
-                              status: "PAID",
-                            },
-                            {
-                              id: "inv-8202",
-                              vendor: "Southern Agronomics",
-                              date: "May 10",
-                              amount: "$435.50",
-                              status: "PENDING",
-                            },
-                            {
-                              id: "contract-41",
-                              vendor: "Elite Mower Repair",
-                              date: "Annual SLA",
-                              amount: "$2,500.00",
-                              status: "ACTIVE",
-                            },
-                          ].map((doc) => (
-                            <div
-                              key={doc.id}
-                              className="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-900 transition-colors border border-transparent hover:border-white/10 cursor-pointer"
-                              onClick={() =>
-                                showToast(`Opening document ${doc.id}...`)
-                              }
-                            >
-                              <div>
-                                <p className="text-xs font-bold text-zinc-300">
-                                  {doc.vendor}
-                                </p>
-                                <p className="text-xs md:text-[10px] text-zinc-500 font-mono mt-0.5">
-                                  {doc.id} • {doc.date}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-xs font-black text-white">
-                                  {doc.amount}
-                                </p>
-                                <p
-                                  className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${doc.status === "PAID" ? "text-forest-500" : doc.status === "PENDING" ? "text-amber-500" : "text-ember-400"}`}
+                          {invoices.length > 0 ? (
+                            invoices.slice(0, 6).map((doc) => {
+                              const status = String(doc.status || "").toUpperCase();
+                              return (
+                                <Link
+                                  key={doc.id}
+                                  to={`invoices?id=${doc.id}`}
+                                  className="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-900 transition-colors border border-transparent hover:border-white/10 cursor-pointer"
                                 >
-                                  {doc.status}
-                                </p>
-                              </div>
+                                  <div>
+                                    <p className="text-xs font-bold text-zinc-300">
+                                      {doc.customer || doc.client || "Untitled invoice"}
+                                    </p>
+                                    <p className="text-xs md:text-[10px] text-zinc-500 font-mono mt-0.5">
+                                      {doc.id} • {doc.date || ""}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-xs font-black text-white">
+                                      {usd0(Number(doc.amount) || 0)}
+                                    </p>
+                                    <p
+                                      className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${status === "PAID" ? "text-forest-500" : status === "PENDING" || status === "SENT" || status === "DRAFT" ? "text-amber-500" : "text-ember-400"}`}
+                                    >
+                                      {status || "—"}
+                                    </p>
+                                  </div>
+                                </Link>
+                              );
+                            })
+                          ) : (
+                            <div className="text-center py-8 px-4 text-zinc-500">
+                              <FileText size={28} className="mx-auto mb-3 text-zinc-600" />
+                              <p className="text-xs font-bold text-zinc-400">No invoices yet</p>
+                              <p className="text-xs md:text-[10px] text-zinc-600 mt-1 font-medium">
+                                Invoices you create will appear here.
+                              </p>
                             </div>
-                          ))}
+                          )}
                         </div>
                       </div>
 
@@ -2565,52 +2554,10 @@ export default function Dashboard() {
           </div>
 
           {/* Fallback configuration checklist inside data views */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8 pt-8">
+          <div className="grid grid-cols-1 gap-4 sm:gap-8 pt-8">
             <Suspense fallback={<div className="h-64 rounded-2xl bg-zinc-950/50 animate-pulse border-4 border-white/5" />}>
               <LiveInventoryFeed />
             </Suspense>
-
-            {/* Strategy recommendations cards inside data tracking lists */}
-            <div className="bg-zinc-950 border border-white/5 molten-edge rounded-2xl p-8 shadow-2xl flex flex-col justify-between">
-              <div className="space-y-1.5">
-                <span className="text-xs md:text-[10px] font-bold text-forest-400 tracking-widest uppercase">
-                  AI Strategy Blueprint
-                </span>
-                <h4 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">
-                  Active Disruption Shields
-                </h4>
-                <p className="text-xs text-zinc-500 font-semibold font-sans mt-2">
-                  Recommended reschedules based on neighborhood grouping and
-                  precipitation indicators.
-                </p>
-              </div>
-
-              <div className="border-t border-white/10 pt-6 space-y-4">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-zinc-400 font-bold uppercase">
-                    Optimized Route Efficiency:
-                  </span>
-                  <span className="text-forest-400 font-bold uppercase">
-                    +18 min saved
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-zinc-400 font-bold uppercase">
-                    Chemical Spray Delay Trigger:
-                  </span>
-                  <span className="text-amber-500 font-bold uppercase">
-                    Disruption active
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => showToast("Recalibrating routing sequences...")}
-                className="w-full py-4 bg-forest-600 hover:bg-forest-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-md mt-6"
-              >
-                Perform Dispatch Audit Optimization
-              </button>
-            </div>
           </div>
         </section>
       )}

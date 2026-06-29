@@ -2,8 +2,7 @@ import { fetchApi } from "../lib/api";
 import React, { useState } from 'react';
 import { useTenant } from '../contexts/TenantContext';
 import { CreditCard, CheckCircle, ExternalLink } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { tenantsRepo } from '../lib/repos';
 import { useToast } from '../contexts/ToastContext';
 
 export function StripeConnectSection() {
@@ -37,9 +36,7 @@ export function StripeConnectSection() {
       // Fallback for demo environments if backend is not perfectly configured yet
       showToast("Backend connection simulated: Using Demo Stripe Connect.");
       const demoStripeId = `acct_demo_${Math.random().toString(36).substring(7)}`;
-      await updateDoc(doc(db, "tenants", tenant.id), {
-        stripeAccountId: demoStripeId
-      });
+      await tenantsRepo.updateFields({ stripe_account_id: demoStripeId });
       showToast(`Stripe Account Connected! ID: ${demoStripeId}`);
     } finally {
       setIsConnecting(false);
@@ -49,9 +46,7 @@ export function StripeConnectSection() {
   const handleDisconnect = async () => {
     if (!tenant) return;
     try {
-       await updateDoc(doc(db, "tenants", tenant.id), {
-         stripeAccountId: null
-       });
+       await tenantsRepo.updateFields({ stripe_account_id: null });
        showToast("Stripe Account Disconnected.");
     } catch (err) {
       console.error(err);

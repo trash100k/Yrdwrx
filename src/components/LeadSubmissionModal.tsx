@@ -1,12 +1,9 @@
 import React, { useState } from "react";
 import { X, Send, Target, Loader2 } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { useTenant } from "../contexts/TenantContext";
+import { customersRepo } from "../lib/repos";
 
 export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { tenant } = useTenant();
   const { showToast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
@@ -23,15 +20,12 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    const tenantId = tenant?.id || "genesis-1";
 
     try {
-      await addDoc(collection(db, "customers"), {
+      await customersRepo.create({
         ...formData,
-        tenantId,
         status: "PENDING_VERIFICATION",
         tags: ["Employee Lead"],
-        createdAt: serverTimestamp(),
       });
       showToast("Lead submitted successfully for verification and estimation.", "success");
       onClose();

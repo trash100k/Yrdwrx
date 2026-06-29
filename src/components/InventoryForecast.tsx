@@ -1,8 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { useTenant } from "../contexts/TenantContext";
+import { jobsRepo } from "../lib/repos";
 import { InventoryItem, Job } from "../types";
 import { TrendingDown, Activity, AlertTriangle, Package2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -13,19 +11,15 @@ interface InventoryForecastProps {
 }
 
 export default function InventoryForecast({ items, onClose }: InventoryForecastProps) {
-  const { tenant } = useTenant();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchJobs = async () => {
       try {
-        const q = query(
-          collection(db, "jobs"),
-          where("tenantId", "==", tenant?.id || "genesis-1")
-        );
-        const snapshot = await getDocs(q);
-        const fetchedJobs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Job));
+        // RLS scopes jobs to the caller's tenant; flatten the freeform `data` blob.
+        const rows = await jobsRepo.list();
+        const fetchedJobs = (rows || []).map((r: any) => ({ ...(r.data || {}), ...r } as Job));
         setJobs(fetchedJobs);
       } catch (error) {
         console.error("Error fetching jobs for forecast:", error);
@@ -34,7 +28,7 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
       }
     };
     fetchJobs();
-  }, [tenant]);
+  }, []);
 
   const generateForecast = () => {
     // Basic heuristic to estimate item usage based on jobs

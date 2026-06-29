@@ -1,8 +1,7 @@
 // @ts-nocheck
 
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, limit } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { inventoryRepo } from "../lib/repos";
 import {
   Package,
   AlertTriangle,
@@ -19,72 +18,13 @@ export function LiveInventoryFeed() {
   const [scrollPosition, setScrollPosition] = useState(0);
 
   useEffect(() => {
-    const q = query(collection(db, "inventory"), limit(20));
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const docs = snapshot.docs.map(
-          (doc) => ({ id: doc.id, ...doc.data() }) as any,
-        );
-        setItems(docs.length > 0 ? docs : mockItems);
-      },
-      () => {
-        setItems(mockItems);
-      },
-    );
+    // RLS scopes inventory to the caller's tenant; subscribe pushes a fresh full list on any change.
+    const unsub = inventoryRepo.subscribe((rows) => {
+      const docs = (rows || []).map((r: any) => ({ ...(r.data || {}), ...r }));
+      setItems(docs);
+    });
     return unsub;
   }, []);
-
-  const mockItems = [
-    {
-      id: "1",
-      name: "Premium Brown Mulch",
-      quantity: 12,
-      unit: "Yards",
-      minQuantity: 15,
-      category: "Bulk",
-    },
-    {
-      id: "2",
-      name: "Pine Straw Bales",
-      quantity: 45,
-      unit: "Bales",
-      minQuantity: 20,
-      category: "Bulk",
-    },
-    {
-      id: "3",
-      name: "Nitrogen-Plus Fertilizer",
-      quantity: 8,
-      unit: "Bags",
-      minQuantity: 10,
-      category: "Chemicals",
-    },
-    {
-      id: "4",
-      name: "River Rock (Large)",
-      quantity: 22,
-      unit: "Tons",
-      minQuantity: 5,
-      category: "Bulk",
-    },
-    {
-      id: "5",
-      name: "Glyphosate Herbicide",
-      quantity: 4,
-      unit: "Gallons",
-      minQuantity: 5,
-      category: "Chemicals",
-    },
-    {
-      id: "6",
-      name: "St. Augustine Sod",
-      quantity: 120,
-      unit: "Sq Ft",
-      minQuantity: 500,
-      category: "Bulk",
-    },
-  ];
 
   return (
     <div className="w-full bg-black/40 backdrop-blur-xl border-y border-white/5 h-32 relative group overflow-hidden">

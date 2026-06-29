@@ -22,8 +22,7 @@ import {
   ShieldAlert,
   BadgeCheck,
 } from "lucide-react";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { customersRepo } from "../lib/repos";
 import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
 import { Customer } from "../types";
 import { useToast } from "../contexts/ToastContext";
@@ -63,6 +62,7 @@ export default function AgenticOutreachDrawer({
   const [isPhotoDenied, setIsPhotoDenied] = useState<boolean>(false);
   const [selectedReviewIdx, setSelectedReviewIdx] = useState<number>(0);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isLoadingLeads, setIsLoadingLeads] = useState<boolean>(true);
 
   // Custom generated email draft
   const [emailSubject, setEmailSubject] = useState<string>("");
@@ -76,63 +76,30 @@ export default function AgenticOutreachDrawer({
     proximityRadius: "1.8",
   });
 
-  // Pull active CRM leads
+  // Pull active CRM leads from the real customers repo (RLS tenant-scoped).
+  // No fabricated fallback — if there are no customers, we show an empty state
+  // so no one can email a synthesized address.
   useEffect(() => {
+    let cancelled = false;
     async function loadLeads() {
+      setIsLoadingLeads(true);
       try {
-        const q = query(collection(db, "customers"));
-        const snap = await getDocs(q);
-        const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
-        if (docs.length > 0) {
-          setCarriers(docs);
-          setSelectedLeadId(docs[0].id || "");
-        } else {
-          // Fallback static entries of active high-converting warm targets
-          const tempLeads: Customer[] = [
-            {
-              id: "lead-1",
-              firstName: "Poplar",
-              lastName: "Springs Estates",
-              companyName: "Poplar Springs HOA",
-              address: "Poplar Springs, MS",
-              email: "board@poplarspringshoa.org",
-            },
-            {
-              id: "lead-2",
-              firstName: "Timber",
-              lastName: "Creek Alliances",
-              companyName: "Timber Creek Neighborhood Assoc",
-              address: "Timber Creek, MS",
-              email: "contact@timbercreekalliances.net",
-            },
-          ];
-          setCarriers(tempLeads);
-          setSelectedLeadId(tempLeads[0].id || "");
-        }
+        const docs = (await customersRepo.list()) as any[];
+        if (cancelled) return;
+        setCarriers(docs);
+        setSelectedLeadId(docs.length > 0 ? docs[0].id || "" : "");
       } catch (e) {
-        const tempLeads: Customer[] = [
-          {
-            id: "lead-1",
-            firstName: "Poplar",
-            lastName: "Springs Estates",
-            companyName: "Poplar Springs HOA",
-            address: "Poplar Springs, MS",
-            email: "board@poplarspringshoa.org",
-          },
-          {
-            id: "lead-2",
-            firstName: "Timber",
-            lastName: "Creek Alliances",
-            companyName: "Timber Creek Neighborhood Assoc",
-            address: "Timber Creek, MS",
-            email: "contact@timbercreekalliances.net",
-          },
-        ];
-        setCarriers(tempLeads);
-        setSelectedLeadId(tempLeads[0].id || "");
+        if (cancelled) return;
+        setCarriers([]);
+        setSelectedLeadId("");
+      } finally {
+        if (!cancelled) setIsLoadingLeads(false);
       }
     }
     loadLeads();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Update outreach template based on selected params
@@ -207,6 +174,10 @@ export default function AgenticOutreachDrawer({
 
   const handleSendCampaignInstance = () => {
     const lead = carriers.find((c) => c.id === selectedLeadId);
+    if (!lead) {
+      showToast("Select a real CRM lead before sending outreach.", "error");
+      return;
+    }
     const recipient = lead?.email || lead?.companyName || "the selected lead";
     // Honest behavior: save the drafted outreach to the workspace outbox (a tracked draft).
     // Actual email delivery is wired up separately (see the email-send follow-up).
@@ -288,26 +259,42 @@ export default function AgenticOutreachDrawer({
                 <label className="text-xs md:text-[11px] font-black uppercase tracking-wider text-zinc-400 block pl-1">
                   1. Target Growth Lead
                 </label>
-                <div className="grid grid-cols-1 gap-2">
-                  <select
-                    id="outreach-lead-select"
-                    value={selectedLeadId}
-                    onChange={(e) => setSelectedLeadId(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white focus:outline-none focus:border-forest-500/50 transition-all appearance-none uppercase tracking-wide"
-                  >
-                    {carriers.map((lead) => (
-                      <option
-                        key={lead.id}
-                        value={lead.id}
-                        className="bg-zinc-950 text-white"
-                      >
-                        {lead.companyName ||
-                          `${lead.firstName} ${lead.lastName}`}{" "}
-                        ({lead.address || "Local"})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {isLoadingLeads ? (
+                  <div className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-zinc-500 uppercase tracking-wide animate-pulse">
+                    Loading CRM leads…
+                  </div>
+                ) : carriers.length === 0 ? (
+                  <div className="w-full bg-white/[0.02] border border-white/10 rounded-2xl p-5 text-center space-y-1">
+                    <p className="text-sm font-bold text-white uppercase tracking-wide">
+                      No CRM leads available
+                    </p>
+                    <p className="text-xs md:text-[11px] text-zinc-500 font-medium">
+                      Add customers in the CRM to target real outreach. No
+                      sample contacts are used.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2">
+                    <select
+                      id="outreach-lead-select"
+                      value={selectedLeadId}
+                      onChange={(e) => setSelectedLeadId(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white focus:outline-none focus:border-forest-500/50 transition-all appearance-none uppercase tracking-wide"
+                    >
+                      {carriers.map((lead) => (
+                        <option
+                          key={lead.id}
+                          value={lead.id}
+                          className="bg-zinc-950 text-white"
+                        >
+                          {lead.companyName ||
+                            `${lead.firstName} ${lead.lastName}`}{" "}
+                          ({lead.address || "Local"})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Social proof toggle and slider metric config */}
@@ -549,7 +536,8 @@ export default function AgenticOutreachDrawer({
               <button
                 type="button"
                 onClick={handleSendCampaignInstance}
-                className="w-full py-5 bg-white text-black font-black uppercase tracking-[0.2em] text-sm rounded-[24px] shadow-2xl flex items-center justify-center gap-3 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer"
+                disabled={carriers.length === 0 || !selectedLeadId}
+                className="w-full py-5 bg-white text-black font-black uppercase tracking-[0.2em] text-sm rounded-[24px] shadow-2xl flex items-center justify-center gap-3 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0"
               >
                 <Send size={16} /> Disseminate Outreach Drive
               </button>

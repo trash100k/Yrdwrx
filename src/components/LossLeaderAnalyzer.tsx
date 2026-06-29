@@ -19,19 +19,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  updateDoc,
-  doc,
-  getDocs,
-  serverTimestamp,
-  addDoc
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { useTenant } from "../contexts/TenantContext";
+import { jobsRepo, inventoryRepo, materialLogsRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
 import {
   BarChart,
@@ -71,15 +59,18 @@ interface JobWithProfit {
   netProfit: number;
   marginPercent: number;
   isLossLeader: boolean;
+
+  // Raw `data` jsonb blob from the row, preserved so writes don't clobber other keys.
+  _data: Record<string, any>;
 }
 
 export default function LossLeaderAnalyzer() {
-  const { tenant } = useTenant();
   const { showToast } = useToast();
   
   const [jobs, setJobs] = useState<JobWithProfit[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "loss-leaders" | "profitable">("all");
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
@@ -99,90 +90,78 @@ export default function LossLeaderAnalyzer() {
   const [isProposalOpen, setIsProposalOpen] = useState(false);
   const [proposalNotes, setProposalNotes] = useState("");
 
-  const tenantId = tenant?.id || "genesis-1";
+  // Map a raw job row (Supabase, camelCase) into the analyzer view model using
+  // ONLY real values. Free-form profit params live in the row's `data` jsonb blob;
+  // flatten it first. Absent fields stay 0 / [] — never synthesized.
+  const buildJobView = (r: any): JobWithProfit => {
+    const view = { ...(r.data || {}), ...r };
 
-  // Fetch jobs & inventory items
+    const revenue = Number(view.revenue ?? view.amount) || 0;
+    const actualHours = Number(view.actualHours) || 0;
+    const laborRate = Number(view.laborRate) || 0;
+    const materialsUsed = Array.isArray(view.materialsUsed) ? view.materialsUsed : [];
+
+    const laborCost = actualHours * laborRate;
+    const materialCost = materialsUsed.reduce(
+      (acc: number, curr: any) => acc + (Number(curr.quantity) || 0) * (Number(curr.unitCost) || 0),
+      0
+    );
+    const totalActualCost = laborCost + materialCost;
+    const netProfit = revenue - totalActualCost;
+    const marginPercent = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+    // Only a job with real revenue logged can be classified a loss leader.
+    const isLossLeader = revenue > 0 && netProfit < 0;
+
+    return {
+      id: r.id,
+      title: view.title || "Untitled Job",
+      client: view.client || view.customerName || "",
+      status: (view.status || "").toString().toUpperCase(),
+      date: view.date || "",
+      assignedTo: view.assignedTo || view.crewName || "",
+      revenue,
+      actualHours,
+      laborRate,
+      materialsUsed,
+      laborCost,
+      materialCost,
+      totalActualCost,
+      netProfit,
+      marginPercent,
+      isLossLeader,
+      _data: r.data && typeof r.data === "object" ? r.data : {},
+    };
+  };
+
+  // Fetch jobs (realtime) & inventory items via Supabase repos (RLS tenant-scoped).
   useEffect(() => {
-    // 1. Fetch real-time jobs
-    const qJobs = query(collection(db, "jobs"), where("tenantId", "==", tenantId));
-    const unsubscribeJobs = onSnapshot(qJobs, (snapshot) => {
-      const fetchedJobs = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-        
-        // Stabilize standard estimated parameters
-        // If revenue isn't present, fall back to "amount" or a deterministic default based on job category/ID
-        let estimatePrice = Number(data.revenue || data.amount);
-        if (isNaN(estimatePrice) || estimatePrice <= 0) {
-          // Stable randomizer based on title string length or default
-          const factor = (data.title?.length || 10) % 5;
-          estimatePrice = 250 + factor * 90; // $250 - $610
-        }
+    // 1. Realtime jobs — repo pushes a fresh full list on any change.
+    const unsubscribeJobs = jobsRepo.subscribe((rows: any[]) => {
+      try {
+        setJobs((rows || []).map(buildJobView));
+        setLoadError(null);
+      } catch (err: any) {
+        console.error("Error mapping jobs:", err);
+        setLoadError(err?.message || "Failed to load jobs.");
+      } finally {
+        setLoading(false);
+      }
+    });
 
-        const actualHours = data.actualHours !== undefined ? Number(data.actualHours) : Math.max(3, (data.title?.length || 8) % 8 + 2);
-        const laborRate = data.laborRate !== undefined ? Number(data.laborRate) : 25; // default $25/hr
-        
-        // Materials used can be structured inside the job or fallback to seeded defaults
-        let materialsUsed = data.materialsUsed || [];
-        if (!data.materialsUsed && data.materialsUsed === undefined) {
-          // Give some realistic default items for display
-          const itemIDRange = (data.title?.length || 0) % 3;
-          if (itemIDRange === 1) {
-            materialsUsed = [{ itemId: "mulch", name: "Premium Red Mulch (Bag)", quantity: 5, unitCost: 8 }];
-          } else if (itemIDRange === 2) {
-            materialsUsed = [
-              { itemId: "fert", name: "Winterizer Turf Fertilizer", quantity: 2, unitCost: 28 },
-              { itemId: "seed", name: "Tall Fescue Seed Mix", quantity: 1, unitCost: 45 }
-            ];
-          } else {
-            materialsUsed = [];
-          }
-        }
-
-        // Calculations
-        const laborCost = actualHours * laborRate;
-        const materialCost = materialsUsed.reduce((acc: number, curr: any) => acc + (Number(curr.quantity) * Number(curr.unitCost || 0)), 0);
-        const totalActualCost = laborCost + materialCost;
-        const netProfit = estimatePrice - totalActualCost;
-        const marginPercent = estimatePrice > 0 ? (netProfit / estimatePrice) * 100 : 0;
-        const isLossLeader = netProfit < 0;
-
-        return {
-          id: docSnap.id,
-          title: data.title || "Lawn Trimming & Clean-up",
-          client: data.client || "Genesis Client",
-          status: data.status || "COMPLETED",
-          date: data.date || "2026-06-01",
-          assignedTo: data.assignedTo || "Crew A",
-          revenue: estimatePrice,
-          actualHours,
-          laborRate,
-          materialsUsed,
-          laborCost,
-          materialCost,
-          totalActualCost,
-          netProfit,
-          marginPercent,
-          isLossLeader,
-        };
+    // 2. Inventory for the materials picker.
+    inventoryRepo
+      .list()
+      .then((items: any[]) => setInventoryItems(items || []))
+      .catch((err: any) => {
+        console.error("Error loading inventory catalog:", err);
       });
 
-      setJobs(fetchedJobs);
-      setLoading(false);
-    });
-
-    // 2. Fetch real-time inventory for materials picker
-    const qInv = query(collection(db, "inventory"), where("tenantId", "==", tenantId));
-    getDocs(qInv).then((snapshot) => {
-      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setInventoryItems(items);
-    }).catch((err) => {
-      console.error("Error loading inventory catalog:", err);
-    });
-
     return () => unsubscribeJobs();
-  }, [tenantId]);
+  }, []);
 
-  // Handle single saving of values to Firestore
+  // Persist profit parameters to Supabase. These are free-form per-job extras, so
+  // they live in the row's `data` jsonb blob (merged with the existing blob so we
+  // don't clobber other keys like materialsUsed).
   const handleSaveParameters = async (jobId: string) => {
     if (!editRevenue || !editHours || !editLaborRate) {
       showToast({
@@ -192,27 +171,30 @@ export default function LossLeaderAnalyzer() {
       });
       return;
     }
-    
+
+    const job = jobs.find((j) => j.id === jobId);
+
     try {
-      const jobRef = doc(db, "jobs", jobId);
-      await updateDoc(jobRef, {
-        revenue: Number(editRevenue),
-        actualHours: Number(editHours),
-        laborRate: Number(editLaborRate),
-        updatedAt: serverTimestamp(),
+      await jobsRepo.update(jobId, {
+        data: {
+          ...(job?._data || {}),
+          revenue: Number(editRevenue),
+          actualHours: Number(editHours),
+          laborRate: Number(editLaborRate),
+        },
       });
 
       showToast({
         title: "Durable Metrics Synced",
-        description: "Job profit parameters saved successfully to cloud storage.",
+        description: "Job profit parameters saved successfully.",
         variant: "default"
       });
       setEditingJobId(null);
     } catch (error: any) {
       console.error("Error updating job params:", error);
       showToast({
-        title: "In-flight Sync Failed",
-        description: error.message || "Unable to save to Firestore.",
+        title: "Sync Failed",
+        description: error.message || "Unable to save job parameters.",
         variant: "destructive"
       });
     }
@@ -236,13 +218,18 @@ export default function LossLeaderAnalyzer() {
       return;
     }
 
-    const selectedItem = inventoryItems.find((i) => i.id === selectedInventoryId) || {
-      id: "custom",
-      name: inventoryItems.find((i) => i.id === selectedInventoryId)?.name || "Premium Granular Fertilizer",
-      unitCost: 15
-    };
+    // Use ONLY the real selected inventory item — no fabricated fallback item/cost.
+    const selectedItem = inventoryItems.find((i) => i.id === selectedInventoryId);
+    if (!selectedItem) {
+      showToast({
+        title: "Required Detail Missing",
+        description: "Please pick an item from the real inventory database.",
+        variant: "destructive"
+      });
+      return;
+    }
 
-    const cost = Number(selectedItem.unitCost || 12);
+    const cost = Number(selectedItem.unitCost) || 0;
     const updatedMaterials = [
       ...job.materialsUsed,
       {
@@ -254,31 +241,31 @@ export default function LossLeaderAnalyzer() {
     ];
 
     try {
-      const jobRef = doc(db, "jobs", job.id);
-      await updateDoc(jobRef, {
-        materialsUsed: updatedMaterials,
-        updatedAt: serverTimestamp()
+      // materialsUsed is a free-form per-job extra -> nest in the data jsonb blob.
+      await jobsRepo.update(job.id, {
+        data: {
+          ...(job._data || {}),
+          materialsUsed: updatedMaterials,
+        },
       });
 
-      // Deduct inventory stock as real enterprise execution
-      if (selectedItem.id !== "custom" && selectedItem.quantity !== undefined) {
-        const itemRef = doc(db, "inventory", selectedItem.id);
+      // Deduct inventory stock as real enterprise execution.
+      if (selectedItem.quantity !== undefined) {
         const nextQty = Math.max(0, Number(selectedItem.quantity || 0) - materialQty);
-        await updateDoc(itemRef, {
-          quantity: nextQty
-        });
-
-        // Add to global materialLogs as well for unified ledger matching
-        await addDoc(collection(db, "materialLogs"), {
-          itemId: selectedItem.id,
-          itemName: selectedItem.name,
-          quantity: materialQty,
-          type: "out",
-          tenantId,
-          timestamp: serverTimestamp(),
-          associatedJobName: job.title
-        });
+        await inventoryRepo.update(selectedItem.id, { quantity: nextQty });
+        setInventoryItems((prev) =>
+          prev.map((i) => (i.id === selectedItem.id ? { ...i, quantity: nextQty } : i))
+        );
       }
+
+      // Record a material-usage ledger entry (RLS stamps tenant; DB defaults timestamps).
+      await materialLogsRepo.create({
+        itemId: selectedItem.id,
+        itemName: selectedItem.name,
+        quantity: materialQty,
+        type: "out",
+        associatedJobName: job.title,
+      });
 
       showToast({
         title: "Materials Consumed",
@@ -304,20 +291,23 @@ export default function LossLeaderAnalyzer() {
     const removedItem = updatedMaterials.splice(index, 1)[0];
 
     try {
-      const jobRef = doc(db, "jobs", job.id);
-      await updateDoc(jobRef, {
-        materialsUsed: updatedMaterials,
-        updatedAt: serverTimestamp()
+      // materialsUsed lives in the data jsonb blob.
+      await jobsRepo.update(job.id, {
+        data: {
+          ...(job._data || {}),
+          materialsUsed: updatedMaterials,
+        },
       });
 
-      // Give back to inventory stock
-      if (removedItem.itemId && removedItem.itemId !== "custom") {
+      // Give back to inventory stock.
+      if (removedItem.itemId) {
         const itemObj = inventoryItems.find((i) => i.id === removedItem.itemId);
         if (itemObj) {
-          const itemRef = doc(db, "inventory", removedItem.itemId);
-          await updateDoc(itemRef, {
-            quantity: Number(itemObj.quantity || 0) + removedItem.quantity
-          });
+          const nextQty = Number(itemObj.quantity || 0) + removedItem.quantity;
+          await inventoryRepo.update(removedItem.itemId, { quantity: nextQty });
+          setInventoryItems((prev) =>
+            prev.map((i) => (i.id === removedItem.itemId ? { ...i, quantity: nextQty } : i))
+          );
         }
       }
 
@@ -337,7 +327,7 @@ export default function LossLeaderAnalyzer() {
 
   const handleOpenProposalGenerator = (job: JobWithProfit) => {
     setProposalJob(job);
-    setProposalNotes(`Dear ${job.client || "Client"},\n\nWe recently completed turf operations at your property. Due to highly compacted clay soils requiring extra aeration cycles and additional unit counts of fast-acting overseed fertilizer, actual field logs show overruns in labor hours (${job.actualHours} hrs vs the baseline estimated 4.0 hrs) and raw material costs. \n\nWe request adjusting the upcoming repeat contract rate from $${job.revenue.toFixed(2)} to $${(job.totalActualCost * 1.2).toFixed(2)} to ensure sustainable top-tier quality.`);
+    setProposalNotes(`Dear ${job.client || "Client"},\n\nWe recently completed work at your property. Our field logs show actual labor (${job.actualHours} hrs) and material costs that exceeded the quoted price. \n\nWe request adjusting the upcoming repeat contract rate from $${job.revenue.toFixed(2)} to $${(job.totalActualCost * 1.2).toFixed(2)} to keep this work sustainable. (Please review and edit before sending.)`);
     setIsProposalOpen(true);
   };
 
@@ -544,6 +534,17 @@ export default function LossLeaderAnalyzer() {
           <div className="py-20 text-center text-zinc-500 font-bold uppercase tracking-widest text-xs animate-pulse">
             Analyzing real logs and contract metrics...
           </div>
+        ) : loadError ? (
+          <div className="py-20 text-center space-y-2">
+            <p className="text-red-400 font-black uppercase tracking-widest text-xs">
+              Couldn't load jobs
+            </p>
+            <p className="text-zinc-500 text-xs italic">{loadError}</p>
+          </div>
+        ) : jobs.length === 0 ? (
+          <div className="py-20 text-center text-zinc-500 text-sm italic uppercase tracking-wider">
+            No jobs logged yet. Add jobs and log real revenue, crew hours, and materials to see profit analysis.
+          </div>
         ) : filteredJobs.length === 0 ? (
           <div className="py-20 text-center text-zinc-500 text-sm italic uppercase tracking-wider">
             No matching accounts or field estimates found under selected filters.
@@ -587,7 +588,7 @@ export default function LossLeaderAnalyzer() {
                               <p className="font-sans font-black uppercase text-sm text-white italic tracking-tight">{job.title}</p>
                               <p className="text-zinc-500 text-xs flex items-center gap-1.5 mt-0.5">
                                 <User size={12} />
-                                {job.client}
+                                {job.client || "—"}
                               </p>
                             </div>
                           </div>
@@ -779,19 +780,16 @@ export default function LossLeaderAnalyzer() {
                                       value={selectedInventoryId}
                                       onChange={(e) => setSelectedInventoryId(e.target.value)}
                                     >
-                                      <option value="">-- PICK REAL STOCK ITEM --</option>
+                                      <option value="">
+                                        {inventoryItems.length === 0
+                                          ? "-- NO INVENTORY ITEMS --"
+                                          : "-- PICK REAL STOCK ITEM --"}
+                                      </option>
                                       {inventoryItems.map((item) => (
                                         <option key={item.id} value={item.id}>
-                                          {item.name} (Stock: {item.quantity || 0} left • Cost: ${item.unitCost || 12})
+                                          {item.name} (Stock: {item.quantity || 0} left • Cost: ${Number(item.unitCost) || 0})
                                         </option>
                                       ))}
-                                      {inventoryItems.length === 0 && (
-                                        <>
-                                          <option value="soil">Garden Soil Mix ($18)</option>
-                                          <option value="seed">Premium Rye Mix ($45)</option>
-                                          <option value="stone">Pea Gravel Bag ($9)</option>
-                                        </>
-                                      )}
                                     </select>
                                   </div>
 
@@ -852,7 +850,7 @@ export default function LossLeaderAnalyzer() {
 
                                 <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-center text-xs">
                                   <span className="text-zinc-500">Property Key: <code className="text-zinc-400 font-mono">{job.id.substring(0, 8)}</code></span>
-                                  <span className="text-zinc-500">Crew Assigned: <strong className="text-white uppercase">{job.assignedTo}</strong></span>
+                                  <span className="text-zinc-500">Crew Assigned: <strong className="text-white uppercase">{job.assignedTo || "—"}</strong></span>
                                 </div>
                               </div>
 

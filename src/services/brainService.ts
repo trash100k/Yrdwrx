@@ -1,15 +1,7 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
 
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { knowledgeRepo } from "../lib/repos";
 
 export async function ingestKnowledge(
   content: string,
@@ -23,9 +15,9 @@ export async function ingestKnowledge(
     });
     const nodes = await response.json();
 
-    // Store in Firestore
+    // Persist each knowledge node via the Supabase repo (RLS stamps tenant).
     for (const node of nodes) {
-      await addDoc(collection(db, "knowledge"), {
+      await knowledgeRepo.create({
         ...node,
         lastUpdated: new Date().toISOString(),
         relevanceCount: 0,
@@ -40,9 +32,13 @@ export async function ingestKnowledge(
 
 export async function fetchRelevantMemory(topic: string) {
   try {
-    const q = query(collection(db, "knowledge"), where("topic", "==", topic));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map((doc) => doc.data().content).join("\n---\n");
+    // Repo is tenant-scoped by RLS; pull the full list and filter/score in JS.
+    const rows = await knowledgeRepo.list();
+    return rows
+      .filter((r: any) => r.topic === topic)
+      .map((r: any) => r.content)
+      .filter(Boolean)
+      .join("\n---\n");
   } catch (error) {
     console.error("Fetch Memory Failed:", error);
     return "";

@@ -30,16 +30,13 @@ import {
   Cell,
 } from "recharts";
 import { useState, useEffect } from "react";
+import { handleFirestoreError, OperationType } from "../lib/firebase";
 import {
-  collection,
-  onSnapshot,
-  query,
-  getDocs,
-  orderBy,
-  limit,
-  where,
-} from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+  systemLogsRepo,
+  customersRepo,
+  jobsRepo,
+  inventoryRepo,
+} from "../lib/repos";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 
@@ -94,24 +91,19 @@ export default function Reports() {
     fetchInventoryForecast();
     fetchRevenueBreakdown();
 
-    const tenantId = tenant?.id || "genesis-1";
-    const qLog = query(
-      collection(db, "systemLogs"),
-      where("tenantId", "==", tenantId),
-      orderBy("timestamp", "desc"),
-      limit(25),
-    );
-    const unsubscribe = onSnapshot(
-      qLog,
-      (snapshot) => {
-        setAuditLogs(
-          snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as any),
-        );
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "systemLogs");
-      },
-    );
+    // Audit feed — fresh full list on any change (repo is tenant-scoped by RLS).
+    // systemLogs rows are camelCase: event, userId, metadata, createdAt, level, message.
+    const unsubscribe = systemLogsRepo.subscribe((rows) => {
+      setAuditLogs(
+        (rows || []).slice(0, 25).map((r: any) => ({
+          id: r.id,
+          action: r.event || r.action || r.message || "EVENT",
+          user: r.userId || r.user || "system",
+          timestamp: r.createdAt || r.timestamp || r.created_at,
+          metadata: r.metadata || {},
+        })),
+      );
+    });
 
     return () => unsubscribe();
   }, [tenant]);
@@ -120,12 +112,12 @@ export default function Reports() {
     setIsMaintenanceLoading(true);
     const tenantId = tenant?.id || "genesis-1";
     try {
-      const customersSnap = await getDocs(
-        query(collection(db, "customers"), where("tenantId", "==", tenantId)),
-      );
-      const customers = customersSnap.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as any,
-      );
+      const customerRows = await customersRepo.list();
+      // Flatten the freeform jsonb blob so AI body sees the real per-row extras.
+      const customers = (customerRows || []).map((r: any) => ({
+        ...(r.data || {}),
+        ...r,
+      }));
       const res = await fetchApi("/api/reports/predictive-maintenance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -145,11 +137,12 @@ export default function Reports() {
     setIsPerformanceLoading(true);
     const tenantId = tenant?.id || "genesis-1";
     try {
-      const jobsSnap = await getDocs(
-        query(collection(db, "jobs"), where("tenantId", "==", tenantId)),
-      );
-      const jobs = jobsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
+      const jobRows = await jobsRepo.list();
+      // Flatten the freeform jsonb blob so service/amount extras are visible.
+      const jobs = (jobRows || []).map((r: any) => ({ ...(r.data || {}), ...r }));
 
+      // Job status is UPPERCASE (SCHEDULED | IN_PROGRESS | COMPLETED); lowercase to
+      // match a tolerant set of "done" synonyms.
       const isCompleted = (status: any) =>
         typeof status === "string" &&
         ["completed", "complete", "done", "paid", "closed"].includes(
@@ -190,14 +183,20 @@ export default function Reports() {
     setIsInventoryLoading(true);
     const tenantId = tenant?.id || "genesis-1";
     try {
-      const jobsSnap = await getDocs(
-        query(collection(db, "jobs"), where("tenantId", "==", tenantId)),
-      );
-      const jobs = jobsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
+      // Jobs drive material consumption; inventory gives current stock context.
+      const [jobRows, inventoryRows] = await Promise.all([
+        jobsRepo.list(),
+        inventoryRepo.list(),
+      ]);
+      const jobs = (jobRows || []).map((r: any) => ({ ...(r.data || {}), ...r }));
+      const inventory = (inventoryRows || []).map((r: any) => ({
+        ...(r.data || {}),
+        ...r,
+      }));
       const res = await fetchApi("/api/inventory/forecast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobs, tenantId }),
+        body: JSON.stringify({ jobs, inventory, tenantId }),
       });
       const data = await res.json();
       setInventory(data);

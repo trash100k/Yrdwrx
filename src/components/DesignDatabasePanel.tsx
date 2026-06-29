@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { designCatalogRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { Trash2, Plus, GripVertical, Save, Zap, HelpCircle } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
@@ -11,7 +10,6 @@ interface CatalogItem {
   name: string;
   description?: string;
   tags?: string[];
-  tenantId: string;
   metadata?: Record<string, any>;
 }
 
@@ -26,9 +24,8 @@ export function DesignDatabasePanel() {
 
   useEffect(() => {
     if (!tenant) return;
-    const q = query(collection(db, "design_catalog"), where("tenantId", "==", tenant.id));
-    const unsub = onSnapshot(q, (snap) => {
-      setItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CatalogItem)));
+    const unsub = designCatalogRepo.subscribe((rows: any[]) => {
+      setItems((rows || []) as CatalogItem[]);
     });
     return unsub;
   }, [tenant]);
@@ -36,12 +33,10 @@ export function DesignDatabasePanel() {
   const handleAddItem = async () => {
     if (!newItemName.trim() || !tenant) return;
     try {
-      await addDoc(collection(db, "design_catalog"), {
-        tenantId: tenant.id,
+      await designCatalogRepo.create({
         type: activeCategory,
         name: newItemName,
         description: newItemDesc,
-        createdAt: serverTimestamp()
       });
       setNewItemName("");
       setNewItemDesc("");
@@ -53,7 +48,7 @@ export function DesignDatabasePanel() {
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "design_catalog", id));
+      await designCatalogRepo.remove(id);
       showToast("Item removed", "success");
     } catch (err) {
       showToast("Failed to delete", "error");

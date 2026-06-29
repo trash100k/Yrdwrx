@@ -1,8 +1,7 @@
 // @ts-nocheck
 import React, { useState } from "react";
 import { useTenant } from "../contexts/TenantContext";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { tenantsRepo } from "../lib/repos";
 import { motion, AnimatePresence } from "motion/react";
 import { Leaf, Handshake, CheckCircle2 } from "lucide-react";
 import { safeStorage } from "../lib/storage";
@@ -29,10 +28,9 @@ export default function DisclaimerModal() {
     try {
       safeStorage.setItem("cutty_ai_disclaimer_accepted", "true");
       if (tenant && !tenant.id.startsWith("demo-")) {
-          const ref = doc(db, "tenants", tenant.id);
-          await updateDoc(ref, {
-            "legal.aiDisclaimerAccepted": true,
-            "legal.acceptedAt": new Date().toISOString()
+          await tenantsRepo.updateLegal({
+            aiDisclaimerAccepted: true,
+            acceptedAt: new Date().toISOString()
           });
       }
       setAccepted(true);

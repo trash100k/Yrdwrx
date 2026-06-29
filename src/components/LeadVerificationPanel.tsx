@@ -1,7 +1,6 @@
 import React from "react";
 import { Check, X, ShieldAlert, Target } from "lucide-react";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { customersRepo } from "../lib/repos";
 import { Customer } from "../types";
 import { useToast } from "../contexts/ToastContext";
 import { useAuditLog } from "../hooks/useAuditLog";
@@ -18,7 +17,7 @@ export function LeadVerificationPanel({ leads }: LeadVerificationPanelProps) {
 
   const handleApprove = async (lead: Customer) => {
     try {
-      await updateDoc(doc(db, "customers", lead.id!), {
+      await customersRepo.update(lead.id!, {
         status: "ACTIVE", // or leave it without status if not required
         priority: true, // we could default priority or let them configure
       });
@@ -31,7 +30,7 @@ export function LeadVerificationPanel({ leads }: LeadVerificationPanelProps) {
 
   const handleDeny = async (leadId: string, leadName: string) => {
     try {
-      await deleteDoc(doc(db, "customers", leadId));
+      await customersRepo.archive(leadId);
       showToast("Lead has been denied and removed.", "success");
       logAction("CRM", "Lead Denied", `Denied and removed lead: ${leadName}`);
     } catch (err: any) {

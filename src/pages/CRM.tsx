@@ -743,19 +743,11 @@ export default function CRM() {
     }).catch(() => {});
   };
 
-  const handleIngest = async () => {
-    setIsIngesting(true);
-    // Simulate ingesting some logs
-    const mockContent =
-      "Mrs. Gable at 12 Poplar Springs hates it when the mowers come before 9 AM because of her poodles. She also mentioned she wants to swap her azaleas for heat-tolerant hollies next season.";
-    const context = {
-      location: "Meridian, MS",
-      timestamp: new Date().toISOString(),
-    };
-
-    await ingestKnowledge(mockContent, context);
-    setIsIngesting(false);
-  };
+  // NOTE: this used to seed a fabricated "Mrs. Gable" note into the tenant's real
+  // knowledge base, which polluted a paying user's data. Knowledge is now captured
+  // for real via the AI assistant / dictation (which call ingestKnowledge with the
+  // user's own content), so the empty state just guides them there instead of injecting
+  // sample data.
 
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1538,16 +1530,11 @@ export default function CRM() {
                         <p className="text-xl font-black italic uppercase tracking-widest leading-none">
                           List Empty.
                         </p>
-                        <p className="text-sm font-medium text-white/40">
-                          No saved notes yet.
+                        <p className="text-sm font-medium text-white/40 max-w-xs mx-auto">
+                          No saved notes yet. Ask the assistant to "add a note for
+                          [client]" — anything you or the AI save shows up here.
                         </p>
                       </div>
-                      <button
-                        onClick={handleIngest}
-                        className="micro-label text-forest-400 hover:text-forest-300 transition-colors"
-                      >
-                        Start Learning
-                      </button>
                     </div>
                   )}
                 </div>

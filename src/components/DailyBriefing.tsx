@@ -42,39 +42,18 @@ export function DailyBriefing() {
       setBriefing(data);
     } catch (err) {
       console.error(err);
-      setBriefing(mockBriefing);
+      // Honest fallback: no fabricated metrics. Surface that the briefing
+      // couldn't be generated rather than showing made-up numbers.
+      setBriefing({
+        title: type === "morning" ? "Morning Overview" : "End of Day Summary",
+        hook: "We couldn't generate your briefing right now. Please try again shortly.",
+        alerts: [],
+        stats: [],
+        priorityJob: null,
+      });
     } finally {
       setIsGenerating(false);
     }
-  };
-  const mockBriefing = {
-    title: type === "morning" ? "Morning Overview" : "End of Day Summary",
-    hook:
-      type === "morning"
-        ? "Weather is clear. Green Team is prepped for the first job."
-        : "Metrics reached for 8/10 sites. Team 2 had a minor delay.",
-    alerts: [
-      {
-        id: 1,
-        text: "Mulch levels are low. Notify supplier?",
-        type: "inventory",
-        action: "email_supplier",
-      },
-      {
-        id: 2,
-        text: "Customer noted 'No mowing before 9 AM'. Notification sent.",
-        type: "preference",
-      },
-    ],
-    stats: [
-      { label: "Earning Projection", value: "+$1,450", trend: "+12%" },
-      { label: "Crew Efficiency", value: "94%", trend: "+2%" },
-    ],
-    priorityJob: {
-      name: "Residential Customer",
-      task: "Irrigation Check",
-      reason: "High growth potential for this property.",
-    },
   };
   if (!show || !briefing) return null;
   return (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { handleFirestoreError, OperationType } from "../lib/firebase";
+import { inspectionFormsRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { Plus, Trash2, Save, X, Edit, ListChecks } from "lucide-react";
@@ -15,12 +15,10 @@ export default function FormBuilder() {
 
   useEffect(() => {
     if (!tenant) return;
-    const q = query(collection(db, `tenants/${tenant.id}/inspection_forms`));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const unsubscribe = inspectionFormsRepo.subscribe((rows: any[]) => {
+      // Map the `name` column back to the `jobType` field the UI uses for display/edit.
+      const data = (rows || []).map((r) => ({ ...r, jobType: r.name ?? r.jobType ?? "" }));
       setForms(data);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "Error loading inspection forms");
     });
     return () => unsubscribe();
   }, [tenant]);
@@ -41,7 +39,7 @@ export default function FormBuilder() {
   const handleDelete = async (id: string) => {
     if (!tenant) return;
     try {
-      await deleteDoc(doc(db, `tenants/${tenant.id}/inspection_forms`, id));
+      await inspectionFormsRepo.remove(id);
       showToast("Form deleted successfully", "success");
     } catch (e: any) {
       showToast("Failed to delete form", "error");
@@ -56,19 +54,19 @@ export default function FormBuilder() {
     }
     
     try {
+      // The UI's "jobType" identifier maps to the `name` column.
       const payload = {
-        jobType: currentForm.jobType,
+        name: currentForm.jobType,
         fields: currentForm.fields,
-        updatedAt: serverTimestamp()
       };
 
       if (currentForm.id) {
-        await updateDoc(doc(db, `tenants/${tenant.id}/inspection_forms`, currentForm.id), payload);
+        await inspectionFormsRepo.update(currentForm.id, payload);
         showToast("Form updated successfully", "success");
       } else {
-        await addDoc(collection(db, `tenants/${tenant.id}/inspection_forms`), {
+        await inspectionFormsRepo.create({
           ...payload,
-          createdAt: serverTimestamp()
+          status: "active",
         });
         showToast("Form created successfully", "success");
       }
