@@ -26,7 +26,9 @@ export default function AiUsage() {
         if (active) setCredits(data);
       })
       .catch((err) => {
-        console.error("Failed to load AI usage credits", err);
+        // Expected when the credits endpoint is unavailable (demo / unconfigured) — the
+        // UI already shows a graceful error state, so this is a warning, not an error.
+        console.warn("AI usage credits unavailable", err?.message || err);
         if (active) setCreditsError(true);
       })
       .finally(() => {
