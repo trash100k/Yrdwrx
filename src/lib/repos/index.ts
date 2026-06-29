@@ -76,3 +76,5 @@ export const designVisionsRepo = makeRepo("customer_design_visions", { orderBy: 
 export const timesheetsRepo = makeRepo("timesheets", { orderBy: { column: "clock_in", ascending: false } });
 // System logs — READ path for the Reports audit feed (writes happen via logSystemEvent in lib/firebase).
 export const systemLogsRepo = makeRepo("system_logs", { orderBy: { column: "created_at", ascending: false } });
+// Chemical / pesticide application compliance logs (turf/tree regulatory requirement).
+export const complianceLogsRepo = makeRepo("compliance_logs", { orderBy: { column: "application_date", ascending: false } });

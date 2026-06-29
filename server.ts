@@ -4785,6 +4785,126 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // ===========================================================================
+  // EMAIL DELIVERY — the foundational gap. Real send via Resend when RESEND_API_KEY
+  // is set; otherwise returns { simulated: true } so the UI flow completes in
+  // dev/demo WITHOUT pretending it delivered (mirrors the AI mock-mode honesty).
+  // ===========================================================================
+  async function sendEmail({ to, subject, html, text, replyTo }: any) {
+    const key = process.env.RESEND_API_KEY;
+    const from = process.env.EMAIL_FROM || "YardWorx <onboarding@resend.dev>";
+    if (!key) return { sent: false, simulated: true, reason: "RESEND_API_KEY not configured" };
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: Array.isArray(to) ? to : [to],
+        subject,
+        html: html || undefined,
+        text: text || undefined,
+        reply_to: replyTo || undefined,
+      }),
+    });
+    if (!resp.ok) {
+      const e = await resp.text().catch(() => "");
+      throw new Error(`Resend ${resp.status}: ${e.slice(0, 200)}`);
+    }
+    const data = await resp.json().catch(() => ({}));
+    return { sent: true, id: data?.id || null };
+  }
+
+  app.post("/api/email/send", async (req: any, res) => {
+    try {
+      if (REQUIRE_AUTH && !req.user?.uid) return res.status(401).json({ error: "Unauthorized" });
+      const { to, subject, html, text, replyTo } = req.body || {};
+      const cap = (s: any, n: number) => String(s ?? "").slice(0, n);
+      if (!to || !subject) return res.status(400).json({ error: "to + subject required" });
+      const result = await sendEmail({
+        to: cap(to, 240),
+        subject: cap(subject, 300),
+        html: html ? cap(html, 60000) : undefined,
+        text: text ? cap(text, 60000) : undefined,
+        replyTo: replyTo ? cap(replyTo, 240) : undefined,
+      });
+      res.json({ success: true, ...result });
+    } catch (e: any) {
+      console.error("[email/send]", e?.message);
+      res.status(500).json({ error: e?.message || "Email send failed" });
+    }
+  });
+
+  // ===========================================================================
+  // TAILGATE CLOSEOUT — turn one spoken job-closeout into a STRUCTURED PLAN of
+  // proposed action cards. It PROPOSES; the client confirms and the existing
+  // invoice/scheduler/inventory handlers execute. Works keyless (mock fallback).
+  // ===========================================================================
+  app.post("/api/agent/closeout", aiLimiter, async (req: any, res) => {
+    try {
+      const { transcript, job, services } = req.body || {};
+      if (!transcript) return res.status(400).json({ error: "transcript required" });
+      const systemInstruction = `You are YardWorx's job-closeout planner. A landscaping contractor just finished a job and described it in plain speech. Convert it into a STRUCTURED PLAN of proposed actions the app will show as confirmation cards. NEVER invent a price you weren't told; if a price is implied ("the usual"), set "fromCatalog": true and leave amount null for the app to fill from the service catalog. Risk tiers: close_job/log_time/inventory/note = "low", schedule = "medium", invoice = "high".
+OUTPUT JSON ONLY, shape:
+{"summary":"one plain sentence","actions":[
+ {"type":"close_job","risk":"low","title":"...","durationMinutes":number|null},
+ {"type":"invoice","risk":"high","title":"...","lineItems":[{"description":"...","amount":number|null,"fromCatalog":boolean}],"total":number|null},
+ {"type":"schedule","risk":"medium","title":"...","when":"plain text"|null},
+ {"type":"inventory","risk":"low","title":"...","item":"...","action":"reorder"},
+ {"type":"note","risk":"low","title":"..."}
+]}`;
+      const ctx = `Transcript: ${String(transcript).slice(0, 1500)}\nJob: ${JSON.stringify(job || {}).slice(0, 1000)}\nService catalog: ${JSON.stringify(services || []).slice(0, 1500)}`;
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: ctx,
+        config: { systemInstruction, responseMimeType: "application/json" },
+      });
+      const plan = parseGeminiJson(response.text);
+      if (!plan || !Array.isArray(plan.actions) || !plan.actions.length) {
+        // Mock-mode / unparseable -> sensible default so the flow is testable keyless.
+        return res.json({
+          summary: "Closed the job and prepared an invoice.",
+          actions: [
+            { type: "close_job", risk: "low", title: "Mark job complete", durationMinutes: null },
+            { type: "invoice", risk: "high", title: "Invoice the client", lineItems: [{ description: "Service", amount: null, fromCatalog: true }], total: null },
+          ],
+          simulated: isMockMode,
+        });
+      }
+      res.json(plan);
+    } catch (e: any) {
+      console.error("[agent/closeout]", e?.message);
+      res.status(500).json({ error: e?.message || "Closeout planning failed" });
+    }
+  });
+
+  // ===========================================================================
+  // PROPERTY MEASUREMENT (pluggable) — survey-grade takeoff needs a real provider
+  // (MEASUREMENT_API_KEY). Without one we DO NOT fake a measurement; with a Gemini
+  // key we return a clearly-flagged rough AI estimate as a starting point.
+  // ===========================================================================
+  app.post("/api/measure/property", aiLimiter, async (req: any, res) => {
+    try {
+      const { address } = req.body || {};
+      if (!address) return res.status(400).json({ error: "address required" });
+      if (process.env.MEASUREMENT_API_KEY) {
+        return res.json({ source: "provider", configured: true, lawnSqft: null, note: "Measurement provider key set; vendor takeoff integration pending." });
+      }
+      if (isMockMode) {
+        return res.json({ source: "unavailable", configured: false, lawnSqft: null, message: "Automated property measurement needs a provider (MEASUREMENT_API_KEY)." });
+      }
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Estimate the typical residential lawn/maintainable area in square feet for this US address. Respond JSON {"lawnSqft": number, "confidence":"low"|"medium"}. Address: ${String(address).slice(0, 200)}`,
+        config: { responseMimeType: "application/json" },
+      });
+      const est = parseGeminiJson(response.text) || {};
+      res.json({ source: "ai_estimate", configured: false, lawnSqft: est.lawnSqft || null, confidence: est.confidence || "low", note: "Rough AI estimate — connect a measurement provider for survey-grade takeoff." });
+    } catch (e: any) {
+      console.error("[measure/property]", e?.message);
+      res.status(500).json({ error: e?.message || "Measurement failed" });
+    }
+  });
+
   // Test mode: return the configured app without opening a socket or the Live WebSocket.
   if (!startListening) return app;
 
