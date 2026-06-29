@@ -3,14 +3,28 @@
 // RLS scopes everything to the caller's tenant; makeRepo().create() auto-stamps tenant_id.
 import { makeRepo } from "./base";
 import { supabase } from "../supabase";
+import { geocodeAddress } from "../geocode";
 
 export { getCurrentProfile, clearProfileCache } from "./profile";
 export { documentsRepo } from "./documents";
 export { tenantsRepo } from "./tenant";
 
 // --- Customers (soft-delete enabled) ---
+const customersBase = makeRepo("customers", { orderBy: { column: "created_at" }, softDelete: true });
 export const customersRepo = {
-  ...makeRepo("customers", { orderBy: { column: "created_at" }, softDelete: true }),
+  ...customersBase,
+  // Geocode the address on create (best-effort) so customers get lat/lng for maps/routing.
+  async create(input: any) {
+    const i = { ...input };
+    if (i.address && i.lat == null && i.lng == null) {
+      const g = await geocodeAddress(i.address);
+      if (g) {
+        i.lat = g.lat;
+        i.lng = g.lng;
+      }
+    }
+    return customersBase.create(i);
+  },
   // Name OR phone lookup (used by Live Ear / on-site flows).
   async findByNameOrPhone(query: string) {
     const q = (query || "").trim();
@@ -45,8 +59,21 @@ export const tasksRepo = {
 };
 
 // --- Jobs ---
+const jobsBase = makeRepo("jobs", { orderBy: { column: "date", ascending: true } });
 export const jobsRepo = {
-  ...makeRepo("jobs", { orderBy: { column: "date", ascending: true } }),
+  ...jobsBase,
+  // Geocode the address on create (best-effort) so jobs get lat/lng for maps/routing.
+  async create(input: any) {
+    const i = { ...input };
+    if (i.address && i.lat == null && i.lng == null) {
+      const g = await geocodeAddress(i.address);
+      if (g) {
+        i.lat = g.lat;
+        i.lng = g.lng;
+      }
+    }
+    return jobsBase.create(i);
+  },
   async forCustomer(customerId: string) {
     const { data, error } = await supabase
       .from("jobs")
