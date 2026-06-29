@@ -423,6 +423,10 @@ export default function CRM() {
 
   const handleSaveToKeep = async () => {
     if (!selectedCustomer) return;
+    if (!auth) {
+      showToast("Google integration isn't configured yet.", "error");
+      return;
+    }
     setIsSyncingKeep(true);
     try {
       const provider = new GoogleAuthProvider();
@@ -456,6 +460,10 @@ export default function CRM() {
 
   const handleFetchEmails = async () => {
     if (!selectedCustomer) return;
+    if (!auth) {
+      showToast("Google integration isn't configured yet.", "error");
+      return;
+    }
     setIsFetchingEmails(true);
     try {
       const provider = new GoogleAuthProvider();
@@ -1017,7 +1025,12 @@ export default function CRM() {
          showToast("Sandbox: Imported 3 contacts from Workspace.", "success");
          return;
       }
-      
+
+      if (!auth) {
+        showToast("Google integration isn't configured yet.", "error");
+        return;
+      }
+
       const provider = new GoogleAuthProvider();
       provider.addScope("https://www.googleapis.com/auth/contacts.readonly");
       

@@ -378,6 +378,10 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
 
   const handleSaveToDrive = async () => {
     if (!result) return;
+    if (!auth) {
+      showToast("Google integration isn't configured yet.", "error");
+      return;
+    }
     setIsSavingDrive(true);
     try {
       const provider = new GoogleAuthProvider();

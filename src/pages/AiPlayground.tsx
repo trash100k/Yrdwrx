@@ -170,13 +170,13 @@ export default function AiPlayground() {
 
   const handleTestDatabase = async () => {
     setLoading(true);
-    if (!auth.currentUser) {
+    if (!auth?.currentUser) {
        setResult("Please log in using Google Auth first to test database.");
        setLoading(false);
        return;
     }
     try {
-      await setDoc(doc(db, "telemetry", auth.currentUser.uid), {
+      await setDoc(doc(db, "telemetry", auth?.currentUser?.uid), {
         lastInteraction: new Date().toISOString(),
         testData: "Firebase functionality successfully confirmed."
       });
@@ -297,7 +297,7 @@ export default function AiPlayground() {
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><Database size={18}/> Firebase Auth & Firestore</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                <p className="text-sm text-zinc-400">User Identity: {auth.currentUser ? auth.currentUser.email : "Not Authenticated"}</p>
+                <p className="text-sm text-zinc-400">User Identity: {auth?.currentUser ? auth?.currentUser?.email : "Not Authenticated"}</p>
                 <div className="flex gap-2">
                    <Button onClick={handleTestDatabase} isLoading={loading} variant="secondary">Test Firestore Write</Button>
                 </div>

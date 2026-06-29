@@ -500,6 +500,10 @@ export default function Dashboard() {
 
   // Connect to Google Workspace with requested scopes
   const handleConnectWorkspace = async () => {
+    if (!auth) {
+      showToast("Google integration isn't configured yet.", "error");
+      return;
+    }
     setIsConnectingWorkspace(true);
     try {
       const provider = new GoogleAuthProvider();
@@ -665,7 +669,7 @@ export default function Dashboard() {
     }
 
     try {
-      const userEmail = auth.currentUser?.email || "foreman@example.com";
+      const userEmail = auth?.currentUser?.email || "foreman@example.com";
       const rawMsg = [
         `To: ${userEmail}`,
         "Content-Type: text/html; charset=utf-8",

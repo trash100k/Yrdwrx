@@ -702,6 +702,10 @@ export default function CrewSuite() {
 
           <button 
                onClick={async () => {
+                 if (!auth) {
+                   showToast("Google integration isn't configured yet.", "error");
+                   return;
+                 }
                  try {
                    const provider = new GoogleAuthProvider();
                    provider.addScope("https://www.googleapis.com/auth/chat.messages");

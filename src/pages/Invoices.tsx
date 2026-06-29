@@ -346,6 +346,10 @@ export default function Invoices() {
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
 
   const handleGeneratePdf = async (inv: any) => {
+    if (!auth) {
+      showToast("Google integration isn't configured yet.", "error");
+      return;
+    }
     try {
       setGeneratingPdfId(inv.id);
 
