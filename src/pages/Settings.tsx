@@ -439,6 +439,48 @@ export default function Settings() {
 
       <ServicePricingCatalog />
 
+      {/* Business defaults that power Job Costing, Instant Estimate, Owner Digest, and the
+          Design Studio's zone-aware plant matching. Saved on blur (demo-mode guarded). */}
+      <section className="space-y-6">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight italic text-white">Business Defaults</h2>
+          <p className="text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
+            Power pricing, costing & AI plant matching. Leave blank to use sensible defaults.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {([
+            { key: "laborRate", label: "Labor Rate ($/hour)", type: "number", placeholder: "35", hint: "Job Costing & Customer Intelligence" },
+            { key: "ratePerSqft", label: "Mowing Rate ($/sq ft)", type: "number", placeholder: "0.02", hint: "Instant Estimate" },
+            { key: "zone", label: "USDA Hardiness Zone (1–13)", type: "number", placeholder: "7", hint: "Design Studio plant matching" },
+            { key: "ownerEmail", label: "Owner Email (for digests)", type: "email", placeholder: "owner@company.com", hint: "Owner Digest 'email me'" },
+          ] as const).map((f) => (
+            <div key={f.key} className="bg-zinc-900/60 border border-white/10 rounded-2xl p-4">
+              <label className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">{f.label}</label>
+              <input
+                type={f.type}
+                step={f.type === "number" ? "any" : undefined}
+                defaultValue={(tenant?.settings as any)?.[f.key] ?? ""}
+                onBlur={(e) => {
+                  if (!tenant) return;
+                  if (tenant.id.startsWith("demo-")) {
+                    showToast("Settings updates are disabled in Demo mode.");
+                    return;
+                  }
+                  const raw = e.target.value.trim();
+                  const val = f.type === "number" ? (raw === "" ? null : Number(raw)) : raw || null;
+                  tenantsRepo.updateSettings({ [f.key]: val });
+                  showToast("Saved.", "success");
+                }}
+                className="w-full bg-black border-2 border-white/10 rounded-xl px-4 py-2.5 text-sm text-white/90 focus:border-forest-500/50 outline-none"
+                placeholder={f.placeholder}
+              />
+              <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest mt-2">{f.hint}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <BookingLinkSection tenantId={tenant?.id} />
 
       <QuickBooksSection />
