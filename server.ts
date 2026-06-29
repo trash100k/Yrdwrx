@@ -3410,7 +3410,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const { prompt } = req.body;
       const operation = await ai.models.generateVideos({
-         model: 'veo-3.1-lite-generate-preview',
+         model: 'veo-2.0-generate-001',
          prompt: prompt || 'A neon hologram of a lawn care truck',
          config: {
            numberOfVideos: 1,
@@ -4255,7 +4255,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const { prompt, aspectRatio, imageData, imageMimeType } = req.body;
       const params: any = {
-        model: "veo-3.1-fast-generate-preview",
+        model: "veo-2.0-generate-001",
         config: { aspectRatio: aspectRatio || "16:9", personGeneration: "allow_adult" }
       };
       if (prompt) params.prompt = prompt;
