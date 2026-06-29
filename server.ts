@@ -1192,7 +1192,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       if (!process.env.GEMINI_API_KEY) throw new Error("Missing Gemini key");
       const draftRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1619,7 +1619,7 @@ export async function createApp({ startListening = false } = {}) {
         throw new Error("Missing Gemini API Key");
 
       const draftRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1658,7 +1658,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!process.env.GEMINI_API_KEY)
         throw new Error("Missing Gemini API Key for generation");
       const draftRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1732,7 +1732,7 @@ export async function createApp({ startListening = false } = {}) {
         throw new Error("Missing Gemini API Key for payroll audit");
 
       const draftRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2313,8 +2313,10 @@ export async function createApp({ startListening = false } = {}) {
       // Audio bytes can't be mocked — degrade cleanly so the client treats it as "voice off".
       if (isMockMode) return aiUnavailable(res, "Text-to-speech requires GEMINI_API_KEY", "TTS_UNAVAILABLE");
 
-      const model = ai.models.get({ model: "gemini-3.1-flash-tts-preview" });
-      const response = await model.generateContent({
+      // Real @google/genai shape: ai.models.generateContent({ model, contents, config }).
+      // (Was ai.models.get(...).generateContent(...), which is not a real SDK method.)
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
         contents: text,
         config: {
           responseModalities: ["AUDIO"],
@@ -3306,30 +3308,30 @@ export async function createApp({ startListening = false } = {}) {
         return res.json({ imageUrl: image, mock: true });
       }
 
-      // Using the required Interactions API for the bleeding-edge image model
-      const interaction = await ai.interactions.create({
-        model: 'gemini-3.1-flash-image',
-        input: [
-            { type: "image", data: base64Data, mime_type: mimeType },
-            { type: "text", text: "Transform this yard. " + description }
+      // Real @google/genai image editing: generateContent with an image-capable model and
+      // IMAGE+TEXT response modalities. (Was ai.interactions.create(...), an API that does
+      // not exist in the SDK.) The model returns the edited image as inlineData.
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inlineData: { mimeType, data: base64Data } },
+              { text: "Transform this yard. " + description },
+            ],
+          },
         ],
-        response_modalities: ['image', 'text'],
-        generation_config: {
-          image_config: { aspect_ratio: "16:9", image_size: "1K" }
-        }
+        config: { responseModalities: ["IMAGE", "TEXT"] },
       });
 
       let generatedImageUrl = null;
-      if (interaction.steps) {
-        for (const step of interaction.steps) {
-          if (step.type === 'model_output') {
-            const imageContent = step.content?.find((c: any) => c.type === 'image');
-            if (imageContent && imageContent.data) {
-                const base64Str = imageContent.data;
-                const mType = imageContent.mime_type || 'image/png';
-                generatedImageUrl = `data:${mType};base64,${base64Str}`;
-            }
-          }
+      const parts = response.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        if (part.inlineData?.data) {
+          const mType = part.inlineData.mimeType || "image/png";
+          generatedImageUrl = `data:${mType};base64,${part.inlineData.data}`;
+          break;
         }
       }
 
@@ -4165,14 +4167,14 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/playground/chat", async (req, res) => {
     try {
       const { message, history, enableSearch, enableMaps, enableThinking, isLite } = req.body;
-      let model = isLite ? "gemini-3.1-flash-lite" : "gemini-3.5-flash";
+      let model = isLite ? "gemini-2.5-flash-lite" : "gemini-2.5-flash";
       const config: any = {};
       const tools = [];
       if (enableSearch) tools.push({ googleSearch: {} });
       if (enableMaps) tools.push({ googleMaps: {} });
       if (tools.length > 0) config.tools = tools;
       if (enableThinking) {
-        model = "gemini-3.1-pro-preview";
+        model = "gemini-2.5-pro";
         config.thinkingConfig = { thinkingLevel: "HIGH" };
       }
       
@@ -4197,7 +4199,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const { mimeType, data } = req.body;
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: [{ role: "user", parts: [{ inlineData: { mimeType, data } }, { text: "Transcribe this audio precisely." }] }]
       });
       res.json({ text: response.text });
@@ -4208,7 +4210,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const { mimeType, data, prompt } = req.body;
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-2.5-pro",
         contents: [{ role: "user", parts: [{ inlineData: { mimeType, data } }, { text: prompt || "Analyze this media and describe key information." }] }]
       });
       res.json({ text: response.text });
@@ -4219,7 +4221,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const { prompt, aspectRatio, quality } = req.body;
       const response = await ai.models.generateImages({
-        model: quality === "standard" ? "gemini-3.1-flash-image" : "gemini-3-pro-image-preview",
+        model: quality === "standard" ? "imagen-3.0-fast-generate-001" : "imagen-3.0-generate-002",
         prompt,
         config: { numberOfImages: 1, aspectRatio: aspectRatio || "1:1", outputMimeType: "image/jpeg" }
       });
@@ -4571,7 +4573,7 @@ export async function createApp({ startListening = false } = {}) {
 
     try {
       const session = await ai.live.connect({
-        model: "gemini-3.1-flash-live-preview",
+        model: "gemini-2.0-flash-live-001",
         callbacks: {
           onmessage: (message: LiveServerMessage) => {
             // Forward audio to client
