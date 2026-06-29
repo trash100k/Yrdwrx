@@ -62,6 +62,8 @@ const AiPlayground = lazy(() => import("./pages/AiPlayground"));
 const Closeout = lazy(() => import("./pages/Closeout"));
 const JobCosting = lazy(() => import("./pages/JobCosting"));
 const EstimateStudio = lazy(() => import("./pages/EstimateStudio"));
+const CustomerIntelligence = lazy(() => import("./pages/CustomerIntelligence"));
+const OwnerDigest = lazy(() => import("./pages/OwnerDigest"));
 
 const PageLoader = () => (
   <div className="flex h-screen w-full items-center justify-center bg-zinc-950">
@@ -369,6 +371,8 @@ useEffect(() => {
                                 <Route path="closeout" element={<Closeout />} />
                                 <Route path="job-costing" element={<JobCosting />} />
                                 <Route path="estimate" element={<EstimateStudio />} />
+                                <Route path="customer-intel" element={<CustomerIntelligence />} />
+                                <Route path="owner-digest" element={<OwnerDigest />} />
                                 <Route
                                   path="*"
                                   element={<Navigate to="/admin" replace />}

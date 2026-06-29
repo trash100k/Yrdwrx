@@ -374,6 +374,22 @@ export default function Layout() {
       allowedRoles: ["owner", "admin"],
     },
     {
+      id: "customerIntel",
+      icon: Activity,
+      label: "Customer Intel",
+      path: `${rolePrefix}/customer-intel`,
+      group: "BUSINESS",
+      allowedRoles: ["owner", "admin"],
+    },
+    {
+      id: "ownerDigest",
+      icon: FileText,
+      label: "Owner Digest",
+      path: `${rolePrefix}/owner-digest`,
+      group: "BUSINESS",
+      allowedRoles: ["owner", "admin"],
+    },
+    {
       id: "agent",
       icon: Bot,
       label: "YardPilot",
