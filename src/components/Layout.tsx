@@ -384,6 +384,22 @@ export default function Layout() {
       allowedRoles: ["owner", "admin"],
     },
     {
+      id: "referrals",
+      icon: Gift,
+      label: "Referrals",
+      path: `${rolePrefix}/referrals`,
+      group: "BUSINESS",
+      allowedRoles: ["owner", "admin"],
+    },
+    {
+      id: "equipment",
+      icon: Wrench,
+      label: "Equipment",
+      path: `${rolePrefix}/equipment`,
+      group: "OPERATIONS",
+      allowedRoles: ["owner", "admin", "foreman"],
+    },
+    {
       id: "ownerDigest",
       icon: FileText,
       label: "Owner Digest",
