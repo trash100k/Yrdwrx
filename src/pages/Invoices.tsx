@@ -33,6 +33,7 @@ import {
   Printer,
   Repeat,
   FileSignature,
+  Bell,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
@@ -406,6 +407,131 @@ export default function Invoices() {
   };
 
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
+  // Per-row spinner/disable while a payment reminder is being sent.
+  const [remindingId, setRemindingId] = useState<string | null>(null);
+
+  // Send an overdue/balance payment reminder for an unpaid invoice. Resolves the
+  // client's email (then phone) from the invoice or the customer roster, computes the
+  // outstanding balance, and emails a portal pay link — falling back to SMS. Branches
+  // honestly on the server's {sent}/{simulated} shapes so we never claim a delivery
+  // that didn't actually happen.
+  const handleSendReminder = async (inv: any) => {
+    if (remindingId) return;
+    const customer = customers.find(
+      (c: any) => c.id === (inv.customerId || inv.clientId),
+    );
+    const email = inv.clientEmail || inv.email || customer?.email || "";
+    const phone = inv.clientPhone || inv.phone || customer?.phone || "";
+    if (!email && !phone) {
+      showToast("No email or phone on file.", "error");
+      return;
+    }
+    const balance = (Number(inv.amount) || 0) - (Number((inv as any).amountPaid) || 0);
+    const clientName = inv.client || "there";
+    const invLabel = `INV-${(inv as any).number || String(inv.id).slice(0, 6)}`;
+    const payLink = `${window.location.origin}/portal/${inv.customerId || inv.clientId || ""}`;
+    const tenantId = tenant?.id || "genesis-1";
+
+    setRemindingId(inv.id);
+    try {
+      if (email) {
+        const res = await fetchApi("/api/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: email,
+            subject: `Payment reminder — ${invLabel}`,
+            text: `Hi ${clientName}, this is a friendly reminder that ${formatCurrency(balance)} is due on ${invLabel}. Pay securely: ${payLink}`,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data?.error || "Could not send reminder.", "error");
+          return;
+        }
+        if (data?.simulated) {
+          showToast("Email isn't configured — reminder not actually sent.", "info");
+          return;
+        }
+        if (data?.sent) {
+          await logSystemEvent("INVOICE_REMINDER_SENT", {
+            invoiceId: inv.id,
+            client: inv.client,
+            channel: "email",
+            to: email,
+            balance,
+            tenantId,
+          });
+          showToast(`Payment reminder emailed to ${clientName}.`, "success");
+          return;
+        }
+        showToast("Could not send reminder.", "error");
+        return;
+      }
+
+      // No email on file — fall back to SMS with a short reminder + pay link.
+      const res = await fetchApi("/api/sms/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: phone,
+          message: `Reminder: ${formatCurrency(balance)} is due on ${invLabel}. Pay securely: ${payLink}`,
+          customerId: inv.customerId || inv.clientId || "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data?.error || "Could not send reminder.", "error");
+        return;
+      }
+      if (data?.simulated) {
+        showToast("SMS isn't configured — reminder not actually sent.", "info");
+        return;
+      }
+      if (data?.sent || data?.delivered) {
+        await logSystemEvent("INVOICE_REMINDER_SENT", {
+          invoiceId: inv.id,
+          client: inv.client,
+          channel: "sms",
+          to: phone,
+          balance,
+          tenantId,
+        });
+        showToast(`Payment reminder texted to ${clientName}.`, "success");
+        return;
+      }
+      showToast("Could not send reminder.", "error");
+    } catch (err: any) {
+      showToast(err?.message || "Could not send reminder.", "error");
+    } finally {
+      setRemindingId(null);
+    }
+  };
+
+  // Finalize a draft estimate into a live invoice: flip status to "sent" and, if it
+  // has no due date yet, set one ~30 days out. Honest try/catch — only toast success
+  // after the write lands.
+  const handleFinalizeEstimate = async (inv: any) => {
+    const tenantId = tenant?.id || "genesis-1";
+    try {
+      const update: any = { status: "sent" };
+      if (!inv.dueDate) {
+        update.dueDate = new Date(Date.now() + 30 * 86400000)
+          .toISOString()
+          .slice(0, 10);
+      }
+      await invoicesRepo.update(inv.id, update);
+      await logSystemEvent("ESTIMATE_FINALIZED", {
+        invoiceId: inv.id,
+        client: inv.client,
+        tenantId,
+      });
+      showToast("Estimate sent as invoice.", "success");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `invoices/${inv.id}`);
+      showToast(err?.message || "Could not finalize estimate.", "error");
+    }
+  };
 
   const handleGeneratePdf = async (inv: any) => {
     if (!auth) {
@@ -648,6 +774,112 @@ export default function Invoices() {
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `invoices/${inv.id}`);
+    }
+  };
+
+  // Create the invoice from the draft modal. `mode` controls the persisted status:
+  // "estimate" -> draft (Save as estimate), "invoice" -> sent (Send Invoice). All other
+  // logic (billing math, customer linkage, auto-schedule, offline queue) is shared.
+  const handleCreateInvoice = async (mode: "estimate" | "invoice") => {
+    const path = "invoices";
+    const tenantId = tenant?.id || "genesis-1";
+    if (!aiAnalysis) return;
+    const status = mode === "estimate" ? "draft" : "sent";
+    // Billing math (mirror the summary block): subtotal -> discount -> tax -> total.
+    const subtotal = (aiAnalysis.items || []).reduce((acc: number, curr: any) => acc + ((curr.rate || 0) * (curr.quantity || 0)), 0);
+    const discountAmt = Math.min(Number(discount) || 0, subtotal);
+    const taxableBase = subtotal - discountAmt;
+    const taxAmount = taxableBase * ((Number(taxRate) || 0) / 100);
+    const calculatedTotal = taxableBase + taxAmount;
+    const invNumber = nextInvoiceNumber();
+    const today = new Date();
+    const dueDate = new Date(today.getTime() + (Number(dueDays) || 0) * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const billing = {
+      number: invNumber,
+      subtotal,
+      discount: discountAmt,
+      taxRate: Number(taxRate) || 0,
+      taxAmount,
+    };
+    // Resolve the linked customer id so the invoice attributes revenue
+    // to a customer (invoices.customer_id). Prefer the explicit selector,
+    // then any customerId carried in from CRM/job context.
+    const customerId = selectedCustomerId || aiAnalysis.customerId || "";
+    try {
+      let invoiceId = "";
+      if (navigator.onLine) {
+        const created = await invoicesRepo.create(
+          toInvoiceRow({
+            client: aiAnalysis.clientName,
+            amount: calculatedTotal,
+            items: aiAnalysis.items,
+            status,
+            dueDate,
+            // Persist the customer linkage for profitability/job costing/reporting.
+            ...(customerId ? { customerId } : {}),
+            // Sequential number + tax/discount breakdown + optional job link.
+            data: { ...billing, ...(aiAnalysis.jobId ? { jobId: aiAnalysis.jobId } : {}) },
+          }),
+        );
+        invoiceId = created?.id;
+        await logSystemEvent(
+          mode === "estimate" ? "ESTIMATE_CREATED_FROM_AI" : "INVOICE_CREATED_FROM_AI",
+          {
+            invoiceId: created?.id,
+            client: aiAnalysis.clientName,
+            customerId,
+            tenantId,
+          },
+        );
+      } else {
+        // Note: Offline scheduling sync not fully linked here for simplicity
+        await syncService.queueAction(
+          "CREATE",
+          "invoices",
+          {
+            client: aiAnalysis.clientName,
+            amount: calculatedTotal,
+            items: aiAnalysis.items,
+            status,
+            dueDate,
+            ...(customerId ? { customerId } : {}),
+            ...billing,
+            ...(aiAnalysis.jobId ? { jobId: aiAnalysis.jobId } : {}),
+            createdAt: new Date().toISOString(),
+          },
+          tenantId,
+        );
+        await logSystemEvent(
+          mode === "estimate"
+            ? "ESTIMATE_CREATED_FROM_AI_OFFLINE"
+            : "INVOICE_CREATED_FROM_AI_OFFLINE",
+          { client: aiAnalysis.clientName, customerId, tenantId },
+        );
+      }
+
+      if (autoSchedule && invoiceId && navigator.onLine) {
+        await jobsRepo.create({
+          title: aiAnalysis.items[0]?.description || "Scheduled Service",
+          date: scheduleDate || new Date().toISOString().split('T')[0],
+          status: "SCHEDULED",
+          // Link the scheduled job to the same customer so job costing lines up.
+          ...(customerId ? { customerId } : {}),
+          data: {
+            client: aiAnalysis.clientName,
+            invoiceId,
+          },
+        });
+      }
+
+      showToast(
+        mode === "estimate" ? "Estimate saved as draft." : "Invoice sent.",
+        "success",
+      );
+      setShowAIModal(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, path);
     }
   };
 
@@ -894,6 +1126,33 @@ export default function Invoices() {
                     >
                       <Repeat size={18} aria-hidden="true" />
                     </button>
+                    {!["paid", "draft", "void", "cancelled", "canceled"].includes(
+                      (inv.status || "").toLowerCase(),
+                    ) && (
+                      <button
+                        onClick={() => handleSendReminder(inv)}
+                        disabled={remindingId === inv.id}
+                        className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-md transition-all disabled:opacity-50"
+                        aria-label={`Send payment reminder to ${inv.client}`}
+                        title="Send payment reminder"
+                      >
+                        {remindingId === inv.id ? (
+                          <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Bell size={18} aria-hidden="true" />
+                        )}
+                      </button>
+                    )}
+                    {(inv.status || "").toLowerCase() === "draft" && (
+                      <button
+                        onClick={() => handleFinalizeEstimate(inv)}
+                        className="p-2.5 text-forest-400 hover:bg-forest-500/10 rounded-md transition-all"
+                        aria-label={`Send / finalize estimate for ${inv.client}`}
+                        title="Send / Finalize estimate as invoice"
+                      >
+                        <Send size={18} aria-hidden="true" />
+                      </button>
+                    )}
                     {inv.status !== "paid" && (
                       <button
                         onClick={() => handleConvertToContract(inv)}
@@ -1425,98 +1684,14 @@ export default function Invoices() {
                     Cancel
                   </button>
                   <button
-                    onClick={async () => {
-                      const path = "invoices";
-                      const tenantId = tenant?.id || "genesis-1";
-                      if (!aiAnalysis) return;
-                      // Billing math (mirror the summary block): subtotal -> discount -> tax -> total.
-                      const subtotal = (aiAnalysis.items || []).reduce((acc: number, curr: any) => acc + ((curr.rate || 0) * (curr.quantity || 0)), 0);
-                      const discountAmt = Math.min(Number(discount) || 0, subtotal);
-                      const taxableBase = subtotal - discountAmt;
-                      const taxAmount = taxableBase * ((Number(taxRate) || 0) / 100);
-                      const calculatedTotal = taxableBase + taxAmount;
-                      const invNumber = nextInvoiceNumber();
-                      const today = new Date();
-                      const dueDate = new Date(today.getTime() + (Number(dueDays) || 0) * 86400000)
-                        .toISOString()
-                        .slice(0, 10);
-                      const billing = {
-                        number: invNumber,
-                        subtotal,
-                        discount: discountAmt,
-                        taxRate: Number(taxRate) || 0,
-                        taxAmount,
-                      };
-                      // Resolve the linked customer id so the invoice attributes revenue
-                      // to a customer (invoices.customer_id). Prefer the explicit selector,
-                      // then any customerId carried in from CRM/job context.
-                      const customerId = selectedCustomerId || aiAnalysis.customerId || "";
-                      try {
-                        let invoiceId = "";
-                        if (navigator.onLine) {
-                          const created = await invoicesRepo.create(
-                            toInvoiceRow({
-                              client: aiAnalysis.clientName,
-                              amount: calculatedTotal,
-                              items: aiAnalysis.items,
-                              status: "sent",
-                              dueDate,
-                              // Persist the customer linkage for profitability/job costing/reporting.
-                              ...(customerId ? { customerId } : {}),
-                              // Sequential number + tax/discount breakdown + optional job link.
-                              data: { ...billing, ...(aiAnalysis.jobId ? { jobId: aiAnalysis.jobId } : {}) },
-                            }),
-                          );
-                          invoiceId = created?.id;
-                          await logSystemEvent("INVOICE_CREATED_FROM_AI", {
-                            invoiceId: created?.id,
-                            client: aiAnalysis.clientName,
-                            customerId,
-                            tenantId,
-                          });
-                        } else {
-                          // Note: Offline scheduling sync not fully linked here for simplicity
-                          await syncService.queueAction(
-                            "CREATE",
-                            "invoices",
-                            {
-                              client: aiAnalysis.clientName,
-                              amount: calculatedTotal,
-                              items: aiAnalysis.items,
-                              status: "sent",
-                              dueDate,
-                              ...(customerId ? { customerId } : {}),
-                              ...billing,
-                              ...(aiAnalysis.jobId ? { jobId: aiAnalysis.jobId } : {}),
-                              createdAt: new Date().toISOString(),
-                            },
-                            tenantId,
-                          );
-                          await logSystemEvent(
-                            "INVOICE_CREATED_FROM_AI_OFFLINE",
-                            { client: aiAnalysis.clientName, customerId, tenantId },
-                          );
-                        }
-
-                        if (autoSchedule && invoiceId && navigator.onLine) {
-                            await jobsRepo.create({
-                                title: aiAnalysis.items[0]?.description || "Scheduled Service",
-                                date: scheduleDate || new Date().toISOString().split('T')[0],
-                                status: "SCHEDULED",
-                                // Link the scheduled job to the same customer so job costing lines up.
-                                ...(customerId ? { customerId } : {}),
-                                data: {
-                                  client: aiAnalysis.clientName,
-                                  invoiceId,
-                                },
-                            });
-                        }
-
-                        setShowAIModal(false);
-                      } catch (err) {
-                        handleFirestoreError(err, OperationType.CREATE, path);
-                      }
-                    }}
+                    onClick={() => handleCreateInvoice("estimate")}
+                    className="px-6 py-2.5 bg-white/5 border border-white/10 hover:bg-white/10 text-white rounded-lg text-sm font-medium transition-all"
+                    title="Save as a draft estimate (status: draft)"
+                  >
+                    Save as Estimate
+                  </button>
+                  <button
+                    onClick={() => handleCreateInvoice("invoice")}
                     className="px-6 py-2.5 bg-forest-500 hover:bg-forest-600 text-white rounded-lg text-sm font-medium shadow-sm transition-all"
                   >
                     Send Invoice
