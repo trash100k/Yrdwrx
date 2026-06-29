@@ -4887,12 +4887,12 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/portal/checkout", strictLimiter, async (req: any, res: any) => {
     const tok = verifyPortalToken(req);
     if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
-    const { invoiceId, successUrl, cancelUrl } = req.body || {};
+    const { invoiceId, successUrl, cancelUrl, amount: requestedAmount } = req.body || {};
     if (!invoiceId) return res.status(400).json({ error: "invoiceId required" });
     const sb = getServiceSupabase();
     if (!sb) return res.status(503).json({ error: "Billing not configured" });
     try {
-      const { data: inv } = await sb.from("invoices").select("amount,tenant_id,customer_id").eq("id", invoiceId).maybeSingle();
+      const { data: inv } = await sb.from("invoices").select("amount,tenant_id,customer_id,data").eq("id", invoiceId).maybeSingle();
       if (!inv) return res.status(404).json({ error: "Invoice not found" });
       if (inv.customer_id !== tok.clientId) return res.status(403).json({ error: "Not your invoice" });
       if (!process.env.STRIPE_SECRET_KEY) {
@@ -4904,8 +4904,14 @@ export async function createApp({ startListening = false } = {}) {
         connectedAccount = t?.stripe_account_id || null;
       }
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-      const unitAmount = Math.round(Number(inv.amount) * 100);
-      if (!unitAmount || unitAmount < 50) return res.status(400).json({ error: "Invalid amount" });
+      // Charge the outstanding BALANCE (total minus any recorded partial payments). If the
+      // client requested a smaller partial amount, honor it — but never more than the balance.
+      const paidSoFar = Number(inv.data?.amountPaid) || 0;
+      const balance = Math.max(0, (Number(inv.amount) || 0) - paidSoFar);
+      const reqAmt = Number(requestedAmount);
+      const chargeDollars = reqAmt > 0 && reqAmt < balance ? reqAmt : balance;
+      const unitAmount = Math.round(chargeDollars * 100);
+      if (!unitAmount || unitAmount < 50) return res.status(400).json({ error: "Nothing due on this invoice" });
       const sessionOptions: any = {
         payment_method_types: ["card", "us_bank_account"],
         metadata: { invoiceId },
