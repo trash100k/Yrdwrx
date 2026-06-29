@@ -165,7 +165,10 @@ export default function Agent() {
     (async () => {
       try {
         const res = await fetchApi("/api/security/threats");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const contentType = res.headers.get("content-type") || "";
+        if (!res.ok || !contentType.includes("application/json")) {
+          throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
         if (!active) return;
         setThreatCount(Array.isArray(data) ? data.length : 0);

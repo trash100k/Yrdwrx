@@ -33,12 +33,17 @@ export default function SaaSAdminDashboard() {
     const fetchThreats = async () => {
       try {
         const res = await fetchApi('/api/security/threats');
-        if (res.ok) {
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && contentType.includes("application/json")) {
           const data = await res.json();
-          setThreats(data);
+          setThreats(Array.isArray(data) ? data : []);
+        } else {
+          // Non-ok / non-JSON (e.g. HTML fallback) — degrade to empty instead of throwing.
+          setThreats([]);
         }
       } catch (err) {
-        console.error("Failed to fetch threat logs", err);
+        console.warn("Failed to fetch threat logs", err);
+        setThreats([]);
       }
     };
 

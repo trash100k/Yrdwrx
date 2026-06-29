@@ -126,6 +126,20 @@ export default function CrewSuite() {
   // Crew pending retirement — drives the shared ConfirmDialog instead of window.confirm.
   const [pendingDeleteCrewId, setPendingDeleteCrewId] = useState<string | null>(null);
 
+  // Field note / voice transcription capture — inline modal instead of a blocking window.prompt.
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+
+  // Persist the captured field note to the workspace outbox feed, then confirm with a 2-arg toast.
+  const submitFieldNote = () => {
+    const note = (noteDraft || "").trim();
+    if (!note) return;
+    addLog({ type: "chat", recipient: "Operations Channel", subject: "Field Log", content: note });
+    showToast("Field log submitted to feed", "success");
+    setNoteDraft("");
+    setShowNoteModal(false);
+  };
+
   useEffect(() => {
     const handleVoiceAction = (e: CustomEvent) => {
       const { name, args } = e.detail;
@@ -622,14 +636,9 @@ export default function CrewSuite() {
           </div>
           <button
             onClick={() => {
-              // Capture a quick field note via the browser prompt, log it to the
-              // workspace outbox feed, then confirm with a 2-arg toast.
-              const note = (typeof window !== "undefined" && window.prompt)
-                ? window.prompt("Field note / voice transcription")
-                : "";
-              if (!note || !note.trim()) return;
-              addLog({ type: "chat", recipient: "Operations Channel", subject: "Field Log", content: note.trim() });
-              showToast("Field log submitted to feed", "success");
+              // Open an inline note capture modal (no blocking window.prompt).
+              setNoteDraft("");
+              setShowNoteModal(true);
             }}
             className="px-6 py-3 bg-white text-black rounded-xl font-black text-[9px] uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center gap-2">
             <Mic size={14} /> Voice Transcription Log
@@ -1088,6 +1097,79 @@ export default function CrewSuite() {
         onClose={() => setIsResourceAssignOpen(false)}
         crews={crews}
       />
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {showNoteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[28px] overflow-hidden shadow-2xl p-6 sm:p-10 text-white relative"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setShowNoteModal(false);
+                setNoteDraft("");
+              }}
+              className="absolute top-6 right-6 p-2 text-zinc-400 hover:text-white rounded-full bg-white/5 transition-all"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="mb-6 flex items-center gap-3">
+              <div className="w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-white/60 border border-white/10">
+                <Mic size={18} />
+              </div>
+              <div>
+                <span className="text-[10px] bg-amber-500/10 text-amber-400 px-3 py-1.5 rounded-full border border-amber-500/20 font-black uppercase tracking-widest">
+                  Field Log Capture
+                </span>
+                <h3 className="text-xl font-black italic uppercase tracking-tight text-white mt-2">
+                  Voice Transcription Log
+                </h3>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">
+                Field note / voice transcription
+              </label>
+              <textarea
+                autoFocus
+                rows={5}
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder="Gate codes, arrivals, job site notes..."
+                className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm focus:border-forest-500 focus:outline-none transition-all placeholder:text-zinc-600 resize-none"
+              />
+            </div>
+
+            <div className="pt-6 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNoteModal(false);
+                  setNoteDraft("");
+                }}
+                className="px-5 py-3.5 rounded-xl border border-white/5 hover:bg-white/5 text-xs font-bold transition-all text-zinc-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitFieldNote}
+                disabled={!noteDraft.trim()}
+                className="px-5 py-3.5 rounded-xl bg-white text-black text-xs font-black uppercase tracking-widest hover:bg-zinc-200 transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Save
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </AnimatePresence>
 
     <ConfirmDialog

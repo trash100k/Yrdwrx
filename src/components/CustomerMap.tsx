@@ -45,9 +45,18 @@ export const CustomerMap = ({
 
   useEffect(() => {
     fetchApi("/api/config/maps")
-      .then((res) => res.json())
+      .then(async (res) => {
+        // Only parse JSON when the response is OK and actually JSON; an unconfigured
+        // endpoint can return an HTML fallback that would make res.json() throw.
+        const contentType = res.headers.get("content-type") || "";
+        if (!res.ok || !contentType.includes("application/json")) {
+          console.warn("Maps config unavailable; continuing without map key");
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => setApiKey(data?.apiKey || ""))
-      .catch((err) => console.error("Failed to load maps config", err))
+      .catch((err) => console.warn("Failed to load maps config", err))
       .finally(() => setKeyLoading(false));
   }, []);
 
