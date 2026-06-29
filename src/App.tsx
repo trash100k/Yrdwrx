@@ -59,6 +59,9 @@ const DataMap = lazy(() => import("./pages/DataMap"));
 const AiUsage = lazy(() => import("./pages/AiUsage"));
 const SaaSAdminDashboard = lazy(() => import("./pages/SaaSAdminDashboard"));
 const AiPlayground = lazy(() => import("./pages/AiPlayground"));
+const Closeout = lazy(() => import("./pages/Closeout"));
+const JobCosting = lazy(() => import("./pages/JobCosting"));
+const EstimateStudio = lazy(() => import("./pages/EstimateStudio"));
 
 const PageLoader = () => (
   <div className="flex h-screen w-full items-center justify-center bg-zinc-950">
@@ -363,6 +366,9 @@ useEffect(() => {
                                   path="ai-playground"
                                   element={<AiPlayground />}
                                 />
+                                <Route path="closeout" element={<Closeout />} />
+                                <Route path="job-costing" element={<JobCosting />} />
+                                <Route path="estimate" element={<EstimateStudio />} />
                                 <Route
                                   path="*"
                                   element={<Navigate to="/admin" replace />}
@@ -430,6 +436,7 @@ useEffect(() => {
                                   path="ai-playground"
                                   element={<AiPlayground />}
                                 />
+                                <Route path="closeout" element={<Closeout />} />
                                 {/* Employees shouldn't see sensitive admin reports or settings */}
                                 <Route
                                   path="*"
