@@ -255,6 +255,7 @@ export default function Scheduler() {
     jobId: string,
     newStatus: Job["status"],
   ) => {
+    // Do the status update first so a billing hiccup can never block it.
     await jobsRepo.update(jobId, { status: newStatus });
 
     // When a job is marked COMPLETED, fire the automation engine (fire-and-forget;
@@ -267,6 +268,79 @@ export default function Scheduler() {
         jobId,
         title: job?.title,
       }).catch(() => {});
+
+      // Close the maintenance-revenue loop: when a recurring-contract visit is
+      // completed, finalize its bill. ONLY fires for contract-linked visits
+      // (job.data.contractId present) — never for normal one-off jobs. Entirely
+      // best-effort: wrapped in try/catch so billing never blocks completion.
+      if (job?.data?.contractId) {
+        finalizeContractBilling(job).catch(() => {});
+      }
+    }
+  };
+
+  // Auto-finalize the bill for a completed recurring-contract visit. Assumes the
+  // job is contract-linked (caller guards on job.data.contractId). Best-effort:
+  // never throws — the COMPLETED status change has already been persisted.
+  const finalizeContractBilling = async (job: any) => {
+    try {
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+      // Load invoices once; find the matching auto-draft for THIS visit:
+      // same contract + same visit date.
+      const invoices = (await invoicesRepo.list()) || [];
+      const draft = invoices.find(
+        (inv: any) =>
+          inv?.data?.contractId === job.data.contractId &&
+          inv?.data?.jobDate === job.date,
+      );
+
+      if (draft && draft.status === "draft") {
+        // Found the pre-generated draft for this visit -> send it.
+        await invoicesRepo.update(draft.id, { status: "sent", date: today });
+        const label = draft.data?.number || `INV-${String(draft.id).slice(0, 6)}`;
+        showToast(`Visit completed — invoice ${label} sent.`, "success");
+        return;
+      }
+
+      if (draft) {
+        // A matching invoice exists but isn't a draft (already billed) — nothing to do.
+        return;
+      }
+
+      // No matching draft. If the visit carries a billable amount, create a sent
+      // invoice on the fly. Otherwise don't fabricate a charge.
+      const amount = job.revenue ?? job.amount ?? job.data?.price;
+      if (amount != null && Number(amount) > 0) {
+        const amt = Number(amount);
+        const newInv = await invoicesRepo.create({
+          amount: amt,
+          items: [
+            {
+              description: job.title || "Maintenance visit",
+              quantity: 1,
+              rate: amt,
+            },
+          ],
+          status: "sent",
+          customerId: job.customerId,
+          date: today,
+          data: {
+            contractId: job.data.contractId,
+            jobDate: job.date,
+            autoBilled: true,
+          },
+        });
+        const label = newInv?.id ? `INV-${String(newInv.id).slice(0, 6)}` : "INV";
+        showToast(`Visit completed — invoice ${label} sent.`, "success");
+        return;
+      }
+
+      // No draft and no price to bill — just leave the visit completed.
+      showToast("Visit completed (no price set to bill)", "info");
+    } catch (err) {
+      // Best-effort only: billing must never block the status change.
+      console.error("Contract billing finalize failed", err);
     }
   };
 

@@ -4853,7 +4853,7 @@ export async function createApp({ startListening = false } = {}) {
         tenantId: cust.tenant_id,
         stripeAccountId,
         jobs: (jobsR.data || []).map((j: any) => ({ id: j.id, title: j.title, status: j.status, date: j.date, address: j.address, notes: j.data?.snapshotNotes || null, departurePhotoUrl: j.data?.departurePhotoUrl || null, completedAt: j.data?.completedAt || null })),
-        invoices: (invR.data || []).filter((i: any) => !i.is_archived).map((i: any) => ({ id: i.id, amount: i.amount, status: i.status, date: i.date, dueDate: i.due_date, items: i.items, client: i.data?.client || null })),
+        invoices: (invR.data || []).filter((i: any) => !i.is_archived).map((i: any) => ({ id: i.id, amount: i.amount, status: i.status, date: i.date, dueDate: i.due_date, items: i.items, client: i.data?.client || null, amountPaid: Number(i.data?.amountPaid) || 0, number: i.data?.number || null })),
         messages: msgR.data || [],
         designs: (dvR.data || []).map((d: any) => ({ id: d.id, summary: d.summary, beforeUrl: d.before_url, afterUrl: d.after_url, proposal: d.proposal, createdAt: d.created_at })),
       });

@@ -79,6 +79,9 @@ const toInvoiceRow = (i: any) => ({
   },
 });
 
+// Money formatter used across the invoice UI.
+const formatCurrency = (n: any) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 // Surface expense fields without a column (vendor/notes/status) from `data`.
 const adaptExpense = (r: any): any => ({ ...(r?.data || {}), ...r });
 
@@ -114,6 +117,11 @@ export default function Invoices() {
   const [taxRate, setTaxRate] = useState<number>(Number((tenant?.settings as any)?.taxRate) || 0);
   const [discount, setDiscount] = useState<number>(0);
   const [dueDays, setDueDays] = useState<number>(Number((tenant?.settings as any)?.invoiceNetDays) || 30);
+  // Record-payment (deposits / partial payments) modal state.
+  const [paymentInvoice, setPaymentInvoice] = useState<any>(null);
+  const [payAmount, setPayAmount] = useState<string>("");
+  const [payMethod, setPayMethod] = useState<string>("cash");
+  const [savingPayment, setSavingPayment] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<Record<string, any> | null>(
     null,
   );
@@ -527,6 +535,47 @@ export default function Invoices() {
     }
   };
 
+  // Record a deposit / partial (or full) payment against an invoice. Tracks the running
+  // total in data.amountPaid + an itemized data.payments[]; flips status to "partial" or
+  // "paid" based on the new balance.
+  const openPayment = (inv: any) => {
+    const balance = Math.max(0, (Number(inv.amount) || 0) - (Number(inv.amountPaid) || 0));
+    setPaymentInvoice(inv);
+    setPayAmount(balance ? String(balance.toFixed(2)) : "");
+    setPayMethod("cash");
+  };
+  const handleRecordPayment = async () => {
+    if (!paymentInvoice) return;
+    const amt = Number(payAmount) || 0;
+    if (amt <= 0) { showToast("Enter a payment amount.", "error"); return; }
+    setSavingPayment(true);
+    const tenantId = tenant?.id || "genesis-1";
+    try {
+      const prevPaid = Number(paymentInvoice.amountPaid) || 0;
+      const payments = Array.isArray(paymentInvoice.payments) ? paymentInvoice.payments : [];
+      const amountPaid = Math.round((prevPaid + amt) * 100) / 100;
+      const total = Number(paymentInvoice.amount) || 0;
+      const newStatus = amountPaid >= total - 0.005 ? "paid" : "partial";
+      const newPayments = [...payments, { amount: amt, date: new Date().toISOString().slice(0, 10), method: payMethod }];
+      await invoicesRepo.update(paymentInvoice.id, {
+        status: newStatus,
+        data: { ...(paymentInvoice.data || {}), amountPaid, payments: newPayments },
+      });
+      await logSystemEvent("INVOICE_PAYMENT_RECORDED", { invoiceId: paymentInvoice.id, amount: amt, method: payMethod, amountPaid, tenantId });
+      showToast(
+        newStatus === "paid"
+          ? "Payment recorded — invoice paid in full."
+          : `Payment recorded — balance ${formatCurrency(total - amountPaid)}.`,
+        "success",
+      );
+      setPaymentInvoice(null);
+    } catch (err: any) {
+      showToast(err?.message || "Could not record payment.", "error");
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
   // Turn an accepted estimate (a sent/draft invoice) into a recurring contract row and
   // fire the quote_approved automation trigger. Defaults to a monthly cadence — the user
   // can adjust the cycle/dates afterward on the Contracts page.
@@ -797,15 +846,23 @@ export default function Invoices() {
                     <p className="text-xl sm:text-2xl font-bold text-white leading-none">
                       ${inv.amount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
-                    <span
-                      className={`text-xs mt-1 font-medium px-2.5 py-0.5 rounded-full inline-block ${
-                        inv.status === "PAID" || inv.status === "paid"
-                          ? "bg-forest-500/10 text-forest-400"
-                          : "bg-amber-500/10 text-amber-400"
-                      }`}
-                    >
-                      {inv.status}
-                    </span>
+                    {(() => {
+                      const paid = Number((inv as any).amountPaid) || 0;
+                      const bal = (Number(inv.amount) || 0) - paid;
+                      const s = (inv.status || "").toLowerCase();
+                      if (paid > 0 && bal > 0.005) {
+                        return <p className="text-[11px] text-amber-400 mt-1">Paid {formatCurrency(paid)} · Bal {formatCurrency(bal)}</p>;
+                      }
+                      return (
+                        <span
+                          className={`text-xs mt-1 font-medium px-2.5 py-0.5 rounded-full inline-block ${
+                            s === "paid" ? "bg-forest-500/10 text-forest-400" : "bg-amber-500/10 text-amber-400"
+                          }`}
+                        >
+                          {inv.status}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
                     <button
@@ -849,10 +906,20 @@ export default function Invoices() {
                     )}
                     {inv.status !== "paid" && (
                       <button
+                        onClick={() => openPayment(inv)}
+                        className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-md transition-all"
+                        aria-label={`Record a payment for ${inv.client}`}
+                        title="Record a payment / deposit"
+                      >
+                        <DollarSign size={18} aria-hidden="true" />
+                      </button>
+                    )}
+                    {inv.status !== "paid" && (
+                      <button
                         onClick={() => handleMarkPaid(inv)}
                         className="p-2.5 text-forest-400 hover:bg-forest-500/10 rounded-md transition-all"
                         aria-label={`Mark invoice for ${inv.client} as paid`}
-                        title="Mark Paid"
+                        title="Mark Paid (full)"
                       >
                         <CheckCircle2 size={18} aria-hidden="true" />
                       </button>
@@ -1455,6 +1522,48 @@ export default function Invoices() {
                     Send Invoice
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Record-payment (deposit / partial / full) modal */}
+      <AnimatePresence>
+        {paymentInvoice && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => !savingPayment && setPaymentInvoice(null)}>
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2"><DollarSign size={18} className="text-forest-400" /> Record Payment</h3>
+                <button onClick={() => setPaymentInvoice(null)} className="text-zinc-400 hover:text-white"><X size={18} /></button>
+              </div>
+              {(() => {
+                const total = Number(paymentInvoice.amount) || 0;
+                const paid = Number(paymentInvoice.amountPaid) || 0;
+                const bal = Math.max(0, total - paid);
+                return (
+                  <p className="text-xs text-zinc-400 mb-4">
+                    {paymentInvoice.client || "Client"} · Total {formatCurrency(total)}{paid > 0 ? ` · Paid ${formatCurrency(paid)} · Balance ${formatCurrency(bal)}` : ""}
+                  </p>
+                );
+              })()}
+              <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Amount</label>
+              <input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500 mb-4" placeholder="0.00" />
+              <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Method</label>
+              <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-forest-500 mb-5">
+                {["cash", "check", "card", "ach", "other"].map((m) => <option key={m} value={m}>{m.toUpperCase()}</option>)}
+              </select>
+              <div className="flex gap-3">
+                <button onClick={() => setPaymentInvoice(null)} disabled={savingPayment} className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-sm transition-colors disabled:opacity-50">Cancel</button>
+                <button onClick={handleRecordPayment} disabled={savingPayment} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-forest-600 hover:bg-forest-500 text-white rounded-xl font-bold uppercase tracking-widest text-sm transition-colors disabled:opacity-50">
+                  {savingPayment ? <Loader2 size={16} className="animate-spin" /> : <DollarSign size={16} />} Record
+                </button>
               </div>
             </motion.div>
           </div>

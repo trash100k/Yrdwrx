@@ -91,7 +91,14 @@ export default function ClientPortal() {
   const designs = data?.designs || [];
 
   const isPaid = (inv: any) => String(inv?.status || "").toLowerCase() === "paid";
-  const outstanding = invoices.filter((i: any) => !isPaid(i)).reduce((a: number, i: any) => a + (Number(i.amount) || 0), 0);
+  // Payments are recorded on the invoice's `data`: data.amountPaid (running total) and
+  // data.payments[]. The portal endpoint flattens some invoice fields, so read defensively
+  // from both the nested `data` shape and any flattened mirror.
+  const amountPaidOf = (inv: any) => Number(inv?.data?.amountPaid ?? inv?.amountPaid ?? 0) || 0;
+  const balanceOf = (inv: any) => Math.max(0, (Number(inv?.amount) || 0) - amountPaidOf(inv));
+  // Outstanding = sum of remaining balances across not-fully-paid invoices (partials count
+  // only their balance, not the full face amount).
+  const outstanding = invoices.filter((i: any) => !isPaid(i)).reduce((a: number, i: any) => a + balanceOf(i), 0);
   const money = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const handlePayment = async (invoice: any) => {
@@ -100,9 +107,13 @@ export default function ClientPortal() {
     setPayingInvoiceId(invoice.id);
     setPaymentError(null);
     try {
+      // Charge the remaining BALANCE, not the full face amount. The server derives the
+      // authoritative charge amount from Supabase; we pass the balance so it can honor a
+      // partial payment when it supports it (and so the client UI is consistent).
+      const balance = balanceOf(invoice);
       const res = await portalFetch("/api/portal/checkout", {
         method: "POST",
-        body: JSON.stringify({ invoiceId: invoice.id, successUrl: window.location.href, cancelUrl: window.location.href }),
+        body: JSON.stringify({ invoiceId: invoice.id, amount: balance, successUrl: window.location.href, cancelUrl: window.location.href }),
       });
       const json = await res.json().catch(() => ({}));
       // When Stripe isn't configured the server returns a simulated/mock response
@@ -356,16 +367,31 @@ export default function ClientPortal() {
                   <div className="space-y-4">
                     {invoices.map((inv: any) => {
                       const paid = isPaid(inv);
+                      const amountPaid = amountPaidOf(inv);
+                      const balance = balanceOf(inv);
+                      // Partially paid: some money in, but a balance remains (and not flagged fully paid).
+                      const isPartial = !paid && amountPaid > 0 && balance > 0;
                       return (
                         <div key={inv.id} className={`flex flex-col sm:flex-row sm:items-center justify-between bg-black/40 p-4 sm:p-6 rounded-2xl border-2 border-white/5 gap-4 ${paid ? "opacity-50 grayscale" : ""}`}>
                           <div>
                             <h4 className="font-bold text-sm">{inv.items?.[0]?.description || "Service Invoice"}</h4>
                             <p className="text-white/50 text-xs">INV-{String(inv.id).slice(0, 6)}{inv.dueDate ? ` • Due ${new Date(inv.dueDate).toLocaleDateString()}` : ""}</p>
+                            {isPartial && (
+                              <p className="text-white/50 text-xs mt-1">
+                                Paid ${money(amountPaid)} <span className="text-white/30">·</span> Balance ${money(balance)}
+                              </p>
+                            )}
                           </div>
                           <div className="flex items-center gap-4 sm:gap-6">
                             <div className="text-right">
-                              <p className="font-black">${money(inv.amount)}</p>
-                              <p className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${paid ? "text-forest-400" : "text-rose-400"}`}>{paid ? "Paid" : inv.status || "Unpaid"}</p>
+                              <p className="font-black">${money(isPartial ? balance : inv.amount)}</p>
+                              {isPartial ? (
+                                <span className="inline-block text-[10px] font-black uppercase tracking-widest text-celtic-400 bg-celtic-500/10 border border-celtic-500/20 px-2 py-1 rounded-lg">
+                                  Partially paid
+                                </span>
+                              ) : (
+                                <p className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${paid ? "text-forest-400" : "text-rose-400"}`}>{paid ? "Paid" : inv.status || "Unpaid"}</p>
+                              )}
                             </div>
                             <button
                               onClick={() => handleDownloadInvoicePdf(inv)}
@@ -380,7 +406,7 @@ export default function ClientPortal() {
                                 disabled={paymentLoading}
                                 className="bg-white text-black font-black uppercase tracking-widest text-[10px] sm:text-xs py-3 px-5 rounded-xl hover:scale-105 transition-transform flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
                               >
-                                <CreditCard size={14} /> {payingInvoiceId === inv.id ? "Processing..." : "Pay Now"}
+                                <CreditCard size={14} /> {payingInvoiceId === inv.id ? "Processing..." : isPartial ? `Pay balance $${money(balance)}` : "Pay Now"}
                               </button>
                             )}
                           </div>
