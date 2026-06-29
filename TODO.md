@@ -13,7 +13,13 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (HELL SPRINT cont.) — added `LAUNCH_CHECKLIST.md` (the human-only
+> _Last updated: 2026-06-29 (HELL SPRINT cont.2) — **ALL Design Studio phases built** (Phase 1
+> segmentation snap + VLM-judge/retry + undo/redo; Phase 2 catalog seed + SuggestedPalette→cost +
+> provenance; Phase 3 crop-and-paste-back "Precise"). New: `/api/design/segment`, `/api/design/judge`;
+> `src/lib/{designSession(+tests),plantCatalogSeed}`; `components/design/SuggestedPalette`. Depth/shadow
+> + Perenual import + server-side sharp composite remain provider/key-gated (documented). 136 tests
+> green. Built via 4 parallel role-subagents + integration. Earlier:
+> 2026-06-29 (HELL SPRINT cont.) — added `LAUNCH_CHECKLIST.md` (the human-only
 > config gate to go live: keys, network allowlist, Supabase auth, flip `REQUIRE_AUTH`, deploy +
 > verify steps); Design Studio **iterate-on-render** ("Refine" = place object-after-object on the
 > result); fixed dead `meridiangreen.io` icon refs → local YardWorx `public/icon.svg` + correct
@@ -868,20 +874,19 @@ process + phased plan + must-test risks). Commits: `ff9b25f`, `e4aaa2f`, `c94217
   **server-side `sharp` composite + SCENE_PRESERVED assertion** is the recommended hardening —
   deferred because `sharp` is a native dep with a flagged Cloud Run build risk (needs human verify).
 
-**Design Studio — remaining phases (NOT yet built; full detail in `DESIGN_STUDIO_PLAN.md`):**
-- [ ] **Phase 1 — Snap/verify/iterate:** Gemini-native segmentation surface-snap (circle → real
-      lawn/bed); VLM-judge auto-verify + retry (+ deterministic SCENE_PRESERVED gate, escalate to
-      `gemini-3-pro-image`); append-only `DesignSession`/`PlacementLayer` edit history + undo/redo
-      (iteration invariant: always feed the **composited HEAD**); Firestore/Storage image cache +
-      async job + per-tenant image budget. _Mostly buildable now (needs key for real renders)._
-- [ ] **Phase 2 — Grounding & economics:** `CatalogItem` type + zone resolver (address → USDA zone,
-      cached on customer) + `selectPlants` rules engine (zone/sun/size/deer, no-crowd qty); selection
-      → **deterministic cost** that the render is constrained to agree with; delivery PDF (Puppeteer)
-      + "AI Visualization" badge + provenance. _Catalog data (Perenual) is a `[key]` blocker._
-- [ ] **Phase 3 (optional):** Depth Anything v2 for occlusion/scale; crop-and-paste-back v2 path;
-      shadow/intrinsic harmonization. _`[provider]` deps._
+**Design Studio — ALL PHASES BUILT (to the extent buildable without provider keys; detail in `DESIGN_STUDIO_PLAN.md`):**
+- [x] **Phase 1 — Snap/verify/iterate:** `/api/design/segment` surface-snap (+ "Smart Snap" toggle);
+      `/api/design/judge` VLM auto-verify + bounded retry (fixHint into prompt; mock→PASS); undo/redo
+      via `designSession.ts` (+13 tests), iteration feeds the composited HEAD. _Storage-backed
+      `DesignSession` persistence + per-tenant image budget remain follow-ups (need Firestore wiring)._
+- [x] **Phase 2 — Grounding & economics:** `plantCatalogSeed.ts` (36 species) + `selectPlants` +
+      `resolveZone`; `SuggestedPalette` → priced zone-fit palette → Apply (fills spots + merges
+      deterministic line items); AI-viz badge + disclaimer in proposal PDF; provenance on saved visions.
+      _Perenual/USDA-PLANTS commercial catalog import remains a `[key]` follow-up._
+- [x] **Phase 3 — crop-and-paste-back v2** ("Precise" toggle, `cropPlaceRender`). ⛔ Depth Anything v2
+      + shadow/intrinsic harmonization remain PROVIDER-GATED (self-hosted depth/GPU) — documented, not built.
 - [ ] **Server-side `sharp` composite** hardening (Dockerfile + Cloud Run binary verify) — the
-      flagged-blocking upgrade that makes "rest unchanged" server-enforced.
+      flagged-blocking upgrade that makes "rest unchanged" server-enforced (currently client-side).
 - [ ] Fix `reopenVision` snake/camel mismatch so saved visions reload (`DesignStudio.tsx`).
 - [ ] Design3D maps procedural primitives only (doesn't use the uploaded photo) — conceptual; map the
       photo onto a ground plane later.
