@@ -2,7 +2,7 @@
 import { fetchApi } from "../lib/api";
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Truck, Map as MapIcon, Route, Play, Settings, CheckCircle2, Navigation2 } from "lucide-react";
+import { Truck, Map as MapIcon, Route, Play, Settings, CheckCircle2, Navigation2, Navigation, Copy } from "lucide-react";
 import { APIProvider, Map, AdvancedMarker } from "@vis.gl/react-google-maps";
 import { jobsRepo } from "../lib/repos";
 import { geocodeAddress } from "../lib/geocode";
@@ -283,7 +283,35 @@ export default function RouteOptimizer() {
                         {complete ? `#${i + 1}` : stop.hasCoords ? "Mapped" : "No GPS"}
                       </span>
                     </div>
-                    <div className="text-xs font-mono text-zinc-500 truncate">{stop.address}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-mono text-zinc-500 truncate">{stop.address}</div>
+                      {stop.address && (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <a
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.address)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Navigate"
+                            aria-label="Navigate to this stop"
+                            className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:border-forest-500/40 hover:bg-forest-500/10 text-zinc-400 hover:text-forest-400 transition-all"
+                          >
+                            <Navigation size={14} />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(stop.address);
+                              showToast("Address copied.", "success");
+                            }}
+                            title="Copy address"
+                            aria-label="Copy address"
+                            className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:border-forest-500/40 hover:bg-forest-500/10 text-zinc-400 hover:text-forest-400 transition-all"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))
               )}

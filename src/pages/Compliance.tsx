@@ -2,7 +2,7 @@
 import { fetchApi } from "../lib/api";
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Shield, CloudRain, Wind, AlertTriangle, CheckCircle, PenTool, Droplets, Info, List, FlaskConical, Plus, Bug, MapPin } from "lucide-react";
+import { Shield, CloudRain, Wind, AlertTriangle, CheckCircle, PenTool, Droplets, Info, List, FlaskConical, Plus, Bug, MapPin, Trash2 } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { useTenant } from "../contexts/TenantContext";
 import { supabase, getCurrentUser } from "../lib/supabase";
@@ -12,6 +12,7 @@ import AuditTrail from "../components/AuditTrail";
 import { complianceLogsRepo, customersRepo } from "../lib/repos";
 import { EmptyState } from "../components/EmptyState";
 import { Skeleton } from "../components/Skeleton";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export default function Compliance() {
   const { showToast } = useToast();
@@ -79,6 +80,21 @@ export default function Compliance() {
     if (!id) return null;
     const c = chemCustomers.find((x) => x.id === id);
     return c ? customerLabel(c) : null;
+  };
+
+  // Row pending deletion — gated by the ConfirmDialog (regulatory rows shouldn't
+  // vanish on a stray click). performDeleteChemLog runs only after confirm.
+  const [pendingDeleteLog, setPendingDeleteLog] = useState<any>(null);
+
+  const performDeleteChemLog = async (row: any) => {
+    if (!row?.id) return;
+    try {
+      await complianceLogsRepo.remove(row.id);
+      logAction("Compliance", "Delete Chemical Log", `Removed ${row.productName || row.id}`);
+      showToast("Log entry deleted.", "success");
+    } catch {
+      showToast("Could not delete the log entry.", "error");
+    }
   };
 
   const updateChemField = (key: string, value: string) =>
@@ -582,6 +598,7 @@ export default function Compliance() {
                       <th className="py-3 px-2 font-bold">Applicator</th>
                       <th className="py-3 px-2 font-bold">Target</th>
                       <th className="py-3 px-2 font-bold">Area</th>
+                      <th className="py-3 px-2 font-bold text-right sr-only">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -612,6 +629,15 @@ export default function Compliance() {
                             )}
                           </td>
                           <td className="py-3 px-2 text-white/60">{log.area || "—"}</td>
+                          <td className="py-3 px-2 text-right">
+                            <button
+                              onClick={() => setPendingDeleteLog(log)}
+                              className="text-white/30 hover:text-rose-400 transition-colors"
+                              aria-label="Delete log entry"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -628,6 +654,16 @@ export default function Compliance() {
           <AuditTrail logs={auditLogs} loading={auditLoading} />
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!pendingDeleteLog}
+        onClose={() => setPendingDeleteLog(null)}
+        onConfirm={() => performDeleteChemLog(pendingDeleteLog)}
+        title="Delete log entry?"
+        description={`This permanently removes the application record for "${pendingDeleteLog?.productName || "this entry"}" from your regulatory ledger. This can't be undone.`}
+        confirmText="Delete"
+        danger
+      />
     </div>
   );
 }

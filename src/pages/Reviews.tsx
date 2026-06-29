@@ -559,17 +559,32 @@ export default function Reviews() {
                         AI Synthesis Prompt
                       </span>
                     </div>
-                    {!review.autoReplyDraft && (
+                    <div className="flex items-center gap-6">
+                      {!review.autoReplyDraft && (
+                        <button
+                          onClick={() => analyzeReview(review)}
+                          disabled={isProcessing === review.id}
+                          className="micro-label font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-white disabled:opacity-50 transition-colors"
+                        >
+                          {isProcessing === review.id
+                            ? "Processing..."
+                            : "Engage Logic"}
+                        </button>
+                      )}
+                      {/* For owners who replied outside the app — clear it from Pending
+                          without publishing or saving a draft. Marks data.isReplied. */}
                       <button
-                        onClick={() => analyzeReview(review)}
-                        disabled={isProcessing === review.id}
-                        className="micro-label font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-white disabled:opacity-50 transition-colors"
+                        onClick={async () => {
+                          await reviewsRepo.update(review.id, {
+                            data: { ...(review.data || {}), isReplied: true },
+                          });
+                          showToast("Marked as handled.", "success");
+                        }}
+                        className="micro-label font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-white transition-colors"
                       >
-                        {isProcessing === review.id
-                          ? "Processing..."
-                          : "Engage Logic"}
+                        Mark Handled
                       </button>
-                    )}
+                    </div>
                   </div>
 
                   {review.autoReplyDraft && (

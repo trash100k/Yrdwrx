@@ -276,11 +276,7 @@ export default function CrewSuite() {
   const handleRecruitSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCrew.name || !newCrew.leader) {
-      showToast({
-        title: "Validation Error",
-        description: "Please specify both Crew Name and Crew Leader.",
-        variant: "destructive",
-      });
+      showToast("Please specify both Crew Name and Crew Leader.", "error");
       return;
     }
     try {
@@ -301,30 +297,18 @@ export default function CrewSuite() {
       await crewsRepo.create(toCrewRow(crewData));
       setIsRecruitOpen(false);
       setNewCrew({ name: "", leader: "", phone: "", equip: "", status: "ON_SITE", job: "", progress: 0 });
-      showToast({
-        title: "Crew Recruited Successfully",
-        description: `${crewData.name} lead by ${crewData.leader} is now active.`,
-        variant: "default",
-      });
+      showToast(`${crewData.name} lead by ${crewData.leader} is now active.`, "success");
       logSystemEvent("CREW_RECRUITED", { name: crewData.name });
     } catch (error: any) {
       console.error("Error recruiting crew:", error);
-      showToast({
-        title: "Failed to Recruit Crew",
-        description: error.message || "An error occurred writing to Firestore.",
-        variant: "destructive",
-      });
+      showToast(error.message || "Failed to recruit crew.", "error");
     }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCrew || !editingCrew.name || !editingCrew.leader) {
-      showToast({
-        title: "Validation Error",
-        description: "Please specify both Crew Name and Crew Leader.",
-        variant: "destructive",
-      });
+      showToast("Please specify both Crew Name and Crew Leader.", "error");
       return;
     }
     try {
@@ -346,18 +330,10 @@ export default function CrewSuite() {
       await crewsRepo.update(editingCrew.id, updatedData);
       setIsEditOpen(false);
       setEditingCrew(null);
-      showToast({
-        title: "Crew Configurations Saved",
-        description: "Crew operational parameters updated.",
-        variant: "default",
-      });
+      showToast("Crew operational parameters updated.", "success");
     } catch (error: any) {
       console.error("Error updating crew:", error);
-      showToast({
-        title: "Failed to Save Configurations",
-        description: error.message || "An error occurred writing to Firestore.",
-        variant: "destructive",
-      });
+      showToast(error.message || "Failed to save configurations.", "error");
     }
   };
 
@@ -367,35 +343,19 @@ export default function CrewSuite() {
       await crewsRepo.remove(crewId);
       setIsEditOpen(false);
       setEditingCrew(null);
-      showToast({
-        title: "Crew Retired",
-        description: "The crew has been successfully dismissed/retired.",
-        variant: "default",
-      });
+      showToast("Crew retired.", "success");
     } catch (error: any) {
       console.error("Error deleting crew:", error);
-      showToast({
-        title: "Dismissal Failed",
-        description: error.message || "An error occurred deleting document from Firestore.",
-        variant: "destructive",
-      });
+      showToast(error.message || "Could not retire crew.", "error");
     }
   };
 
   const handleCallCrew = (crew: any) => {
     if (crew.phone) {
       window.location.href = `tel:${crew.phone}`;
-      showToast({
-        title: "Dialing Contact",
-        description: `Calling ${crew.leader || "Leader"} at ${crew.phone}`,
-        variant: "default",
-      });
+      showToast(`Calling ${crew.leader || "Leader"} at ${crew.phone}`, "info");
     } else {
-      showToast({
-        title: "Missing Phone",
-        description: "This crew has no registered phone number.",
-        variant: "destructive",
-      });
+      showToast("This crew has no registered phone number.", "error");
     }
   };
 

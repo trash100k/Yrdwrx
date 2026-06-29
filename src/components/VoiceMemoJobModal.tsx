@@ -1,7 +1,7 @@
 import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, Loader2, Play, Square, FileText, CheckSquare, X, Wand2 } from "lucide-react";
+import { Mic, Loader2, Play, Square, FileText, CheckSquare, X, Wand2, Trash2 } from "lucide-react";
 
 import { Job } from "../types";
 import { jobsRepo } from "../lib/repos";
@@ -79,6 +79,20 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
       onClose();
     } catch (e) {
       console.error("Error saving job", e);
+    }
+  };
+
+  // Remove a job entirely (cancelled / mis-entered / duplicate). Realtime subscription
+  // on the Scheduler board drops it once the row is gone.
+  const handleDeleteJob = async () => {
+    if (!job?.id) return;
+    if (!window.confirm("Delete this job? This can't be undone.")) return;
+    try {
+      await jobsRepo.remove(job.id);
+      onClose();
+    } catch (e) {
+      console.error("Error deleting job", e);
+      window.alert("Could not delete this job.");
     }
   };
 
@@ -194,7 +208,13 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
           </div>
         </div>
 
-        <div className="flex justify-end gap-4 mt-12 pt-8 border-t border-white/10">
+        <div className="flex justify-end items-center gap-4 mt-12 pt-8 border-t border-white/10">
+          <button
+            onClick={handleDeleteJob}
+            className="mr-auto flex items-center gap-2 px-6 py-4 text-sm font-black text-red-400/70 hover:text-red-400 uppercase tracking-widest transition-colors"
+          >
+            <Trash2 size={16} /> Delete Job
+          </button>
           <button
             onClick={onClose}
             className="px-8 py-4 text-sm font-black text-white/40 hover:text-white uppercase tracking-widest transition-colors"

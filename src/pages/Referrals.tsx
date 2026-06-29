@@ -30,6 +30,8 @@ import {
   Loader2,
   Info,
   ArrowRight,
+  Copy,
+  Trash2,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { referralsRepo, customersRepo, reviewsRepo } from "../lib/repos";
@@ -38,6 +40,7 @@ import { useToast } from "../contexts/ToastContext";
 import { fetchApi } from "../lib/api";
 import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -146,10 +149,28 @@ export default function Referrals() {
   });
   const [submitting, setSubmitting] = useState(false);
 
+  // Row pending deletion (drives the confirm dialog).
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+
   const shareBase = useMemo(() => {
     const origin = typeof location !== "undefined" ? location.origin : "";
     return `${origin}/book/${tenant?.id || ""}`;
   }, [tenant?.id]);
+
+  // Reconstruct the full share link for a row exactly like askForReferral does.
+  const shareLinkFor = (shareCode: string) => `${shareBase}?ref=${shareCode}`;
+
+  // Copy a share link to the clipboard and report honestly.
+  const copyShareLink = async (shareCode: string) => {
+    const link = shareLinkFor(shareCode);
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast("Referral link copied.", "success");
+    } catch (err: any) {
+      console.error("[Referrals] copyShareLink failed", err);
+      showToast("Could not copy link.", "error");
+    }
+  };
 
   // --- data load ------------------------------------------------------------
   const load = async () => {
@@ -238,6 +259,18 @@ export default function Referrals() {
       }))
       .sort((a, b) => b.rating - a.rating);
   }, [reviews, customerById, referrals]);
+
+  // A stable share code per advocate so the "copy link" button in that row hands
+  // the operator a consistent, shareable link even before they formally ask.
+  const advocateShareCodes = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of advocates) {
+      const c = a.customer;
+      if (c?.id) m[c.id] = makeShareCode(tenant, c);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [advocates, tenant?.id]);
 
   // --- ask an advocate for a referral ---------------------------------------
   const askForReferral = async (customer: any) => {
@@ -390,6 +423,22 @@ export default function Referrals() {
     }
   };
 
+  // Delete a referral. The list is realtime-subscribed, but we also drop it from
+  // local state so the row disappears immediately.
+  const deleteReferral = async (row: any) => {
+    if (!row?.id) return;
+    try {
+      await referralsRepo.remove(row.id);
+      setReferrals((rows) => rows.filter((r) => r.id !== row.id));
+      showToast("Referral deleted.", "success");
+    } catch (err: any) {
+      console.error("[Referrals] deleteReferral failed", err);
+      showToast("Could not delete referral.", "error");
+    } finally {
+      setDeleteTarget(null);
+    }
+  };
+
   // Newest referrals first.
   const sortedReferrals = useMemo(
     () =>
@@ -406,6 +455,18 @@ export default function Referrals() {
   // ---------------------------------------------------------------------------
   return (
     <div className="max-w-7xl mx-auto space-y-10 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteReferral(deleteTarget)}
+        title="Delete referral?"
+        description={`This permanently removes the referral${
+          deleteTarget?.referredName ? ` for "${deleteTarget.referredName}"` : ""
+        } and its reward tracking. This can't be undone.`}
+        confirmText="Delete"
+        danger
+      />
+
       {/* Header */}
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-10 pb-8 border-b-4 border-white/10 relative z-10">
         <div className="space-y-4">
@@ -540,20 +601,30 @@ export default function Referrals() {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => askForReferral(c)}
-                    disabled={busy}
-                    className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-forest-500/10 text-forest-400 border border-forest-500/30 hover:bg-forest-500/20 transition-colors whitespace-nowrap shrink-0 disabled:opacity-40"
-                  >
-                    {busy ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : c.email ? (
-                      <Mail size={14} />
-                    ) : (
-                      <Link2 size={14} />
-                    )}
-                    {busy ? "Asking…" : "Ask for referral"}
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => askForReferral(c)}
+                      disabled={busy}
+                      className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-forest-500/10 text-forest-400 border border-forest-500/30 hover:bg-forest-500/20 transition-colors whitespace-nowrap shrink-0 disabled:opacity-40"
+                    >
+                      {busy ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : c.email ? (
+                        <Mail size={14} />
+                      ) : (
+                        <Link2 size={14} />
+                      )}
+                      {busy ? "Asking…" : "Ask for referral"}
+                    </button>
+                    <button
+                      onClick={() => copyShareLink(advocateShareCodes[c.id])}
+                      title="Copy referral link"
+                      aria-label="Copy referral link"
+                      className="flex items-center justify-center w-10 h-10 rounded-xl text-white/50 bg-white/5 border border-white/10 hover:text-forest-400 hover:border-forest-500/30 transition-colors shrink-0"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
                 </motion.div>
               );
             })}
@@ -741,9 +812,21 @@ export default function Referrals() {
                             <p className="text-sm font-black text-white italic uppercase truncate">
                               {r.referredName || "—"}
                             </p>
-                            <p className="micro-label font-black text-white/25 uppercase tracking-widest text-[10px] mt-0.5 truncate">
-                              {r.referredEmail || r.referredPhone || r.shareCode || "—"}
-                            </p>
+                            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                              <p className="micro-label font-black text-white/25 uppercase tracking-widest text-[10px] truncate">
+                                {r.referredEmail || r.referredPhone || r.shareCode || "—"}
+                              </p>
+                              {r.shareCode && (
+                                <button
+                                  onClick={() => copyShareLink(r.shareCode)}
+                                  title="Copy referral link"
+                                  aria-label="Copy referral link"
+                                  className="flex items-center justify-center w-6 h-6 rounded-md text-white/40 hover:text-forest-400 hover:bg-white/5 transition-colors shrink-0"
+                                >
+                                  <Copy size={12} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -789,6 +872,7 @@ export default function Referrals() {
 
                       {/* Action */}
                       <td className="px-8 py-5 text-right">
+                        <div className="inline-flex items-center gap-2 justify-end">
                         {rewarded ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-forest-500/10 border border-forest-500/30 text-forest-400">
                             <Trophy size={12} />
@@ -803,6 +887,15 @@ export default function Referrals() {
                             Mark rewarded
                           </button>
                         )}
+                        <button
+                          onClick={() => setDeleteTarget(r)}
+                          title="Delete referral"
+                          aria-label="Delete referral"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/5 border border-white/10 text-white/50 hover:text-rose-400 hover:border-rose-500/30 transition-colors shrink-0"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                        </div>
                       </td>
                     </motion.tr>
                   );

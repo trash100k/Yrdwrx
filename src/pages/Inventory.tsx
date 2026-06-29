@@ -880,11 +880,11 @@ export default function Inventory() {
                 onClick={() => {
                   if (!logs.length) return;
                   setLogs([]);
-                  showToast("Activity log view cleared.", "info");
+                  showToast("Activity log hidden.", "info");
                 }}
                 className="micro-label font-black uppercase text-white/10 hover:text-white transition-colors"
               >
-                Clear
+                Hide
               </button>
             </div>
             <div className="space-y-6">

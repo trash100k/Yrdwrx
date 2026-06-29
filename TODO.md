@@ -1099,3 +1099,48 @@ bundles, vitest green.
       the proposal workflow is demoable in mock mode like every other AI route.
 - [ ] **[note] `PORT` hardcoded to 3000** (`server.ts`) — ignores `process.env.PORT`; Cloud Run injects
       `$PORT`. Confirm the deploy maps 3000 or switch to `process.env.PORT || 3000`.
+
+## Affordance pass — small missing actions / dead buttons (2026-06-29)
+
+A 3-agent CRUD-affordance audit (money/ops · secondary modules · config/client-facing) looking
+specifically for missing add/edit/delete/duplicate/copy buttons, dead buttons, and missing empty
+states. The codebase already had a reusable `ConfirmDialog`, `EmptyState`, and full-CRUD repos, so
+most were wiring-only. Gates after: `tsc` clean, 172 tests, build OK, 40/40 routes crash-clean.
+
+### FIXED this pass ✅
+- [x] **CrewSuite toasts were broken** — Recruit/Edit/Retire/Call called `showToast({title,description,
+      variant})` but the toast renders a string, so every crew action showed `[object Object]`/blank.
+      Converted all 10 calls to `showToast(message, "success"|"error"|"info")`.
+- [x] **Scheduler: no way to delete a job** — added a "Delete Job" button (with confirm) to the job
+      modal (`VoiceMemoJobModal.tsx`) calling `jobsRepo.remove`. (The icon was already imported, unused.)
+- [x] **CRM: dead "Quick Actions" (`⋮`) button** — wired it to open the customer detail panel.
+- [x] **Inventory: misleading "Clear" activity-log button** — relabeled to "Hide" with an honest toast
+      (it only blanks local state; the subscription re-pushes).
+- [x] **Referrals: no copy-share-link/code button** — added copy buttons (table row + advocate flow);
+      **plus a delete-referral row action** (ConfirmDialog).
+- [x] **OwnerDigest / CustomerIntelligence: text could only be emailed** — added "Copy" buttons so
+      owners/customers without an email on file can still grab the digest / save-play message.
+- [x] **RouteOptimizer: stop addresses were dead text** — added per-stop "Open in Google Maps"
+      (directions link) + copy-address.
+- [x] **DesignStudio: saved visions couldn't be deleted** — added a per-chip delete (`designVisionsRepo.remove`).
+- [x] **Compliance: chemical/EPA log was append-only** — added per-row delete (ConfirmDialog) so a
+      mistyped regulatory entry can be corrected.
+- [x] **Reviews: no "mark as handled"** — added a button so a review answered outside the app can
+      leave "Pending".
+- [x] **Settings: AI "style learning" textarea saved silently** — added a "Saved." toast + enforced the
+      advertised `maxLength={1000}`.
+
+### DEFERRED (your call — bigger / judgment)
+- [ ] **Search box on Contracts + Invoices** — table-stakes once data accumulates (mirror CRM search).
+- [ ] **"Duplicate" for invoices / contracts / equipment / inspection forms** — re-billing & near-identical
+      records are re-keyed by hand today.
+- [ ] **Inbox read/unread state + unread badge** — the daily messenger surface has no triage.
+- [ ] **CRM customer "Estimates" tab is hard-coded empty** — never queries the customer's draft/estimate
+      invoices (always shows "No Open Estimates").
+- [ ] **CRM "Magic Link" button is mislabeled** — it copies a generic portal URL, not the secure
+      magic-link (`handleSendMagicLink` exists but isn't wired to this button). Relabel or rewire.
+- [ ] **Equipment: no edit after create** (only meter/service); wrong interval/crew forces delete+recreate.
+- [ ] **FormBuilder: delete has no confirm; no "duplicate form"**.
+- [ ] **InstantEstimate / Closeout: created invoice is a dead-end** — no view/copy-link/navigate after create.
+- [ ] **ClientPortal / Portfolio: no share/download** of a proposal or a before/after image.
+- [ ] **Dashboard "Add Vendor" dead button** — left for the Dashboard redesign (see `DASHBOARD_PLAN.md`).

@@ -16,6 +16,7 @@ import {
   Lightbulb,
   Calendar,
   Users,
+  Copy,
 } from "lucide-react";
 import {
   jobsRepo,
@@ -434,6 +435,18 @@ export default function OwnerDigest() {
           >
             <RefreshCw size={13} className={generating ? "animate-spin" : ""} />
             Regenerate
+          </button>
+
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(digestPlainText);
+              showToast("Digest copied to clipboard.", "success");
+            }}
+            title="Copy digest"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+          >
+            <Copy size={13} />
+            Copy Digest
           </button>
 
           <button

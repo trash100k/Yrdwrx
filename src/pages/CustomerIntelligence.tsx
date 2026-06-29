@@ -34,6 +34,7 @@ import {
   ArrowUpRight,
   Percent,
   Loader2,
+  Copy,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -848,6 +849,7 @@ function SavePlayModal({
   onClose: () => void;
   onSend: () => void;
 }) {
+  const { showToast } = useToast();
   return (
     <AnimatePresence>
       {open && (
@@ -956,6 +958,18 @@ function SavePlayModal({
                   className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-40"
                 >
                   Close
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      play.subject ? `${play.subject}\n\n${play.message}` : play.message,
+                    );
+                    showToast("Message copied.", "success");
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-sm font-bold transition-colors"
+                >
+                  <Copy size={16} />
+                  Copy message
                 </button>
                 {customer?.email ? (
                   <button

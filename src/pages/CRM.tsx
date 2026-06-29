@@ -1590,8 +1590,10 @@ export default function CRM() {
                         <td className="pr-10 py-8 text-right">
                           <div className="flex justify-end">
                             <button
+                              onClick={(e) => { e.stopPropagation(); handleSelectCustomer(client); }}
                               className="w-12 h-12 bg-white/5 border border-white/5 rounded-xl text-zinc-600 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center"
-                              aria-label="Quick Actions"
+                              aria-label="Open customer"
+                              title="Open customer"
                             >
                               <MoreVertical size={18} />
                             </button>

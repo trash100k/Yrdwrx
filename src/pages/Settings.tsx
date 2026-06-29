@@ -408,8 +408,9 @@ export default function Settings() {
                               <label className="text-xs md:text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">
                                 Custom Installation Heuristics (Contractor AI Guidelines)
                               </label>
-                              <textarea 
+                              <textarea
                                 defaultValue={tenant?.settings?.customInstallRules || ""}
+                                maxLength={1000}
                                 onBlur={(e) => {
                                   if (!tenant) return;
                                   if (tenant.id.startsWith("demo-")) {
@@ -417,6 +418,7 @@ export default function Settings() {
                                     return;
                                   }
                                   tenantsRepo.updateSettings({ customInstallRules: e.target.value });
+                                  showToast("Saved.", "success");
                                 }}
                                 className="w-full bg-zinc-900 border-2 border-white/10 rounded-xl p-4 text-sm text-white/80 focus:border-forest-500/50 outline-none resize-y min-h-[100px]"
                                 placeholder="Describe heuristic..."

@@ -891,6 +891,18 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     showToast("Loaded saved vision.", "success");
   };
 
+  const deleteVision = async (v: any) => {
+    if (!v?.id) return;
+    try {
+      await designVisionsRepo.remove(v.id);
+      setSavedVisions((prev) => prev.filter((row) => row.id !== v.id));
+      showToast("Saved design removed.", "success");
+    } catch (e) {
+      console.error("delete vision error", e);
+      showToast("Couldn't remove that saved design.", "error");
+    }
+  };
+
   const [isSavingDrive, setIsSavingDrive] = useState(false);
 
   const handleSaveToDrive = async () => {
@@ -987,14 +999,29 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
               </p>
               <div className="flex flex-wrap gap-2">
                 {savedVisions.slice(0, 6).map((v) => (
-                  <button
+                  <div
                     key={v.id}
-                    onClick={() => reopenVision(v)}
-                    title={v.summary || "Saved vision"}
-                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:border-forest-500/40 hover:bg-forest-500/10 text-xs font-bold text-white/80 transition-all max-w-[240px] truncate"
+                    className="group flex items-center rounded-lg bg-white/5 border border-white/10 hover:border-forest-500/40 hover:bg-forest-500/10 transition-all max-w-[260px]"
                   >
-                    {(v.summary || "Vision").slice(0, 44)}
-                  </button>
+                    <button
+                      onClick={() => reopenVision(v)}
+                      title={v.summary || "Saved vision"}
+                      className="pl-3 pr-1 py-1.5 text-xs font-bold text-white/80 truncate"
+                    >
+                      {(v.summary || "Vision").slice(0, 44)}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteVision(v);
+                      }}
+                      title="Remove saved design"
+                      aria-label="Remove saved design"
+                      className="shrink-0 p-1.5 mr-1 rounded-md text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
