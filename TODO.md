@@ -13,7 +13,13 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (DESIGN STUDIO overhaul + owner-intelligence wave) — see the dedicated
+> _Last updated: 2026-06-29 (HELL SPRINT — feature blitz to sellable) — on top of the Design Studio
+> overhaul, shipped in rapid gated-green waves: Design Studio money path (zone-aware placement, AI-viz
+> badge, branded proposal PDF, plantIntelligence lib +20 tests); Referrals engine; Equipment/fleet
+> tracker; Unified conversation Inbox; On-My-Way arrival ETA; Business Defaults in Settings; + a QA
+> smoke crawl (18/19 routes crash-clean). 7 of 12 "find more" items now DONE (see Discovered backlog).
+> New Supabase tables: equipment, referrals (RLS, 0 advisories). 123 tests green. Previously:
+> 2026-06-29 (DESIGN STUDIO overhaul + owner-intelligence wave) — see the dedicated
 > **"Design Studio overhaul"** and **"Owner-intelligence wave"** sections below, and the full engineering
 > spec in **`DESIGN_STUDIO_PLAN.md`**. Shipped a whole-feature Design Studio audit + reliability pass +
 > new features + the real flagship region-aware "draw a circle → place THAT object exactly there"
@@ -877,7 +883,22 @@ process + phased plan + must-test risks). Commits: `ff9b25f`, `e4aaa2f`, `c94217
 ## Discovered backlog — "find more" pass (2026-06-29)
 
 Twelve genuinely-new, high-value ideas surfaced by a parallel gap-audit agent (grounded in repo
-greps + 2026 market data). NOT yet built; priority/sequencing TBD. Effort: S/M/L.
+greps + 2026 market data). Effort: S/M/L.
+
+> **SPRINT UPDATE 2026-06-29 — 7 of 12 SHIPPED** (all gated green, pushed):
+> ✅ Referral & advocacy engine (`src/pages/Referrals.tsx` + `referrals` table) ·
+> ✅ On-My-Way arrival ETA (`src/components/OnMyWayButton.tsx`, wired into Scheduler) ·
+> ✅ Customer health/churn radar + ✅ per-customer profitability/LTV (`CustomerIntelligence.tsx`) ·
+> ✅ Equipment/fleet maintenance tracker (`src/pages/Equipment.tsx` + `equipment` table) ·
+> ✅ Unified conversation inbox (`src/pages/Inbox.tsx` + `customerMessagesRepo`) ·
+> ✅ AI owner digest (`src/pages/OwnerDigest.tsx`) · ✅ Before/after gallery (Portfolio).
+> Plus: ✅ Business Defaults in Settings (laborRate/ratePerSqft/zone/ownerEmail) so the
+> features are contractor-configurable; ✅ QA smoke crawl (18/19 routes crash-clean).
+> **REMAINING (5):** push notifications [config: FCM/VAPID], weather auto-reschedule
+> [config: OPENWEATHER], card-on-file auto-charge [config: Stripe SetupIntent], property/
+> address enrichment [buildable — note `/api/crm/enrich` already exists], and the referral
+> "credit on first paid invoice" automation (the engine + tracking shipped; auto-credit is
+> the follow-up). Original list retained below for detail.
 
 - [ ] **Referral & advocacy engine** (M) — _Retention/growth (CRM + Reviews)._ Zero referral/
       loyalty code exists; auto-fire a trackable referral offer + share-link when a customer
