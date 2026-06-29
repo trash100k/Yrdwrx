@@ -711,6 +711,15 @@ export default function Layout() {
                 </button>
 
                 <button
+                  onClick={() => setIsShortcutsOpen(true)}
+                  className="hidden sm:flex w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all"
+                  aria-label="Keyboard shortcuts"
+                  title="Keyboard shortcuts (?)"
+                >
+                  <span className="text-base font-black leading-none">?</span>
+                </button>
+
+                <button
                   onClick={() => setIsNotificationsOpen(true)}
                   className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
                   aria-label="Notifications"

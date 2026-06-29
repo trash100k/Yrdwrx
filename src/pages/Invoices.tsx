@@ -45,6 +45,9 @@ import { PrinterFriendlyInvoice } from "../components/PrinterFriendlyInvoice";
 import { useLocation } from "react-router-dom";
 import { Invoice } from "../types";
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { EmptyState } from "../components/EmptyState";
+import { Skeleton } from "../components/Skeleton";
 
 // Surface invoice fields that have no Supabase column (client name, clientEmail,
 // clientPhone, clientId) — they live in the `data` jsonb. Spread `data` first so
@@ -94,6 +97,9 @@ export default function Invoices() {
   const { showToast } = useToast();
   const location = useLocation();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // Pending destructive action (invoice deletion), gated behind a confirm dialog.
+  const [pendingDeleteInvoice, setPendingDeleteInvoice] = useState<any>(null);
   const [expenses, setExpenses] = useState<
     { id: string; amount: number; vendor?: string; merchant?: string; category?: string; date: string; notes?: string; status?: string; isArchived?: boolean; }[]
   >([]);
@@ -161,6 +167,7 @@ export default function Invoices() {
       sawFirstInvoiceSnapshot.current = true;
 
       setInvoices(adapted);
+      setLoaded(true);
     });
     const unsubscribeExp = expensesRepo.subscribe((rows) =>
       setExpenses((rows || []).map(adaptExpense)),
@@ -515,6 +522,28 @@ export default function Invoices() {
     });
   }, [invoices, quarterFilter]);
 
+  // Perform the actual invoice deletion (soft-delete/archive). Gated by the
+  // ConfirmDialog — only called after the user confirms.
+  const performDeleteInvoice = async (inv: any) => {
+    if (!inv?.id) return;
+    const tenantId = tenant?.id || "genesis-1";
+    try {
+      if (navigator.onLine) {
+        await invoicesRepo.archive(inv.id);
+      } else {
+        console.warn("Deletions require active sync.");
+        return;
+      }
+      await logSystemEvent("INVOICE_DELETED", {
+        invoiceId: inv.id,
+        client: inv.client,
+        tenantId,
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `invoices/${inv.id}`);
+    }
+  };
+
   const handleItemChange = (idx: number, field: string, value: any) => {
     if (!aiAnalysis) return;
     const newItems = [...aiAnalysis.items];
@@ -629,7 +658,46 @@ export default function Invoices() {
           </div>
 
           <div className="flex flex-col gap-3 min-h-[600px]">
-            {filteredInvoices.map((inv) => (
+            {!loaded ? (
+              [...Array(5)].map((_, i) => (
+                <div
+                  key={i}
+                  className="bg-white/5 border border-white/10 rounded-xl p-4 sm:p-5 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-4">
+                    <Skeleton className="w-12 h-12" />
+                    <div className="space-y-2">
+                      <Skeleton className="h-5 w-40" />
+                      <Skeleton className="h-3 w-28" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              ))
+            ) : filteredInvoices.length === 0 ? (
+              <EmptyState
+                icon={FileText}
+                title={quarterFilter === "All" ? "No invoices yet" : "No invoices this quarter"}
+                description={
+                  quarterFilter === "All"
+                    ? "Generate your first invoice with AI or create one manually to start billing clients."
+                    : "There are no invoices in the selected quarter. Adjust the filter or generate a new invoice."
+                }
+                action={{
+                  label: "Generate Invoice",
+                  onClick: () => {
+                    setAiAnalysis({
+                      clientName: "New Client",
+                      items: [{ description: "New Service", quantity: 1, rate: 0 }],
+                      total: 0,
+                      summary: "Manual proposal creation",
+                    });
+                    setShowAIModal(true);
+                  },
+                }}
+              />
+            ) : (
+              filteredInvoices.map((inv) => (
               <motion.div
                 layout
                 key={inv.id}
@@ -759,28 +827,7 @@ export default function Invoices() {
                       <Send size={18} aria-hidden="true" />
                     </button>
                     <button
-                      onClick={async () => {
-                        const tenantId = tenant?.id || "genesis-1";
-                        try {
-                          if (navigator.onLine) {
-                            await invoicesRepo.archive(inv.id);
-                          } else {
-                            console.warn("Deletions require active sync.");
-                            return;
-                          }
-                          await logSystemEvent("INVOICE_DELETED", {
-                            invoiceId: inv.id,
-                            client: inv.client,
-                            tenantId,
-                          });
-                        } catch (err) {
-                          handleFirestoreError(
-                            err,
-                            OperationType.DELETE,
-                            `invoices/${inv.id}`,
-                          );
-                        }
-                      }}
+                      onClick={() => setPendingDeleteInvoice(inv)}
                       className="p-2.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all"
                       aria-label={`Delete invoice for ${inv.client}`}
                     >
@@ -789,13 +836,14 @@ export default function Invoices() {
                   </div>
                 </div>
               </motion.div>
-            ))}
+              ))
+            )}
           </div>
 
 
         </div>
       )}
-      
+
       {activeTab === "Expenses" && (
         <div className="space-y-6">
           <div className="flex justify-end">
@@ -1246,6 +1294,18 @@ export default function Invoices() {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={!!pendingDeleteInvoice}
+        onClose={() => setPendingDeleteInvoice(null)}
+        onConfirm={() => performDeleteInvoice(pendingDeleteInvoice)}
+        title="Delete invoice?"
+        description={`This removes the invoice for "${pendingDeleteInvoice?.client || "this client"}"${
+          pendingDeleteInvoice?.id ? ` (INV-${String(pendingDeleteInvoice.id).slice(0, 6)})` : ""
+        } from your ledger. This can't be undone.`}
+        confirmText="Delete"
+        danger
+      />
 
       <div className="hidden">
         {printingInvoice && (

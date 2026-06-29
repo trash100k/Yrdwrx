@@ -68,6 +68,9 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Customer, Insight } from "../types";
 import { LeadVerificationPanel } from "../components/LeadVerificationPanel";
 import { runAutomations } from "../lib/automations";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { EmptyState } from "../components/EmptyState";
+import { Skeleton } from "../components/Skeleton";
 
 // Deterministic lead score (0-100) derived from a lead's real, on-file fields.
 // Stable across reloads (no Math.random) so the displayed score is meaningful.
@@ -154,7 +157,12 @@ export default function CRM() {
   const { addLog } = useWorkspaceOutbox();
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [knowledge, setKnowledge] = useState<Record<string, any>[]>([]);
+  // Pending destructive action surfaced through a single shared ConfirmDialog.
+  const [confirmAction, setConfirmAction] = useState<
+    { title: string; description: string; onConfirm: () => void } | null
+  >(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"logs" | "brain" | "campaigns" | "pipeline" | "map" | "dashboard" | "tasks" | "documents">("dashboard");
   const [selectedSegment, setSelectedSegment] = useState<
@@ -307,11 +315,19 @@ export default function CRM() {
     }
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (!tenant) return;
     if (selectedClients.length === 0) return;
-    if (!window.confirm(`Are you sure you want to delete ${selectedClients.length} clients?`)) return;
-    
+    setConfirmAction({
+      title: `Delete ${selectedClients.length} clients?`,
+      description: `This will permanently remove ${selectedClients.length} selected clients and cannot be undone.`,
+      onConfirm: performBulkDelete,
+    });
+  };
+
+  const performBulkDelete = async () => {
+    if (!tenant) return;
+    if (selectedClients.length === 0) return;
     setIsSaving(true);
     try {
       // In a real app we might batch this
@@ -464,10 +480,17 @@ export default function CRM() {
     }
   };
 
-  const handleDeleteSelectedCustomer = async () => {
+  const handleDeleteSelectedCustomer = () => {
     if (!selectedCustomer?.id) return;
-    if (!window.confirm(`Are you sure you want to delete ${selectedCustomer.firstName} ${selectedCustomer.lastName}? This action cannot be undone.`)) return;
-    
+    setConfirmAction({
+      title: `Delete ${selectedCustomer.firstName} ${selectedCustomer.lastName}?`,
+      description: "This will permanently remove this client and cannot be undone.",
+      onConfirm: performDeleteSelectedCustomer,
+    });
+  };
+
+  const performDeleteSelectedCustomer = async () => {
+    if (!selectedCustomer?.id) return;
     try {
       await customersRepo.remove(selectedCustomer.id);
       showToast("Client deleted successfully", "success");
@@ -642,6 +665,7 @@ export default function CRM() {
     // and on realtime changes, returning an unsubscribe fn (the onSnapshot equivalent).
     const unsubCust = customersRepo.subscribe((rows) => {
       setCustomers((rows || []).map(adaptCustomer));
+      setLoaded(true);
     });
 
     const unsubKnow = knowledgeRepo.subscribe((rows) => {
@@ -1415,7 +1439,49 @@ export default function CRM() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 bg-black/20">
-                    {filteredCustomers.map((client) => (
+                    {!loaded ? (
+                      [...Array(5)].map((_, i) => (
+                        <tr key={`sk-${i}`}>
+                          <td className="sticky left-0 bg-[#121214] z-10 pl-8 pr-6 py-8 border-r border-white/5">
+                            <div className="flex items-center gap-4">
+                              <Skeleton className="w-4 h-4 shrink-0" />
+                              <Skeleton className="w-14 h-14 rounded-2xl shrink-0" />
+                              <div className="space-y-2">
+                                <Skeleton className="h-4 w-40" />
+                                <Skeleton className="h-3 w-24" />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-8">
+                            <div className="flex justify-center">
+                              <Skeleton className="w-14 h-14 rounded-full" />
+                            </div>
+                          </td>
+                          <td className="px-6 py-8">
+                            <div className="flex justify-center">
+                              <Skeleton className="h-6 w-20 rounded-full" />
+                            </div>
+                          </td>
+                          <td className="pr-10 py-8">
+                            <div className="flex justify-end">
+                              <Skeleton className="w-12 h-12 rounded-xl" />
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : verifiedCustomers.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="p-8">
+                          <EmptyState
+                            icon={Users}
+                            title="No clients yet"
+                            description="Add your first client to start managing jobs, invoices, and notes."
+                            action={{ label: "Add Client", onClick: () => setShowAddModal(true) }}
+                          />
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredCustomers.map((client) => (
                       <tr
                         key={client.id}
                         className="hover:bg-zinc-900 transition-all group cursor-pointer border-l-4 border-transparent hover:border-forest-500"
@@ -1521,7 +1587,8 @@ export default function CRM() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1581,27 +1648,31 @@ export default function CRM() {
                             ))}
                           </div>
                           <button
-                            onClick={async () => {
-                              if (window.confirm("Delete this note?")) {
-                                try {
-                                  if (navigator.onLine) {
-                                    await knowledgeRepo.update(node.id, {
-                                      isArchived: true,
-                                      deletedAt: new Date().toISOString(),
-                                    });
+                            onClick={() => {
+                              setConfirmAction({
+                                title: "Delete this note?",
+                                description: `"${node.topic}" will be removed from your saved notes.`,
+                                onConfirm: async () => {
+                                  try {
+                                    if (navigator.onLine) {
+                                      await knowledgeRepo.update(node.id, {
+                                        isArchived: true,
+                                        deletedAt: new Date().toISOString(),
+                                      });
+                                    }
+                                    await logSystemEvent(
+                                      "KNOWLEDGE_NODE_DELETED",
+                                      { nodeId: node.id },
+                                    );
+                                  } catch (err) {
+                                    handleFirestoreError(
+                                      err,
+                                      OperationType.DELETE,
+                                      `knowledge/${node.id}`,
+                                    );
                                   }
-                                  await logSystemEvent(
-                                    "KNOWLEDGE_NODE_DELETED",
-                                    { nodeId: node.id },
-                                  );
-                                } catch (err) {
-                                  handleFirestoreError(
-                                    err,
-                                    OperationType.DELETE,
-                                    `knowledge/${node.id}`,
-                                  );
-                                }
-                              }
+                                },
+                              });
                             }}
                             aria-label={`Delete note about ${node.topic}`}
                             className="text-zinc-600 hover:text-rose-500 transition-colors"
@@ -3220,6 +3291,16 @@ export default function CRM() {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => confirmAction?.onConfirm()}
+        title={confirmAction?.title || ""}
+        description={confirmAction?.description || ""}
+        confirmText="Delete"
+        danger
+      />
     </>
   );
 }

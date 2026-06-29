@@ -26,6 +26,8 @@ import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { syncService } from "../services/syncService";
 import { useWorkspaceOutbox } from "../contexts/WorkspaceOutboxContext";
+import { EmptyState } from "../components/EmptyState";
+import { Skeleton } from "../components/Skeleton";
 
 export default function Reviews() {
   const { tenant } = useTenant();
@@ -307,7 +309,27 @@ export default function Reviews() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-8">
-          {filteredReviews.map((review) => (
+          {loading &&
+            [...Array(3)].map((_, i) => (
+              <div
+                key={i}
+                className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-6 sm:p-10"
+              >
+                <div className="flex justify-between items-start mb-10">
+                  <div className="flex gap-6">
+                    <Skeleton className="w-16 h-16 rounded-[24px]" />
+                    <div className="space-y-3 pt-1">
+                      <Skeleton className="h-6 w-48" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-8 w-28 rounded-full" />
+                </div>
+                <Skeleton className="h-24 w-full rounded-2xl" />
+              </div>
+            ))}
+          {!loading &&
+            filteredReviews.map((review) => (
             <motion.div
               layout
               key={review.id}
@@ -443,16 +465,17 @@ export default function Reviews() {
                 </div>
               )}
             </motion.div>
-          ))}
-          {filteredReviews.length === 0 && (
-            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl p-32 text-center space-y-8 rounded-2xl">
-              <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto border border-white/5">
-                <Star size={48} className="text-white/10" />
-              </div>
-              <h3 className="text-xl sm:text-2xl font-black text-white/50 italic tracking-normal md:tracking-tighter uppercase">
-                No Signal within specified filters.
-              </h3>
-            </div>
+            ))}
+          {!loading && filteredReviews.length === 0 && (
+            <EmptyState
+              icon={Star}
+              title={activeTab === "All" ? "No reviews yet" : "No signal in this filter"}
+              description={
+                activeTab === "All"
+                  ? "Customer reviews will appear here as they arrive. Use the Outreach Hub to solicit reviews from recently completed jobs."
+                  : "No reviews match the selected filter. Switch to All to see your full feed."
+              }
+            />
           )}
         </div>
 

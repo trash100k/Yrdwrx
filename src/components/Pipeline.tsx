@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { Customer } from "../types";
 import { customersRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
-import { Phone, Mail, MoreVertical, CreditCard } from "lucide-react";
+import { Phone, Mail, MoreVertical, CreditCard, LayoutGrid } from "lucide-react";
+import { EmptyState } from "../components/EmptyState";
 
 export const Pipeline = ({ customers, onSelectCustomer }: { customers: Customer[], onSelectCustomer: (c: Customer) => void }) => {
   const { showToast } = useToast();
@@ -31,6 +32,18 @@ export const Pipeline = ({ customers, onSelectCustomer }: { customers: Customer[
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
+
+  if (!customers || customers.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6 h-full">
+        <EmptyState
+          icon={LayoutGrid}
+          title="Pipeline is empty"
+          description="Add clients to start tracking them through your lead, estimate, and active stages."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full gap-4 p-6 overflow-x-auto custom-scrollbar items-start">

@@ -4,6 +4,7 @@ import { Customer } from "../types";
 import { Plus, X, Tag, FileText } from "lucide-react";
 import { customersRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 // Field types are encoded inline within the existing Record<string,string> map
 // using a lightweight, backward-compatible prefix convention:
@@ -54,6 +55,7 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [newType, setNewType] = useState<FieldType>("text");
+  const [pendingRemoveKey, setPendingRemoveKey] = useState<string | null>(null);
 
   const handleSave = async (updatedFields: Record<string, string>) => {
     try {
@@ -88,9 +90,13 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
   };
 
   const removeField = (keyToRemove: string) => {
-    if (typeof window !== "undefined" && !window.confirm(`Remove custom property "${keyToRemove}"?`)) return;
+    setPendingRemoveKey(keyToRemove);
+  };
+
+  const confirmRemoveField = () => {
+    if (!pendingRemoveKey) return;
     const finalFields = { ...fields };
-    delete finalFields[keyToRemove];
+    delete finalFields[pendingRemoveKey];
     handleSave(finalFields);
   };
 
@@ -121,6 +127,7 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
   };
 
   return (
+    <>
     <div className="bg-white/5 rounded-2xl p-10 border border-white/5 shadow-2xl">
       <div className="flex items-center justify-between mb-8">
         <h4 className="text-xs md:text-[10px] text-white/40 uppercase tracking-[0.2em]">
@@ -213,5 +220,16 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
         )}
       </div>
     </div>
+
+    <ConfirmDialog
+      isOpen={!!pendingRemoveKey}
+      onClose={() => setPendingRemoveKey(null)}
+      onConfirm={confirmRemoveField}
+      title="Remove custom property?"
+      description={pendingRemoveKey ? `"${pendingRemoveKey}" will be permanently removed from this client.` : ""}
+      confirmText="Remove"
+      danger
+    />
+    </>
   );
 };

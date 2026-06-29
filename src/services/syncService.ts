@@ -1,18 +1,59 @@
 import { safeStorage } from '../lib/storage';
 // @ts-nocheck
+//
+// Offline write queue. Mutations made while offline are persisted to localStorage and
+// flushed to SUPABASE (via the repo layer) when connectivity returns. This used to flush
+// to Firestore (the dead project), so offline field writes were silently lost — now each
+// queued action is dispatched to the matching repo, which RLS-scopes it to the tenant.
 
 import {
-  collection,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
+  customersRepo,
+  jobsRepo,
+  leadsRepo,
+  materialLogsRepo,
+  invoicesRepo,
+  expensesRepo,
+  reviewsRepo,
+  inventoryRepo,
+  crewsRepo,
+  vendorsRepo,
+  knowledgeRepo,
+  designCatalogRepo,
+  contractsRepo,
+  inspectionFormsRepo,
+  designVisionsRepo,
+  tasksRepo,
+  timesheetsRepo,
+} from "../lib/repos";
+
+// Map a queued collection name (Firestore-era camelCase OR Supabase snake_case) to its repo.
+const REPOS: Record<string, any> = {
+  customers: customersRepo,
+  jobs: jobsRepo,
+  leads: leadsRepo,
+  materialLogs: materialLogsRepo,
+  material_logs: materialLogsRepo,
+  invoices: invoicesRepo,
+  expenses: expensesRepo,
+  reviews: reviewsRepo,
+  inventory: inventoryRepo,
+  crews: crewsRepo,
+  vendors: vendorsRepo,
+  knowledge: knowledgeRepo,
+  designCatalog: designCatalogRepo,
+  design_catalog: designCatalogRepo,
+  contracts: contractsRepo,
+  inspectionForms: inspectionFormsRepo,
+  inspection_forms: inspectionFormsRepo,
+  designVisions: designVisionsRepo,
+  customer_design_visions: designVisionsRepo,
+  tasks: tasksRepo,
+  timesheets: timesheetsRepo,
+};
 
 interface PendingAction {
   id: string;
-  type: "CREATE" | "UPDATE";
+  type: "CREATE" | "UPDATE" | "DELETE";
   collection: string;
   docId?: string;
   tenantId: string;
@@ -28,7 +69,9 @@ class SyncService {
 
   constructor() {
     this.loadQueue();
-    window.addEventListener("online", () => this.processQueue());
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", () => this.processQueue());
+    }
   }
 
   private loadQueue() {
@@ -48,7 +91,7 @@ class SyncService {
   }
 
   public async queueAction(
-    type: "CREATE" | "UPDATE",
+    type: "CREATE" | "UPDATE" | "DELETE",
     collectionName: string,
     data: Record<string, unknown>,
     tenantId: string,
@@ -60,14 +103,14 @@ class SyncService {
       collection: collectionName,
       docId,
       tenantId,
-      data: { ...data, tenantId }, // Ensure tenantId is in the actual doc data
+      data: { ...data, tenantId }, // tenantId kept for back-compat; stripped before write
       timestamp: Date.now(),
     };
 
     this.queue.push(action);
     this.saveQueue();
 
-    if (navigator.onLine) {
+    if (typeof navigator !== "undefined" && navigator.onLine) {
       this.processQueue();
     }
 
@@ -75,39 +118,39 @@ class SyncService {
   }
 
   private async processQueue() {
-    if (this.isProcessing || this.queue.length === 0 || !navigator.onLine)
-      return;
+    if (this.isProcessing || this.queue.length === 0) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
     this.isProcessing = true;
-
     const action = this.queue[0];
 
     try {
-      if (action.type === "CREATE") {
-        await addDoc(collection(db, action.collection), {
-          ...action.data,
-          _syncedAt: serverTimestamp(),
-        });
-      } else if (action.type === "UPDATE" && action.docId) {
-        await updateDoc(doc(db, action.collection, action.docId), {
-          ...action.data,
-          _syncedAt: serverTimestamp(),
-        });
+      const repo = REPOS[action.collection];
+      if (!repo) {
+        // Unknown collection — drop it rather than wedge the queue forever.
+        console.warn(`[syncService] no repo for "${action.collection}"; dropping queued action`);
+      } else {
+        // The stored tenantId is a Firestore-era artifact; RLS + repo.create's
+        // auto-stamp own tenant scoping, so strip it from the payload.
+        const { tenantId: _tid, ...payload } = action.data as any;
+        if (action.type === "CREATE") {
+          await repo.create(payload);
+        } else if (action.type === "UPDATE" && action.docId) {
+          await repo.update(action.docId, payload);
+        } else if (action.type === "DELETE" && action.docId) {
+          await repo.remove(action.docId);
+        }
       }
 
-      // Success, remove from queue
+      // Success (or dropped) — remove from queue and continue.
       this.queue.shift();
       this.saveQueue();
-
       this.isProcessing = false;
-      // Recursively process next
-      if (this.queue.length > 0) {
-        this.processQueue();
-      }
+      if (this.queue.length > 0) this.processQueue();
     } catch (e) {
       console.error("Sync error, will retry later:", e);
       this.isProcessing = false;
-      // Wait before next attempt if it's a persistent error
+      // Leave the action at the head of the queue; it retries on the next online event.
     }
   }
 

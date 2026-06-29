@@ -52,6 +52,9 @@ import { TrendingDown } from "lucide-react";
 
 import { StockDepletionChart } from "../components/StockDepletionChart";
 import { useToast } from "../contexts/ToastContext";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { EmptyState } from "../components/EmptyState";
+import { Skeleton } from "../components/Skeleton";
 
 // Read adapters: merge any custom fields stored in the jsonb `data` column up to
 // the top level, and keep a Firestore-compatible `timestamp` on logs (Supabase
@@ -64,6 +67,9 @@ export default function Inventory() {
   const { logAction } = useAuditLog();
   const { showToast } = useToast();
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // Pending destructive action (inventory item deletion), gated behind a confirm dialog.
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<any>(null);
   const [logs, setLogs] = useState<
     {
       id: string;
@@ -121,6 +127,22 @@ export default function Inventory() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Perform the actual inventory item deletion (soft-delete/archive). Gated by the
+  // ConfirmDialog — only called after the user confirms.
+  const performDeleteItem = async (item: any) => {
+    if (!item?.id) return;
+    try {
+      await inventoryRepo.archive(item.id);
+      logAction("Inventory", "Remove Item", `Archived/deleted ${item.name}`);
+      await logSystemEvent("INVENTORY_ITEM_DELETED", {
+        itemId: item.id,
+        itemName: item.name,
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `inventory/${item.id}`);
+    }
+  };
 
   const openEdit = (item: any) => {
     setEditItem(item);
@@ -219,9 +241,10 @@ export default function Inventory() {
 
   useEffect(() => {
     // inventory + material logs are scoped to the tenant by Supabase RLS.
-    const unsubscribe = inventoryRepo.subscribe((rows) =>
-      setItems((rows || []).map(adaptItem)),
-    );
+    const unsubscribe = inventoryRepo.subscribe((rows) => {
+      setItems((rows || []).map(adaptItem));
+      setLoaded(true);
+    });
 
     // materialLogsRepo already returns newest-first (ordered by created_at desc).
     const unsubLogs = materialLogsRepo.subscribe((rows) =>
@@ -836,7 +859,27 @@ export default function Inventory() {
             id="inventory-grid"
             className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
           >
-            {filteredItems.map((item) => (
+            {!loaded &&
+              [...Array(6)].map((_, i) => (
+                <div
+                  key={i}
+                  className="bg-zinc-900 border border-white/5 molten-edge rounded-2xl p-8 min-h-[450px] flex flex-col gap-8"
+                >
+                  <div className="flex items-start justify-between">
+                    <Skeleton className="w-16 h-16 rounded-[24px]" />
+                    <Skeleton className="h-10 w-28" />
+                  </div>
+                  <div className="space-y-3">
+                    <Skeleton className="h-7 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                  <div className="mt-auto pt-8 border-t border-white/10 flex items-end justify-between">
+                    <Skeleton className="h-12 w-24" />
+                    <Skeleton className="w-16 h-16 rounded-2xl" />
+                  </div>
+                </div>
+              ))}
+            {loaded && filteredItems.map((item) => (
               <motion.div
                 layout
                 key={item.id}
@@ -883,23 +926,7 @@ export default function Inventory() {
                         <Settings2 size={18} aria-hidden="true" />
                       </button>
                       <button
-                        onClick={async () => {
-                          if (!item.id) return;
-                          try {
-                            await inventoryRepo.archive(item.id);
-                            logAction("Inventory", "Remove Item", `Archived/deleted ${item.name}`);
-                            await logSystemEvent("INVENTORY_ITEM_DELETED", {
-                              itemId: item.id,
-                              itemName: item.name,
-                            });
-                          } catch (err) {
-                            handleFirestoreError(
-                              err,
-                              OperationType.DELETE,
-                              `inventory/${item.id}`,
-                            );
-                          }
-                        }}
+                        onClick={() => setPendingDeleteItem(item)}
                         className="p-3 bg-white/5 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all border border-white/5"
                         aria-label={`Delete ${item.name}`}
                       >
@@ -1093,28 +1120,27 @@ export default function Inventory() {
             ))}
           </div>
 
-          {filteredItems.length === 0 && (
-            <div className="flex flex-col items-center justify-center p-24 text-center space-y-6 sm:space-y-8 relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-              <div className="w-32 h-32 bg-white rounded-2xl flex items-center justify-center mx-auto text-black shadow-2xl relative z-10 group-hover:scale-110 transition-transform duration-700">
-                <Package size={64} />
-              </div>
-              <div className="relative z-10">
-                <h3 className="text-2xl sm:text-3xl sm:text-4xl font-black text-white mb-4 italic tracking-normal md:tracking-tighter lowercase leading-none">
-                  Inventory Hub Empty.
-                </h3>
-                <p className="text-zinc-300 font-bold text-lg max-w-sm mx-auto leading-relaxed italic">
-                  Your professional material repository is empty. Scan barcodes
-                  or snap pictures of equipment to start tracking.
-                </p>
-              </div>
-              <button
-                onClick={() => setIsScanning(true)}
-                className="bg-white text-black px-6 sm:px-12 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-[0_40px_80_rgba(255,255,255,0.1)] active:scale-95 transition-all relative z-10 hover:scale-105"
-              >
-                Scan First Item
-              </button>
-            </div>
+          {loaded && filteredItems.length === 0 && (
+            <EmptyState
+              icon={Package}
+              title={
+                searchQuery || activeTab !== "All"
+                  ? "No matching assets"
+                  : "Inventory hub empty"
+              }
+              description={
+                searchQuery || activeTab !== "All"
+                  ? "No items match your current search or category filter. Adjust the filter or scan a new asset."
+                  : "Your professional material repository is empty. Scan barcodes or snap pictures of equipment to start tracking."
+              }
+              action={{
+                label: "Scan First Item",
+                onClick: () => {
+                  setScanResult(null);
+                  setIsScanning(true);
+                },
+              }}
+            />
           )}
         </div>
       </div>
@@ -1509,6 +1535,16 @@ export default function Inventory() {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={!!pendingDeleteItem}
+        onClose={() => setPendingDeleteItem(null)}
+        onConfirm={() => performDeleteItem(pendingDeleteItem)}
+        title="Delete inventory item?"
+        description={`This removes "${pendingDeleteItem?.name || "this item"}" from your inventory. This can't be undone.`}
+        confirmText="Delete"
+        danger
+      />
     </div>
   );
 }

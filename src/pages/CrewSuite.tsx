@@ -33,6 +33,8 @@ import {
   X
 } from "lucide-react";
 import { SubscriptionGuard } from "../components/SubscriptionGuard";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { EmptyState } from "../components/EmptyState";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
@@ -120,6 +122,9 @@ export default function CrewSuite() {
   
   // Resource Assignment Modal
   const [isResourceAssignOpen, setIsResourceAssignOpen] = useState(false);
+
+  // Crew pending retirement — drives the shared ConfirmDialog instead of window.confirm.
+  const [pendingDeleteCrewId, setPendingDeleteCrewId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleVoiceAction = (e: CustomEvent) => {
@@ -248,9 +253,7 @@ export default function CrewSuite() {
   };
 
   const handleDeleteCrew = async (crewId: string) => {
-    if (!window.confirm("Are you sure you want to retire this crew? All historical reports remain unaffected.")) {
-      return;
-    }
+    if (!crewId) return;
     try {
       await crewsRepo.remove(crewId);
       setIsEditOpen(false);
@@ -455,7 +458,14 @@ export default function CrewSuite() {
         </div>
       </div>
 
-      {viewMode === "cards" ? (
+      {viewMode === "cards" && crews.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="No crews yet"
+          description="Add your first crew to assign jobs and track field progress."
+          action={{ label: "Add Crew", onClick: () => setIsRecruitOpen(true) }}
+        />
+      ) : viewMode === "cards" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
           <AnimatePresence>
           {filteredCrews.map((crew) => {
@@ -1016,7 +1026,7 @@ export default function CrewSuite() {
                 <div className="pt-6 border-t border-white/5 flex flex-wrap gap-4 justify-between items-center">
                   <button
                     type="button"
-                    onClick={() => handleDeleteCrew(editingCrew.id)}
+                    onClick={() => setPendingDeleteCrewId(editingCrew.id)}
                     className="px-5 py-3.5 rounded-xl border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 text-red-400 hover:text-red-300 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all"
                   >
                     <Trash2 size={14} />
@@ -1079,6 +1089,16 @@ export default function CrewSuite() {
         crews={crews}
       />
     </AnimatePresence>
+
+    <ConfirmDialog
+      isOpen={!!pendingDeleteCrewId}
+      onClose={() => setPendingDeleteCrewId(null)}
+      onConfirm={() => handleDeleteCrew(pendingDeleteCrewId)}
+      title="Retire this crew?"
+      description="Are you sure you want to retire this crew? All historical reports remain unaffected."
+      confirmText="Retire Crew"
+      danger
+    />
     </SubscriptionGuard>
   );
 }

@@ -95,6 +95,7 @@ import {
 } from "../types";
 import { useToast } from "../contexts/ToastContext";
 import { LeadSubmissionModal } from "../components/LeadSubmissionModal";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useRole } from "../hooks/useRole";
 
 interface OnboardingAnswers {
@@ -277,6 +278,15 @@ export default function Dashboard() {
     "idle" | "sending" | "success" | "error"
   >("idle");
   const [cachedToken, setCachedToken] = useState<string | null>(null);
+
+  // Pending destructive/confirmable action driving the shared ConfirmDialog.
+  // `onConfirm` runs the real work once the user accepts.
+  const [pendingAction, setPendingAction] = useState<{
+    title: string;
+    description: string;
+    confirmText?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const [integrationStatuses, setIntegrationStatuses] = useState<
     Record<string, "idle" | "working" | "success">
@@ -540,12 +550,16 @@ export default function Dashboard() {
   };
 
   // Sync schedules directly with Google Calendar
-  const handleSyncCalendar = async () => {
-    const confirmed = window.confirm(
-      `Are you sure you want to push today's crew jobs (${crews.length} events) to your Google Calendar?`
-    );
-    if (!confirmed) return;
+  const handleSyncCalendar = () => {
+    setPendingAction({
+      title: "Push Schedule to Google Calendar?",
+      description: `This will push today's crew jobs (${crews.length} events) to your Google Calendar.`,
+      confirmText: "Push to Calendar",
+      onConfirm: runSyncCalendar,
+    });
+  };
 
+  const runSyncCalendar = async () => {
     setGoogleCalendarSyncStatus("syncing");
     const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
@@ -608,12 +622,16 @@ export default function Dashboard() {
   };
 
   // Dispatch Strategic Morning Briefing directly to supervisor through Gmail
-  const handleDispatchGmail = async () => {
-    const confirmed = window.confirm(
-      "Are you sure you want to send the Strategic Morning Briefing email to all crew foremen? This cannot be undone."
-    );
-    if (!confirmed) return;
+  const handleDispatchGmail = () => {
+    setPendingAction({
+      title: "Send Strategic Morning Briefing?",
+      description: "This will send the Strategic Morning Briefing email to all crew foremen. This cannot be undone.",
+      confirmText: "Send Briefing",
+      onConfirm: runDispatchGmail,
+    });
+  };
 
+  const runDispatchGmail = async () => {
     setGoogleGmailDraftStatus("sending");
     const activeState = safeStorage.getItem("cutty_workspace_active");
     const token = activeState === "live" ? cachedToken : null;
@@ -2734,6 +2752,16 @@ export default function Dashboard() {
       </AnimatePresence>
 
       <LeadSubmissionModal isOpen={isLeadModalOpen} onClose={() => setIsLeadModalOpen(false)} />
+
+      <ConfirmDialog
+        isOpen={!!pendingAction}
+        onClose={() => setPendingAction(null)}
+        onConfirm={() => pendingAction?.onConfirm?.()}
+        title={pendingAction?.title || ""}
+        description={pendingAction?.description || ""}
+        confirmText={pendingAction?.confirmText}
+        danger
+      />
     </div>
   );
 }
