@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { EmptyState } from "../components/EmptyState";
 import { jobsRepo, invoicesRepo, customersRepo } from "../lib/repos";
+import OnMyWayButton from "../components/OnMyWayButton";
 import { runAutomations } from "../lib/automations";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
@@ -508,6 +509,9 @@ export default function Scheduler() {
                           )}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
+                          {(job.status === "SCHEDULED" || job.status === "IN_PROGRESS") && (
+                            <OnMyWayButton job={job} />
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
