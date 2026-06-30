@@ -107,6 +107,21 @@ const truncate = (s: string, n = 64) => {
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
 };
 
+// Per-customer last-read map, persisted to localStorage (no DB schema change).
+// Shape: { [customerId]: <epoch ms of when the thread was last read> }.
+const READ_MAP_KEY = "yardworx_inbox_read";
+
+const loadReadMap = (): Record<string, number> => {
+  try {
+    const raw = localStorage.getItem(READ_MAP_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
 // ---------------------------------------------------------------------------
 // page
 // ---------------------------------------------------------------------------
@@ -124,6 +139,19 @@ export default function Inbox() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState<null | "sms" | "email">(null);
   const [showPicker, setShowPicker] = useState(false);
+
+  // Read/unread tracking — per-customer last-read epoch, persisted to localStorage.
+  const [readMap, setReadMap] = useState<Record<string, number>>(() => loadReadMap());
+
+  // Update state + persist (try/catch so a full/blocked localStorage never breaks the UI).
+  const persistReadMap = (next: Record<string, number>) => {
+    setReadMap(next);
+    try {
+      localStorage.setItem(READ_MAP_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota / privacy-mode failures */
+    }
+  };
 
   const threadEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -178,6 +206,11 @@ export default function Inbox() {
       const sorted = [...msgs].sort((a, b) => ms(a.createdAt) - ms(b.createdAt));
       const last = sorted[sorted.length - 1];
       const cust = customerById[cid];
+      // A conversation is UNREAD if it has an INBOUND message newer than the last-read mark.
+      const lastRead = readMap[cid] ?? 0;
+      const unreadCount = sorted.filter(
+        (m) => isInbound(m.sender) && ms(m.createdAt) > lastRead,
+      ).length;
       return {
         customerId: cid,
         customer: cust || null,
@@ -187,10 +220,18 @@ export default function Inbox() {
         lastInbound: isInbound(last?.sender),
         lastMs: ms(last?.createdAt),
         count: sorted.length,
+        unreadCount,
+        unread: unreadCount > 0,
       };
     });
     return rows.sort((a, b) => b.lastMs - a.lastMs);
-  }, [messages, customerById]);
+  }, [messages, customerById, readMap]);
+
+  // Total number of conversations with at least one unread inbound message.
+  const totalUnread = useMemo(
+    () => conversations.filter((c) => c.unread).length,
+    [conversations],
+  );
 
   // Search filters the conversation list by customer name.
   const filteredConversations = useMemo(() => {
@@ -229,8 +270,13 @@ export default function Inbox() {
   }, [activeThread.length, activeId]);
 
   // Pick the most-recent conversation by default once loaded (desktop convenience).
+  // The auto-opened thread is marked read too, so it doesn't show a stale unread badge.
   useEffect(() => {
-    if (!activeId && conversations.length > 0) setActiveId(conversations[0].customerId);
+    if (!activeId && conversations.length > 0) {
+      const firstId = conversations[0].customerId;
+      setActiveId(firstId);
+      persistReadMap({ ...readMap, [firstId]: Date.now() });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations.length]);
 
@@ -303,9 +349,31 @@ export default function Inbox() {
     }
   };
 
+  // Mark a customer's thread as read up to "now" (covers any inbound up to this moment).
+  const markRead = (cid: string) => {
+    if (!cid) return;
+    persistReadMap({ ...readMap, [cid]: Date.now() });
+  };
+
   const selectCustomer = (cid: string) => {
     setActiveId(cid);
     setShowPicker(false);
+    markRead(cid);
+  };
+
+  // Re-flag the active thread as unread: set last-read to just BEFORE its most-recent
+  // inbound message so that message (and any newer inbound) counts as unread again.
+  const markUnread = (cid: string) => {
+    if (!cid) return;
+    const conv = conversations.find((c) => c.customerId === cid);
+    const lastInboundMs = conv
+      ? conv.messages.reduce(
+          (acc: number, m: any) => (isInbound(m.sender) ? Math.max(acc, ms(m.createdAt)) : acc),
+          0,
+        )
+      : 0;
+    persistReadMap({ ...readMap, [cid]: lastInboundMs > 0 ? lastInboundMs - 1 : 0 });
+    showToast("Marked as unread.", "info");
   };
 
   // ---------------------------------------------------------------------------
@@ -359,8 +427,15 @@ export default function Inbox() {
                 <p className="micro-label font-black text-white/30 uppercase tracking-[0.3em] text-[10px]">
                   Conversations
                 </p>
-                <span className="text-[10px] font-black uppercase tracking-widest text-forest-400">
-                  {conversations.length}
+                <span className="flex items-center gap-2">
+                  {totalUnread > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-forest-500 text-black text-[9px] font-black uppercase tracking-widest leading-none">
+                      {totalUnread} new
+                    </span>
+                  )}
+                  <span className="text-[10px] font-black uppercase tracking-widest text-forest-400">
+                    {conversations.length}
+                  </span>
                 </span>
               </div>
               {/* Search */}
@@ -384,42 +459,82 @@ export default function Inbox() {
               )}
               {filteredConversations.map((conv) => {
                 const active = conv.customerId === activeId;
+                const unread = conv.unread;
                 return (
-                  <button
-                    key={conv.customerId}
-                    onClick={() => selectCustomer(conv.customerId)}
-                    className={`w-full text-left px-4 py-3.5 transition-colors flex items-start gap-3 ${
-                      active ? "bg-forest-500/10" : "hover:bg-white/[0.03]"
-                    }`}
-                  >
-                    <div
-                      className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center text-xs font-black uppercase border ${
-                        active
-                          ? "bg-forest-500/20 border-forest-500/40 text-forest-300"
-                          : "bg-white/5 border-white/10 text-white/50"
+                  <div key={conv.customerId} className="group relative">
+                    <button
+                      onClick={() => selectCustomer(conv.customerId)}
+                      className={`w-full text-left px-4 py-3.5 transition-colors flex items-start gap-3 ${
+                        active ? "bg-forest-500/10" : "hover:bg-white/[0.03]"
                       }`}
                     >
-                      {(conv.name || "?").slice(0, 2)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p
-                          className={`text-sm font-black italic uppercase truncate ${
-                            active ? "text-forest-300" : "text-white"
+                      <div className="relative shrink-0">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black uppercase border ${
+                            active
+                              ? "bg-forest-500/20 border-forest-500/40 text-forest-300"
+                              : "bg-white/5 border-white/10 text-white/50"
                           }`}
                         >
-                          {conv.name}
-                        </p>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-white/30 shrink-0">
-                          {relTime(conv.lastMs)}
-                        </span>
+                          {(conv.name || "?").slice(0, 2)}
+                        </div>
+                        {unread && (
+                          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-forest-500 ring-2 ring-zinc-900" />
+                        )}
                       </div>
-                      <p className="text-xs text-white/40 font-bold truncate mt-0.5">
-                        {conv.lastInbound ? "" : "You: "}
-                        {truncate(conv.lastText, 42)}
-                      </p>
-                    </div>
-                  </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p
+                            className={`text-sm font-black italic uppercase truncate ${
+                              active
+                                ? "text-forest-300"
+                                : unread
+                                ? "text-white"
+                                : "text-white/70"
+                            }`}
+                          >
+                            {conv.name}
+                          </p>
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            {unread && (
+                              <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-forest-500 text-black text-[9px] font-black leading-none">
+                                {conv.unreadCount}
+                              </span>
+                            )}
+                            <span
+                              className={`text-[9px] font-black uppercase tracking-widest ${
+                                unread ? "text-forest-400" : "text-white/30"
+                              }`}
+                            >
+                              {relTime(conv.lastMs)}
+                            </span>
+                          </span>
+                        </div>
+                        <p
+                          className={`text-xs font-bold truncate mt-0.5 ${
+                            unread ? "text-white/70" : "text-white/40"
+                          }`}
+                        >
+                          {conv.lastInbound ? "" : "You: "}
+                          {truncate(conv.lastText, 42)}
+                        </p>
+                      </div>
+                    </button>
+                    {/* Hover affordance: re-flag a read conversation as unread */}
+                    {!unread && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markUnread(conv.customerId);
+                        }}
+                        className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded-lg bg-black/70 border border-white/10 text-[8px] font-black uppercase tracking-widest text-white/50 hover:text-forest-400 hover:border-forest-500/40"
+                        title="Mark unread"
+                      >
+                        Mark unread
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -511,6 +626,15 @@ export default function Inbox() {
                       )}
                     </div>
                   </div>
+                  {/* Re-flag this thread as unread (e.g. to follow up later). */}
+                  <button
+                    type="button"
+                    onClick={() => markUnread(activeId)}
+                    className="shrink-0 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-white/5 text-white/50 border border-white/10 hover:text-forest-400 hover:border-forest-500/40 transition-colors"
+                    title="Mark this conversation as unread"
+                  >
+                    Mark unread
+                  </button>
                 </div>
 
                 {/* Bubbles */}

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   FileText, Plus, CalendarClock, CreditCard, ChevronRight, X, Save,
   DollarSign, ShieldCheck, AlertTriangle, Loader2, Trash2, CalendarPlus, Receipt,
+  Search, Copy,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { contractsRepo, customersRepo, jobsRepo, invoicesRepo } from "../lib/repos";
@@ -49,6 +50,7 @@ export default function Contracts() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("active");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null); // row being edited, or null for create
@@ -120,13 +122,29 @@ export default function Contracts() {
     if (activeTab === "active") rows = rows.filter((c) => c.status === "active");
     else if (activeTab === "pending")
       rows = rows.filter((c) => c.status === "pending_renewal" || c.status === "at_risk");
+
+    // Case-insensitive search across contract name + linked customer name.
+    const q = searchTerm.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((c) => {
+        const cust = customers.find((x) => x.id === (c.customer_id || c.customerId));
+        const custName = cust
+          ? cust.company_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || ""
+          : "";
+        return (
+          (c.name || "").toLowerCase().includes(q) ||
+          custName.toLowerCase().includes(q)
+        );
+      });
+    }
+
     return [...rows].sort((a, b) => {
       const sa = STATUS_ORDER.indexOf(a.status);
       const sb = STATUS_ORDER.indexOf(b.status);
       if (sa !== sb) return sa - sb;
       return Number(b.mrr || 0) - Number(a.mrr || 0); // highest value first
     });
-  }, [contracts, activeTab]);
+  }, [contracts, activeTab, searchTerm, customers]);
 
   // --- Modal handlers -------------------------------------------------------
   function openCreate() {
@@ -139,6 +157,27 @@ export default function Contracts() {
     setEditing(c);
     setForm({
       name: c.name || "",
+      customer_id: c.customer_id || c.customerId || "",
+      status: c.status || "active",
+      mrr: c.mrr != null ? String(c.mrr) : "",
+      pricePerVisit: c.data?.pricePerVisit != null ? String(c.data.pricePerVisit) : "",
+      cycle: c.data?.cycle || "Monthly",
+      start_date: c.data?.start_date || "",
+      end_date: c.data?.end_date || "",
+      services: c.data?.services || "",
+      visitsToGenerate:
+        c.data?.visitsToGenerate != null ? String(c.data.visitsToGenerate) : String(VISITS_TO_GENERATE),
+    });
+    setShowModal(true);
+  }
+
+  // Open the create modal pre-seeded from an existing row so the user can tweak
+  // the site/name and save a near-identical recurring plan. Treated as a NEW
+  // contract (editing stays null) so Save goes through contractsRepo.create.
+  function openDuplicate(c) {
+    setEditing(null);
+    setForm({
+      name: c.name ? `${c.name} (Copy)` : "",
       customer_id: c.customer_id || c.customerId || "",
       status: c.status || "active",
       mrr: c.mrr != null ? String(c.mrr) : "",
@@ -581,21 +620,41 @@ export default function Contracts() {
         ))}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-4 mb-8 flex-wrap">
-        {[
-          { id: "active", label: "Active" },
-          { id: "pending", label: "Renewal / At Risk" },
-          { id: "all", label: "All" },
-        ].map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest transition-all ${activeTab === t.id ? "bg-forest-500/20 text-forest-400 border border-forest-500/50" : "bg-white/5 text-zinc-400 hover:bg-white/10"}`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Search + Tabs */}
+      <div className="flex flex-col lg:flex-row lg:items-center gap-4 mb-8">
+        <div className="relative group w-full lg:max-w-sm">
+          <Search
+            size={18}
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-forest-400 transition-colors"
+            aria-hidden="true"
+          />
+          <label htmlFor="contracts-search-input" className="sr-only">
+            Search contracts
+          </label>
+          <input
+            id="contracts-search-input"
+            type="text"
+            placeholder="Search contracts..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-12 pr-6 py-3 bg-white/5 border border-white/5 rounded-2xl text-sm font-bold focus:bg-white/10 focus:border-forest-500/30 focus:outline-none placeholder:text-zinc-600 transition-all"
+          />
+        </div>
+        <div className="flex gap-4 flex-wrap">
+          {[
+            { id: "active", label: "Active" },
+            { id: "pending", label: "Renewal / At Risk" },
+            { id: "all", label: "All" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest transition-all ${activeTab === t.id ? "bg-forest-500/20 text-forest-400 border border-forest-500/50" : "bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
@@ -610,9 +669,13 @@ export default function Contracts() {
             <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-zinc-500 mb-4">
               <FileText size={24} />
             </div>
-            <p className="text-white font-bold mb-1">No contracts {activeTab !== "all" ? "in this view" : "yet"}</p>
+            <p className="text-white font-bold mb-1">
+              {searchTerm.trim() ? "No matching contracts" : `No contracts ${activeTab !== "all" ? "in this view" : "yet"}`}
+            </p>
             <p className="text-zinc-500 text-sm mb-6 max-w-sm">
-              Track recurring service agreements and their MRR. Create your first contract to get started.
+              {searchTerm.trim()
+                ? "No contracts match your search. Try a different name or clear the search."
+                : "Track recurring service agreements and their MRR. Create your first contract to get started."}
             </p>
             <button
               onClick={openCreate}
@@ -705,6 +768,14 @@ export default function Contracts() {
                               <span className="hidden sm:inline">Generate Visits</span>
                             </button>
                           )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openDuplicate(c); }}
+                            title="Duplicate this contract into a new pre-filled agreement"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 text-[10px] font-black uppercase tracking-widest transition-colors"
+                          >
+                            <Copy size={13} />
+                            <span className="hidden sm:inline">Duplicate</span>
+                          </button>
                           <button className="text-zinc-500 group-hover:text-white transition-colors">
                             <ChevronRight size={20} />
                           </button>

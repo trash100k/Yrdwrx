@@ -1130,17 +1130,22 @@ most were wiring-only. Gates after: `tsc` clean, 172 tests, build OK, 40/40 rout
 - [x] **Settings: AI "style learning" textarea saved silently** — added a "Saved." toast + enforced the
       advertised `maxLength={1000}`.
 
-### DEFERRED (your call — bigger / judgment)
-- [ ] **Search box on Contracts + Invoices** — table-stakes once data accumulates (mirror CRM search).
-- [ ] **"Duplicate" for invoices / contracts / equipment / inspection forms** — re-billing & near-identical
-      records are re-keyed by hand today.
-- [ ] **Inbox read/unread state + unread badge** — the daily messenger surface has no triage.
-- [ ] **CRM customer "Estimates" tab is hard-coded empty** — never queries the customer's draft/estimate
-      invoices (always shows "No Open Estimates").
-- [ ] **CRM "Magic Link" button is mislabeled** — it copies a generic portal URL, not the secure
-      magic-link (`handleSendMagicLink` exists but isn't wired to this button). Relabel or rewire.
+### FIXED — tier 2 (2026-06-29)
+- [x] **Search box on Contracts + Invoices** — case-insensitive search on name/number, combined with the
+      existing tab/quarter filters.
+- [x] **"Duplicate" for invoices / contracts / equipment / inspection forms** — invoices duplicate as a
+      fresh draft (new number, no carried payments); contracts/equipment open a pre-filled create modal;
+      forms deep-clone their fields.
+- [x] **Inbox read/unread state + unread badge** — localStorage per-customer last-read map; unread dot +
+      per-conversation count + header total; mark-read on open, plus a "Mark unread" affordance.
+- [x] **CRM customer "Estimates" tab** — now queries the customer's draft invoices (by `customerId`, with a
+      client-name fallback) and lists them; keeps the empty state when there are none.
+- [x] **CRM "Magic Link" button relabeled "Copy Portal Link"** — it copies the portal URL; the real
+      send-link action already lives in the detail footer ("Send/Resend Portal Link" → `handleSendMagicLink`).
+- [x] **FormBuilder: delete now has a ConfirmDialog** (bonus, done with the duplicate work).
+
+### DEFERRED (still open — bigger / judgment)
 - [ ] **Equipment: no edit after create** (only meter/service); wrong interval/crew forces delete+recreate.
-- [ ] **FormBuilder: delete has no confirm; no "duplicate form"**.
 - [ ] **InstantEstimate / Closeout: created invoice is a dead-end** — no view/copy-link/navigate after create.
 - [ ] **ClientPortal / Portfolio: no share/download** of a proposal or a before/after image.
 - [ ] **Dashboard "Add Vendor" dead button** — left for the Dashboard redesign (see `DASHBOARD_PLAN.md`).

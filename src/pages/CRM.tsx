@@ -3,7 +3,7 @@ import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 import React, { useState, useEffect, useRef } from "react";
 import { auth, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
-import { customersRepo, knowledgeRepo } from "../lib/repos";
+import { customersRepo, knowledgeRepo, invoicesRepo } from "../lib/repos";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import {
   Search,
@@ -170,6 +170,9 @@ export default function CRM() {
     null,
   );
   const [isSavingNotes, setIsSavingNotes] = useState(false);
+  // Draft (estimate) invoices for the selected customer — powers the Estimates tab.
+  const [customerEstimates, setCustomerEstimates] = useState<any[]>([]);
+  const [loadingEstimates, setLoadingEstimates] = useState(false);
   const [briefing, setBriefing] = useState<Record<string, any> | null>(null);
   const [isGeneratingBriefing, setIsGeneratingBriefing] = useState(false);
   const [customerNotes, setCustomerNotes] = useState("");
@@ -683,6 +686,36 @@ export default function CRM() {
       unsubKnow();
     };
   }, []);
+
+  // Load the selected customer's open estimates (draft invoices) for the Estimates tab.
+  useEffect(() => {
+    let alive = true;
+    if (!selectedCustomer?.id) {
+      setCustomerEstimates([]);
+      return;
+    }
+    setLoadingEstimates(true);
+    const cid = selectedCustomer.id;
+    const fullName = `${selectedCustomer.firstName || ""} ${selectedCustomer.lastName || ""}`.trim().toLowerCase();
+    invoicesRepo
+      .list()
+      .then((rows: any[]) => {
+        if (!alive) return;
+        const estimates = (rows || []).filter((inv: any) => {
+          const isDraft = (inv.status || "").toLowerCase() === "draft" && !inv.isArchived;
+          if (!isDraft) return false;
+          // Primary link: customer_id; fall back to client-name match for older rows.
+          if (inv.customerId) return inv.customerId === cid;
+          return fullName && (inv.client || "").toLowerCase().trim() === fullName;
+        });
+        setCustomerEstimates(estimates);
+      })
+      .catch(() => alive && setCustomerEstimates([]))
+      .finally(() => alive && setLoadingEstimates(false));
+    return () => {
+      alive = false;
+    };
+  }, [selectedCustomer?.id]);
 
   useEffect(() => {
     const handleVoiceAction = (e: CustomEvent) => {
@@ -1825,10 +1858,11 @@ export default function CRM() {
                         showToast("Client Portal Link copied to clipboard", "success");
                       }}
                       className="px-6 py-4 bg-forest-500/20 text-forest-400 hover:bg-forest-500 hover:text-black rounded-2xl transition-all micro-label font-black uppercase tracking-widest flex items-center gap-2 border-4 border-forest-500/20"
-                      aria-label="Share Magic Link"
+                      aria-label="Copy portal link"
+                      title="Copy this client's portal link to the clipboard"
                     >
                       <Share size={16} aria-hidden="true" />
-                      Magic Link
+                      Copy Portal Link
                     </button>
                     <button
                       id="crm-back-button"
@@ -2563,26 +2597,82 @@ export default function CRM() {
 
                   {customerViewTab === "estimates" && (
                      <div className="space-y-6">
-                       <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl flex flex-col items-center justify-center py-20 text-center">
-                         <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-4">
-                           <FileText size={24} className="text-white/40" />
+                       {loadingEstimates ? (
+                         <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl flex items-center justify-center py-20 text-center text-sm text-white/40">
+                           Loading estimates…
                          </div>
-                         <h4 className="text-lg font-black tracking-tight text-white uppercase mb-2">No Open Estimates</h4>
-                         <p className="text-sm text-white/40 mb-8 max-w-sm">Use the AI Property analyzer or Design Studio to easily generate a new proposal to sync to QuickBooks/Stripe.</p>
-                         <button
-                           onClick={() =>
-                             navigate("../invoices", {
-                               state: {
-                                 client: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`.trim(),
-                                 customer: selectedCustomer,
-                               },
-                             })
-                           }
-                           className="px-6 py-3 bg-white text-black text-xs font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all"
-                         >
-                           Create Blank Quote
-                         </button>
-                       </div>
+                       ) : customerEstimates.length > 0 ? (
+                         <div className="bg-zinc-900 border border-white/5 molten-edge p-6 shadow-2xl space-y-3">
+                           <div className="flex items-center justify-between mb-2">
+                             <h4 className="text-sm font-black tracking-tight text-white uppercase">
+                               Open Estimates ({customerEstimates.length})
+                             </h4>
+                             <button
+                               onClick={() =>
+                                 navigate("../invoices", {
+                                   state: {
+                                     client: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`.trim(),
+                                     customer: selectedCustomer,
+                                   },
+                                 })
+                               }
+                               className="px-4 py-2 bg-white text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all"
+                             >
+                               New Quote
+                             </button>
+                           </div>
+                           {customerEstimates.map((est: any) => (
+                             <button
+                               key={est.id}
+                               onClick={() =>
+                                 navigate("../invoices", {
+                                   state: {
+                                     client: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`.trim(),
+                                     customer: selectedCustomer,
+                                   },
+                                 })
+                               }
+                               className="w-full flex items-center justify-between gap-4 px-5 py-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all text-left"
+                             >
+                               <div className="flex items-center gap-3 min-w-0">
+                                 <FileText size={18} className="text-forest-400 shrink-0" />
+                                 <div className="min-w-0">
+                                   <div className="text-sm font-black text-white truncate">
+                                     Estimate #{est.number ?? est.data?.number ?? String(est.id).slice(0, 6)}
+                                   </div>
+                                   <div className="text-[11px] text-white/40">
+                                     {est.date || est.dueDate || "Draft"} · Draft
+                                   </div>
+                                 </div>
+                               </div>
+                               <div className="text-sm font-black text-white shrink-0">
+                                 ${(Number(est.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                               </div>
+                             </button>
+                           ))}
+                         </div>
+                       ) : (
+                         <div className="bg-zinc-900 border border-white/5 molten-edge p-8 shadow-2xl flex flex-col items-center justify-center py-20 text-center">
+                           <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-4">
+                             <FileText size={24} className="text-white/40" />
+                           </div>
+                           <h4 className="text-lg font-black tracking-tight text-white uppercase mb-2">No Open Estimates</h4>
+                           <p className="text-sm text-white/40 mb-8 max-w-sm">Use the AI Property analyzer or Design Studio to easily generate a new proposal to sync to QuickBooks/Stripe.</p>
+                           <button
+                             onClick={() =>
+                               navigate("../invoices", {
+                                 state: {
+                                   client: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`.trim(),
+                                   customer: selectedCustomer,
+                                 },
+                               })
+                             }
+                             className="px-6 py-3 bg-white text-black text-xs font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all"
+                           >
+                             Create Blank Quote
+                           </button>
+                         </div>
+                       )}
                      </div>
                   )}
 

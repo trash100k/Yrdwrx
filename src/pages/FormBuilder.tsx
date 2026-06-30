@@ -3,8 +3,9 @@ import { handleFirestoreError, OperationType } from "../lib/firebase";
 import { inspectionFormsRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
-import { Plus, Trash2, Save, X, Edit, ListChecks } from "lucide-react";
+import { Plus, Trash2, Save, X, Edit, ListChecks, Copy } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export default function FormBuilder() {
   const { tenant } = useTenant();
@@ -12,6 +13,7 @@ export default function FormBuilder() {
   const [forms, setForms] = useState<any[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [currentForm, setCurrentForm] = useState<any>(null);
+  const [pendingDelete, setPendingDelete] = useState<any>(null);
 
   useEffect(() => {
     if (!tenant) return;
@@ -36,13 +38,35 @@ export default function FormBuilder() {
     setIsEditing(true);
   };
 
+  // Only called after the user confirms via the ConfirmDialog.
   const handleDelete = async (id: string) => {
     if (!tenant) return;
     try {
       await inspectionFormsRepo.remove(id);
-      showToast("Form deleted successfully", "success");
+      showToast("Form deleted.", "success");
     } catch (e: any) {
       showToast("Failed to delete form", "error");
+    }
+  };
+
+  const handleDuplicate = async (form: any) => {
+    if (!tenant) return;
+    try {
+      // Deep-copy the fields and give each a fresh id so the new record's
+      // fields stay independent of the original's.
+      const fields = (form.fields || []).map((f: any) => ({
+        ...f,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      }));
+      // Mirror the create shape used in handleSave: { name, fields, status }.
+      await inspectionFormsRepo.create({
+        name: `${form.name ?? form.jobType ?? "Form"} (copy)`,
+        fields,
+        status: form.status ?? "active",
+      });
+      showToast("Form duplicated.", "success");
+    } catch (e: any) {
+      showToast("Failed to duplicate form", "error");
     }
   };
 
@@ -140,7 +164,10 @@ export default function FormBuilder() {
                     <button onClick={() => handleEdit(form)} className="p-1.5 bg-zinc-800 hover:bg-forest-500/20 hover:text-forest-400 text-zinc-400 rounded-lg transition-colors">
                       <Edit size={16} />
                     </button>
-                    <button onClick={() => handleDelete(form.id)} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 hover:text-red-400 text-zinc-400 rounded-lg transition-colors">
+                    <button onClick={() => handleDuplicate(form)} className="p-1.5 bg-zinc-800 hover:bg-forest-500/20 hover:text-forest-400 text-zinc-400 rounded-lg transition-colors">
+                      <Copy size={16} />
+                    </button>
+                    <button onClick={() => setPendingDelete(form)} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 hover:text-red-400 text-zinc-400 rounded-lg transition-colors">
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -281,6 +308,16 @@ export default function FormBuilder() {
           </div>
         </motion.div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => handleDelete(pendingDelete?.id)}
+        title="Delete inspection form?"
+        description={`This removes "${pendingDelete?.jobType || pendingDelete?.name || "this form"}". This can't be undone.`}
+        confirmText="Delete"
+        danger
+      />
     </div>
   );
 }

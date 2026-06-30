@@ -15,6 +15,7 @@ import {
   FileText,
   Plus,
   Search,
+  Copy,
   DollarSign,
   Clock,
   CheckCircle2,
@@ -110,6 +111,7 @@ export default function Invoices() {
   >([]);
   const [activeTab, setActiveTab] = useState("Invoices");
   const [quarterFilter, setQuarterFilter] = useState("All");
+  const [searchTerm, setSearchTerm] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
@@ -751,19 +753,31 @@ export default function Invoices() {
 
   const filteredInvoices = useMemo(() => {
     let result = invoices.filter(inv => !inv.isArchived);
-    if (quarterFilter === "All") return result;
-    return result.filter(inv => {
-      if (!inv.date) return false;
-      const d = new Date(inv.date);
-      if (isNaN(d.getTime())) return false;
-      const month = d.getMonth() + 1;
-      if (quarterFilter === "Q1" && month >= 1 && month <= 3) return true;
-      if (quarterFilter === "Q2" && month >= 4 && month <= 6) return true;
-      if (quarterFilter === "Q3" && month >= 7 && month <= 9) return true;
-      if (quarterFilter === "Q4" && month >= 10 && month <= 12) return true;
-      return false;
-    });
-  }, [invoices, quarterFilter]);
+    // Quarter filter.
+    if (quarterFilter !== "All") {
+      result = result.filter(inv => {
+        if (!inv.date) return false;
+        const d = new Date(inv.date);
+        if (isNaN(d.getTime())) return false;
+        const month = d.getMonth() + 1;
+        if (quarterFilter === "Q1" && month >= 1 && month <= 3) return true;
+        if (quarterFilter === "Q2" && month >= 4 && month <= 6) return true;
+        if (quarterFilter === "Q3" && month >= 7 && month <= 9) return true;
+        if (quarterFilter === "Q4" && month >= 10 && month <= 12) return true;
+        return false;
+      });
+    }
+    // Text search: case-insensitive substring match on client name + invoice number.
+    const q = searchTerm.trim().toLowerCase();
+    if (q) {
+      result = result.filter(inv => {
+        const client = (inv.client || "").toString().toLowerCase();
+        const number = ((inv as any).number ?? (inv as any).data?.number ?? "").toString().toLowerCase();
+        return client.includes(q) || number.includes(q);
+      });
+    }
+    return result;
+  }, [invoices, quarterFilter, searchTerm]);
 
   // Accounts-receivable aging: bucket each invoice's OUTSTANDING balance by how many
   // days past its due date it is. Drives the owner AR summary + "remind all overdue".
@@ -859,6 +873,47 @@ export default function Invoices() {
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `invoices/${inv.id}`);
+    }
+  };
+
+  // Duplicate an existing invoice as a fresh DRAFT. Carries over client, items,
+  // amount, customer linkage and the tax/discount breakdown, assigns a brand-new
+  // sequential number, dates it today, and starts payment state clean (no
+  // amountPaid/payments copied). Mirrors the toInvoiceRow + nextInvoiceNumber path
+  // used by handleCreateInvoice.
+  const handleDuplicateInvoice = async (inv: any) => {
+    if (!inv?.id) return;
+    const tenantId = tenant?.id || "genesis-1";
+    const src = inv?.data || {};
+    const today = new Date().toISOString().slice(0, 10);
+    const billing: any = { number: nextInvoiceNumber() };
+    // Carry over the source's tax/discount breakdown when present.
+    if (src.subtotal != null) billing.subtotal = src.subtotal;
+    if (src.discount != null) billing.discount = src.discount;
+    if (src.taxRate != null) billing.taxRate = src.taxRate;
+    if (src.taxAmount != null) billing.taxAmount = src.taxAmount;
+    try {
+      await invoicesRepo.create(
+        toInvoiceRow({
+          client: inv.client,
+          amount: inv.amount,
+          items: inv.items,
+          status: "draft",
+          date: today,
+          ...(inv.customerId ? { customerId: inv.customerId } : {}),
+          data: billing,
+        }),
+      );
+      await logSystemEvent("INVOICE_DUPLICATED", {
+        sourceInvoiceId: inv.id,
+        client: inv.client,
+        number: billing.number,
+        tenantId,
+      });
+      showToast("Invoice duplicated as draft.", "success");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, "invoices");
+      showToast("Could not duplicate invoice.", "error");
     }
   };
 
@@ -1099,6 +1154,25 @@ export default function Invoices() {
                 <option value="Q3">Q3 (Jul-Sep)</option>
                 <option value="Q4">Q4 (Oct-Dec)</option>
               </select>
+
+              <div className="relative group">
+                <Search
+                  size={18}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-forest-400 transition-colors"
+                  aria-hidden="true"
+                />
+                <label htmlFor="invoice-search-input" className="sr-only">
+                  Search invoices
+                </label>
+                <input
+                  id="invoice-search-input"
+                  type="text"
+                  placeholder="Search client or invoice #..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full md:w-64 pl-12 pr-6 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm font-medium focus:bg-white/10 focus:border-forest-500/30 focus:outline-none placeholder:text-zinc-600 transition-all"
+                />
+              </div>
             </div>
             <button
               onClick={() => {
@@ -1246,6 +1320,14 @@ export default function Invoices() {
                       title="Set up recurring / seasonal billing"
                     >
                       <Repeat size={18} aria-hidden="true" />
+                    </button>
+                    <button
+                      onClick={() => handleDuplicateInvoice(inv)}
+                      className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-md transition-all"
+                      aria-label={`Duplicate invoice for ${inv.client} as a draft`}
+                      title="Duplicate as draft"
+                    >
+                      <Copy size={18} aria-hidden="true" />
                     </button>
                     {!["paid", "draft", "void", "cancelled", "canceled"].includes(
                       (inv.status || "").toLowerCase(),

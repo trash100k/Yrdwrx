@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Trash2,
+  Copy,
   Tag,
   Users,
   CircleDot,
@@ -193,6 +194,8 @@ export default function Equipment() {
   const [rows, setRows] = useState<any[]>([]);
   const [crews, setCrews] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
+  // When set, the Add form opens pre-seeded from this duplicated row (fresh meter/service).
+  const [seed, setSeed] = useState<any>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // Live subscription — equipmentRepo pushes a fresh full list on any change.
@@ -247,10 +250,43 @@ export default function Equipment() {
       await equipmentRepo.create(payload);
       showToast(`${payload.name} added to the fleet`, "success");
       setShowForm(false);
+      setSeed(null);
     } catch (err: any) {
       console.error("[Equipment] create failed", err);
       showToast("Could not add equipment.", "error");
     }
+  };
+
+  // Duplicate/Clone — pre-seed the Add form from an existing row so a fleet
+  // running multiples of the same machine doesn't re-type make/model/interval.
+  // Copies the spec fields; starts the meter reading + service history FRESH and
+  // suffixes the name so the user just adjusts the unit number and saves.
+  const handleDuplicate = (e: any) => {
+    const isMileage = e.meterType === "mileage";
+    setSeed({
+      // Unique per click so the form remounts even on back-to-back duplicates.
+      __key: `${e.id || "row"}-${Date.now()}`,
+      name: `${e.name || "Unnamed Asset"} (copy)`,
+      type: e.type || "Mower",
+      make: e.make || "",
+      model: e.model || "",
+      year: e.year != null ? String(e.year) : "",
+      identifier: "", // unit-specific — cleared
+      meterType: isMileage ? "mileage" : "hours",
+      reading: "", // fresh meter
+      interval: String(
+        isMileage
+          ? num(e.serviceIntervalMiles) || ""
+          : num(e.serviceIntervalHours) || "",
+      ),
+      lastServiceDate: "", // fresh service history
+      lastServiceReading: "", // fresh service history
+      assignedCrew: e.assignedCrew || "",
+      purchaseDate: "", // unit-specific — cleared
+      purchaseCost: e.purchaseCost != null ? String(e.purchaseCost) : "",
+      notes: e.notes || "",
+    });
+    setShowForm(true);
   };
 
   // Inline meter update — writes hoursMeter OR mileage based on the asset's meterType.
@@ -387,8 +423,13 @@ export default function Equipment() {
             className="overflow-hidden"
           >
             <AddEquipmentForm
+              key={seed?.__key || "blank"}
               crews={crews}
-              onCancel={() => setShowForm(false)}
+              initial={seed}
+              onCancel={() => {
+                setShowForm(false);
+                setSeed(null);
+              }}
               onSubmit={handleCreate}
             />
           </motion.div>
@@ -441,6 +482,7 @@ export default function Equipment() {
                 busy={busyId === e.id}
                 onUpdateReading={handleUpdateReading}
                 onLogService={handleLogService}
+                onDuplicate={handleDuplicate}
                 onDelete={handleDelete}
               />
             ))}
@@ -461,6 +503,7 @@ function EquipmentCard({
   busy,
   onUpdateReading,
   onLogService,
+  onDuplicate,
   onDelete,
 }: any) {
   const s = serviceStatus(e);
@@ -586,6 +629,15 @@ function EquipmentCard({
           Log Service
         </button>
         <button
+          onClick={() => onDuplicate(e)}
+          disabled={busy}
+          aria-label="Duplicate equipment"
+          title="Duplicate this asset"
+          className="flex items-center justify-center w-11 h-[42px] rounded-xl border border-forest-500/20 bg-forest-500/5 text-forest-400/70 hover:bg-forest-500/15 hover:text-forest-400 transition-colors disabled:opacity-40"
+        >
+          <Copy size={15} />
+        </button>
+        <button
           onClick={() => onDelete(e)}
           disabled={busy}
           aria-label="Delete equipment"
@@ -602,7 +654,10 @@ function EquipmentCard({
 // Add-equipment form (inline panel)
 // ---------------------------------------------------------------------------
 
-function AddEquipmentForm({ crews, onCancel, onSubmit }: any) {
+function AddEquipmentForm({ crews, initial, onCancel, onSubmit }: any) {
+  // Blank defaults, overlaid with `initial` when the form was opened via Duplicate.
+  // The parent remounts this component (via `key`) per seed, so this initializer
+  // re-runs with the right values.
   const [f, setF] = useState<any>({
     name: "",
     type: "Mower",
@@ -619,7 +674,9 @@ function AddEquipmentForm({ crews, onCancel, onSubmit }: any) {
     purchaseDate: "",
     purchaseCost: "",
     notes: "",
+    ...(initial && (({ __key, ...rest }) => rest)(initial)),
   });
+  const isDuplicate = !!initial;
   const [submitting, setSubmitting] = useState(false);
 
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
@@ -671,9 +728,13 @@ function AddEquipmentForm({ crews, onCancel, onSubmit }: any) {
       className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-8 space-y-6"
     >
       <div className="flex items-center gap-3">
-        <Plus size={20} className="text-forest-400" />
+        {isDuplicate ? (
+          <Copy size={20} className="text-forest-400" />
+        ) : (
+          <Plus size={20} className="text-forest-400" />
+        )}
         <h3 className="text-xl font-black text-white italic tracking-tight uppercase leading-none">
-          Add Equipment
+          {isDuplicate ? "Duplicate Equipment" : "Add Equipment"}
         </h3>
       </div>
 
