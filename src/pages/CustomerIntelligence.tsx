@@ -50,6 +50,7 @@ import {
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { fetchApi } from "../lib/api";
+import { customerHealth } from "../lib/customerHealth";
 import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
 
@@ -335,54 +336,14 @@ export default function CustomerIntelligence() {
         const marginPct = revenue > 0 ? (marginDollars / revenue) * 100 : 0;
 
         // --- health score + reasons ----------------------------------------------
-        let score = 100;
-        const reasons: string[] = [];
-
-        if (daysSinceJob != null) {
-          if (daysSinceJob > 180) {
-            score -= 35;
-            reasons.push(`No completed job in ${daysSinceJob} days`);
-          } else if (daysSinceJob > 90) {
-            score -= 20;
-            reasons.push(`${daysSinceJob} days since last job`);
-          } else if (daysSinceJob > 45) {
-            score -= 8;
-            reasons.push(`${daysSinceJob} days since last job`);
-          }
-        }
-
-        const overdue = overdueByCustomer[id] || 0;
-        if (overdue > 0) {
-          score -= Math.min(25, 12 + overdue * 6);
-          reasons.push(`${overdue} overdue / unpaid invoice${overdue === 1 ? "" : "s"}`);
-        }
-
-        const rv = reviewByCustomer[id];
-        if (rv) {
-          if (rv.sentiment === "NEGATIVE" || (rv.rating != null && rv.rating <= 2)) {
-            score -= 25;
-            reasons.push(rv.rating != null ? `Low review rating (${rv.rating}/5)` : "Negative review sentiment");
-          } else if (rv.rating != null && rv.rating === 3) {
-            score -= 10;
-            reasons.push("Lukewarm review (3/5)");
-          }
-        }
-
-        if (declinedCount > 0) {
-          score -= Math.min(20, declinedCount * 10);
-          reasons.push(`${declinedCount} declined / cancelled job${declinedCount === 1 ? "" : "s"}`);
-        }
-
-        const cStatus = contractStatusByCustomer[id];
-        if (cStatus === "at_risk") {
-          score -= 20;
-          reasons.push("Contract flagged at-risk");
-        } else if (cStatus === "pending_renewal" || cStatus === "pending") {
-          score -= 12;
-          reasons.push("Contract pending renewal");
-        }
-
-        score = Math.max(0, Math.min(100, Math.round(score)));
+        // Scoring logic lives in the pure module src/lib/customerHealth.ts.
+        const { score, reasons } = customerHealth({
+          daysSinceJob,
+          overdue: overdueByCustomer[id] || 0,
+          review: reviewByCustomer[id] || null,
+          declinedCount,
+          contractStatus: contractStatusByCustomer[id] || null,
+        });
 
         return {
           id,

@@ -9,7 +9,7 @@ import {
 } from "../lib/firebase";
 import { invoicesRepo, expensesRepo, jobsRepo, contractsRepo, customersRepo } from "../lib/repos";
 import { runAutomations } from "../lib/automations";
-import { applyPayment } from "../lib/payments";
+import { applyPayment, bucketInvoices } from "../lib/payments";
 import {
   FileText,
   Plus,
@@ -768,37 +768,9 @@ export default function Invoices() {
     return result;
   }, [invoices, quarterFilter, searchTerm]);
 
-  // Accounts-receivable aging: bucket each invoice's OUTSTANDING balance by how many
-  // days past its due date it is. Drives the owner AR summary + "remind all overdue".
-  const arAging = useMemo(() => {
-    const now = new Date(new Date().toDateString()).getTime();
-    const b = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90: 0, outstanding: 0, collected: 0, overdueInvoices: [] as any[] };
-    for (const inv of invoices) {
-      if (inv.isArchived) continue;
-      const s = (inv.status || "").toLowerCase();
-      if (["void", "cancelled", "canceled", "draft"].includes(s)) continue;
-      const total = Number(inv.amount) || 0;
-      const paid = Number((inv as any).amountPaid) || 0;
-      b.collected += paid;
-      const bal = total - paid;
-      if (bal <= 0.005 || s === "paid") continue;
-      b.outstanding += bal;
-      // Age off the due date; if none was set (e.g. auto-billed contract visits), fall back
-      // to the invoice/issue date so recurring revenue still ages and shows up in reminders.
-      const dueRaw = inv.dueDate || inv.date || (inv as any).created_at;
-      const due = dueRaw ? new Date(dueRaw).getTime() : NaN;
-      const daysOver = isNaN(due) ? 0 : Math.floor((now - due) / 86400000);
-      if (daysOver <= 0) b.current += bal;
-      else {
-        if (daysOver <= 30) b.d1_30 += bal;
-        else if (daysOver <= 60) b.d31_60 += bal;
-        else if (daysOver <= 90) b.d61_90 += bal;
-        else b.d90 += bal;
-        b.overdueInvoices.push(inv);
-      }
-    }
-    return b;
-  }, [invoices]);
+  // Accounts-receivable aging — bucket outstanding balances by days past due. Logic lives in
+  // the tested src/lib/payments.ts (bucketInvoices) so the AR/dunning math has coverage.
+  const arAging = useMemo(() => bucketInvoices(invoices), [invoices]);
 
   const [remindingAll, setRemindingAll] = useState(false);
 

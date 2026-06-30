@@ -1244,3 +1244,28 @@ delivers (the real "demo vs sellable" gap), plus the one confirmed silent data-c
 - [ ] Unit-test `agentActions.executeAgentAction`, JobCosting rollup, churn scorer, `timesheets.ts`.
 - [ ] Expansion pick: **Reviews reputation loop** (ingest + post) and **card-on-file auto-charge**.
 - [ ] `isPrivateIP` IPv4-mapped-IPv6 SSRF edge; `/api/inventory/forecast` drops the inventory array.
+
+## Testing tier — extract + cover the money/decision logic (2026-06-30) — DONE
+
+Pulled the business-critical math out of `@ts-nocheck` page components into pure, tested libs.
+Test count 216 → **348** (all green), `tsc` clean, build OK, rewired pages render clean.
+
+- [x] **AR aging** — extracted Invoices' inline bucketing into `payments.ts` `bucketInvoices(invoices, now)`
+      (+`ArAging`/`startOfTodayMs`); page now calls it. Tests cover bucket boundaries (30/60/90),
+      outstanding vs collected, exclusions (archived/void/draft/paid), no-dueDate fallback, empty input.
+- [x] **timesheets.ts** — 34 tests (`minutesBetween`/`weekMinutes`/`startOfWeek`/`activeEntry`/`formatDuration`).
+      Pinned two real quirks: cached `durationMins` is trusted over clock math; week membership keyed only on `clockIn` (no boundary proration).
+- [x] **agentActions.ts** — 34 tests over the unified agent write path (`parseRules`, `toDateOrNull`,
+      `prettyName`, name-split + amount/date dispatch). **Fixed a real money bug it surfaced:** amount
+      coercion `Number("$1,200")` → NaN → **$0 invoice**; added `parseMoney()` (strips `$`/commas) + tests.
+- [x] **JobCosting** — extracted the rollup into `lib/jobCosting.ts` (`rollupJobCosts`, `marginBand`, id
+      resolvers, material costing); page wired to it. 24 tests (attribution, even-allocation fallback,
+      margin bands, 60-job cap, NaN guards).
+- [x] **Customer health/churn** — extracted into `lib/customerHealth.ts` (`customerHealth(signals)` +
+      `healthBandLabel`); page wired to it. 36 tests (every penalty threshold, clamp [0,100], reasons).
+
+### Follow-ups noted by the tests (not yet fixed)
+- [ ] `weekMinutes` trusts a stale cached `durationMins` over clockIn→clockOut — consider recomputing.
+- [ ] No week-boundary proration in `weekMinutes` (whole entry counts to the week it starts in).
+
+### Next: expansion pick — Reviews reputation loop (ingest + post) · then card-on-file auto-charge.

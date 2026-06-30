@@ -17,6 +17,16 @@ import {
 } from "./repos";
 import { supabase } from "./supabase";
 
+// Coerce a model-supplied money value to a number. The model often emits currency-formatted
+// strings ("$1,200", "1,200.50"); a bare Number() of those is NaN → silently a $0 invoice.
+// Strip currency symbols/commas/whitespace first. (Exported for tests.)
+export function parseMoney(v: any): number {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  if (typeof v !== "string") return 0;
+  const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
 export interface AgentActionContext {
   navigate?: (path: string) => void;
   rolePrefix?: string; // "/admin" | "/employee"
@@ -131,7 +141,7 @@ export async function executeAgentAction(
       case "create_quote":
       case "create_estimate": {
         const customer = await resolveCustomer(args, ctx);
-        const amount = Number(args.amount) || 0;
+        const amount = parseMoney(args.amount);
         const isQuote = name !== "create_invoice";
         const clientLabel = customer ? fullName(customer) : args.clientName || "";
         const inv = await invoicesRepo.create({
@@ -214,7 +224,7 @@ export async function executeAgentAction(
       }
 
       case "log_expense": {
-        const amount = Number(args.amount) || 0;
+        const amount = parseMoney(args.amount);
         const exp = await expensesRepo.create({
           amount,
           merchant: args.merchant || args.vendor || null,
@@ -377,7 +387,7 @@ async function stampTenant(row: any) {
 
 // Normalize HOA rules into a clean string[]. Accepts an array already, or a single
 // string the model dictated as prose — split on commas, semicolons, newlines, and "and".
-function parseRules(input: any): string[] {
+export function parseRules(input: any): string[] {
   if (Array.isArray(input)) {
     return input.map((r) => String(r).trim()).filter(Boolean);
   }
@@ -390,7 +400,7 @@ function parseRules(input: any): string[] {
   return [];
 }
 
-function toDateOrNull(v: any): string | null {
+export function toDateOrNull(v: any): string | null {
   if (!v) return null;
   const d = new Date(v);
   return isNaN(d.getTime()) ? null : d.toISOString();

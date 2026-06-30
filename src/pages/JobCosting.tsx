@@ -38,6 +38,7 @@ import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
+import { num, marginBand, rollupJobCosts } from "../lib/jobCosting";
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -47,53 +48,12 @@ import { EmptyState } from "../components/EmptyState";
 // extras (e.g. jobId nested in data) are visible alongside real columns.
 const flatten = (r: any) => ({ ...(r?.data || {}), ...r });
 
-const num = (v: any) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
-
 const money = (n: number) =>
   (n < 0 ? "-$" : "$") +
   Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 const pct = (n: number) =>
   `${n >= 0 ? "" : "-"}${Math.abs(n).toFixed(0)}%`;
-
-// Margin color band: forest >40%, amber 15-40%, rose <15%.
-const marginBand = (marginPct: number) => {
-  if (marginPct >= 40)
-    return {
-      text: "text-forest-400",
-      bg: "bg-forest-500/10",
-      border: "border-forest-500/30",
-      dot: "bg-forest-400",
-      label: "Healthy",
-    };
-  if (marginPct >= 15)
-    return {
-      text: "text-amber-400",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/30",
-      dot: "bg-amber-400",
-      label: "Thin",
-    };
-  return {
-    text: "text-rose-400",
-    bg: "bg-rose-500/10",
-    border: "border-rose-500/30",
-    dot: "bg-rose-400",
-    label: "At Risk",
-  };
-};
-
-// Pull the customer id off a job/invoice row under any of the common field names.
-const customerIdOf = (r: any) =>
-  r?.customerId ?? r?.customer_id ?? r?.clientId ?? r?.client_id ?? null;
-
-// Pull the job id off a satellite row (timesheet/expense/material/invoice) under any
-// of the common field names; null if the row isn't linked to a job.
-const jobIdOf = (r: any) =>
-  r?.jobId ?? r?.job_id ?? r?.associatedJobId ?? null;
 
 // Inline confidence/estimate marker — small pill that flags a figure as an estimate
 // rather than an exact, per-job-resolved number.
@@ -158,156 +118,18 @@ export default function JobCosting() {
       const materials = (materialRowsRaw || []).map(flatten);
       const inventory = (inventoryRowsRaw || []).map(flatten);
 
-      // Recent / active jobs first — newest by date, cap to keep the table dense.
-      const sortedJobs = [...jobs].sort((a, b) => {
-        const da = new Date(a.date || a.createdAt || 0).getTime();
-        const db = new Date(b.date || b.createdAt || 0).getTime();
-        return db - da;
+      // The estimate-vs-actual rollup (bucketing + even-allocation fallback + margins)
+      // lives in the pure ../lib/jobCosting module so it can be unit-tested. It returns
+      // per-job rows (sorted lowest-margin-first) which the table renders directly.
+      const { rows: computed } = rollupJobCosts({
+        jobs,
+        invoices,
+        expenses,
+        timesheets,
+        materialLogs: materials,
+        inventory,
+        laborRate: hourlyRate,
       });
-      const activeJobs = sortedJobs.slice(0, 60);
-      const activeJobIds = new Set(activeJobs.map((j) => j.id));
-      const jobCount = activeJobs.length || 1;
-
-      // --- inventory unit-cost lookup (for material costing) ----------------
-      const unitCostById: Record<string, number> = {};
-      const unitCostByName: Record<string, number> = {};
-      for (const it of inventory) {
-        const cost = num(it.unitCost) || num(it.unitPrice) || 0;
-        if (it.id) unitCostById[it.id] = cost;
-        if (it.name) unitCostByName[String(it.name).toLowerCase()] = cost;
-      }
-      const materialLineCost = (m: any) => {
-        const unit =
-          num(unitCostById[m.itemId]) ||
-          num(unitCostByName[String(m.itemName || "").toLowerCase()]) ||
-          num(m.unitCost) ||
-          num(m.unitPrice) ||
-          0;
-        return num(m.quantity) * unit;
-      };
-
-      // --- bucket the satellite rows by job, tracking the unallocated pool ----
-      // Labor (hours)
-      const laborMinsByJob: Record<string, number> = {};
-      let unallocatedLaborMins = 0;
-      for (const t of timesheets) {
-        let mins = num(t.durationMins);
-        if (!mins && t.clockIn && t.clockOut) {
-          mins = Math.max(
-            0,
-            (new Date(t.clockOut).getTime() - new Date(t.clockIn).getTime()) /
-              60000,
-          );
-        }
-        if (!mins) continue;
-        const jid = jobIdOf(t);
-        if (jid && activeJobIds.has(jid)) {
-          laborMinsByJob[jid] = (laborMinsByJob[jid] || 0) + mins;
-        } else {
-          unallocatedLaborMins += mins;
-        }
-      }
-
-      // Material (consumption "out" only — "in" is restock, not job cost)
-      const materialCostByJob: Record<string, number> = {};
-      let unallocatedMaterialCost = 0;
-      for (const m of materials) {
-        if (m.type && String(m.type).toLowerCase() === "in") continue;
-        const cost = materialLineCost(m);
-        if (!cost) continue;
-        const jid = jobIdOf(m);
-        if (jid && activeJobIds.has(jid)) {
-          materialCostByJob[jid] = (materialCostByJob[jid] || 0) + cost;
-        } else {
-          unallocatedMaterialCost += cost;
-        }
-      }
-
-      // Expenses (other direct costs — also rolled into "material/other" cost)
-      const expenseCostByJob: Record<string, number> = {};
-      let unallocatedExpenseCost = 0;
-      for (const x of expenses) {
-        const cost = num(x.amount);
-        if (!cost) continue;
-        const jid = jobIdOf(x);
-        if (jid && activeJobIds.has(jid)) {
-          expenseCostByJob[jid] = (expenseCostByJob[jid] || 0) + cost;
-        } else {
-          unallocatedExpenseCost += cost;
-        }
-      }
-
-      // Revenue: invoices linked to a job win; otherwise we fall back to the job's
-      // own revenue field. Track which jobs had a real invoice match so the UI can
-      // be honest about job.revenue being a quote/estimate vs. billed.
-      const invoiceRevByJob: Record<string, number> = {};
-      for (const inv of invoices) {
-        const jid = jobIdOf(inv);
-        if (jid && activeJobIds.has(jid)) {
-          invoiceRevByJob[jid] = (invoiceRevByJob[jid] || 0) + num(inv.amount);
-        }
-      }
-
-      // Tenant-level even allocation of the unresolved pools across active jobs.
-      const laborMinsPerJobEst = unallocatedLaborMins / jobCount;
-      const materialCostPerJobEst =
-        (unallocatedMaterialCost + unallocatedExpenseCost) / jobCount;
-
-      const computed = activeJobs.map((j) => {
-        const id = j.id;
-
-        // Revenue ---------------------------------------------------------
-        const billed = invoiceRevByJob[id] || 0;
-        const jobRevenue =
-          num(j.revenue) || num(j.amount) || num(j.total) || num(j.price);
-        const revenue = billed > 0 ? billed : jobRevenue;
-        const revenueIsBilled = billed > 0;
-        const revenueIsEst = !revenueIsBilled; // job.revenue is a quote/estimate
-
-        // Labor -----------------------------------------------------------
-        const directLaborMins = laborMinsByJob[id] || 0;
-        const laborMins = directLaborMins || laborMinsPerJobEst;
-        const laborHours = laborMins / 60;
-        const laborCost = laborHours * hourlyRate;
-        const laborIsEst = directLaborMins <= 0;
-
-        // Material + other direct cost -----------------------------------
-        const directMaterial =
-          (materialCostByJob[id] || 0) + (expenseCostByJob[id] || 0);
-        const materialCost = directMaterial || materialCostPerJobEst;
-        const materialIsEst = directMaterial <= 0;
-
-        const totalCost = laborCost + materialCost;
-        const marginDollars = revenue - totalCost;
-        const marginPct = revenue > 0 ? (marginDollars / revenue) * 100 : 0;
-
-        return {
-          id,
-          title:
-            j.title ||
-            j.serviceType ||
-            j.service ||
-            j.type ||
-            "Untitled Job",
-          client: j.client || j.customerName || customerIdOf(j) || "—",
-          status: (j.status || "").toString().toUpperCase(),
-          revenue,
-          revenueIsBilled,
-          revenueIsEst,
-          laborHours,
-          laborCost,
-          laborIsEst,
-          materialCost,
-          materialIsEst,
-          totalCost,
-          marginDollars,
-          marginPct,
-        };
-      });
-
-      // Sort by margin % ascending so the at-risk jobs surface at the top —
-      // that is where the operator's attention needs to go.
-      computed.sort((a, b) => a.marginPct - b.marginPct);
 
       setRows(computed);
     } catch (err: any) {

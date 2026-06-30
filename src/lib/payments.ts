@@ -41,3 +41,52 @@ export function agingBucket(daysOver: number): "current" | "d1_30" | "d31_60" | 
   if (daysOver <= 90) return "d61_90";
   return "d90";
 }
+
+export interface ArAging {
+  current: number;
+  d1_30: number;
+  d31_60: number;
+  d61_90: number;
+  d90: number;
+  outstanding: number;
+  collected: number;
+  overdueInvoices: any[];
+}
+
+/** Start-of-today as a ms timestamp (drops the time component, like the AR page did). */
+export function startOfTodayMs(): number {
+  return new Date(new Date().toDateString()).getTime();
+}
+
+/**
+ * Accounts-receivable aging. Buckets each invoice's OUTSTANDING balance by how many days
+ * past due it is, and totals what's been collected. Rules (kept identical to the Invoices
+ * page it was extracted from):
+ *  - skip archived + void/cancelled/draft invoices;
+ *  - `collected` sums data.amountPaid across all non-skipped invoices;
+ *  - an invoice with no remaining balance (or status "paid") doesn't age;
+ *  - ages off dueDate, falling back to date → created_at (so auto-billed visits still age);
+ *  - anything past due (daysOver > 0) is added to overdueInvoices.
+ * `now` is a ms timestamp (default: start of today) — pass it explicitly for deterministic tests.
+ */
+export function bucketInvoices(invoices: any[], now: number = startOfTodayMs()): ArAging {
+  const b: ArAging = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90: 0, outstanding: 0, collected: 0, overdueInvoices: [] };
+  for (const inv of invoices || []) {
+    if (inv?.isArchived) continue;
+    const s = String(inv?.status || "").toLowerCase();
+    if (["void", "cancelled", "canceled", "draft"].includes(s)) continue;
+    const total = Number(inv?.amount) || 0;
+    const paid = Number(inv?.amountPaid) || 0;
+    b.collected += paid;
+    const bal = total - paid;
+    if (bal <= 0.005 || s === "paid") continue;
+    b.outstanding += bal;
+    const dueRaw = inv?.dueDate || inv?.date || inv?.created_at;
+    const due = dueRaw ? new Date(dueRaw).getTime() : NaN;
+    const daysOver = isNaN(due) ? 0 : Math.floor((now - due) / 86400000);
+    const bucket = agingBucket(daysOver);
+    b[bucket] += bal;
+    if (bucket !== "current") b.overdueInvoices.push(inv);
+  }
+  return b;
+}
