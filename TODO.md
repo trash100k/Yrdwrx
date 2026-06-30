@@ -1210,3 +1210,37 @@ now it's gone entirely.
 ### Follow-up (deferred)
 - [ ] **Re-implement Google Calendar/Gmail/Drive sync via native Google OAuth** (no Firebase) when wanted.
 - [ ] Optional: delete root `firebase-blueprint.json` / `firebase-applet-config.json` (now unreferenced).
+
+## Trust-bug batch + mapper data-loss fix (2026-06-30) — DONE (gated green, 216 tests)
+
+Picked from the honesty + depth audits: the cluster where the UI claims more than the backend
+delivers (the real "demo vs sellable" gap), plus the one confirmed silent data-corruption bug.
+
+### A — Trust bugs (UI claims > backend delivers)
+- [ ] **A1. "Autonomous Campaigns" / "Agentic Outreach" send nothing** — toast "Email Scheduled for
+      Sending!" but only push to an in-memory outbox. Wire to the real `/api/email/send` (Resend) or
+      report honestly (sent vs simulated). `AutonomousCampaigns.tsx`, `AgenticOutreachDrawer.tsx`,
+      `WorkspaceOutboxContext.tsx`.
+- [ ] **A2. Design Studio fabricates analysis with no mock flag** — `/api/design/process` +
+      `/api/design/tiers` invent plants/volumes/ROI while showing "Gemini Analyzing Scene…". Add
+      `mock:true` (server) + an honest "sample analysis — set GEMINI_API_KEY" banner (DesignStudio).
+- [ ] **A3. RouteOptimizer always simulates** — server checks `GOOGLE_MAPS_API_KEY` but the documented
+      var is `GOOGLE_MAPS_PLATFORM_KEY` (`server.ts` routing). Align it so the real Google optimizer runs.
+- [ ] **A4. "Revenue Leak Detection" is fabricated** — `/api/revenue/audit` returns hardcoded fake
+      clients. Compute real leaks from the tenant's invoices/jobs, or return an honest empty result.
+- [ ] **A5. SOC security panel is theater** — inert lockout/owner-alert/circuit-breaker toggles +
+      false copy, while the voice agent auto-executes `create_invoice`/`schedule_job` with no confirm.
+      Make the panel honest AND add a confirmation gate for high-risk voice actions (`Agent.tsx`, `LiveEar.tsx`).
+- [ ] **A6. Restore the invoice PDF path** — over-stubbed during Firebase removal; the Puppeteer PDF
+      doesn't need Google. Keep PDF generation, drop only the Gmail-OAuth send (`Invoices.tsx`).
+
+### B — Confirmed silent bug + test
+- [ ] **B1. camel/snake key mapper isn't round-trip safe** for columns with a digit segment
+      (`address_line_2` → `addressLine2` → `address_line2`). Sits under every repo write. Fix
+      `toCamelKey`/`toSnakeKey` in `repos/base.ts` + add unit tests. Tighten the loose `rlsCoverage.test.ts` regex.
+
+### Follow-ups queued (next, after this batch)
+- [ ] AR-aging: extract Invoices' inline bucketing to the tested `payments.ts` and test it.
+- [ ] Unit-test `agentActions.executeAgentAction`, JobCosting rollup, churn scorer, `timesheets.ts`.
+- [ ] Expansion pick: **Reviews reputation loop** (ingest + post) and **card-on-file auto-charge**.
+- [ ] `isPrivateIP` IPv4-mapped-IPv6 SSRF edge; `/api/inventory/forecast` drops the inventory array.

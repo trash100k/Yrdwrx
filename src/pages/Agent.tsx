@@ -515,12 +515,12 @@ export default function Agent() {
                      <div className="max-w-3xl mx-auto space-y-8 w-full">
                        
                        <div>
-                         <div className="flex items-center gap-3 mb-2">
+                         <div className="flex flex-wrap items-center gap-3 mb-2">
                            <ShieldCheck size={24} className="text-red-500" />
                            <h3 className="text-xl font-bold text-white">SOC-AI Threat Protection</h3>
                          </div>
                          <p className="text-zinc-400 text-sm mb-6">
-                           Manage AI-specific SOC compliance rules. This system dynamically analyzes end-user inputs to prevent prompt injection, tool abuse, and data exfiltration.
+                           Configure your AI guardrail preferences. Today, every <span className="font-mono text-zinc-300">/api/</span> request is scanned for injection and path-traversal (see "Threats Blocked" below). The toggles further down save your intent for upcoming enforcement features — they are not active protections yet.
                          </p>
                        </div>
 
@@ -548,9 +548,14 @@ export default function Agent() {
                        </div>
 
                        <div className="space-y-4">
-                         <h3 className="text-lg font-bold text-white mb-4 border-b border-white/10 pb-2">Guardrail Preferences</h3>
+                         <div className="flex flex-wrap items-center gap-3 mb-4 border-b border-white/10 pb-2">
+                           <h3 className="text-lg font-bold text-white">Guardrail Preferences</h3>
+                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
+                             <AlertTriangle size={11} /> Preview — not yet enforced
+                           </span>
+                         </div>
                          <p className="text-xs text-zinc-500 -mt-2 mb-2">
-                           These preferences are saved to your workspace settings.
+                           These toggles save a preference to your workspace settings. They do not yet change how the server handles requests — enforcement is on the roadmap.
                          </p>
 
                          <div className="flex items-start justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
@@ -560,9 +565,9 @@ export default function Agent() {
                              </div>
                              <div>
                                <h4 className="text-white font-medium">Zero-Tolerance (0-Strike) Employee Policy</h4>
-                               <p className="text-zinc-400 text-sm mt-1 mb-3">Instant lockout for blatant injection attempts, prompt-exfiltration, or trying to access financial ledgers by bypassing Employee roles.</p>
+                               <p className="text-zinc-400 text-sm mt-1 mb-3">When enabled, this preference signals that blatant injection attempts, prompt-exfiltration, or attempts to reach financial ledgers by bypassing Employee roles should be treated as zero-tolerance events.</p>
                                <div className="text-xs bg-black/50 px-3 py-2 rounded-md font-mono text-zinc-500 break-all border border-red-500/10">
-                                 Action upon detection: <span className="text-red-500 font-bold">Instant Account Lockout & Owner Alert</span>
+                                 Planned response: <span className="text-zinc-300 font-bold">Lock the offending account and alert the owner</span> <span className="text-amber-500">(not yet active)</span>
                                </div>
                              </div>
                            </div>
@@ -583,9 +588,9 @@ export default function Agent() {
                              </div>
                              <div>
                                <h4 className="text-white font-medium">Prompt Injection & Jailbreak Prevention</h4>
-                               <p className="text-zinc-400 text-sm mt-1 mb-3">Scans prompts for systemic overrides, "Ignore Previous Instructions", and simulated personas designed to break rules.</p>
+                               <p className="text-zinc-400 text-sm mt-1 mb-3">When enabled, this preference asks the agent to watch prompts for systemic overrides, "Ignore Previous Instructions", and simulated personas designed to break rules.</p>
                                <div className="text-xs bg-black px-3 py-2 rounded-md font-mono text-zinc-500 break-all border border-white/5">
-                                 Action upon detection: <span className="text-amber-500 font-bold">Reject prompt & warn user</span>
+                                 Planned response: <span className="text-zinc-300 font-bold">Reject the prompt and warn the user</span> <span className="text-amber-500">(not yet active)</span>
                                </div>
                              </div>
                            </div>
@@ -606,9 +611,9 @@ export default function Agent() {
                              </div>
                              <div>
                                <h4 className="text-white font-medium">Tool Execution Circuit Breaker</h4>
-                               <p className="text-zinc-400 text-sm mt-1 mb-3">Rate limits sequential tool calls and blocks unauthorized destructive actions (e.g. bulk deleting Customer CRM data without explicit user 2FA).</p>
+                               <p className="text-zinc-400 text-sm mt-1 mb-3">When enabled, this preference asks the agent to rate-limit sequential tool calls and require extra confirmation before destructive actions (e.g. bulk-deleting Customer CRM data).</p>
                                <div className="text-xs bg-black px-3 py-2 rounded-md font-mono text-zinc-500 border border-white/5">
-                                 Action upon detection: <span className="text-red-500 font-bold">Lockout session (3 strikes)</span>
+                                 Planned response: <span className="text-zinc-300 font-bold">Pause the session after repeated risky calls</span> <span className="text-amber-500">(not yet active)</span>
                                </div>
                              </div>
                            </div>
@@ -625,14 +630,19 @@ export default function Agent() {
                        </div>
 
                        <div className="pt-6 mt-6 border-t border-white/10">
-                         <h3 className="text-lg font-bold text-white mb-4">Alerts</h3>
+                         <div className="flex flex-wrap items-center gap-3 mb-4">
+                           <h3 className="text-lg font-bold text-white">Alerts</h3>
+                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
+                             <AlertTriangle size={11} /> Preview — not yet enforced
+                           </span>
+                         </div>
 
                          <div className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 molten-edge rounded-xl">
                            <div className="flex items-center gap-3">
                              <Bell size={18} className="text-zinc-400" />
                              <div>
-                               <p className="text-white font-medium text-sm">Owner SMS & Email Alert</p>
-                               <p className="text-zinc-500 text-xs">Notify when an attack vector reaches threshold (Strike 3)</p>
+                               <p className="text-white font-medium text-sm">Owner SMS &amp; Email Alert</p>
+                               <p className="text-zinc-500 text-xs">When enabled, will notify the owner if an attack vector reaches threshold. Delivery is not wired up yet.</p>
                              </div>
                            </div>
                            <button

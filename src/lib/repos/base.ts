@@ -18,8 +18,15 @@ export interface RepoOptions {
 // Postgres columns are snake_case; the frontend (+ types.ts) is camelCase. We map
 // TOP-LEVEL keys only on the way out (read) and in (write), leaving nested values
 // (the freeform `data`/`customFields` jsonb, arrays like `tags`/`items`) untouched.
-const toCamelKey = (k: string) => k.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
-const toSnakeKey = (k: string) => k.replace(/([A-Z])/g, (m) => "_" + m.toLowerCase());
+export const toCamelKey = (k: string) => k.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+// Round-trip safe with toCamelKey: underscore before camelCase humps AND before a digit
+// that follows a letter, so `address_line_2` -> `addressLine2` -> `address_line_2`
+// (the old version dropped the underscore-before-digit and corrupted `*_2`/`*_1` columns).
+export const toSnakeKey = (k: string) =>
+  k
+    .replace(/([A-Z])/g, (m) => "_" + m.toLowerCase())
+    .replace(/([a-zA-Z])(\d)/g, "$1_$2")
+    .replace(/^_/, "");
 function mapKeys(input: any, fn: (k: string) => string): any {
   if (Array.isArray(input)) return input.map((o) => mapKeys(o, fn));
   if (input && typeof input === "object") {

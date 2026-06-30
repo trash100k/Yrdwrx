@@ -67,44 +67,89 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
     }
   };
 
-  const handleApprove = () => {
-      // Persist the approved draft to the workspace outbox as a tracked item.
-      const approved = drafts[currentReviewIndex];
-      if (approved) {
-          const customer = customers.find(c => c.id === approved.customerId);
-          const recipient =
-              customer?.email ||
-              (customer ? `${customer.firstName || ""} ${customer.lastName || ""}`.trim() : "") ||
-              approved.customerId ||
-              "the selected client";
-          try {
-              addLog({
-                  type: "email",
-                  recipient,
-                  subject: approved.subject || "Outbound campaign",
-                  content: approved.body || "",
-              });
-          } catch {
-              // Non-fatal: still advance the review queue.
-          }
-      }
-      showToast("Email Scheduled for Sending!");
+  const [isSending, setIsSending] = useState(false);
+
+  const advanceQueue = () => {
       if (currentReviewIndex < drafts.length - 1) {
           setCurrentReviewIndex(prev => prev + 1);
       } else {
           setDrafts([]);
-          showToast("Campaign Review Complete! All approved emails are in the outgoing queue.");
+          showToast("Campaign review complete.", "info");
+      }
+  };
+
+  const handleApprove = async () => {
+      const approved = drafts[currentReviewIndex];
+      if (!approved) {
+          advanceQueue();
+          return;
+      }
+      const customer = customers.find(c => c.id === approved.customerId);
+      const toAddress = (customer?.email || "").trim();
+      const displayName =
+          (customer ? `${customer.firstName || ""} ${customer.lastName || ""}`.trim() : "") ||
+          approved.customerId ||
+          "the selected client";
+
+      // No deliverable address -> we cannot send. Be explicit and skip.
+      if (!toAddress) {
+          addLog({
+              type: "email",
+              recipient: displayName,
+              subject: approved.subject || "Outbound campaign",
+              content: approved.body || "",
+          }, "failed");
+          showToast(`Skipped ${displayName} — no email address on file.`, "error");
+          advanceQueue();
+          return;
+      }
+
+      setIsSending(true);
+      try {
+          const res = await fetchApi("/api/email/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                  to: toAddress,
+                  subject: approved.subject || "Outbound campaign",
+                  text: approved.body || "",
+              }),
+          });
+          const data = await res.json().catch(() => ({}));
+          const reallySent = res.ok && data?.sent === true;
+          const notConfigured = data?.simulated === true || data?.configured === false;
+
+          addLog({
+              type: "email",
+              recipient: toAddress,
+              subject: approved.subject || "Outbound campaign",
+              content: approved.body || "",
+          }, reallySent ? "sent" : notConfigured ? "draft" : "failed");
+
+          if (reallySent) {
+              showToast(`Sent to 1 recipient (${toAddress}).`, "success");
+          } else if (notConfigured) {
+              showToast("Saved as draft — email isn't configured yet (set RESEND_API_KEY to send).", "info");
+          } else {
+              showToast(`Couldn't send to ${toAddress}.`, "error");
+          }
+      } catch {
+          addLog({
+              type: "email",
+              recipient: toAddress,
+              subject: approved.subject || "Outbound campaign",
+              content: approved.body || "",
+          }, "failed");
+          showToast(`Couldn't send to ${toAddress}.`, "error");
+      } finally {
+          setIsSending(false);
+          advanceQueue();
       }
   };
 
   const handleReject = () => {
-      showToast("Draft Rejected and discarded.");
-      if (currentReviewIndex < drafts.length - 1) {
-          setCurrentReviewIndex(prev => prev + 1);
-      } else {
-          setDrafts([]);
-          showToast("Campaign Review Complete!");
-      }
+      showToast("Draft rejected and discarded.", "info");
+      advanceQueue();
   };
 
   if (!agreementAccepted) {
@@ -215,17 +260,19 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                           />
                       </div>
                       <div className="flex gap-4">
-                          <button 
+                          <button
                               onClick={handleReject}
-                              className="flex-1 py-4 border-2 border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all"
+                              disabled={isSending}
+                              className="flex-1 py-4 border-2 border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                           >
                              <X size={18} /> Reject
                           </button>
-                          <button 
+                          <button
                               onClick={handleApprove}
-                              className="flex-1 py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-forest-500/20"
+                              disabled={isSending}
+                              className="flex-1 py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50"
                           >
-                             <Send size={18} /> Approve & Send
+                             {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />} {isSending ? "Sending..." : "Approve & Send"}
                           </button>
                       </div>
                   </div>

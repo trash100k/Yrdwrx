@@ -21,8 +21,23 @@ import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { useToast } from "../contexts/ToastContext";
 import { executeAgentAction } from "../lib/agentActions";
 import { useRole } from "../hooks/useRole";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 import { useFieldMode } from "../contexts/FieldModeContext";
+
+// Actions that create/modify money, schedule, or delete data require an explicit
+// user confirmation before we execute them. Anything that deletes is high-risk by
+// prefix; the rest are enumerated. Read/status actions (load_client_data,
+// update_crew_status, notes, inventory checks, etc.) run without a prompt.
+const HIGH_RISK_ACTIONS = new Set<string>([
+  "create_invoice",
+  "create_quote",
+  "schedule_job",
+  "log_expense",
+]);
+
+const isHighRiskAction = (name: string): boolean =>
+  HIGH_RISK_ACTIONS.has(name) || /^delete_/.test(name);
 
 export default function LiveEar() {
   const navigate = useNavigate();
@@ -58,6 +73,21 @@ export default function LiveEar() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const nextStartTimeRef = useRef(0);
+
+  // --- High-risk action confirmation gate ---
+  // `confirmRequest` drives the ConfirmDialog; its `resolve` is awaited inside the
+  // execution loop so a high-risk call pauses until the user approves or cancels.
+  const [confirmRequest, setConfirmRequest] = useState<{
+    title: string;
+    description: string;
+    resolve: (approved: boolean) => void;
+  } | null>(null);
+
+  // Open the confirm dialog and resolve true/false based on the user's choice.
+  const requestConfirm = (title: string, description: string): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      setConfirmRequest({ title, description, resolve });
+    });
 
   useEffect(() => {
     return () => {
@@ -290,6 +320,23 @@ let stream;
       // synchronously (React state updates are async and wouldn't be visible mid-loop).
       let currentCustomer = loadedCustomer;
       for (const call of calls) {
+        // Gate money/schedule/delete actions behind an explicit confirmation.
+        if (isHighRiskAction(call.name)) {
+          const summary = summarizeArgs(call.args || {});
+          const approved = await requestConfirm(
+            prettyActionName(call.name),
+            summary
+              ? `${prettyActionName(call.name)} — ${summary}. Execute this now?`
+              : `Execute "${prettyActionName(call.name)}" now?`,
+          );
+          if (!approved) {
+            setLastResult(`${prettyActionName(call.name)} skipped — not confirmed.`);
+            try {
+              showToast("Skipped — not confirmed.", "info");
+            } catch {}
+            continue;
+          }
+        }
         setJobStatus(`${prettyActionName(call.name)}…`);
         const result = await executeAgentAction(call, {
           navigate,
@@ -410,6 +457,27 @@ let stream;
 
   return (
     <div className="relative flex items-center gap-4 bg-zinc-900 border border-white/5 molten-edge p-2 rounded-3xl shadow-xl">
+      {/* High-risk action confirmation gate. onConfirm fires before onClose, so we
+          resolve(true) there and only resolve(false) on a close that wasn't a confirm. */}
+      <ConfirmDialog
+        isOpen={!!confirmRequest}
+        title={confirmRequest?.title || "Confirm action"}
+        description={confirmRequest?.description || ""}
+        confirmText="Yes, do it"
+        cancelText="Skip"
+        danger
+        onConfirm={() => {
+          confirmRequest?.resolve(true);
+          setConfirmRequest(null);
+        }}
+        onClose={() => {
+          // Cancel/backdrop path: if the request is still pending, treat as declined.
+          setConfirmRequest((req) => {
+            req?.resolve(false);
+            return null;
+          });
+        }}
+      />
       <div className="pl-4 pr-3 hidden sm:block">
         <p className="text-[12px] font-bold uppercase text-zinc-300 tracking-wider leading-none mb-1.5">
           Voice Assistant

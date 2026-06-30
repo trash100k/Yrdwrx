@@ -536,38 +536,38 @@ export default function Invoices() {
   };
 
   const handleGeneratePdf = async (inv: any) => {
-    showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
-    return;
     try {
       setGeneratingPdfId(inv.id);
-
-      const accessToken = "";
 
       const res = await fetchApi("/api/invoices/generate-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           invoiceId: inv.id,
-          accessToken,
           merchant: inv.client || "Client",
           amount: inv.amount || 0,
           items: inv.items || [],
-          clientEmail: inv.clientEmail || inv.email || "",
         }),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch {
-        data = {};
+      if (!res.ok) {
+        let msg = "PDF generation failed.";
+        try { const d = await res.json(); msg = d?.error || msg; } catch { /* non-JSON error */ }
+        throw new Error(msg);
       }
 
-      if (!res.ok || data?.error || data?.success === false) {
-        throw new Error(data?.error || "PDF generation failed.");
-      }
+      // The server returns the rendered PDF bytes — download them directly (no Google account).
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Invoice-${String(inv.id).slice(0, 6)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
 
-      // Only flip status to "sent" after the PDF/draft was created successfully.
+      // Flip status to "sent" once the invoice has been produced + (below) texted to the client.
       const tenantId = tenant?.id || "genesis-1";
       await invoicesRepo.update(inv.id, { status: "sent" });
       await logSystemEvent("INVOICE_PDF_GENERATED", {
@@ -576,7 +576,7 @@ export default function Invoices() {
         tenantId,
       });
 
-      showToast(data?.message || "Invoice PDF generated and draft created.", "success");
+      showToast("Invoice PDF downloaded.", "success");
 
       // Best-effort SMS delivery with a pay link to the client portal. Never let an SMS
       // failure block or revert the PDF + status flow.

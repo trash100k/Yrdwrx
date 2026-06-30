@@ -32,17 +32,19 @@ interface AgenticOutreachDrawerProps {
   onClose: () => void;
 }
 
-const mockSocialProofReviews = [
+// SAMPLE testimonials only — placeholder copy to show where a real reference
+// goes. These are NOT real reviews; replace with your own before sending.
+const sampleSocialProofReviews = [
   {
-    author: "Evelyn K.",
-    property: "North Hills HOA President",
-    text: "YardWorx saved us $15k in water overhauls this spring alone. Outstanding diligence.",
+    author: "Sample reference",
+    property: "(replace with a real client)",
+    text: "[Sample] Paste one of your own recent client reviews here before sending.",
     rating: 5,
   },
   {
-    author: "Marcus S.",
-    property: "The Oaks Estates Treasurer",
-    text: "The live inventory audit feed is why we renewed. Complete visibility.",
+    author: "Sample reference",
+    property: "(replace with a real client)",
+    text: "[Sample] Add a second real testimonial here, or remove this option.",
     rating: 5,
   },
 ];
@@ -61,7 +63,6 @@ export default function AgenticOutreachDrawer({
     useState<boolean>(true);
   const [isPhotoDenied, setIsPhotoDenied] = useState<boolean>(false);
   const [selectedReviewIdx, setSelectedReviewIdx] = useState<number>(0);
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isLoadingLeads, setIsLoadingLeads] = useState<boolean>(true);
 
   // Custom generated email draft
@@ -102,47 +103,42 @@ export default function AgenticOutreachDrawer({
     };
   }, []);
 
-  // Update outreach template based on selected params
+  // Build a local outreach template from the selected params. This is plain
+  // string assembly (no AI, no network) — so we don't fake "synthesizing" copy
+  // or latency, and we don't imply real social proof.
   const generateOutreachTemplate = () => {
-    setIsGenerating(true);
-    setTimeout(() => {
-      const selectedLead = carriers.find((c) => c.id === selectedLeadId);
-      const name =
-        selectedLead?.companyName ||
-        selectedLead?.firstName ||
-        "Community Planner";
+    const selectedLead = carriers.find((c) => c.id === selectedLeadId);
+    const name =
+      selectedLead?.companyName ||
+      selectedLead?.firstName ||
+      "Community Planner";
 
-      const subject = `Verifiable Audit: Collaborative Landscaping Upgrade for ${name}`;
+    const subject = `Collaborative Landscaping Upgrade for ${name}`;
 
-      let bodyText = `Dear ${name},\n\n`;
-      bodyText += `We are proud to serve several premium communities in your immediate neighborhood. As part of our trust-first, transparent communication protocol, we have synthesized some real-time milestones that may interest you.\n\n`;
+    let bodyText = `Dear ${name},\n\n`;
+    bodyText += `We serve several communities in your area and would welcome the chance to introduce our landscaping services to you.\n\n`;
 
-      if (includeSocialProof) {
-        // Editable template — review and replace the example with a real reference before sending.
-        bodyText += `We're proud of the work we do for nearby communities, and we'd be glad to share references on request. For example:\n`;
-        bodyText += `"${mockSocialProofReviews[selectedReviewIdx].text}"\n`;
-        bodyText += `— ${mockSocialProofReviews[selectedReviewIdx].author}, ${mockSocialProofReviews[selectedReviewIdx].property}\n`;
-        bodyText += `(Tip: swap in one of your own recent reviews before sending.)\n\n`;
-      }
+    if (includeSocialProof) {
+      // Editable template — replace the SAMPLE reference with a real one before sending.
+      bodyText += `We'd be glad to share client references on request. For example:\n`;
+      bodyText += `"${sampleSocialProofReviews[selectedReviewIdx].text}"\n`;
+      bodyText += `— ${sampleSocialProofReviews[selectedReviewIdx].author}, ${sampleSocialProofReviews[selectedReviewIdx].property}\n`;
+      bodyText += `(Sample text — swap in one of your own real reviews before sending.)\n\n`;
+    }
 
-      if (includePropertyPhoto && !isPhotoDenied) {
-        bodyText += `[Attach a recent before/after photo from a comparable local project here.]\n\n`;
-      } else if (isPhotoDenied) {
-        bodyText += `Out of respect for client privacy, we've omitted site photos from this email; they're available on request.\n\n`;
-      }
+    if (includePropertyPhoto && !isPhotoDenied) {
+      bodyText += `[Attach a recent before/after photo from a comparable local project here.]\n\n`;
+    } else if (isPhotoDenied) {
+      bodyText += `Out of respect for client privacy, we've omitted site photos from this email; they're available on request.\n\n`;
+    }
 
-      bodyText += `Would you be open to a 5-minute visual walkthrough of how our real-time inventory feed minimizes water waste and lowers HOA liability?\n\n`;
-      bodyText += `Best regards,\n`;
-      bodyText += `YardWorx Enterprise Group\n`;
-      bodyText += `Operational Command Unit`;
+    bodyText += `Would you be open to a 5-minute walkthrough of how we can help maintain your property and lower upkeep costs?\n\n`;
+    bodyText += `Best regards,\n`;
+    bodyText += `YardWorx Enterprise Group\n`;
+    bodyText += `Operational Command Unit`;
 
-      setEmailSubject(subject);
-      setEmailBody(bodyText);
-      setIsGenerating(false);
-      showToast(
-        "Trust metrics successfully embedded in the outreach campaign.",
-      );
-    }, 500);
+    setEmailSubject(subject);
+    setEmailBody(bodyText);
   };
 
   useEffect(() => {
@@ -161,14 +157,10 @@ export default function AgenticOutreachDrawer({
     setIsPhotoDenied(deny);
     if (deny) {
       setIncludePropertyPhoto(false);
-      showToast(
-        "Consent locked: Visual proof stripped to comply with client privacy constraints.",
-      );
+      showToast("Photo placeholder removed from the draft.", "info");
     } else {
       setIncludePropertyPhoto(true);
-      showToast(
-        "Consent granted: Worksite completion photo attached to secure outbound trust.",
-      );
+      showToast("Photo placeholder added — attach a real photo before sending.", "info");
     }
   };
 
@@ -375,10 +367,10 @@ export default function AgenticOutreachDrawer({
                     {/* Choose customer quote to display */}
                     <div className="space-y-2">
                       <span className="text-xs md:text-[10px] font-black uppercase text-zinc-500 tracking-widest pl-1">
-                        Embed Customer Testimonial
+                        Embed Sample Testimonial (replace before sending)
                       </span>
                       <div className="grid grid-cols-2 gap-2">
-                        {mockSocialProofReviews.map((rev, index) => (
+                        {sampleSocialProofReviews.map((rev, index) => (
                           <button
                             key={index}
                             type="button"
@@ -389,9 +381,9 @@ export default function AgenticOutreachDrawer({
                                 : "bg-white/5 border-white/5 text-zinc-500 hover:text-white"
                             }`}
                           >
-                            <span className="flex items-center gap-1 mb-1 text-forest-400 block">
-                              <Star size={10} className="fill-current" />
-                              <span className="text-[9px] font-bold">5.0</span>
+                            <span className="flex items-center gap-1 mb-1 text-zinc-500 block">
+                              <Star size={10} />
+                              <span className="text-[9px] font-bold uppercase tracking-widest">Sample</span>
                             </span>
                             <span className="truncate font-bold italic block">
                               "{rev.text}"
@@ -430,8 +422,8 @@ export default function AgenticOutreachDrawer({
                         Adjacent Field Project Showcase
                       </h5>
                       <p className="text-xs md:text-[11px] text-zinc-400 leading-relaxed font-semibold">
-                        Showcase photo represents high-quality work completed at
-                        adjacent 'Poplar Commons' site.
+                        Placeholder — attach a real before/after photo from a
+                        comparable local project before sending.
                       </p>
                     </div>
                   </div>
@@ -503,9 +495,7 @@ export default function AgenticOutreachDrawer({
                   </div>
 
                   <div className="text-zinc-300 leading-relaxed max-h-56 overflow-y-auto custom-scrollbar whitespace-pre-line font-medium pr-1">
-                    {isGenerating
-                      ? "Synthesizing localized matrix parameters..."
-                      : emailBody}
+                    {emailBody}
                   </div>
 
                   {includePropertyPhoto && !isPhotoDenied && (
@@ -519,10 +509,10 @@ export default function AgenticOutreachDrawer({
                       </div>
                       <div className="bg-white/[0.02] px-4 py-2 flex items-center justify-between">
                         <span className="text-[8px] uppercase tracking-widest font-black text-zinc-500">
-                          Exhibit A • Real Adjacent Standard
+                          Photo Placeholder
                         </span>
-                        <span className="text-[8px] font-bold text-forest-400">
-                          Verified Client Site
+                        <span className="text-[8px] font-bold text-zinc-500">
+                          Attach before sending
                         </span>
                       </div>
                     </motion.div>

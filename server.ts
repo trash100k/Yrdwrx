@@ -1896,7 +1896,10 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/workflows/routing", async (req, res) => {
     try {
       const { waypoints } = req.body;
-      if (!process.env.GOOGLE_MAPS_API_KEY) {
+      // The documented/used var is GOOGLE_MAPS_PLATFORM_KEY (geocoding + maps config use it);
+      // fall back to the legacy GOOGLE_MAPS_API_KEY so routing isn't silently stuck on simulated.
+      const mapsKey = process.env.GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_API_KEY;
+      if (!mapsKey) {
         throw new Error("Missing Google Maps API Key for routing");
       }
 
@@ -1916,7 +1919,7 @@ export async function createApp({ startListening = false } = {}) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-Goog-Api-Key": process.env.GOOGLE_MAPS_API_KEY,
+            "X-Goog-Api-Key": mapsKey,
             "X-Goog-FieldMask": "routes.optimizedIntermediateWaypointIndex,routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline"
           },
           body: JSON.stringify({
@@ -1966,7 +1969,7 @@ export async function createApp({ startListening = false } = {}) {
 
   // CONFIG INTEGRATION (Secure proxy for public API keys)
   app.get("/api/config/maps", (req, res) => {
-    res.json({ apiKey: process.env.GOOGLE_MAPS_API_KEY || "" });
+    res.json({ apiKey: process.env.GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_API_KEY || "" });
   });
 
   // STRIPE PAYMENT INTEGRATION
@@ -2983,64 +2986,63 @@ export async function createApp({ startListening = false } = {}) {
 
   app.get("/api/revenue/audit", cacheApiResponse(300), async (req, res) => {
     try {
-      // Simulate scanning historical data for missed revenue with randomized but structured data
-      const opportunities = [
-        {
-          id: `leak-${Date.now()}-1`,
-          client: "Schmidt Residence",
-          type: "UNBILLED_COMPLETION",
-          detail:
-            "Hedge Sculpting (May 14) completed but no invoice generated.",
-          value: 450,
-          confidence: 0.98,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          id: `leak-${Date.now()}-2`,
-          client: "Oak Estates",
-          type: "SERVICE_GAP",
-          detail:
-            "Bi-weekly turf maintenance missed 2 cycles. Potential churn or oversight.",
-          value: 320,
-          confidence: 0.85,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          id: `leak-${Date.now()}-3`,
-          client: "Hillside Manor",
-          type: "UPSELL_RECOVERY",
-          detail:
-            "Mulch installation suggested in April. Client interaction indicates interest.",
-          value: 1200,
-          confidence: 0.72,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          id: `leak-${Date.now()}-4`,
-          client: "Arbor Lakes HOA",
-          type: "SCOPE_CREEP",
-          detail:
-            "Extra debris removal logged by crew on May 10. Not in contract scope.",
-          value: 150,
-          confidence: 0.95,
-          timestamp: new Date().toISOString(),
-        },
-      ];
+      // Real revenue-leak detection from the tenant's OWN books — no fabricated clients.
+      // Two concrete, defensible leaks: completed jobs with no invoice (unbilled work) and
+      // overdue invoices (uncollected revenue). Needs the service key + an authed tenant;
+      // otherwise return an honest empty result instead of inventing data.
+      const sb = getServiceSupabase();
+      const uid = (req as any).user?.uid;
+      const empty = { totalRecoverable: 0, opportunities: [] as any[], auditTimestamp: new Date().toISOString() };
+      if (!sb || !uid) return res.json(empty);
+      const { data: profile } = await sb.from("profiles").select("tenant_id").eq("firebase_uid", uid).maybeSingle();
+      const tenantId = profile?.tenant_id;
+      if (!tenantId) return res.json(empty);
 
+      const [jobsRes, invRes] = await Promise.all([
+        sb.from("jobs").select("*").eq("tenant_id", tenantId),
+        sb.from("invoices").select("*").eq("tenant_id", tenantId),
+      ]);
+      const jobs = jobsRes.data || [];
+      const invoices = invRes.data || [];
+      const opportunities: any[] = [];
+
+      // 1) Completed jobs with no linked invoice → unbilled completions.
+      const invoicedJobIds = new Set(invoices.map((i: any) => i.data?.jobId).filter(Boolean));
+      for (const j of jobs) {
+        if (String(j.status || "").toUpperCase() !== "COMPLETED" || invoicedJobIds.has(j.id)) continue;
+        const value = Number(j.revenue ?? j.data?.price ?? j.data?.revenue ?? 0) || 0;
+        opportunities.push({
+          id: `unbilled-${j.id}`, client: j.client || j.data?.client || "Customer", type: "UNBILLED_COMPLETION",
+          detail: `${j.title || j.data?.title || "Job"} completed${j.date ? ` on ${j.date}` : ""} with no invoice on record.`,
+          value, confidence: 0.95, timestamp: new Date().toISOString(),
+        });
+      }
+      // 2) Overdue invoices → uncollected revenue at risk.
+      const today = new Date(new Date().toDateString()).getTime();
+      for (const inv of invoices) {
+        const st = String(inv.status || "").toLowerCase();
+        if (["paid", "void", "cancelled", "canceled", "draft"].includes(st)) continue;
+        const bal = (Number(inv.amount) || 0) - (Number(inv.data?.amountPaid) || 0);
+        if (bal <= 0.005) continue;
+        const dueRaw = inv.due_date || inv.data?.dueDate;
+        const due = dueRaw ? new Date(dueRaw).getTime() : NaN;
+        if (!isNaN(due) && due < today) {
+          opportunities.push({
+            id: `overdue-${inv.id}`, client: inv.client || inv.data?.client || "Customer", type: "OVERDUE_INVOICE",
+            detail: `Invoice past due${dueRaw ? ` (${String(dueRaw).slice(0, 10)})` : ""} — ${bal.toLocaleString()} outstanding.`,
+            value: bal, confidence: 0.99, timestamp: new Date().toISOString(),
+          });
+        }
+      }
+      opportunities.sort((a, b) => b.value - a.value);
       res.json({
-        totalRecoverable: opportunities.reduce(
-          (acc, curr) => acc + curr.value,
-          0,
-        ),
+        totalRecoverable: opportunities.reduce((acc, c) => acc + (Number(c.value) || 0), 0),
         auditTimestamp: new Date().toISOString(),
         opportunities,
       });
     } catch (error: any) {
-      console.error("Audit engine timed out:", error);
-      res.status(500).json({
-        error: "Audit engine timed out.",
-        code: "ERR_AUDIT_STALL",
-      });
+      console.error("Revenue audit error:", error?.message);
+      res.status(500).json({ error: "Revenue audit failed.", code: "ERR_AUDIT_STALL" });
     }
   });
 
@@ -3353,7 +3355,8 @@ export async function createApp({ startListening = false } = {}) {
         }
       } catch (e) { console.warn("Catalog pricing pass failed:", (e as any)?.message); }
 
-      res.json(designResult);
+      // Flag mock-mode output so the UI can label it a sample instead of pretending Gemini ran.
+      res.json({ ...designResult, mock: isMockMode });
     } catch (error: any) {
       console.error("Design Process Error:", error);
       res.status(500).json({ error: error.message });
@@ -3904,7 +3907,7 @@ export async function createApp({ startListening = false } = {}) {
           }
         }
       } catch (e) { console.warn("Tiers pricing pass failed:", (e as any)?.message); }
-      res.json(designResult);
+      res.json({ ...designResult, mock: isMockMode });
     } catch (error: any) {
       console.error("Design Tiers Error:", error);
       res.status(500).json({ error: error.message });
@@ -3913,10 +3916,10 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/invoices/generate-pdf", async (req, res) => {
     try {
-      const { invoiceId, accessToken, clientEmail, merchant, amount, items } = req.body;
+      const { invoiceId, merchant, amount, items } = req.body;
 
-      if (!invoiceId || !accessToken) {
-        return res.status(400).json({ error: "Missing required fields" });
+      if (!invoiceId) {
+        return res.status(400).json({ error: "invoiceId required" });
       }
 
       // SECURITY: Construct HTML strictly server-side to prevent Puppeteer SSRF/XSS vectors
@@ -3988,55 +3991,12 @@ export async function createApp({ startListening = false } = {}) {
       const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
       await browser.close();
 
-      // Email draft configuration
-      const boundary = "foo_bar_baz_boundary";
-      const subject = `Invoice from Cutty - ${merchant}`;
-      const emailContent = [
-        `To: ${clientEmail || "client@example.com"}`,
-        `Subject: ${subject}`,
-        `Content-Type: multipart/mixed; boundary="${boundary}"`,
-        ``,
-        `--${boundary}`,
-        `Content-Type: text/plain; charset="UTF-8"`,
-        ``,
-        `Hello,`,
-        ``,
-        `Please find attached your generated invoice for $${amount}.`,
-        ``,
-        `Best,`,
-        `Cutty Landscape Management`,
-        ``,
-        `--${boundary}`,
-        `Content-Type: application/pdf; name="Invoice-${merchant.replace(/\\s+/g, "_")}.pdf"`,
-        `Content-Disposition: attachment; filename="Invoice-${merchant.replace(/\\s+/g, "_")}.pdf"`,
-        `Content-Transfer-Encoding: base64`,
-        ``,
-        pdfBuffer.toString("base64"),
-        ``,
-        `--${boundary}--`
-      ].join("\\r\\n");
-
-      const encodedRaw = Buffer.from(emailContent).toString("base64").replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
-
-      const draftRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: {
-            raw: encodedRaw
-          }
-        })
-      });
-
-      if (!draftRes.ok) {
-        const errData = await draftRes.text();
-        throw new Error(`Gmail API Error: ${errData}`);
-      }
-
-      res.json({ success: true, message: "Draft created successfully with PDF attachment." });
+      // Return the rendered PDF for direct download. (Previously this attached the PDF to a
+      // Gmail draft via a Google OAuth token; that path is gone with Firebase. A direct
+      // download needs no Google account and is better UX.)
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="Invoice-${safeId}.pdf"`);
+      res.send(pdfBuffer);
     } catch (error: any) {
       console.error("PDF Generate Error:", error);
       res.status(500).json({ error: error.message });

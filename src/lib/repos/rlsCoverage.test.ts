@@ -30,6 +30,13 @@ function repoTables(): string[] {
 
 const TABLES = repoTables();
 
+// Tables covered by a dynamic `array[...]` RLS loop — parsed from the actual array blocks
+// (not matched anywhere in the file, so a name appearing only in a comment doesn't count).
+const ARRAY_TABLES = new Set<string>();
+for (const block of SQL.matchAll(/array\[([^\]]+)\]/gi)) {
+  for (const q of block[1].matchAll(/['"]([a-z_]+)['"]/g)) ARRAY_TABLES.add(q[1]);
+}
+
 describe("RLS coverage — every repo table is protected by row-level security", () => {
   it("discovers the repo table set", () => {
     expect(TABLES.length).toBeGreaterThan(10);
@@ -40,7 +47,7 @@ describe("RLS coverage — every repo table is protected by row-level security",
     // by membership in a tenant_tables array that gets RLS applied, or by an
     // explicit `create policy ... on public.<t>`.
     const enabledExplicit = new RegExp(`alter table\\s+(?:public\\.)?"?${t}"?\\s+enable row level security`, "i").test(SQL);
-    const inTenantArray = new RegExp(`['"]${t}['"]`).test(SQL); // element of an array[...] RLS loop
+    const inTenantArray = ARRAY_TABLES.has(t); // genuinely inside an array[...] RLS loop
     const hasPolicy = new RegExp(`on\\s+public\\.${t}\\b`, "i").test(SQL);
     expect(
       enabledExplicit || inTenantArray || hasPolicy,
