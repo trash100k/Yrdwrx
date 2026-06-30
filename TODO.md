@@ -211,9 +211,14 @@ Owner Digest, Inbox, Scheduler On-My-Way) prove the honest `simulated:true` patt
       `/api/outbound/draft-personalized-campaign`, pure helpers `src/lib/smsCampaign.ts` (+tests), the
       `TextCampaigns.tsx` page (admin nav). **Design Studio × Text bridge SHIPPED**: `/api/sms/send-proposal`
       (texts a portal magic-link, MMS when live) + DesignStudio "Text Proposal to Client" + the
-      "Has Design Vision" / "Proposal Not Approved" campaign segments. **Remaining (human/config):** A2P
-      10DLC brand+campaign registration (decide ISV sub-account model), scheduling/queue, agentic
-      auto-reply via the Live Ear executor, RCS — see the phased plan in the research doc.
+      "Has Design Vision" / "Proposal Not Approved" campaign segments. **Agentic auto-reply SHIPPED**:
+      inbound webhook runs a grounded bounded reply (off/draft/auto modes), auto mode captures a booking
+      as a REQUESTED job (never auto-invoices); `detectSmsCommand` hardened (HELP/START exact-match only).
+      **10DLC onboarding SHIPPED**: migration `0011` `sms_registrations`, `GET/POST /api/sms/registration`
+      + `/submit`, `Sms10DLCSetup.tsx` setup card (registration checklist + auto-reply selector).
+      **Remaining (human/config):** real A2P carrier submission needs live Twilio keys + `TWILIO_ENABLE_A2P`
+      (full brand/campaign vetting in the Twilio Console; decide ISV sub-account model); scheduling/queue;
+      RCS rich messaging — see the phased plan in the research doc.
 - [ ] 5. Stripe Connect economics & onboarding (Express vs Standard, fees, ACH) — gates the money path.
 - [ ] 6. US sales-tax for landscaping + tax-engine buy decision (Avalara/TaxJar/Stripe Tax).
 - [ ] 7. Live-key validation pass of all Gemini features on Cloud Run (Design Studio flagship first).
