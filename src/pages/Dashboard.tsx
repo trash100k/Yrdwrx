@@ -9,7 +9,6 @@ import { motion, AnimatePresence } from "motion/react";
 import WidgetConfigurator from "../components/WidgetConfigurator";
 import { crewsRepo, leadsRepo, vendorsRepo, invoicesRepo, customersRepo } from "../lib/repos";
 import { auth } from "../lib/firebase";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
   CloudRain,
   TrendingUp,
@@ -506,39 +505,8 @@ export default function Dashboard() {
     }
     setIsConnectingWorkspace(true);
     try {
-      const provider = new GoogleAuthProvider();
-      // Add requested scopes
-      provider.addScope("https://www.googleapis.com/auth/calendar");
-      provider.addScope("https://www.googleapis.com/auth/calendar.events");
-      provider.addScope("https://www.googleapis.com/auth/gmail.send");
-      provider.addScope("https://www.googleapis.com/auth/gmail.compose");
-      provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
-      provider.addScope("https://www.googleapis.com/auth/contacts.readonly");
-      provider.addScope("https://www.googleapis.com/auth/drive.file");
-      provider.addScope("https://www.googleapis.com/auth/chat.messages");
-      provider.addScope("https://www.googleapis.com/auth/keep");
-
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setCachedToken(credential.accessToken);
-        safeStorage.setItem("cutty_workspace_active", "live");
-        setIsWorkspaceConnected(true);
-        showToast(
-          "Connected to Google Workspace! Your schedule sync is active.",
-        );
-      } else {
-        throw new Error("No access token acquired.");
-      }
-    } catch (err) {
-      console.warn(
-        "Google Workspace real auth failed or was cancelled, triggering local sandbox session:",
-        err,
-      );
-      // Let's create a simulated sandbox session for testing so they are never blocked
-      safeStorage.setItem("cutty_workspace_active", "sandbox");
-      setIsWorkspaceConnected(true);
-      showToast("Connected to Google Workspace! (Sandbox Mode)");
+      showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
+      return;
     } finally {
       setIsConnectingWorkspace(false);
     }

@@ -46,7 +46,6 @@ import BeforeAfterSlider from "../components/BeforeAfterSlider";
 import Design3D from "../components/Design3D";
 import { designVisionsRepo, designCatalogRepo, customersRepo } from "../lib/repos";
 import { auth } from "../lib/firebase";
-import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { playVoice } from "../lib/playVoice";
 import { burnAiVizBadge } from "../lib/aiVizBadge";
 import { resolveZone } from "../lib/plantIntelligence";
@@ -906,41 +905,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
   const [isSavingDrive, setIsSavingDrive] = useState(false);
 
   const handleSaveToDrive = async () => {
-    if (!result) return;
-    if (!auth) {
-      showToast("Google integration isn't configured yet.", "error");
-      return;
-    }
-    setIsSavingDrive(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/drive.file");
-      const authResult = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(authResult);
-      if (!credential?.accessToken) throw new Error("No token");
-
-      const filename = `YardWorx-Design-${Date.now()}.json`;
-      const content = JSON.stringify(result, null, 2);
-
-      const res = await fetchApi("/api/integration/drive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          accessToken: credential.accessToken, 
-          filename, 
-          content, 
-          mimeType: "application/json" 
-        })
-      });
-
-      if (!res.ok) throw new Error("Drive upload failed");
-      addLog({ type: "backup", recipient: "Google Drive", subject: "Design Backup", content: "Design exported successfully." });
-    } catch (err: any) {
-      console.error(err);
-      addLog({ type: "backup", recipient: "Google Drive", subject: "Design Backup", content: err.message }, "failed");
-    } finally {
-      setIsSavingDrive(false);
-    }
+    showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
+    return;
   };
 
   return (

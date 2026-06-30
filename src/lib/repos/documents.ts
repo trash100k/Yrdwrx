@@ -1,12 +1,12 @@
 // @ts-nocheck
-// Documents repo — file bytes live in Firebase Storage (Google-native), metadata in
-// the Supabase `documents` table (tenant-scoped by RLS).
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+// Documents repo — file bytes live in Supabase Storage (private `documents` bucket,
+// tenant-scoped by storage RLS on the path prefix `tenants/<tenantId>/...`); metadata
+// lives in the Supabase `documents` table (tenant-scoped by table RLS).
 import { makeRepo, attachTenant } from "./base";
-import { supabase } from "../supabase";
-import { storage, auth } from "../firebase";
+import { supabase, getCurrentUser } from "../supabase";
 import { getCurrentProfile } from "./profile";
 
+const BUCKET = "documents";
 const base = makeRepo("documents", { orderBy: { column: "created_at" } });
 
 export const documentsRepo = {
@@ -22,16 +22,24 @@ export const documentsRepo = {
     return data ?? [];
   },
 
-  // Upload a File to Firebase Storage under the tenant's prefix, then record metadata.
+  // Upload a File to Supabase Storage under the tenant's prefix, then record metadata.
   async upload(file: File, opts: { folder?: string; customerId?: string } = {}) {
     const profile = await getCurrentProfile();
     const tenantId = profile?.tenant_id;
     if (!tenantId) throw new Error("No tenant for upload");
     const safeName = file.name.replace(/[^\w.\-]+/g, "_");
     const storagePath = `tenants/${tenantId}/documents/${Date.now()}_${safeName}`;
-    const storageRef = ref(storage, storagePath);
-    await uploadBytes(storageRef, file, { contentType: file.type });
-    const url = await getDownloadURL(storageRef);
+
+    const { error: upErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(storagePath, file, { contentType: file.type, upsert: false });
+    if (upErr) throw upErr;
+
+    // Private bucket → store a long-lived signed URL for convenient inline access;
+    // re-sign on demand via signedUrl() when it expires.
+    const { data: signed } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
 
     const row = await attachTenant({
       name: file.name,
@@ -39,13 +47,20 @@ export const documentsRepo = {
       mime: file.type,
       size_bytes: file.size,
       storage_path: storagePath,
-      url,
+      url: signed?.signedUrl ?? null,
       customer_id: opts.customerId ?? null,
-      uploaded_by: auth.currentUser?.uid ?? null,
+      uploaded_by: getCurrentUser()?.uid ?? null,
     });
     const { data, error } = await supabase.from("documents").insert(row).select().single();
     if (error) throw error;
     return data;
+  },
+
+  // Re-sign a stored document for viewing/download (signed URLs expire).
+  async signedUrl(storagePath: string, expiresInSeconds = 3600) {
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(storagePath, expiresInSeconds);
+    if (error) throw error;
+    return data?.signedUrl ?? null;
   },
 
   // Delete both the metadata row and the underlying file.
@@ -57,7 +72,7 @@ export const documentsRepo = {
       .maybeSingle();
     if (doc?.storage_path) {
       try {
-        await deleteObject(ref(storage, doc.storage_path));
+        await supabase.storage.from(BUCKET).remove([doc.storage_path]);
       } catch {
         /* file may already be gone; proceed to drop the row */
       }

@@ -7,7 +7,6 @@ import {
   logSystemEvent,
   auth
 } from "../lib/firebase";
-import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import {
   Users,
   Truck,
@@ -833,39 +832,8 @@ export default function CrewSuite() {
 
           <button
                onClick={async () => {
-                 if (!auth) {
-                   showToast("Google integration isn't configured yet.", "error");
-                   return;
-                 }
-                 try {
-                   const provider = new GoogleAuthProvider();
-                   provider.addScope("https://www.googleapis.com/auth/chat.messages");
-                   const result = await signInWithPopup(auth, provider);
-                   const credential = GoogleAuthProvider.credentialFromResult(result);
-                   if (!credential?.accessToken) throw new Error("No Google access token returned");
-
-                   const res = await fetchApi("/api/integration/chat", {
-                     method: "POST",
-                     headers: { "Content-Type": "application/json" },
-                     body: JSON.stringify({ accessToken: credential.accessToken, spaceName: "spaces/dispatch", message: "New alert from Crew Suite!" })
-                   });
-                   if (!res.ok) {
-                     const reason = await res.text().catch(() => "");
-                     throw new Error(`${res.status}${reason ? `: ${reason.slice(0, 140)}` : ""}`);
-                   }
-                   const result2 = await res.json().catch(() => ({}));
-                   if (result2?.simulated === true || result2?.configured === false) {
-                     addLog({ type: "chat", recipient: "Operations Channel", subject: "Urgent Ping", content: "Crew requires assistance at site." }, "failed");
-                     showToast("Chat integration not configured — crew wasn't actually pinged.", "warning");
-                     return;
-                   }
-                   addLog({ type: "chat", recipient: "Operations Channel", subject: "Urgent Ping", content: "Crew requires assistance at site." });
-                   logSystemEvent("CHAT_DISPATCHED", { target: "dispatch" });
-                   showToast("Dispatch ping sent to chat.", "success");
-                 } catch (err: any) {
-                   console.error(err);
-                   showToast(`Failed to dispatch to chat: ${err?.message || "unknown error"}.`, "error");
-                 }
+                 showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
+                 return;
                }}
                className="px-6 py-3 bg-celtic-500/10 text-celtic-500 border border-celtic-500/20 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-celtic-500/20 transition-all shadow-[0_0_20px_rgba(193, 41, 46,0.1)] flex items-center gap-2"
             >

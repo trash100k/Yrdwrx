@@ -1178,3 +1178,35 @@ Knocked out the two highest-value pre-launch de-risking items.
       tenant RLS block) so the committed migrations once again reproduce the live schema.
 
 _Remaining engineering before flip-the-flags launch (see `LAUNCH_CHECKLIST.md` for the human config/deploy/verify runbook): offline syncService → Supabase, "Connect Google" buttons, SaaSOwnerGate hardcoded email, invited-employee onboarding UX._
+
+## Firebase fully removed → all-Supabase stack (2026-06-30)
+
+The app was already on **Supabase Auth** (the server verifies tokens with `supabase.auth.getUser()`;
+no `firebase-admin` anywhere; RLS keys on the Supabase `auth.jwt()->>'sub'`). Firebase was vestigial;
+now it's gone entirely.
+
+- [x] **Gutted `src/lib/firebase.ts`** to a Firebase-free shim — keeps the helpers everything imports
+      (`OperationType`, `handleFirestoreError`, `logSystemEvent`) and exports `auth`/`db`/`storage`/
+      `analytics` as inert nulls (callers already optional-chain), with **zero** `firebase/*` imports.
+- [x] **Migrated document uploads off Firebase Storage → Supabase Storage** (`repos/documents.ts`):
+      private `documents` bucket, tenant-scoped by the `tenants/<tenantId>/...` path prefix; signed URLs
+      for access. Bucket + storage RLS applied live and captured in `0011_documents_storage.sql`.
+- [x] **Removed Firebase Analytics** page tracking (`PageTracker.tsx`, `usePageTracking.ts`).
+- [x] **Hid the "Connect Google" (Calendar/Gmail/Keep/Drive/Contacts) buttons** across CRM, Dashboard,
+      Invoices, CrewSuite, DesignStudio — the only functional Firebase use (OAuth scopes via
+      `signInWithPopup`). They now show an honest "temporarily unavailable" toast. _Re-add later via
+      native Google OAuth (no Firebase) — see backlog._
+- [x] **Deleted** the dead `src/lib/seedDatabase.ts` (legacy Firestore seeder, unused).
+- [x] **Dropped `firebase` + `firebase-admin`** from `package.json`.
+- Gates: `tsc` clean, **full build OK** (no unresolved imports), **198 tests**, smoke crawl clean.
+
+### Stack & uptime (decided)
+- **Auth + DB + realtime + storage = Supabase** (managed, always-on). **Note:** Supabase **free tier
+  pauses after ~7 days idle** — move to **Pro ($25/mo)** before launch so the backend never sleeps.
+- **App server = Cloud Run**, kept **always-warm (`min-instances: 1`)** — no cold starts and the
+  `/api/live` WebSocket stays alive (~$15-40/mo). Current `cloudbuild.yaml` already sets min 1.
+- Add an external **/api/health** uptime check for alerting.
+
+### Follow-up (deferred)
+- [ ] **Re-implement Google Calendar/Gmail/Drive sync via native Google OAuth** (no Firebase) when wanted.
+- [ ] Optional: delete root `firebase-blueprint.json` / `firebase-applet-config.json` (now unreferenced).

@@ -10,7 +10,6 @@ import {
 import { invoicesRepo, expensesRepo, jobsRepo, contractsRepo, customersRepo } from "../lib/repos";
 import { runAutomations } from "../lib/automations";
 import { applyPayment } from "../lib/payments";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
   FileText,
   Plus,
@@ -537,22 +536,12 @@ export default function Invoices() {
   };
 
   const handleGeneratePdf = async (inv: any) => {
-    if (!auth) {
-      showToast("Google integration isn't configured yet.", "error");
-      return;
-    }
+    showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
+    return;
     try {
       setGeneratingPdfId(inv.id);
 
-      // The server route renders the invoice PDF via Puppeteer and attaches it to a Gmail
-      // draft, so it requires a Gmail OAuth access token. We obtain one the same way the
-      // rest of the app does (signInWithPopup + scope) — see CRM.tsx / Dashboard.tsx.
-      const provider = new GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/gmail.compose");
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const accessToken = credential?.accessToken;
-      if (!accessToken) throw new Error("Could not authorize Gmail for the invoice draft.");
+      const accessToken = "";
 
       const res = await fetchApi("/api/invoices/generate-pdf", {
         method: "POST",

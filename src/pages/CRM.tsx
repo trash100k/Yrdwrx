@@ -4,7 +4,6 @@ import { safeStorage } from '../lib/storage';
 import React, { useState, useEffect, useRef } from "react";
 import { auth, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
 import { customersRepo, knowledgeRepo, invoicesRepo } from "../lib/repos";
-import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import {
   Search,
   UserPlus,
@@ -415,70 +414,16 @@ export default function CRM() {
   const [isSyncingKeep, setIsSyncingKeep] = useState(false);
 
   const handleSaveToKeep = async () => {
-    if (!selectedCustomer) return;
-    if (!auth) {
-      showToast("Google integration isn't configured yet.", "error");
-      return;
-    }
-    setIsSyncingKeep(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/keep");
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) throw new Error("No token");
-
-      const title = `YardWorx Sync: ${selectedCustomer.firstName} ${selectedCustomer.lastName}`;
-      const body = `Contact: ${selectedCustomer.phone}\\nStatus: ${selectedCustomer.status}\\n\\nNotes:\\n${customerNotes}`;
-
-      const res = await fetchApi("/api/integration/keep", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: credential.accessToken, title, body })
-      });
-      if (!res.ok) throw new Error("Sync failed");
-      console.log("Successfully synced to Google Keep!");
-      
-      const payload = { clientId: selectedCustomer.id };
-      await logSystemEvent("KEEP_SYNCED", payload);
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setIsSyncingKeep(false);
-    }
+    showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
+    return;
   };
 
   const [isFetchingEmails, setIsFetchingEmails] = useState(false);
   const [clientEmails, setClientEmails] = useState<any[]>([]);
 
   const handleFetchEmails = async () => {
-    if (!selectedCustomer) return;
-    if (!auth) {
-      showToast("Google integration isn't configured yet.", "error");
-      return;
-    }
-    setIsFetchingEmails(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) throw new Error("No token");
-
-      const res = await fetchApi("/api/integration/gmail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: credential.accessToken, query: "is:inbox" })
-      });
-      const data = await res.json();
-      if (data.messages) {
-        setClientEmails(data.messages);
-      }
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setIsFetchingEmails(false);
-    }
+    showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
+    return;
   };
 
   const handleDeleteSelectedCustomer = () => {
@@ -1048,69 +993,8 @@ export default function CRM() {
   };
 
   const handleGoogleContactsImport = async () => {
-    setIsImporting(true);
-    try {
-      const activeState = safeStorage.getItem("cutty_workspace_active");
-      if (activeState !== "live") {
-         // Show sandbox data
-         showToast("Sandbox: Imported 3 contacts from Workspace.", "success");
-         return;
-      }
-
-      if (!auth) {
-        showToast("Google integration isn't configured yet.", "error");
-        return;
-      }
-
-      const provider = new GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/contacts.readonly");
-      
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const token = credential?.accessToken;
-      
-      if (!token) throw new Error("No Google token returned");
-      
-      const response = await fetchApi(
-        "https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers,organizations",
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      const data = await response.json();
-      const connections = data.connections || [];
-      
-      const imports = [];
-      for (const person of connections) {
-        const name = person.names?.[0];
-        const email = person.emailAddresses?.[0]?.value;
-        const phone = person.phoneNumbers?.[0]?.value;
-        
-        if (name && (email || phone)) {
-          imports.push({
-            firstName: name.givenName || name.displayName || "Unknown",
-            lastName: name.familyName || "",
-            email: email || "",
-            phone: phone || "",
-            address: "Imported from Workspace",
-            tags: ["google-contact"],
-            tenantId: tenant?.id || "genesis-1",
-            createdAt: new Date().toISOString(),
-          });
-        }
-      }
-      
-      for (const item of imports) {
-        await customersRepo.create(toRow(item));
-      }
-
-      showToast(`Imported ${imports.length} contacts from Google Workspace`, "success");
-      await logSystemEvent("WORKSPACE_CONTACTS_IMPORTED", { count: imports.length });
-    } catch (error) {
-      console.error("Google Import Error:", error);
-      showToast("Failed to connect to Google Contacts", "error");
-    } finally {
-      setIsImporting(false);
-    }
+    showToast("Google Calendar/Gmail sync is temporarily unavailable.", "info");
+    return;
   };
 
   const pendingLeads = customers.filter((c) => c.status === "PENDING_VERIFICATION");

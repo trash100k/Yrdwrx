@@ -37,8 +37,6 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "fabric": "^7.4.0",
-    "firebase": "^12.15.0",
-    "firebase-admin": "^13.10.0",
     "html5-qrcode": "^2.3.8",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.20.0",
