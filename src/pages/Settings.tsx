@@ -456,6 +456,7 @@ export default function Settings() {
             { key: "ratePerSqft", label: "Mowing Rate ($/sq ft)", type: "number", placeholder: "0.02", hint: "Instant Estimate" },
             { key: "zone", label: "USDA Hardiness Zone (1–13)", type: "number", placeholder: "7", hint: "Design Studio plant matching" },
             { key: "ownerEmail", label: "Owner Email (for digests)", type: "email", placeholder: "owner@company.com", hint: "Owner Digest 'email me'" },
+            { key: "googleReviewUrl", label: "Google Review Link", type: "url", placeholder: "https://g.page/r/...review", hint: "Included in review-request messages" },
           ] as const).map((f) => (
             <div key={f.key} className="bg-zinc-900/60 border border-white/10 rounded-2xl p-4">
               <label className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">{f.label}</label>

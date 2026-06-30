@@ -1269,3 +1269,20 @@ Test count 216 → **348** (all green), `tsc` clean, build OK, rewired pages ren
 - [ ] No week-boundary proration in `weekMinutes` (whole entry counts to the week it starts in).
 
 ### Next: expansion pick — Reviews reputation loop (ingest + post) · then card-on-file auto-charge.
+
+## Expansion: Reviews reputation loop (2026-06-30) — partially shipped
+
+The hollowest feature, made real where it can be without external API verification:
+- [x] **`/api/reviews/reply` endpoint now exists** (was 404 → client always fell back to draft).
+      Publishes the owner's reply to Google Business Profile when configured
+      (`GOOGLE_BUSINESS_ACCESS_TOKEN` + the review's platform `name`/`externalId`); otherwise
+      returns honest `{ posted:false, configured:false, reason }`. The Reviews page already
+      reads `posted`/`configured` and shows an honest "posted" vs "saved as draft" badge.
+- [x] **Review-request solicitation now includes a one-click review link** — added a
+      "Google Review Link" field to Settings → Business Defaults; `solicitRecentJobs` appends it
+      to the emailed request (omitted cleanly when unset). Sending was already real/honest.
+- [ ] **Ingestion (the remaining half)** — pull live Google/Yelp reviews into the `reviews`
+      table (needs Google Business Profile API + OAuth = human-config). Stopgap: add a manual
+      "Log a review" entry so an operator can record reviews from any platform and run the
+      AI-reply→post/track loop today without the integration.
+- [ ] (config) document `GOOGLE_BUSINESS_ACCESS_TOKEN` in `.env.example` when the integration lands.

@@ -108,6 +108,9 @@ export default function Reviews() {
       return;
     }
     setSoliciting(true);
+    // A review request with a one-click link converts far better. Pulled from Business
+    // Defaults (Settings → Google Review Link); omitted cleanly when not set.
+    const reviewUrl = (tenant?.settings as any)?.googleReviewUrl || "";
     try {
       let sent = 0; // genuinely delivered via Resend
       let simulated = 0; // accepted by the server but NOT actually emailed (unconfigured)
@@ -125,7 +128,7 @@ export default function Reviews() {
           job.data?.email ||
           "";
         const subject = "How did we do?";
-        const content = `Hi ${client}, thanks for choosing us for "${job.title || "your recent service"}". We'd love a quick review of your experience.`;
+        const content = `Hi ${client}, thanks for choosing us for "${job.title || "your recent service"}". We'd love a quick review of your experience.${reviewUrl ? ` Leave one here: ${reviewUrl}` : ""}`;
 
         if (!to) {
           // No address — we can't actually send, so log it as a draft, not "sent".

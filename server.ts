@@ -4184,6 +4184,50 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Publish an owner's reply back to the review platform (Google Business Profile). Posting
+  // requires a connected business account + OAuth token (GOOGLE_BUSINESS_ACCESS_TOKEN) and the
+  // review's platform-side name/id. When that's configured we publish; otherwise we report
+  // honestly that it isn't posted (the client saves the reply as a draft). The Reviews page
+  // reads `posted` / `configured` / `reason` from this response.
+  app.post("/api/reviews/reply", async (req: any, res) => {
+    try {
+      const { reviewId, platform, reply } = req.body || {};
+      if (!reviewId || !reply || !String(reply).trim()) {
+        return res.status(400).json({ error: "reviewId and reply are required" });
+      }
+      const gbpToken = process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
+      // The review's platform-side resource name (e.g. accounts/X/locations/Y/reviews/Z) is
+      // stored on the row when a review was ingested from Google; manual reviews won't have it.
+      let externalName = "";
+      try {
+        const sb = getServiceSupabase();
+        if (sb) {
+          const { data: row } = await sb.from("reviews").select("data").eq("id", reviewId).maybeSingle();
+          externalName = row?.data?.googleReviewName || row?.data?.externalId || "";
+        }
+      } catch (e) { /* fall through to honest "not configured" */ }
+
+      const isGoogle = String(platform || "").toLowerCase().includes("google");
+      if (gbpToken && externalName && isGoogle) {
+        try {
+          const r = await fetch(`https://mybusiness.googleapis.com/v4/${externalName}/reply`, {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${gbpToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ comment: String(reply) }),
+          });
+          if (r.ok) return res.json({ posted: true });
+          const t = await r.text().catch(() => "");
+          return res.json({ posted: false, configured: true, reason: `Google API ${r.status}${t ? `: ${t.slice(0, 120)}` : ""}` });
+        } catch (e: any) {
+          return res.json({ posted: false, configured: true, reason: e?.message || "post failed" });
+        }
+      }
+      return res.json({ posted: false, configured: false, reason: "Connect a Google Business Profile to publish replies." });
+    } catch (error: any) {
+      res.status(500).json({ error: "Reply failed" });
+    }
+  });
+
   app.post("/api/expenses/ocr", cacheApiResponse(600), async (req, res) => {
     try {
       const { imageData } = req.body;
