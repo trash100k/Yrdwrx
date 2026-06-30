@@ -350,6 +350,67 @@ All RLS tenant-scoped via the existing `private.*` helpers; additive + idempoten
 
 ---
 
+## 10b. Design Studio × Text Campaign — the "Vision-to-Cash" money loop
+
+The single highest-revenue connection in the app. Design Studio manufactures the most
+persuasive asset a landscaper has — a **before/after rendering + a good/better/best, catalog-
+priced proposal**. Text is the channel where that asset actually gets seen (~98% open vs email's
+~20%). Wiring them together is the "close in the driveway / close from the couch" play the market
+research says is the open lane.
+
+### The loop
+```
+  Yard photo ─▶ Design Studio (AI vision + good/better/best, catalog-priced, before/after)
+            ─▶ saved to customer_design_visions (keyed to the customer)
+            ─▶ DELIVERED BY TEXT  (SMS link ▸ MMS image ▸ RCS rich card w/ Approve/Pay buttons)
+            ─▶ customer taps Approve tier + pays deposit (Stripe Connect)
+            ─▶ job auto-created; after install the before/after image powers ▼
+            ─▶ Reviews + Referrals + "we just transformed a yard on your street" neighbor campaigns
+            ─▶ new leads ─▶ (loop)
+```
+The front half compresses the sales cycle (days→minutes, higher close rate from the image +
+instant delivery). The back half is where the **campaign engine monetizes the saved visions** as a
+reusable, segmentable audience.
+
+### Revenue plays, ranked
+1. **Proposal-by-text close (primary $).** A new design vision → one tap "Text proposal" →
+   personalized SMS + branded link to a mobile proposal page (before/after slider + tiers +
+   approve/pay). MMS attaches the image directly; RCS upgrades to a card with Approve buttons.
+   This is a *triggered/transactional* send to a lead who asked for a quote — not a marketing
+   blast — so it rides prior-express consent, not full PEWC. Fastest path to more closed jobs.
+2. **Seasonal re-design upsell (recurring $).** New campaign segment **"has a design vision"** =
+   a warm, high-intent book. Each season auto-draft: "Your spring planting plan is ready — want us
+   to refresh the beds we designed? [before/after]." Turns one-time installs into recurring revenue.
+   This is the cleanest way Design Studio *feeds* the campaign engine.
+3. **Good/better/best nudge.** The design already produced 3 tiers; text is the upsell nudge:
+   "For $400 more, add the paver border (see image)." Tiered upsell is landscaping's margin lever.
+4. **Abandoned-proposal recovery.** Sent a vision, no reply in N days → automated drip recovers
+   dead proposals ("Still thinking about the patio? Here's the rendering again.").
+5. **Win-back with a free re-vision.** Lapsed customer → "We re-imagined your yard for 2026 —
+   want to see?" → regenerate a vision from their last photo as the re-engagement hook.
+6. **Neighbor / geo social proof.** After a visible install, text nearby *consented* customers the
+   before/after: "We just did a project on Oak St — want a free vision of your yard?" (uses the
+   roadmapped geocode/Maps grounding + the Referrals engine).
+
+### The minimal bridge to build (reuses what now exists)
+- **"Send as text" action on a saved design vision** (`customer_design_visions` via
+  `designVisionsRepo`): consent-checked, builds the message + a magic-link proposal URL
+  (`/portal/...`), sends through `/api/sms/send-bulk` (MMS image param when Twilio is live),
+  tracked in `customer_messages` with `campaign_id`.
+- **Two new campaign segments** in `TextCampaigns.tsx`: "Has a design vision" and "Proposal sent,
+  not approved" — which make plays #2/#4 one-click.
+- **Agentic close on reply:** route the inbound reply ("yes, the Better option") through the Live
+  Ear tool executor → create job + invoice + Stripe link. The 21×-conversion fast-response window,
+  automated.
+
+### Compliance note specific to this pipeline
+Proposal-by-text to a lead who requested a quote is **transactional** (lower consent bar). The
+*seasonal/neighbor/win-back* plays are **marketing** (require PEWC + opt-out) — keep them gated by
+the `sms_consent = 'marketing'` filter already enforced in the send path. Don't let a marketing
+campaign ride a transactional quote opt-in.
+
+---
+
 ## 11. Sources
 
 Compliance / Twilio:
