@@ -2,13 +2,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Megaphone, Sparkles, ShieldCheck, AlertTriangle, CheckCircle2, Loader2, Send, X,
-  MessageSquare, Smartphone, Ban, UserCheck, ArrowRight,
+  MessageSquare, Smartphone, Ban, UserCheck, Clock, LayoutTemplate,
 } from "lucide-react";
 import { Customer } from "../types";
 import { fetchApi } from "../lib/api";
 import { useToast } from "../contexts/ToastContext";
 import { customersRepo, designVisionsRepo } from "../lib/repos";
 import { countSmsSegments, OPT_OUT_FOOTER, canReceiveMarketing } from "../lib/smsCampaign";
+import { CAMPAIGN_TEMPLATES, TEMPLATE_CATEGORIES } from "../lib/smsCampaignTemplates";
 import Sms10DLCSetup from "../components/Sms10DLCSetup";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -37,6 +38,17 @@ export default function TextCampaigns() {
   const [sending, setSending] = useState(false);
   const [savingConsent, setSavingConsent] = useState<Record<string, boolean>>({});
   const [result, setResult] = useState<any>(null);
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
+
+  // Prefill the builder from one of the 20 ready-made campaigns.
+  const applyTemplate = (t: any) => {
+    setSegment(t.segment);
+    setTargetService(t.targetService);
+    setDirectives(t.directives);
+    setActiveTemplate(t.id);
+    showToast(`Loaded "${t.name}". Review the audience and draft when ready.`, "success");
+  };
 
   useEffect(() => {
     customersRepo.list().then((rows) => setCustomers(rows || [])).catch(() => setCustomers([]));
@@ -159,18 +171,22 @@ export default function TextCampaigns() {
           targetService,
           segment,
           recipients: sendableDrafts.map((d) => ({ customerId: d.customerId, phone: d.phone, message: d.message })),
+          ...(scheduledFor ? { scheduledFor: new Date(scheduledFor).toISOString() } : {}),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Send failed");
       setResult(data);
       setDrafts([]);
-      showToast(
-        data.simulated
-          ? `Simulated ${data.total} sends (Twilio not configured).`
-          : `Sent ${data.sent} / ${data.total} texts.`,
-        data.simulated ? "info" : "success",
-      );
+      if (data.scheduled) {
+        showToast(`Scheduled ${data.total} texts for ${new Date(data.scheduledFor).toLocaleString()}.`, "success");
+      } else {
+        showToast(
+          data.simulated ? `Simulated ${data.total} sends (Twilio not configured).` : `Sent ${data.sent} / ${data.total} texts.`,
+          data.simulated ? "info" : "success",
+        );
+      }
+      setScheduledFor("");
     } catch (e: any) {
       showToast(e?.message || "Send failed.", "error");
     } finally {
@@ -272,18 +288,27 @@ export default function TextCampaigns() {
           })}
         </div>
 
-        <div className="sticky bottom-4 flex gap-3 bg-zinc-950/80 backdrop-blur p-3 rounded-2xl border border-white/5">
-          <button onClick={() => setDrafts([])} className="flex-1 py-3.5 border-2 border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 font-black uppercase tracking-widest text-sm rounded-xl transition-all">
-            Discard
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={sending || !sendableDrafts.length}
-            className="flex-[2] py-3.5 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50 disabled:grayscale"
-          >
-            {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            {sending ? "Sending…" : `Send ${sendableDrafts.length} Text${sendableDrafts.length === 1 ? "" : "s"}`}
-          </button>
+        <div className="sticky bottom-4 bg-zinc-950/80 backdrop-blur p-3 rounded-2xl border border-white/5 space-y-3">
+          <div className="flex items-center gap-2 px-1">
+            <Clock size={14} className="text-zinc-500" />
+            <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">Schedule (optional)</label>
+            <input type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)}
+              className="ml-auto bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white text-xs focus:outline-none focus:border-forest-500" />
+            {scheduledFor && <button onClick={() => setScheduledFor("")} className="text-zinc-500 hover:text-white" aria-label="Clear schedule"><X size={14} /></button>}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setDrafts([])} className="flex-1 py-3.5 border-2 border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 font-black uppercase tracking-widest text-sm rounded-xl transition-all">
+              Discard
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={sending || !sendableDrafts.length}
+              className="flex-[2] py-3.5 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50 disabled:grayscale"
+            >
+              {sending ? <Loader2 size={18} className="animate-spin" /> : scheduledFor ? <Clock size={18} /> : <Send size={18} />}
+              {sending ? "Working…" : scheduledFor ? `Schedule ${sendableDrafts.length} Text${sendableDrafts.length === 1 ? "" : "s"}` : `Send ${sendableDrafts.length} Text${sendableDrafts.length === 1 ? "" : "s"}`}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -293,6 +318,36 @@ export default function TextCampaigns() {
   return (
     <div className="max-w-3xl mx-auto space-y-6 mt-8">
       <Sms10DLCSetup />
+
+      {/* Ready-made campaigns */}
+      <div className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8">
+        <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2 mb-1">
+          <LayoutTemplate className="text-forest-500" /> Start From a Campaign
+        </h3>
+        <p className="text-sm text-zinc-500 font-medium mb-5">20 ready-made campaigns built for landscaping. Tap one to load the audience + AI directives below, then review and send.</p>
+        <div className="space-y-5">
+          {TEMPLATE_CATEGORIES.map((cat) => (
+            <div key={cat}>
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-2">{cat}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {CAMPAIGN_TEMPLATES.filter((t) => t.category === cat).map((t) => (
+                  <button key={t.id} onClick={() => applyTemplate(t)}
+                    className={`text-left p-3 rounded-xl border-2 transition-all ${activeTemplate === t.id ? "bg-forest-500/10 border-forest-500/50" : "border-white/10 hover:border-white/30 bg-black/20"}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold text-white truncate">{t.name}</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-widest shrink-0 ${t.channel === "marketing" ? "bg-amber-500/10 text-amber-400" : "bg-celtic-500/10 text-celtic-400"}`}>
+                        {t.channel === "marketing" ? "Mktg" : "Service"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mt-1 leading-snug">{t.preview}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8">
         <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2 mb-1">
           <Megaphone className="text-forest-500" /> Text Campaign

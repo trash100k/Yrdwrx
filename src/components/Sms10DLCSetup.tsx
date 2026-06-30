@@ -174,6 +174,10 @@ export default function Sms10DLCSetup() {
             {reg?.messagingServiceSid && (
               <p className="text-[10px] text-zinc-600 font-mono">Messaging Service: {reg.messagingServiceSid}</p>
             )}
+            <p className="text-[11px] text-zinc-600 leading-relaxed">
+              Once registered, texts route through your Messaging Service and auto-upgrade to <strong className="text-zinc-400">RCS</strong>
+              {" "}(branded sender, rich cards, read receipts) on supported phones — with automatic SMS fallback for everyone else.
+            </p>
           </section>
 
           {/* --- Agentic auto-reply --- */}

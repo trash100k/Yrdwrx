@@ -584,8 +584,8 @@ Services offered: ${JSON.stringify(services).slice(0, 500)}.
 Recent conversation:
 ${recent}
 
-If the customer clearly wants to book or confirm a specific service, set action to {"type":"schedule_job","serviceType":"..."}; otherwise action=null. NEVER quote a price you aren't certain of — offer to have someone follow up instead. Do not append an opt-out footer.
-Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serviceType":"string"} | null }`;
+If the customer clearly wants to book or confirm a specific service, set action to {"type":"schedule_job","serviceType":"...","date":"YYYY-MM-DD only if they named a specific date, else empty"}; otherwise action=null. NEVER quote a price you aren't certain of — offer to have someone follow up instead. Do not append an opt-out footer.
+Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serviceType":"string","date":"string"} | null }`;
         try {
           const r = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt, config: { responseMimeType: "application/json" } });
           const parsed = JSON.parse(r.text || "{}");
@@ -595,14 +595,17 @@ Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serv
       }
       if (!reply) return null;
 
-      // Auto mode only: capture the booking as a REQUESTED job (owner confirms the time).
+      // Auto mode only: capture the booking as a PENDING job so it lands on the Scheduler
+      // board/calendar for the owner to confirm (we set a date only if the customer named one).
       if (mode === "auto" && action?.type === "schedule_job") {
+        const validDate = /^\d{4}-\d{2}-\d{2}$/.test(String(action.date || "")) ? action.date : null;
         try {
           await sb.from("jobs").insert({
             tenant_id: matched.tenant_id, customer_id: matched.id,
-            title: `${action.serviceType || "Service"} (SMS request)`, status: "REQUESTED",
+            title: `${action.serviceType || "Service"} (SMS request)`, status: "PENDING",
+            ...(validDate ? { date: validDate } : {}),
             notes: `Auto-captured from inbound text: "${String(body).slice(0, 200)}"`,
-            data: { source: "sms_auto_reply" },
+            data: { source: "sms_auto_reply", unconfirmed: true },
           });
         } catch (e) { /* best-effort */ }
       }
@@ -620,6 +623,76 @@ Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serv
     } catch (e) {
       return null;
     }
+  }
+
+  // The tenant's Messaging Service SID (set during 10DLC registration). Sending THROUGH a
+  // Messaging Service is what enables RCS auto-upgrade (branded sender, rich cards, read
+  // receipts) on capable devices, with automatic SMS fallback — so we prefer it when present.
+  async function getTenantMessagingService(sb: any, tenantId: string) {
+    try {
+      const { data } = await sb.from("sms_registrations").select("messaging_service_sid").eq("tenant_id", tenantId).maybeSingle();
+      return data?.messaging_service_sid || null;
+    } catch { return null; }
+  }
+  // Prefer the Messaging Service (RCS-capable) over the shared long-code number.
+  function smsSenderParams(messagingServiceSid: string | null) {
+    return messagingServiceSid ? { messagingServiceSid } : { from: process.env.TWILIO_PHONE_NUMBER };
+  }
+
+  // Shared bulk-delivery loop used by BOTH immediate sends and the scheduled processor:
+  // re-checks opt-out at send time (consent can change between scheduling and sending),
+  // appends the opt-out footer, routes through the RCS-capable Messaging Service when set,
+  // and persists each send (with status + sid + campaign_id). Simulates when keys are unset.
+  async function deliverRecipients(tenantId: string | null, recipients: any[], opts: any = {}) {
+    const sb = getServiceSupabase();
+    const appendFooter = opts.appendFooter !== false;
+    const campaignId = opts.campaignId || null;
+    const optedOut = new Set<string>();
+    if (sb && tenantId) {
+      const ids = (recipients || []).map((r: any) => r.customerId).filter(Boolean);
+      if (ids.length) {
+        const { data } = await sb.from("customers").select("id, sms_opt_out_at").in("id", ids).eq("tenant_id", tenantId);
+        for (const c of data || []) if (c.sms_opt_out_at) optedOut.add(c.id);
+      }
+    }
+    const messagingServiceSid = opts.messagingServiceSid !== undefined
+      ? opts.messagingServiceSid
+      : (sb && tenantId ? await getTenantMessagingService(sb, tenantId) : null);
+    const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && (process.env.TWILIO_PHONE_NUMBER || messagingServiceSid));
+    let client: any = null;
+    if (twilioConfigured) { const twilio = require("twilio"); client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN); }
+    const statusCallback = process.env.BASE_URL ? `${process.env.BASE_URL}/api/public/sms/status` : undefined;
+    const senderParams = smsSenderParams(messagingServiceSid);
+
+    let sent = 0, failed = 0, skipped = 0, simulated = 0;
+    const results: any[] = [];
+    for (const r of recipients || []) {
+      const phone = String(r.phone || "").trim();
+      if (!phone) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "no_phone" }); continue; }
+      if (r.customerId && optedOut.has(r.customerId)) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "opted_out" }); continue; }
+      const body = appendFooter ? appendOptOutFooter(String(r.message || "")) : String(r.message || "").trim();
+      if (!body.trim()) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "empty" }); continue; }
+
+      let status = "simulated"; let sid: string | null = null; let errorCode: string | null = null;
+      if (client) {
+        try {
+          const msg = await client.messages.create({ body, to: phone, ...senderParams, ...(statusCallback ? { statusCallback } : {}) });
+          sid = msg.sid; status = "sent"; sent++;
+        } catch (e: any) { status = "failed"; errorCode = e?.code ? String(e.code) : "send_error"; failed++; }
+      } else { simulated++; }
+
+      if (sb && tenantId && r.customerId) {
+        try {
+          await sb.from("customer_messages").insert({
+            tenant_id: tenantId, customer_id: r.customerId, sender: "business",
+            text: body.slice(0, 2000), channel: "sms", direction: "outbound",
+            campaign_id: campaignId, status, twilio_sid: sid, error_code: errorCode,
+          });
+        } catch (e) { /* best-effort */ }
+      }
+      results.push({ customerId: r.customerId, status, sid });
+    }
+    return { twilioConfigured, sent, failed, skipped, simulated, results };
   }
 
   // Twilio inbound SMS webhook (two-way SMS). Registered BEFORE express.json + the JSON-only
@@ -4998,7 +5071,7 @@ Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serv
   // real status + twilio_sid + campaign_id. Creates an sms_campaigns row with rollup counters.
   app.post("/api/sms/send-bulk", requireTier("pro"), async (req: any, res) => {
     try {
-      const { name, targetService, segment, recipients, appendFooter = true } = req.body || {};
+      const { name, targetService, segment, recipients, appendFooter = true, scheduledFor } = req.body || {};
       if (!Array.isArray(recipients) || !recipients.length) {
         return res.status(400).json({ error: "recipients array required" });
       }
@@ -5009,81 +5082,42 @@ Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serv
       const sb = getServiceSupabase();
       const tenant = await resolveTenant(req);
 
-      // Server-side consent re-check: drop anyone who has opted out (when DB is reachable).
-      const optedOut = new Set<string>();
-      if (sb && tenant) {
-        const ids = recipients.map((r: any) => r.customerId).filter(Boolean);
-        if (ids.length) {
-          const { data } = await sb.from("customers").select("id, sms_opt_out_at").in("id", ids).eq("tenant_id", tenant.id);
-          for (const c of data || []) if (c.sms_opt_out_at) optedOut.add(c.id);
-        }
+      // --- Schedule for later: queue the recipients on the campaign; the processor sends them. ---
+      const when = scheduledFor ? new Date(scheduledFor) : null;
+      const isScheduled = !!(when && !isNaN(when.getTime()) && when.getTime() > Date.now() + 30000);
+      if (isScheduled) {
+        if (!sb || !tenant) return res.json({ success: true, simulated: true, scheduled: true, scheduledFor: when!.toISOString() });
+        const { data: camp } = await sb.from("sms_campaigns").insert({
+          tenant_id: tenant.id, name: name || "Text campaign", target_service: targetService || null, segment: segment || null,
+          status: "scheduled", scheduled_for: when!.toISOString(), total_recipients: recipients.length,
+          recipients, append_footer: appendFooter !== false, created_by: req.user?.email || null,
+        }).select("id").maybeSingle();
+        return res.json({ success: true, scheduled: true, campaignId: camp?.id || null, scheduledFor: when!.toISOString(), total: recipients.length });
       }
 
-      // Record the campaign (best-effort; demo/no-DB still simulates the send).
+      // --- Send now. ---
       let campaignId: string | null = null;
       if (sb && tenant) {
         const { data: camp } = await sb.from("sms_campaigns").insert({
           tenant_id: tenant.id, name: name || "Text campaign", target_service: targetService || null,
           segment: segment || null, status: "sending", total_recipients: recipients.length,
-          created_by: req.user?.email || null,
+          recipients, append_footer: appendFooter !== false, created_by: req.user?.email || null,
         }).select("id").maybeSingle();
         campaignId = camp?.id || null;
       }
 
-      const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
-      let client: any = null;
-      if (twilioConfigured) {
-        const twilio = require("twilio");
-        client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-      }
-      const statusCallback = process.env.BASE_URL ? `${process.env.BASE_URL}/api/public/sms/status` : undefined;
-
-      const results: any[] = [];
-      let sent = 0, failed = 0, skipped = 0, simulated = 0;
-      for (const r of recipients) {
-        const phone = String(r.phone || "").trim();
-        if (!phone) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "no_phone" }); continue; }
-        if (r.customerId && optedOut.has(r.customerId)) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "opted_out" }); continue; }
-        const body = appendFooter ? appendOptOutFooter(String(r.message || "")) : String(r.message || "").trim();
-        if (!body.trim()) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "empty" }); continue; }
-
-        let status = "simulated"; let sid: string | null = null; let errorCode: string | null = null;
-        if (client) {
-          try {
-            const msg = await client.messages.create({
-              body, from: process.env.TWILIO_PHONE_NUMBER, to: phone,
-              ...(statusCallback ? { statusCallback } : {}),
-            });
-            sid = msg.sid; status = "sent"; sent++;
-          } catch (e: any) {
-            status = "failed"; errorCode = e?.code ? String(e.code) : "send_error"; failed++;
-          }
-        } else {
-          simulated++;
-        }
-
-        if (sb && tenant && r.customerId) {
-          try {
-            await sb.from("customer_messages").insert({
-              tenant_id: tenant.id, customer_id: r.customerId, sender: "business",
-              text: body.slice(0, 2000), channel: "sms", direction: "outbound",
-              campaign_id: campaignId, status, twilio_sid: sid, error_code: errorCode,
-            });
-          } catch (e) { /* best-effort persistence */ }
-        }
-        results.push({ customerId: r.customerId, status, sid });
-      }
+      const r = await deliverRecipients(tenant?.id || null, recipients, { appendFooter, campaignId });
 
       if (sb && tenant && campaignId) {
         await sb.from("sms_campaigns").update({
-          status: twilioConfigured ? "sent" : "draft",
-          sent_count: sent, failed_count: failed, skipped_count: skipped, updated_at: new Date().toISOString(),
+          status: r.twilioConfigured ? "sent" : "draft",
+          sent_count: r.sent, failed_count: r.failed, skipped_count: r.skipped, updated_at: new Date().toISOString(),
         }).eq("id", campaignId).then(() => {}, () => {});
       }
 
       res.json({
-        success: true, simulated: !twilioConfigured, campaignId,
-        total: recipients.length, sent, failed, skipped, simulatedCount: simulated, results,
+        success: true, simulated: !r.twilioConfigured, campaignId,
+        total: recipients.length, sent: r.sent, failed: r.failed, skipped: r.skipped, simulatedCount: r.simulated, results: r.results,
       });
     } catch (e: any) {
       console.error("[sms/send-bulk]", e?.message);
@@ -5187,7 +5221,8 @@ Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serv
       const body = appendOptOutFooter(baseMsg);
       const mediaUrl = vision?.after_url && /^https?:\/\//i.test(vision.after_url) ? vision.after_url : null;
 
-      const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
+      const messagingServiceSid = (sb && tenant) ? await getTenantMessagingService(sb, tenant.id) : null;
+      const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && (process.env.TWILIO_PHONE_NUMBER || messagingServiceSid));
       let status = "simulated"; let sid: string | null = null; let errorCode: string | null = null;
       if (twilioConfigured) {
         try {
@@ -5195,7 +5230,7 @@ Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serv
           const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
           const statusCallback = process.env.BASE_URL ? `${process.env.BASE_URL}/api/public/sms/status` : undefined;
           const msg = await client.messages.create({
-            body, from: process.env.TWILIO_PHONE_NUMBER, to: phone,
+            body, to: phone, ...smsSenderParams(messagingServiceSid),
             ...(mediaUrl ? { mediaUrl: [mediaUrl] } : {}),
             ...(statusCallback ? { statusCallback } : {}),
           });
@@ -5919,6 +5954,36 @@ OUTPUT JSON ONLY, shape:
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`YardWorx running on http://localhost:${PORT}`);
   });
+
+  // Scheduled text-campaign processor. Every minute, ATOMICALLY claim due campaigns
+  // (status scheduled -> sending, filtered by scheduled_for; Postgres row locks make this
+  // safe across cluster workers) and deliver them via the shared sender. Best-effort; only
+  // runs on a live server (createApp({startListening:false}) in tests skips it).
+  if (process.env.NODE_ENV !== "test") {
+    const processScheduledCampaigns = async () => {
+      try {
+        const sb = getServiceSupabase();
+        if (!sb) return;
+        const { data: due } = await sb.from("sms_campaigns")
+          .update({ status: "sending", updated_at: new Date().toISOString() })
+          .eq("status", "scheduled").lte("scheduled_for", new Date().toISOString())
+          .select("*");
+        for (const camp of due || []) {
+          try {
+            const recips = Array.isArray(camp.recipients) ? camp.recipients : [];
+            const r = await deliverRecipients(camp.tenant_id, recips, { appendFooter: camp.append_footer !== false, campaignId: camp.id });
+            await sb.from("sms_campaigns").update({
+              status: "sent", sent_count: r.sent, failed_count: r.failed, skipped_count: r.skipped, updated_at: new Date().toISOString(),
+            }).eq("id", camp.id);
+          } catch (e) {
+            await sb.from("sms_campaigns").update({ status: "failed", updated_at: new Date().toISOString() }).eq("id", camp.id).then(() => {}, () => {});
+          }
+        }
+      } catch (e) { /* best-effort; try again next tick */ }
+    };
+    const schedulerInterval = setInterval(processScheduledCampaigns, 60000);
+    if (schedulerInterval.unref) schedulerInterval.unref();
+  }
 
   // WebSocket Server for Live Ear
   // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale.
