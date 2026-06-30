@@ -452,7 +452,8 @@ function cacheApiResponse(durationSeconds: number) {
 export async function createApp({ startListening = false } = {}) {
   const app = express();
   app.set('trust proxy', 1);
-  const PORT = 3000;
+  // Honor the platform-injected port (Cloud Run sets $PORT); fall back to 3000 locally.
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Stripe Webhook needs raw body
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
