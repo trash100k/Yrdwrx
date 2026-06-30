@@ -11,6 +11,7 @@ import {
   canReceiveTransactional,
   partitionForMarketing,
   isWithinSendWindow,
+  registrationReadiness,
 } from "./smsCampaign";
 
 describe("detectSmsCommand", () => {
@@ -37,6 +38,16 @@ describe("detectSmsCommand", () => {
     expect(detectSmsCommand("how much for aeration?")).toBeNull();
     expect(detectSmsCommand("")).toBeNull();
     expect(detectSmsCommand(null)).toBeNull();
+  });
+
+  it("does NOT false-positive on ambiguous words leading a normal reply", () => {
+    // "yes"/"cancel"/"end"/"info" only count as commands when they are the WHOLE message.
+    expect(detectSmsCommand("Yes please schedule me")).toBeNull();
+    expect(detectSmsCommand("cancel my appointment tomorrow")).toBeNull();
+    expect(detectSmsCommand("end of the driveway is fine")).toBeNull();
+    // but the exact keyword alone still triggers
+    expect(detectSmsCommand("cancel")).toBe("stop");
+    expect(detectSmsCommand("yes")).toBe("start");
   });
 
   it("normalizes inbound text", () => {
@@ -127,5 +138,42 @@ describe("isWithinSendWindow", () => {
     expect(isWithinSendWindow(7)).toBe(false);
     expect(isWithinSendWindow(21)).toBe(false);
     expect(isWithinSendWindow(2)).toBe(false);
+  });
+});
+
+describe("registrationReadiness", () => {
+  const complete = {
+    legalBusinessName: "Green Acres LLC",
+    businessType: "LLC",
+    vertical: "Landscaping",
+    contactEmail: "owner@greenacres.com",
+    useCase: "mixed",
+    description: "Appointment reminders, quotes, and seasonal offers to our customers.",
+    optInDescription: "Customers opt in on our booking form and by texting START.",
+    sampleMessages: ["Hi {name}, your crew is on the way!"],
+  };
+
+  it("is ready when all required fields + a sample are present", () => {
+    const r = registrationReadiness(complete);
+    expect(r.ready).toBe(true);
+    expect(r.missing).toEqual([]);
+    expect(r.hasSamples).toBe(true);
+  });
+
+  it("flags missing required fields and missing samples", () => {
+    const r = registrationReadiness({ legalBusinessName: "Green Acres LLC" });
+    expect(r.ready).toBe(false);
+    expect(r.missing).toContain("contactEmail");
+    expect(r.missing).toContain("sampleMessages");
+    expect(r.hasSamples).toBe(false);
+  });
+
+  it("does not require EIN (Sole Proprietor brands have none)", () => {
+    const r = registrationReadiness(complete);
+    expect(r.missing).not.toContain("ein");
+  });
+
+  it("handles null input", () => {
+    expect(registrationReadiness(null).ready).toBe(false);
   });
 });

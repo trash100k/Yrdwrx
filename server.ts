@@ -17,7 +17,7 @@ import helmet from "helmet";
 import { validateSafeUrl } from "./src/lib/securityUtils.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
-import { detectSmsCommand, appendOptOutFooter } from "./src/lib/smsCampaign.js";
+import { detectSmsCommand, appendOptOutFooter, registrationReadiness } from "./src/lib/smsCampaign.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -546,6 +546,82 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Agentic SMS auto-reply. Opt-in per tenant via sms_registrations.auto_reply_mode
+  // (off | auto | draft). Generates ONE short, grounded reply to a conversational inbound text
+  // and — in 'auto' mode — can capture a booking as a REQUESTED job for the owner to confirm
+  // (deliberately conservative: never auto-invoices, never quotes a price it isn't sure of).
+  // Returns the reply text to send back via TwiML in 'auto' mode; persists a non-sent
+  // suggestion in 'draft' mode. Best-effort + bounded; returns null to mean "no auto-reply".
+  async function runSmsAutoReply(matched: any, body: string): Promise<string | null> {
+    const sb = getServiceSupabase();
+    if (!sb || !matched?.tenant_id || !matched?.id) return null;
+    try {
+      const { data: reg } = await sb
+        .from("sms_registrations").select("auto_reply_mode, auto_reply_instructions").eq("tenant_id", matched.tenant_id).maybeSingle();
+      const mode = reg?.auto_reply_mode || "off";
+      if (mode !== "auto" && mode !== "draft") return null;
+
+      const { data: tenantRow } = await sb.from("tenants").select("name, settings").eq("id", matched.tenant_id).maybeSingle();
+      const { data: cust } = await sb.from("customers").select("first_name, last_name, notes").eq("id", matched.id).maybeSingle();
+      const { data: history } = await sb
+        .from("customer_messages").select("sender, text").eq("customer_id", matched.id).order("created_at", { ascending: false }).limit(6);
+      const brand = tenantRow?.name || "YardWorx";
+      const services = Array.isArray(tenantRow?.settings?.services) ? tenantRow.settings.services : [];
+      const recent = (history || []).slice().reverse().map((m: any) => `${m.sender === "client" ? "Customer" : "Us"}: ${m.text}`).join("\n");
+
+      let reply = ""; let action: any = null;
+      if (isMockMode) {
+        const wantsBooking = /\b(yes|book|schedule|sounds good|let'?s do it|sign me up|go ahead)\b/i.test(body);
+        reply = wantsBooking
+          ? `Great, ${cust?.first_name || "there"}! I've passed your request to ${brand} and we'll confirm a time shortly.`
+          : `Thanks for reaching out to ${brand}! Happy to help with your yard — what are you looking to get done?`;
+        if (wantsBooking) action = { type: "schedule_job", serviceType: (services[0]?.name || services[0] || "Service visit") };
+      } else {
+        const prompt = `You are the SMS assistant for ${brand}, a landscaping & home-services company.
+Reply to the customer's latest text in ONE short, friendly SMS (<=160 chars, no emojis). ${reg?.auto_reply_instructions || ""}
+Customer: ${cust?.first_name || ""} ${cust?.last_name || ""}. Notes: ${cust?.notes || "none"}.
+Services offered: ${JSON.stringify(services).slice(0, 500)}.
+Recent conversation:
+${recent}
+
+If the customer clearly wants to book or confirm a specific service, set action to {"type":"schedule_job","serviceType":"..."}; otherwise action=null. NEVER quote a price you aren't certain of — offer to have someone follow up instead. Do not append an opt-out footer.
+Output JSON exactly: { "reply": "string", "action": {"type":"schedule_job","serviceType":"string"} | null }`;
+        try {
+          const r = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt, config: { responseMimeType: "application/json" } });
+          const parsed = JSON.parse(r.text || "{}");
+          reply = String(parsed.reply || "").slice(0, 320);
+          action = parsed.action && parsed.action.type === "schedule_job" ? parsed.action : null;
+        } catch (e) { return null; }
+      }
+      if (!reply) return null;
+
+      // Auto mode only: capture the booking as a REQUESTED job (owner confirms the time).
+      if (mode === "auto" && action?.type === "schedule_job") {
+        try {
+          await sb.from("jobs").insert({
+            tenant_id: matched.tenant_id, customer_id: matched.id,
+            title: `${action.serviceType || "Service"} (SMS request)`, status: "REQUESTED",
+            notes: `Auto-captured from inbound text: "${String(body).slice(0, 200)}"`,
+            data: { source: "sms_auto_reply" },
+          });
+        } catch (e) { /* best-effort */ }
+      }
+
+      const finalText = appendOptOutFooter(reply);
+      const status = mode === "auto" ? (process.env.TWILIO_PHONE_NUMBER ? "sent" : "simulated") : "suggested";
+      try {
+        await sb.from("customer_messages").insert({
+          tenant_id: matched.tenant_id, customer_id: matched.id,
+          sender: mode === "auto" ? "business" : "agent_suggestion",
+          text: finalText.slice(0, 2000), channel: "sms", direction: "outbound", status,
+        });
+      } catch (e) { /* best-effort */ }
+      return mode === "auto" ? finalText : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Twilio inbound SMS webhook (two-way SMS). Registered BEFORE express.json + the JSON-only
   // governance gate because Twilio posts application/x-www-form-urlencoded. Auth-excluded
   // (it's /api/public/*); signature-verified when TWILIO_AUTH_TOKEN is set. Persists the
@@ -578,6 +654,7 @@ export async function createApp({ startListening = false } = {}) {
       } else if (command === "start") {
         replyXml = "<Response><Message>You're opted back in. Reply STOP at any time to opt out.</Message></Response>";
       }
+      let matched: any = null;
       try {
         const sb = getServiceSupabase();
         const digits = String(From || "").replace(/\D/g, "");
@@ -590,6 +667,7 @@ export async function createApp({ startListening = false } = {}) {
               .ilike("phone", `%${last10}%`)
               .limit(2);
             const cust = matches && matches.length === 1 ? matches[0] : null;
+            matched = cust;
             if (cust) {
               // Honor consent commands on the matched customer + write the audit trail.
               if (command === "stop") {
@@ -618,6 +696,19 @@ export async function createApp({ startListening = false } = {}) {
           await Promise.race([persist, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000))]);
         }
       } catch (e) { /* best-effort persistence; still ack to Twilio */ }
+
+      // Agentic auto-reply for ordinary (non-command) inbound texts — opt-in per tenant.
+      // Bounded so the webhook still acks Twilio promptly; failures fall back to no reply.
+      if (!command && matched) {
+        try {
+          const escapeXml = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const auto = await Promise.race([
+            runSmsAutoReply(matched, String(Body || "")),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 9000)),
+          ]);
+          if (auto) replyXml = `<Response><Message>${escapeXml(auto)}</Message></Response>`;
+        } catch (e) { /* fall back to no reply */ }
+      }
       return xml(replyXml);
     } catch (e) {
       return xml("<Response/>");
@@ -5133,6 +5224,94 @@ export async function createApp({ startListening = false } = {}) {
       console.error("[sms/send-proposal]", e?.message);
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // --- Texting setup: A2P 10DLC registration intake + auto-reply config -----
+  const regToCamel = (r: any) => r ? {
+    legalBusinessName: r.legal_business_name || "", businessType: r.business_type || "", ein: r.ein || "",
+    vertical: r.vertical || "", website: r.website || "", address: r.address || "",
+    contactEmail: r.contact_email || "", contactPhone: r.contact_phone || "",
+    useCase: r.use_case || "mixed", description: r.description || "",
+    sampleMessages: Array.isArray(r.sample_messages) ? r.sample_messages : [],
+    optInDescription: r.opt_in_description || "",
+    autoReplyMode: r.auto_reply_mode || "off", autoReplyInstructions: r.auto_reply_instructions || "",
+    status: r.status || "not_started", brandSid: r.brand_sid || null, campaignSid: r.campaign_sid || null,
+    messagingServiceSid: r.messaging_service_sid || null, submittedAt: r.submitted_at || null,
+  } : null;
+  const DEFAULT_REG = { autoReplyMode: "off", status: "not_started", sampleMessages: [], useCase: "mixed" };
+
+  app.get("/api/sms/registration", async (req: any, res) => {
+    try {
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+      if (!sb || !tenant) return res.json({ registration: { ...DEFAULT_REG }, simulated: true });
+      const { data } = await sb.from("sms_registrations").select("*").eq("tenant_id", tenant.id).maybeSingle();
+      res.json({ registration: regToCamel(data) || { ...DEFAULT_REG } });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Save (upsert) the collected registration fields + auto-reply config.
+  app.post("/api/sms/registration", async (req: any, res) => {
+    try {
+      const b = req.body || {};
+      const patch: any = { updated_at: new Date().toISOString() };
+      const set = (col: string, val: any) => { if (val !== undefined) patch[col] = val; };
+      set("legal_business_name", b.legalBusinessName); set("business_type", b.businessType); set("ein", b.ein);
+      set("vertical", b.vertical); set("website", b.website); set("address", b.address);
+      set("contact_email", b.contactEmail); set("contact_phone", b.contactPhone);
+      set("use_case", b.useCase); set("description", b.description);
+      if (Array.isArray(b.sampleMessages)) patch.sample_messages = b.sampleMessages.filter((s: any) => String(s || "").trim()).slice(0, 5);
+      set("opt_in_description", b.optInDescription);
+      if (["off", "auto", "draft"].includes(b.autoReplyMode)) patch.auto_reply_mode = b.autoReplyMode;
+      set("auto_reply_instructions", b.autoReplyInstructions);
+
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+      if (!sb || !tenant) return res.json({ success: true, simulated: true });
+      const { data: existing } = await sb.from("sms_registrations").select("id, status").eq("tenant_id", tenant.id).maybeSingle();
+      if (existing) {
+        if (existing.status === "not_started") patch.status = "collecting";
+        await sb.from("sms_registrations").update(patch).eq("tenant_id", tenant.id);
+      } else {
+        await sb.from("sms_registrations").insert({ tenant_id: tenant.id, status: "collecting", ...patch });
+      }
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Submit for A2P 10DLC registration. Validates required fields. Real carrier submission is
+  // gated behind TWILIO_ENABLE_A2P + live keys (full brand/campaign vetting completes in the
+  // Twilio Console); otherwise we record the intent and mark it pending (honest simulated:true).
+  app.post("/api/sms/registration/submit", async (req: any, res) => {
+    try {
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+      if (!sb || !tenant) return res.json({ success: true, simulated: true, status: "pending" });
+      const { data: reg } = await sb.from("sms_registrations").select("*").eq("tenant_id", tenant.id).maybeSingle();
+      const camel = regToCamel(reg);
+      const readiness = registrationReadiness(camel);
+      if (!readiness.ready) return res.status(400).json({ error: "Missing required fields", missing: readiness.missing });
+
+      const canSubmit = process.env.TWILIO_ENABLE_A2P === "true" && !!process.env.TWILIO_ACCOUNT_SID && !!process.env.TWILIO_AUTH_TOKEN;
+      let messagingServiceSid = reg?.messaging_service_sid || null;
+      let simulated = true;
+      if (canSubmit) {
+        try {
+          const twilio = require("twilio");
+          const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+          if (!messagingServiceSid) {
+            const svc = await client.messaging.v1.services.create({ friendlyName: `${camel?.legalBusinessName || tenant.name} A2P` });
+            messagingServiceSid = svc.sid;
+          }
+          simulated = false;
+        } catch (e: any) { console.warn("[sms/registration/submit] twilio:", e?.message); }
+      }
+      await sb.from("sms_registrations").update({
+        status: "pending", submitted_at: new Date().toISOString(),
+        messaging_service_sid: messagingServiceSid, updated_at: new Date().toISOString(),
+      }).eq("tenant_id", tenant.id);
+      res.json({ success: true, status: "pending", simulated, messagingServiceSid });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // Magic Links API

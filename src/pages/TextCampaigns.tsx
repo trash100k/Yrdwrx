@@ -9,6 +9,7 @@ import { fetchApi } from "../lib/api";
 import { useToast } from "../contexts/ToastContext";
 import { customersRepo, designVisionsRepo } from "../lib/repos";
 import { countSmsSegments, OPT_OUT_FOOTER, canReceiveMarketing } from "../lib/smsCampaign";
+import Sms10DLCSetup from "../components/Sms10DLCSetup";
 import { motion, AnimatePresence } from "motion/react";
 
 type Segment = "all" | "priority" | "lapsed" | "design" | "proposal";
@@ -291,6 +292,7 @@ export default function TextCampaigns() {
   // ---- Builder ------------------------------------------------------------
   return (
     <div className="max-w-3xl mx-auto space-y-6 mt-8">
+      <Sms10DLCSetup />
       <div className="bg-zinc-900 border border-white/5 rounded-3xl p-6 sm:p-8">
         <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2 mb-1">
           <Megaphone className="text-forest-500" /> Text Campaign

@@ -50,11 +50,13 @@ export function normalizeInbound(body: string | null | undefined): string {
 export function detectSmsCommand(body: string | null | undefined): SmsCommand {
   const text = normalizeInbound(body);
   if (!text) return null;
-  const firstWord = text.split(/\s+/)[0];
-  const isMatch = (kw: string[]) => kw.includes(text) || kw.includes(firstWord);
-  if (isMatch(STOP_KEYWORDS) || /\bstop\b/.test(text)) return "stop";
-  if (isMatch(HELP_KEYWORDS)) return "help";
-  if (isMatch(START_KEYWORDS)) return "start";
+  // STOP is honored generously (regulatory): any exact opt-out keyword, OR the literal word
+  // "stop" anywhere (catches "stop texting me"). Erring toward honoring opt-out is the safe side.
+  if (STOP_KEYWORDS.includes(text) || /\bstop\b/.test(text)) return "stop";
+  // HELP / START match ONLY as the entire message — otherwise ambiguous words that commonly
+  // lead a normal reply ("yes please schedule me", "end of the driveway") cause false positives.
+  if (HELP_KEYWORDS.includes(text)) return "help";
+  if (START_KEYWORDS.includes(text)) return "start";
   return null;
 }
 
@@ -191,4 +193,31 @@ export const QUIET_HOURS_END = 21; // exclusive
 /** True if the given local hour (0–23) is inside the allowed sending window. */
 export function isWithinSendWindow(localHour: number, start = QUIET_HOURS_START, end = QUIET_HOURS_END): boolean {
   return localHour >= start && localHour < end;
+}
+
+// --- A2P 10DLC registration readiness --------------------------------------
+// The brand + campaign fields a tenant must supply before submitting for carrier
+// registration. EIN is intentionally NOT required (Sole Proprietor brands have none).
+export const REQUIRED_REGISTRATION_FIELDS = [
+  "legalBusinessName", "businessType", "vertical", "contactEmail", "useCase", "description", "optInDescription",
+] as const;
+
+export interface RegistrationReadiness {
+  ready: boolean;
+  missing: string[];
+  hasSamples: boolean;
+}
+
+/**
+ * Compute whether a registration record has everything needed to submit, and what's missing.
+ * Drives the setup UI's checklist + the submit button's enabled state. Pure so it's testable
+ * and usable on both client and server. Expects camelCase keys.
+ */
+export function registrationReadiness(reg: Record<string, any> | null | undefined): RegistrationReadiness {
+  const r = reg || {};
+  const missing: string[] = [...REQUIRED_REGISTRATION_FIELDS].filter((f) => !String(r[f] ?? "").trim());
+  const samples = Array.isArray(r.sampleMessages) ? r.sampleMessages.filter((s: any) => String(s ?? "").trim()) : [];
+  const hasSamples = samples.length >= 1;
+  if (!hasSamples) missing.push("sampleMessages");
+  return { ready: missing.length === 0, missing, hasSamples };
 }
