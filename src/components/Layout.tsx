@@ -42,6 +42,7 @@ import {
   Moon,
   Gift,
   Wrench,
+  Megaphone,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -388,6 +389,14 @@ export default function Layout() {
       icon: MessageSquare,
       label: "Inbox",
       path: `${rolePrefix}/inbox`,
+      group: "BUSINESS",
+      allowedRoles: ["owner", "admin"],
+    },
+    {
+      id: "campaigns",
+      icon: Megaphone,
+      label: "Text Campaigns",
+      path: `${rolePrefix}/campaigns`,
       group: "BUSINESS",
       allowedRoles: ["owner", "admin"],
     },

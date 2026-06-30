@@ -17,6 +17,7 @@ import helmet from "helmet";
 import { validateSafeUrl } from "./src/lib/securityUtils.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
+import { detectSmsCommand, appendOptOutFooter } from "./src/lib/smsCampaign.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -563,11 +564,20 @@ export async function createApp({ startListening = false } = {}) {
           }
         } catch (e) { /* twilio sdk unavailable — fall through */ }
       }
-      // Persist the inbound reply into Supabase customer_messages (what the CRM + client
-      // portal actually read). customer_messages.customer_id is NOT NULL, so we resolve the
-      // sender's phone -> a customer row via the service role. Multi-tenant routing by the
-      // Twilio "To" number isn't wired yet, so we match on phone digits; if exactly one
-      // customer matches we attribute the message, otherwise we skip (and still ack Twilio).
+      // Classify the inbound text. STOP/HELP/START are TCPA/CTIA compliance commands we MUST
+      // honor; everything else is a conversational reply persisted to the CRM thread (and,
+      // later, handed to the agent auto-responder). We resolve the sender's phone -> a unique
+      // customer (multi-tenant routing by the Twilio "To" number isn't wired yet). STOP/START
+      // update sms_consent + write the consent audit log; all three reply with valid TwiML.
+      const command = detectSmsCommand(Body);
+      let replyXml = "<Response></Response>";
+      if (command === "stop") {
+        replyXml = "<Response><Message>You're unsubscribed and will receive no more messages from us. Reply START to opt back in.</Message></Response>";
+      } else if (command === "help") {
+        replyXml = "<Response><Message>YardWorx: For help call your service provider. Msg &amp; data rates may apply. Reply STOP to opt out.</Message></Response>";
+      } else if (command === "start") {
+        replyXml = "<Response><Message>You're opted back in. Reply STOP at any time to opt out.</Message></Response>";
+      }
       try {
         const sb = getServiceSupabase();
         const digits = String(From || "").replace(/\D/g, "");
@@ -579,12 +589,27 @@ export async function createApp({ startListening = false } = {}) {
               .select("id, tenant_id, phone")
               .ilike("phone", `%${last10}%`)
               .limit(2);
-            if (matches && matches.length === 1) {
+            const cust = matches && matches.length === 1 ? matches[0] : null;
+            if (cust) {
+              // Honor consent commands on the matched customer + write the audit trail.
+              if (command === "stop") {
+                await sb.from("customers").update({ sms_opt_out_at: new Date().toISOString(), sms_consent: "none" }).eq("id", cust.id);
+                await sb.from("sms_consent_log").insert({ tenant_id: cust.tenant_id, customer_id: cust.id, event: "opt_out", channel: "inbound_sms", detail: "STOP keyword" }).then(() => {}, () => {});
+              } else if (command === "start") {
+                await sb.from("customers").update({ sms_opt_out_at: null, sms_consent: "transactional", sms_consent_at: new Date().toISOString(), sms_consent_source: "inbound_sms" }).eq("id", cust.id);
+                await sb.from("sms_consent_log").insert({ tenant_id: cust.tenant_id, customer_id: cust.id, event: "start", channel: "inbound_sms", detail: "START keyword" }).then(() => {}, () => {});
+              } else if (command === "help") {
+                await sb.from("sms_consent_log").insert({ tenant_id: cust.tenant_id, customer_id: cust.id, event: "help", channel: "inbound_sms", detail: "HELP keyword" }).then(() => {}, () => {});
+              }
+              // Persist the inbound message itself into the conversation thread.
               await sb.from("customer_messages").insert({
-                tenant_id: matches[0].tenant_id,
-                customer_id: matches[0].id,
+                tenant_id: cust.tenant_id,
+                customer_id: cust.id,
                 sender: "client",
                 text: String(Body || "").slice(0, 2000),
+                channel: "sms",
+                direction: "inbound",
+                status: "received",
               });
             } else {
               console.warn(`[SMS inbound] no unique customer for ${last10} (${matches?.length || 0} matches); dropped`);
@@ -593,9 +618,40 @@ export async function createApp({ startListening = false } = {}) {
           await Promise.race([persist, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000))]);
         }
       } catch (e) { /* best-effort persistence; still ack to Twilio */ }
-      return xml();
+      return xml(replyXml);
     } catch (e) {
       return xml("<Response/>");
+    }
+  });
+
+  // Twilio delivery status callback (for bulk/campaign sends). Registered here — before
+  // express.json + the auth/governance gate — because Twilio posts form-urlencoded and
+  // carries no app session; the /api/public/ prefix keeps it auth-excluded. Updates the
+  // matching customer_messages row by twilio_sid so the thread + campaign results show the
+  // real carrier status (delivered / failed / undelivered) instead of a faked "Sent!".
+  app.post("/api/public/sms/status", express.urlencoded({ extended: false }), async (req: any, res) => {
+    try {
+      if (process.env.TWILIO_AUTH_TOKEN) {
+        try {
+          const twilio = require("twilio");
+          const sig = req.headers["x-twilio-signature"];
+          const url = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`) + req.originalUrl;
+          if (!twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, sig, url, req.body || {})) {
+            return res.status(403).type("text/xml").send("<Response/>");
+          }
+        } catch (e) { /* twilio sdk unavailable — fall through */ }
+      }
+      const { MessageSid, MessageStatus, ErrorCode } = req.body || {};
+      const sb = getServiceSupabase();
+      if (sb && MessageSid) {
+        await sb.from("customer_messages")
+          .update({ status: MessageStatus || null, error_code: ErrorCode ? String(ErrorCode) : null })
+          .eq("twilio_sid", MessageSid)
+          .then(() => {}, () => {});
+      }
+      return res.type("text/xml").send("<Response/>");
+    } catch (e) {
+      return res.type("text/xml").send("<Response/>");
     }
   });
 
@@ -4386,13 +4442,51 @@ export async function createApp({ startListening = false } = {}) {
 
   app.post("/api/outbound/draft-personalized-campaign", aiLimiter, async (req, res) => {
     try {
-      const { targetService, instructions } = req.body || {};
+      const { targetService, instructions, channel } = req.body || {};
       const customers = Array.isArray(req.body?.customers) ? req.body.customers : [];
       if (!customers.length) return res.status(400).json({ error: "customers array required" });
 
       // SECURITY: Sanitize bounds to prevent tokenizer exhaustion and limit attack surface
       if (JSON.stringify(customers).length > 200000) {
           return res.status(400).json({ error: "Payload Too Large: Max customer batch size exceeded." });
+      }
+
+      // --- SMS channel: short, personalized, compliant text drafts (no subject) ---
+      if (channel === "sms") {
+        // Mock-mode fallback so the campaign UI is fully demoable without a Gemini key.
+        if (isMockMode) {
+          const drafts = customers.slice(0, 100).map((c: any) => {
+            const first = String(c.name || c.firstName || "there").trim().split(" ")[0] || "there";
+            return {
+              customerId: c.id,
+              message: `Hi ${first}, it's YardWorx — ${targetService || "seasonal service"} time is here. Want us to take care of your yard? Reply YES for a fast quote.`,
+            };
+          });
+          return res.json({ drafts });
+        }
+        const smsPrompt = `
+      You are an expert SMS copywriter for a landscaping & home-services company.
+      Write ONE concise, friendly, highly personalized text message per customer pitching "${targetService}".
+      Additional context/instructions: ${instructions || "Warm, local, low-pressure."}
+
+      HARD RULES:
+      - Keep each message UNDER 160 characters where possible (it's an SMS, not an email).
+      - Identify the business ("YardWorx") and include exactly ONE clear call to action.
+      - Do NOT invent prices, discounts, or promises that aren't in the instructions above.
+      - No subject line. Plain text only. Avoid emojis (they force costly UCS-2 encoding).
+      - Do NOT add an opt-out footer — the system appends "Reply STOP to opt out." automatically.
+      Personalize using each customer's name, address, notes, AI score, and traits.
+      Customers Data: ${JSON.stringify(customers)}
+
+      Output JSON format exactly:
+      { "drafts": [ { "customerId": "string", "message": "string" } ] }
+      `;
+        const smsModel = ai.models.get({ model: "gemini-2.5-flash" });
+        const smsResponse = await smsModel.generateContent({
+          contents: smsPrompt,
+          config: { responseMimeType: "application/json" },
+        });
+        return res.json(JSON.parse(smsResponse.text || '{"drafts":[]}'));
       }
 
       const prompt = `
@@ -4406,7 +4500,7 @@ export async function createApp({ startListening = false } = {}) {
       Output JSON format exactly:
       {
          "drafts": [
-           { 
+           {
              "customerId": "string",
              "subject": "string",
              "body": "string (use line breaks \\n)"
@@ -4750,6 +4844,19 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/sms/send", async (req: any, res) => {
     try {
       const { to, message, customerId } = req.body;
+      // Compliance guard: never text a customer who has opted out (STOP). Best-effort — only
+      // enforced when we can read the record (service role + resolvable tenant + a customerId).
+      try {
+        const sbGuard = getServiceSupabase();
+        const tenantGuard = customerId ? await resolveTenant(req) : null;
+        if (sbGuard && tenantGuard && customerId) {
+          const { data: c } = await sbGuard
+            .from("customers").select("sms_opt_out_at").eq("id", customerId).eq("tenant_id", tenantGuard.id).maybeSingle();
+          if (c?.sms_opt_out_at) {
+            return res.status(403).json({ error: "Recipient has opted out of SMS.", blocked: true, reason: "opted_out" });
+          }
+        }
+      } catch (e) { /* guard is best-effort; fall through to send */ }
       // Persist the outbound text into customer_messages so it shows in the CRM thread and
       // the client portal (pairs with the inbound webhook). Only when a customerId is given
       // AND that customer belongs to the caller's tenant. Non-breaking when omitted.
@@ -4790,6 +4897,153 @@ export async function createApp({ startListening = false } = {}) {
     } catch (err: any) {
       console.error("Twilio error:", err);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Bulk SMS — the text-campaign send path. Tier-gated (pro+). Each recipient carries its own
+  // (already personalized) message. We RE-CHECK opt-out server-side (never trust the client),
+  // append the opt-out footer for compliance, send via Twilio (or SIMULATE when keys are
+  // unset — honest `simulated:true`), and persist each send into customer_messages with its
+  // real status + twilio_sid + campaign_id. Creates an sms_campaigns row with rollup counters.
+  app.post("/api/sms/send-bulk", requireTier("pro"), async (req: any, res) => {
+    try {
+      const { name, targetService, segment, recipients, appendFooter = true } = req.body || {};
+      if (!Array.isArray(recipients) || !recipients.length) {
+        return res.status(400).json({ error: "recipients array required" });
+      }
+      if (recipients.length > 500) {
+        return res.status(400).json({ error: "Max 500 recipients per batch" });
+      }
+
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+
+      // Server-side consent re-check: drop anyone who has opted out (when DB is reachable).
+      const optedOut = new Set<string>();
+      if (sb && tenant) {
+        const ids = recipients.map((r: any) => r.customerId).filter(Boolean);
+        if (ids.length) {
+          const { data } = await sb.from("customers").select("id, sms_opt_out_at").in("id", ids).eq("tenant_id", tenant.id);
+          for (const c of data || []) if (c.sms_opt_out_at) optedOut.add(c.id);
+        }
+      }
+
+      // Record the campaign (best-effort; demo/no-DB still simulates the send).
+      let campaignId: string | null = null;
+      if (sb && tenant) {
+        const { data: camp } = await sb.from("sms_campaigns").insert({
+          tenant_id: tenant.id, name: name || "Text campaign", target_service: targetService || null,
+          segment: segment || null, status: "sending", total_recipients: recipients.length,
+          created_by: req.user?.email || null,
+        }).select("id").maybeSingle();
+        campaignId = camp?.id || null;
+      }
+
+      const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
+      let client: any = null;
+      if (twilioConfigured) {
+        const twilio = require("twilio");
+        client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+      }
+      const statusCallback = process.env.BASE_URL ? `${process.env.BASE_URL}/api/public/sms/status` : undefined;
+
+      const results: any[] = [];
+      let sent = 0, failed = 0, skipped = 0, simulated = 0;
+      for (const r of recipients) {
+        const phone = String(r.phone || "").trim();
+        if (!phone) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "no_phone" }); continue; }
+        if (r.customerId && optedOut.has(r.customerId)) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "opted_out" }); continue; }
+        const body = appendFooter ? appendOptOutFooter(String(r.message || "")) : String(r.message || "").trim();
+        if (!body.trim()) { skipped++; results.push({ customerId: r.customerId, status: "skipped", reason: "empty" }); continue; }
+
+        let status = "simulated"; let sid: string | null = null; let errorCode: string | null = null;
+        if (client) {
+          try {
+            const msg = await client.messages.create({
+              body, from: process.env.TWILIO_PHONE_NUMBER, to: phone,
+              ...(statusCallback ? { statusCallback } : {}),
+            });
+            sid = msg.sid; status = "sent"; sent++;
+          } catch (e: any) {
+            status = "failed"; errorCode = e?.code ? String(e.code) : "send_error"; failed++;
+          }
+        } else {
+          simulated++;
+        }
+
+        if (sb && tenant && r.customerId) {
+          try {
+            await sb.from("customer_messages").insert({
+              tenant_id: tenant.id, customer_id: r.customerId, sender: "business",
+              text: body.slice(0, 2000), channel: "sms", direction: "outbound",
+              campaign_id: campaignId, status, twilio_sid: sid, error_code: errorCode,
+            });
+          } catch (e) { /* best-effort persistence */ }
+        }
+        results.push({ customerId: r.customerId, status, sid });
+      }
+
+      if (sb && tenant && campaignId) {
+        await sb.from("sms_campaigns").update({
+          status: twilioConfigured ? "sent" : "draft",
+          sent_count: sent, failed_count: failed, skipped_count: skipped, updated_at: new Date().toISOString(),
+        }).eq("id", campaignId).then(() => {}, () => {});
+      }
+
+      res.json({
+        success: true, simulated: !twilioConfigured, campaignId,
+        total: recipients.length, sent, failed, skipped, simulatedCount: simulated, results,
+      });
+    } catch (e: any) {
+      console.error("[sms/send-bulk]", e?.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Set / revoke a customer's SMS consent (opt-in capture from the CRM, booking, portal).
+  // Writes the consent state on the customer + an append-only sms_consent_log entry (TCPA
+  // defense). Simulates cleanly when there's no DB/tenant (demo).
+  app.post("/api/sms/consent", async (req: any, res) => {
+    try {
+      const { customerId, consent, source } = req.body || {};
+      if (!customerId || !["none", "transactional", "marketing"].includes(consent)) {
+        return res.status(400).json({ error: "customerId and valid consent (none|transactional|marketing) required" });
+      }
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+      if (!sb || !tenant) return res.json({ success: true, simulated: true, customerId, consent });
+
+      const patch: any = { sms_consent: consent };
+      if (consent === "none") {
+        patch.sms_opt_out_at = new Date().toISOString();
+      } else {
+        patch.sms_consent_at = new Date().toISOString();
+        patch.sms_consent_source = source || "crm";
+        patch.sms_opt_out_at = null;
+      }
+      await sb.from("customers").update(patch).eq("id", customerId).eq("tenant_id", tenant.id);
+      await sb.from("sms_consent_log").insert({
+        tenant_id: tenant.id, customer_id: customerId,
+        event: consent === "none" ? "opt_out" : "opt_in", channel: source || "crm",
+        detail: `consent set to ${consent}`,
+      }).then(() => {}, () => {});
+      res.json({ success: true, customerId, consent });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // List the tenant's recent text campaigns + their rollup counters (results dashboard).
+  app.get("/api/sms/campaigns", async (req: any, res) => {
+    try {
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+      if (!sb || !tenant) return res.json({ campaigns: [] });
+      const { data } = await sb.from("sms_campaigns").select("*")
+        .eq("tenant_id", tenant.id).order("created_at", { ascending: false }).limit(50);
+      res.json({ campaigns: data || [] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 

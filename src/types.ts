@@ -88,6 +88,12 @@ export interface Customer {
   semanticInsights?: any;
   stripeCustomerId?: string;
   customFields?: Record<string, string>;
+  // SMS consent (migration 0010). Gates the Text Campaign feature: only "marketing" may
+  // receive promotional texts; an opt-out timestamp suppresses globally.
+  smsConsent?: "none" | "transactional" | "marketing";
+  smsConsentAt?: string;
+  smsConsentSource?: string;
+  smsOptOutAt?: string;
 }
 
 export interface Invoice {
