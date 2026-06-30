@@ -202,10 +202,18 @@ Owner Digest, Inbox, Scheduler On-My-Way) prove the honest `simulated:true` patt
 - [ ] 1. Property-measurement provider selection + economics (Nearmap/Regrid/EagleView/Google Solar) — gates Instant Estimate.
 - [ ] 2. Geocoding provider + caching at SMB scale (+ Google Route Optimization API/VRP) — gates routing/maps.
 - [ ] 3. Google restricted-scope / CASA security assessment (gmail/calendar/drive/contacts) — gates Workspace surface.
-- [ ] 4. SMS 10DLC/A2P + TCPA consent + two-party-consent (Live Ear) — gates Inbox/On-My-Way/CRM SMS/recording.
-      **Research done → see `TEXT_CAMPAIGN_RESEARCH.md`** (Text Campaign feature brief: reuse map of the
-      existing Twilio/outbound/agent code, A2P 10DLC + TCPA/CTIA compliance, SMS best practices, the
-      landscaping campaign playbook, agentic auto-reply via the Live Ear executor, RCS, and a phased build plan).
+- [~] 4. SMS 10DLC/A2P + TCPA consent + two-party-consent (Live Ear) — gates Inbox/On-My-Way/CRM SMS/recording.
+      **Research done → see `TEXT_CAMPAIGN_RESEARCH.md`.** **Text Campaign feature SHIPPED** (migration
+      `0010`: customers.sms_consent/opt_out, customer_messages delivery cols, `sms_campaigns` +
+      append-only `sms_consent_log`, RLS, 0 advisories): bulk send `/api/sms/send-bulk` (consent-filtered,
+      STOP-footer, simulate-aware, per-recipient status), `/api/sms/consent`, `GET /api/sms/campaigns`,
+      Twilio status callback `/api/public/sms/status`, inbound STOP/HELP/START handling, SMS channel on
+      `/api/outbound/draft-personalized-campaign`, pure helpers `src/lib/smsCampaign.ts` (+tests), the
+      `TextCampaigns.tsx` page (admin nav). **Design Studio × Text bridge SHIPPED**: `/api/sms/send-proposal`
+      (texts a portal magic-link, MMS when live) + DesignStudio "Text Proposal to Client" + the
+      "Has Design Vision" / "Proposal Not Approved" campaign segments. **Remaining (human/config):** A2P
+      10DLC brand+campaign registration (decide ISV sub-account model), scheduling/queue, agentic
+      auto-reply via the Live Ear executor, RCS — see the phased plan in the research doc.
 - [ ] 5. Stripe Connect economics & onboarding (Express vs Standard, fees, ACH) — gates the money path.
 - [ ] 6. US sales-tax for landscaping + tax-engine buy decision (Avalara/TaxJar/Stripe Tax).
 - [ ] 7. Live-key validation pass of all Gemini features on Cloud Run (Design Studio flagship first).
