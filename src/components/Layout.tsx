@@ -72,6 +72,7 @@ import { NotificationsCenter } from "./NotificationsCenter";
 import { UserProfileMenu } from "./UserProfileMenu";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { QuickCreateMenu } from "./QuickCreateMenu";
+import { Tooltip } from "./Tooltip";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -723,8 +724,10 @@ export default function Layout() {
             </Link>
 
             <div className="flex-1 max-w-2xl hidden lg:flex justify-start mr-auto lg:pr-12">
-              <div 
-                className="relative group w-full cursor-pointer"
+              <button
+                type="button"
+                id="system-search"
+                className="relative group w-full cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-2xl"
                 onClick={() => setIsCommandPaletteOpen(true)}
               >
                 <Search
@@ -743,7 +746,7 @@ export default function Layout() {
                     <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">K</kbd>
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
@@ -754,56 +757,66 @@ export default function Layout() {
 
               <div className="flex items-center gap-2 sm:gap-4 border-l border-white/10 pl-4 sm:pl-6">
                 
-                <button
-                  onClick={() => {
-                    if (themeSettings.visualContrast === 'outdoor-light') {
-                      updateThemeSetting('visualContrast', 'classic-obsidian');
-                    } else {
-                      updateThemeSetting('visualContrast', 'outdoor-light');
-                    }
-                  }}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 hover:text-amber-400"
-                  aria-label="Toggle Field Theme"
-                >
-                  {themeSettings.visualContrast === 'outdoor-light' ? <Moon size={20} /> : <Sun size={20} />}
-                </button>
+                <Tooltip content="Toggle Field Theme">
+                  <button
+                    onClick={() => {
+                      if (themeSettings.visualContrast === 'outdoor-light') {
+                        updateThemeSetting('visualContrast', 'classic-obsidian');
+                      } else {
+                        updateThemeSetting('visualContrast', 'outdoor-light');
+                      }
+                    }}
+                    className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 hover:text-amber-400"
+                    aria-label="Toggle Field Theme"
+                  >
+                    {themeSettings.visualContrast === 'outdoor-light' ? <Moon size={20} /> : <Sun size={20} />}
+                  </button>
+                </Tooltip>
 
-                <button
-                  onClick={() => setIsQuickCreateOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
-                  aria-label="Quick Create"
-                >
-                  <Plus size={20} />
-                </button>
+                <Tooltip content="Quick Create">
+                  <button
+                    onClick={() => setIsQuickCreateOpen(true)}
+                    className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
+                    aria-label="Quick Create"
+                  >
+                    <Plus size={20} />
+                  </button>
+                </Tooltip>
 
-                <button
-                  onClick={() => setIsShortcutsOpen(true)}
-                  className="hidden sm:flex w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all"
-                  aria-label="Keyboard shortcuts"
-                  title="Keyboard shortcuts (?)"
-                >
-                  <span className="text-base font-black leading-none">?</span>
-                </button>
+                <Tooltip content="Keyboard shortcuts">
+                  <button
+                    onClick={() => setIsShortcutsOpen(true)}
+                    className="hidden sm:flex w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all"
+                    aria-label="Keyboard shortcuts"
+                    title="Keyboard shortcuts (?)"
+                  >
+                    <span className="text-base font-black leading-none">?</span>
+                  </button>
+                </Tooltip>
 
-                <button
-                  onClick={() => setIsNotificationsOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
-                  aria-label="Notifications"
-                >
-                  <Bell size={20} />
-                  {unreadNotifications > 0 && (
-                    <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
-                  )}
-                </button>
+                <Tooltip content="Notifications">
+                  <button
+                    onClick={() => setIsNotificationsOpen(true)}
+                    className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                    aria-label="Notifications"
+                  >
+                    <Bell size={20} />
+                    {unreadNotifications > 0 && (
+                      <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
+                    )}
+                  </button>
+                </Tooltip>
 
-                <button
-                  id="brain-trigger"
-                  onClick={() => setIsBrainOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
-                  aria-label="Get Help"
-                >
-                  <Brain size={20} />
-                </button>
+                <Tooltip content="Get Help">
+                  <button
+                    id="brain-trigger"
+                    onClick={() => setIsBrainOpen(true)}
+                    className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                    aria-label="Get Help"
+                  >
+                    <Brain size={20} />
+                  </button>
+                </Tooltip>
 
                 <div 
                   className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors"
