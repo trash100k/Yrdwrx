@@ -1149,3 +1149,32 @@ most were wiring-only. Gates after: `tsc` clean, 172 tests, build OK, 40/40 rout
 - [ ] **InstantEstimate / Closeout: created invoice is a dead-end** — no view/copy-link/navigate after create.
 - [ ] **ClientPortal / Portfolio: no share/download** of a proposal or a before/after image.
 - [ ] **Dashboard "Add Vendor" dead button** — left for the Dashboard redesign (see `DASHBOARD_PLAN.md`).
+
+## Launch-readiness hardening (2026-06-30)
+
+Knocked out the two highest-value pre-launch de-risking items.
+
+### Container / production boot ✅
+- [x] **Verified the prod bundle boots + serves.** `node dist/server.cjs` under `NODE_ENV=production`
+      serves the SPA shell (`GET /` and `GET /admin` → 200 text/html) **and** the API
+      (`GET /api/health` → 200 JSON), with honest startup degradation when Stripe/Supabase keys
+      are absent. (No Docker daemon in-sandbox, so this is the boot+serve smoke; Dockerfile runner
+      stage reviewed sound: non-root `appuser`, copies `dist/`, prod-only deps, system Chromium.)
+- [x] **Fixed a real Cloud Run port bug.** Server hardcoded `PORT = 3000` and ignored `process.env.PORT`;
+      Cloud Run injects `$PORT`. Now `PORT = Number(process.env.PORT) || 3000` (`server.ts`).
+
+### Cross-tenant isolation — verified live + guarded ✅
+- [x] **Proved isolation on the real Supabase project** (rolled-back, no persistent data):
+      `get_advisors(security)` = **0 issues**; **all 35 public tables** RLS-enabled with policies;
+      impersonating tenant A's owner sees only A (1 tenant / 1 customer, **0 rows leaked** from B);
+      anonymous role sees **nothing** (0/0/0). Re-runnable script committed at `supabase/RLS_ISOLATION_TEST.sql`.
+- [x] **Added a permanent regression guard** (`src/lib/repos/rlsCoverage.test.ts`, +26 tests → **198 total**):
+      fails CI if any `makeRepo(...)` table lacks RLS wiring in the committed migrations, and asserts the
+      private-schema SECURITY DEFINER helpers + tenant/`role <> client` policy shape.
+- [x] **Caught + fixed migration drift.** The coverage test found `referrals`, `equipment`, and
+      `compliance_logs` were live (with RLS) but in **no migration file** — a rebuild from
+      `supabase/migrations/` would have been missing them (or recreated them world-open). Added
+      `0010_referrals_equipment_compliance.sql` (idempotent `create table if not exists` + the standard
+      tenant RLS block) so the committed migrations once again reproduce the live schema.
+
+_Remaining engineering before flip-the-flags launch (see `LAUNCH_CHECKLIST.md` for the human config/deploy/verify runbook): offline syncService → Supabase, "Connect Google" buttons, SaaSOwnerGate hardcoded email, invited-employee onboarding UX._
