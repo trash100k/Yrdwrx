@@ -216,9 +216,15 @@ Owner Digest, Inbox, Scheduler On-My-Way) prove the honest `simulated:true` patt
       as a REQUESTED job (never auto-invoices); `detectSmsCommand` hardened (HELP/START exact-match only).
       **10DLC onboarding SHIPPED**: migration `0011` `sms_registrations`, `GET/POST /api/sms/registration`
       + `/submit`, `Sms10DLCSetup.tsx` setup card (registration checklist + auto-reply selector).
+      **Scheduling SHIPPED** (migration `0012`: `sms_campaigns.recipients`/`append_footer`; `scheduledFor`
+      on `/api/sms/send-bulk` queues a campaign; a 1-min server processor atomically claims + sends due
+      ones; review-screen datetime picker). **RCS SHIPPED** (sends route through the tenant Messaging
+      Service → RCS auto-upgrade + SMS fallback, via shared `deliverRecipients`/`smsSenderParams`).
+      **Auto-reply→calendar SHIPPED** (bookings create PENDING jobs the Scheduler renders).
+      **20 preloaded campaigns** (`src/lib/smsCampaignTemplates.ts`) + "Start From a Campaign" picker.
       **Remaining (human/config):** real A2P carrier submission needs live Twilio keys + `TWILIO_ENABLE_A2P`
-      (full brand/campaign vetting in the Twilio Console; decide ISV sub-account model); scheduling/queue;
-      RCS rich messaging — see the phased plan in the research doc.
+      (full brand/campaign vetting in the Twilio Console; decide ISV sub-account model); per-recipient
+      timezone-aware quiet-hours (needs geocode tz, roadmapped); RCS Content-API rich cards/buttons.
 - [ ] 5. Stripe Connect economics & onboarding (Express vs Standard, fees, ACH) — gates the money path.
 - [ ] 6. US sales-tax for landscaping + tax-engine buy decision (Avalara/TaxJar/Stripe Tax).
 - [ ] 7. Live-key validation pass of all Gemini features on Cloud Run (Design Studio flagship first).
