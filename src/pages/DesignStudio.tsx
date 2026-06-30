@@ -39,7 +39,8 @@ import {
   Download,
   Undo2,
   Redo2,
-  Leaf
+  Leaf,
+  MessageSquare
 } from "lucide-react";
 import MarkupCanvas from "../components/MarkupCanvas";
 import BeforeAfterSlider from "../components/BeforeAfterSlider";
@@ -293,6 +294,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     lastName?: string;
     address?: string;
     email?: string;
+    phone?: string;
     data?: any;
   } | null>(null);
 
@@ -756,6 +758,58 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     }
   };
 
+  // Text the design proposal to the client (the Design Studio -> Text bridge). Snapshots the
+  // vision so the texted magic-link has something to show, then sends an SMS with a tap-through
+  // proposal link (MMS image when Twilio is live). Honest about simulation + opt-out.
+  const [isTextingToClient, setIsTextingToClient] = useState(false);
+  const handleTextProposal = async () => {
+    if (!result) return;
+    if (!activeCustomer?.phone) {
+      showToast("Attach a client with a phone number first (top of page).", "error");
+      return;
+    }
+    setIsTextingToClient(true);
+    try {
+      // Snapshot the current vision so the texted link resolves to a saved proposal.
+      let visionId: string | null = null;
+      try {
+        const created = await designVisionsRepo.create({
+          customer_id: activeCustomer.id ?? null,
+          summary: result.visionSummary,
+          proposal: { ...result },
+          before_url: image,
+          after_url: mockupImage,
+        });
+        visionId = created?.id ?? null;
+      } catch { /* still attempt the send; server falls back to the latest vision */ }
+
+      const res = await fetchApi("/api/sms/send-proposal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: activeCustomer.id, visionId, phone: activeCustomer.phone }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        showToast(
+          data.simulated ? "Texting isn't configured — proposal text simulated (not sent)." : "Proposal texted to the client.",
+          data.simulated ? "info" : "success",
+        );
+        addLog(
+          { type: "sms", recipient: activeCustomer.phone, subject: "Design proposal (text)", content: data.message || result.visionSummary || "Design proposal" },
+          data.simulated ? "draft" : "sent",
+        );
+      } else if (data.blocked) {
+        showToast("This client has opted out of texts.", "error");
+      } else {
+        showToast(data.error || "Couldn't text the proposal.", "error");
+      }
+    } catch (e) {
+      showToast("Network error texting the proposal.", "error");
+    } finally {
+      setIsTextingToClient(false);
+    }
+  };
+
   // Download the rendered "after" image (or the saved vision) so it can be shared offline.
   const downloadMockup = () => {
     if (!mockupImage) return;
@@ -968,6 +1022,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                     name: customerLabel(c),
                     address: c.address || c.data?.address || "",
                     email: c.email || c.data?.email || "",
+                    phone: c.phone || c.data?.phone || "",
                   });
                 }}
                 className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-bold text-white/80 uppercase tracking-widest focus:border-forest-500/40 focus:outline-none"
@@ -1648,6 +1703,18 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                 <><div className="w-4 h-4 border-2 border-forest-400/30 border-t-forest-400 rounded-full animate-spin" /> Sending...</>
                               ) : (
                                 <><Send size={14} /> Send Design to Client</>
+                              )}
+                            </button>
+                            <button
+                              onClick={handleTextProposal}
+                              disabled={isTextingToClient || !activeCustomer?.phone}
+                              title={activeCustomer?.phone ? "Text this proposal to the client (with a tap-through link)" : "Attach a client with a phone number first"}
+                              className="w-full bg-forest-500/15 text-forest-300 py-4 rounded-xl border border-forest-500/30 font-black uppercase tracking-widest text-xs hover:bg-forest-500/25 active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {isTextingToClient ? (
+                                <><div className="w-4 h-4 border-2 border-forest-400/30 border-t-forest-400 rounded-full animate-spin" /> Texting...</>
+                              ) : (
+                                <><MessageSquare size={14} /> Text Proposal to Client</>
                               )}
                             </button>
                             <button

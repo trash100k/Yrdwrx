@@ -5047,6 +5047,94 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Design Studio -> Text bridge: text a customer their design proposal as a link (MMS image
+  // when Twilio is live + the render is a public URL). Mints a scoped portal magic-link so the
+  // customer taps straight into the before/after + tiered proposal. This is a TRANSACTIONAL send
+  // (the customer is in a quote conversation), but we still honor opt-out + append the footer.
+  // Marks the vision as sent (proposal.proposalSentAt) so the "proposal not approved" campaign
+  // segment can target abandoned proposals. Simulates cleanly with no Twilio/Supabase keys.
+  app.post("/api/sms/send-proposal", async (req: any, res) => {
+    try {
+      const { customerId, visionId, phone: bodyPhone, customMessage } = req.body || {};
+      if (!customerId) return res.status(400).json({ error: "customerId required" });
+
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+
+      // Resolve recipient + opt-out + name from the DB when we can; fall back to the body.
+      let phone = String(bodyPhone || "").trim();
+      let firstName = "there";
+      let vision: any = null;
+      if (sb && tenant) {
+        const { data: cust } = await sb
+          .from("customers").select("id, first_name, phone, sms_opt_out_at")
+          .eq("id", customerId).eq("tenant_id", tenant.id).maybeSingle();
+        if (cust) {
+          if (cust.sms_opt_out_at) {
+            return res.status(403).json({ error: "Recipient has opted out of SMS.", blocked: true, reason: "opted_out" });
+          }
+          phone = phone || String(cust.phone || "").trim();
+          firstName = (cust.first_name || "there").split(" ")[0];
+        }
+        let vq = sb.from("customer_design_visions").select("id, proposal, after_url, summary").eq("tenant_id", tenant.id).eq("customer_id", customerId);
+        const { data: vrows } = visionId
+          ? await sb.from("customer_design_visions").select("id, proposal, after_url, summary").eq("id", visionId).eq("tenant_id", tenant.id).limit(1)
+          : await vq.order("created_at", { ascending: false }).limit(1);
+        vision = (vrows || [])[0] || null;
+      }
+      if (!phone) return res.status(400).json({ error: "No phone number on file for this client." });
+
+      // Mint a scoped portal link the customer taps into (reuses the magic-link contract).
+      let link = "";
+      if (JWT_SECRET) {
+        const token = jwt.sign({ clientId: customerId, tenantId: tenant?.id || null, scope: "portal" }, JWT_SECRET, { expiresIn: "30d" });
+        link = `${req.protocol}://${req.get("host")}/portal/auth/${token}`;
+      }
+      const brand = tenant?.name || "YardWorx";
+      const baseMsg = customMessage
+        || `Hi ${firstName}, here's your custom yard design & quote from ${brand}${link ? `: ${link}` : "."}`;
+      const body = appendOptOutFooter(baseMsg);
+      const mediaUrl = vision?.after_url && /^https?:\/\//i.test(vision.after_url) ? vision.after_url : null;
+
+      const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
+      let status = "simulated"; let sid: string | null = null; let errorCode: string | null = null;
+      if (twilioConfigured) {
+        try {
+          const twilio = require("twilio");
+          const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+          const statusCallback = process.env.BASE_URL ? `${process.env.BASE_URL}/api/public/sms/status` : undefined;
+          const msg = await client.messages.create({
+            body, from: process.env.TWILIO_PHONE_NUMBER, to: phone,
+            ...(mediaUrl ? { mediaUrl: [mediaUrl] } : {}),
+            ...(statusCallback ? { statusCallback } : {}),
+          });
+          sid = msg.sid; status = "sent";
+        } catch (e: any) {
+          status = "failed"; errorCode = e?.code ? String(e.code) : "send_error";
+        }
+      }
+
+      // Persist into the conversation thread + mark the vision as sent (best-effort).
+      if (sb && tenant) {
+        try {
+          await sb.from("customer_messages").insert({
+            tenant_id: tenant.id, customer_id: customerId, sender: "business",
+            text: body.slice(0, 2000), channel: "sms", direction: "outbound", status, twilio_sid: sid, error_code: errorCode,
+          });
+        } catch (e) { /* best-effort */ }
+        if (vision?.id) {
+          const proposal = { ...(vision.proposal || {}), proposalSentAt: new Date().toISOString() };
+          await sb.from("customer_design_visions").update({ proposal }).eq("id", vision.id).then(() => {}, () => {});
+        }
+      }
+
+      res.json({ success: status !== "failed", simulated: !twilioConfigured, status, sid, to: phone, link, message: body });
+    } catch (e: any) {
+      console.error("[sms/send-proposal]", e?.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Magic Links API
   // OWNER-ONLY minting: this route requires auth (it's NOT in AUTH_EXCLUDED). We derive the
   // tenant from the signed-in owner and verify the client belongs to it, then sign a scoped

@@ -7,11 +7,11 @@ import {
 import { Customer } from "../types";
 import { fetchApi } from "../lib/api";
 import { useToast } from "../contexts/ToastContext";
-import { customersRepo } from "../lib/repos";
+import { customersRepo, designVisionsRepo } from "../lib/repos";
 import { countSmsSegments, OPT_OUT_FOOTER, canReceiveMarketing } from "../lib/smsCampaign";
 import { motion, AnimatePresence } from "motion/react";
 
-type Segment = "all" | "priority" | "lapsed";
+type Segment = "all" | "priority" | "lapsed" | "design" | "proposal";
 
 interface SmsDraft {
   customerId: string;
@@ -25,6 +25,8 @@ interface SmsDraft {
 export default function TextCampaigns() {
   const { showToast } = useToast();
   const [customers, setCustomers] = useState<Customer[]>([]);
+  // customerId -> design-vision rollup (drives the Design Studio pipeline segments).
+  const [visionByCustomer, setVisionByCustomer] = useState<Record<string, { approved: boolean }>>({});
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [segment, setSegment] = useState<Segment>("priority");
   const [targetService, setTargetService] = useState("");
@@ -37,6 +39,18 @@ export default function TextCampaigns() {
 
   useEffect(() => {
     customersRepo.list().then((rows) => setCustomers(rows || [])).catch(() => setCustomers([]));
+    // Pull design visions so we can target customers with a saved vision (seasonal re-design
+    // upsell) and those whose proposal was sent but not yet approved (abandoned-proposal recovery).
+    designVisionsRepo.list().then((rows) => {
+      const m: Record<string, { approved: boolean }> = {};
+      for (const v of (rows as any[]) || []) {
+        const cid = v.customerId;
+        if (!cid) continue;
+        const approved = !!(v.proposal && v.proposal.approved);
+        m[cid] = { approved: (m[cid]?.approved || approved) };
+      }
+      setVisionByCustomer(m);
+    }).catch(() => {});
   }, []);
 
   // Segment, then require a phone number on file (can't text without one).
@@ -46,9 +60,11 @@ export default function TextCampaigns() {
       if (segment === "all") return true;
       if (segment === "priority") return (c.aiScore ?? 0) >= 80;
       if (segment === "lapsed") return (c.aiScore ?? 100) < 40;
+      if (segment === "design") return !!visionByCustomer[c.id];
+      if (segment === "proposal") return !!visionByCustomer[c.id] && !visionByCustomer[c.id].approved;
       return true;
     }).slice(0, 100);
-  }, [customers, segment]);
+  }, [customers, segment, visionByCustomer]);
 
   // Compliance snapshot of the targeted set: how many can lawfully receive a marketing text.
   const consentBreakdown = useMemo(() => {
@@ -288,6 +304,8 @@ export default function TextCampaigns() {
               {([
                 ["priority", "Priority (Score > 80)"],
                 ["lapsed", "Lapsed (Score < 40)"],
+                ["design", "Has Design Vision"],
+                ["proposal", "Proposal Not Approved"],
                 ["all", "All Customers"],
               ] as [Segment, string][]).map(([key, label]) => (
                 <button key={key} onClick={() => setSegment(key)}

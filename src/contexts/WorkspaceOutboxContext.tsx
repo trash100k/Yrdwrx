@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, ReactNode } from "react";
 
 export interface OutboxItem {
   id: string;
-  type: "email" | "chat" | "magic-link" | "backup";
+  type: "email" | "chat" | "sms" | "magic-link" | "backup";
   recipient: string;
   subject: string;
   content: string;
