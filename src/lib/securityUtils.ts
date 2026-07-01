@@ -11,25 +11,41 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
-  const parts = ip.split('.').map(Number);
+  let normalizedIP = ip;
+  // Handle IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1)
+  if (isIP(ip) === 6 && ip.toLowerCase().startsWith('::ffff:')) {
+    const lastPart = ip.split(':').pop();
+    if (lastPart && isIP(lastPart) === 4) {
+      normalizedIP = lastPart;
+    }
+  }
 
-  // IPv4 Private Ranges:
-  // 10.0.0.0 – 10.255.255.255
-  // 172.16.0.0 – 172.31.255.255
-  // 192.168.0.0 – 192.168.255.255
-  // 127.0.0.0 – 127.255.255.255 (Loopback)
-  // 169.254.0.0 – 169.254.255.255 (Link-local)
+  if (isIP(normalizedIP) === 4) {
+    const parts = normalizedIP.split('.').map(Number);
 
-  if (parts[0] === 10) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 127) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true;
-  if (parts[0] === 0) return true; // 0.0.0.0
+    // IPv4 Private Ranges:
+    // 10.0.0.0 – 10.255.255.255
+    // 172.16.0.0 – 172.31.255.255
+    // 192.168.0.0 – 192.168.255.255
+    // 127.0.0.0 – 127.255.255.255 (Loopback)
+    // 169.254.0.0 – 169.254.255.255 (Link-local)
 
-  // IPv6 (basic check for loopback and unique local addresses)
-  if (ip === '::1' || ip.toLowerCase().startsWith('fe80:') || ip.toLowerCase().startsWith('fc00:') || ip.toLowerCase().startsWith('fd00:')) {
-    return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0) return true; // 0.0.0.0
+  } else {
+    // IPv6 (basic check for loopback and unique local addresses)
+    if (
+      normalizedIP === '::1' ||
+      normalizedIP.toLowerCase().startsWith('fe80:') ||
+      normalizedIP.toLowerCase().startsWith('fc00:') ||
+      normalizedIP.toLowerCase().startsWith('fd00:')
+    ) {
+      return true;
+    }
   }
 
   return false;

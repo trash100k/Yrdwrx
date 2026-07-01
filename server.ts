@@ -4736,7 +4736,7 @@ export async function createApp({ startListening = false } = {}) {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           const r = await Promise.race([
-            fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
+            fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, redirect: 'error' }),
             new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
           ]) as Response;
           if (r.ok) return res.json({ delivered: true, status: r.status, attempts: attempt });

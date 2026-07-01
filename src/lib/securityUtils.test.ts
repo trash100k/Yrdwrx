@@ -63,6 +63,12 @@ describe('securityUtils', () => {
       expect(isPrivateIP('fe80::1')).toBe(true);
     });
 
+    it('should identify IPv4-mapped IPv6 private addresses', () => {
+      expect(isPrivateIP('::ffff:127.0.0.1')).toBe(true);
+      expect(isPrivateIP('::ffff:10.0.0.1')).toBe(true);
+      expect(isPrivateIP('::ffff:192.168.1.1')).toBe(true);
+    });
+
     it('should return false for public IP addresses', () => {
       expect(isPrivateIP('8.8.8.8')).toBe(false);
       expect(isPrivateIP('1.1.1.1')).toBe(false);
@@ -86,6 +92,7 @@ describe('securityUtils', () => {
       expect(await validateSafeUrl('http://192.168.1.100/admin')).toBe(false);
       expect(await validateSafeUrl('http://10.0.0.1')).toBe(false);
       expect(await validateSafeUrl('http://169.254.169.254/latest/meta-data')).toBe(false);
+      expect(await validateSafeUrl('http://[::ffff:127.0.0.1]')).toBe(false);
     });
 
     it('should block non-http/https protocols', async () => {
