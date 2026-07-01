@@ -723,8 +723,10 @@ export default function Layout() {
             </Link>
 
             <div className="flex-1 max-w-2xl hidden lg:flex justify-start mr-auto lg:pr-12">
-              <div 
-                className="relative group w-full cursor-pointer"
+              <button
+                type="button"
+                id="system-search"
+                className="relative group w-full cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-2xl transition-all"
                 onClick={() => setIsCommandPaletteOpen(true)}
               >
                 <Search
@@ -735,7 +737,7 @@ export default function Layout() {
                   Search
                 </label>
                 <div
-                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-500 flex items-center justify-between"
+                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold group-hover:bg-white/10 group-hover:border-forest-500/30 transition-all text-zinc-500 flex items-center justify-between"
                 >
                   <span>Search for customers, equipment, or jobs...</span>
                   <div className="flex items-center gap-1">
@@ -743,7 +745,7 @@ export default function Layout() {
                     <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">K</kbd>
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
