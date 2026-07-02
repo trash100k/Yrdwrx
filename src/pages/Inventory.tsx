@@ -225,50 +225,18 @@ export default function Inventory() {
   };
 
   useEffect(() => {
-    const handleVoiceAction = async (e: CustomEvent) => {
-      const { name, args } = e.detail;
+    // Post-execution notification from the voice/text agent (see LiveEar). check_inventory
+    // is a read, so we reflect it by focusing the search on the item the owner asked about.
+    // The write action (log_inventory_usage — decrement stock + record the material draw) is
+    // executed centrally by executeAgentAction; handling it again here would double-decrement
+    // stock and double-log the draw, so that branch was removed.
+    const handleVoiceAction = (e: CustomEvent) => {
+      const { name, args } = (e.detail || {}) as { name?: string; args?: any };
       if (name === "check_inventory") {
         if (args && args.itemName) {
           setSearchQuery(args.itemName);
         } else {
           setIsScanning(true);
-        }
-      } else if (name === "log_inventory_usage") {
-        if (args && args.itemName && args.quantity) {
-          const itemToLog = items.find((i) =>
-            i.name.toLowerCase().includes(args.itemName.toLowerCase()),
-          );
-          if (itemToLog) {
-            await logUsage(itemToLog, args.quantity, "out");
-
-            if (args.clientName) {
-              // Queue an expense/invoice line item for this client
-              try {
-                await expensesRepo.create({
-                  amount: Number(itemToLog.unitCost || 0) * args.quantity,
-                  merchant: "Inventory Usage",
-                  category: "Materials",
-                  date: new Date().toISOString(),
-                  data: {
-                    description: `${args.quantity}x ${itemToLog.name} for ${args.clientName}`,
-                  },
-                });
-                showToast(
-                  `Logged ${args.quantity}x ${itemToLog.name} usage for ${args.clientName} billing.`,
-                  "success",
-                );
-              } catch (err) {
-                console.error("Error logging billing.", err);
-              }
-            } else {
-              showToast(
-                `Logged ${args.quantity}x ${itemToLog.name} usage.`,
-                "success",
-              );
-            }
-          } else {
-            showToast(`Item ${args.itemName} not found in inventory.`, "error");
-          }
         }
       }
     };
@@ -278,7 +246,7 @@ export default function Inventory() {
         "cutty-action",
         handleVoiceAction as unknown as EventListener,
       );
-  }, [items, tenant, showToast]);
+  }, []);
 
   useEffect(() => {
     // inventory + material logs are scoped to the tenant by Supabase RLS.

@@ -20,13 +20,14 @@ import {
 } from "lucide-react";
 import { useCuttyGuide } from "../contexts/CuttyGuideContext";
 import { getCurrentUser } from "../lib/supabase";
-import { tenantsRepo } from "../lib/repos";
+import { tenantsRepo, customersRepo, jobsRepo, invoicesRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { TranslatedMessageBubble } from "./TranslatedMessageBubble";
 import { playVoice } from "../lib/playVoice";
 import { useRole } from "../hooks/useRole";
 import { useFieldMode } from "../contexts/FieldModeContext";
 import { executeAgentAction } from "../lib/agentActions";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
@@ -37,6 +38,14 @@ function detectAgentIntent(text: string): { name: string; args: any } | null {
   const t = (text || "").trim();
   const low = t.toLowerCase();
   if (!t) return null;
+  // Interrogative guard — a QUESTION must never trigger a write. If the message opens with
+  // an interrogative ("what's on the schedule today?", "do I have any jobs?"), the WRITE
+  // matchers below bail so we ANSWER instead of creating/scheduling/charging. Read matchers
+  // (inventory / client / employee lookups) are intentionally NOT gated, so "how much mulch
+  // do we have?" and "who is Dave?" still work. Polite commands ("can you schedule…") are
+  // deliberately NOT treated as questions — those still fire, and the confirm gate catches them.
+  const isQuestion =
+    /^\s*(what'?s?|whatre|when|where|which|is|are|am|do|does|did|have|has|had)\b/.test(low);
   const amount = () => {
     const m = t.match(/\$?\s*([\d,]+(?:\.\d{1,2})?)/);
     return m ? Number(m[1].replace(/,/g, "")) : undefined;
@@ -46,31 +55,31 @@ function detectAgentIntent(text: string): { name: string; args: any } | null {
     return m && m[1] ? m[1].trim().replace(/[.,]$/, "") : undefined;
   };
 
-  if (/\bgate code|lock\s?box code|access code\b/.test(low)) {
+  if (!isQuestion && (/\bgate code|lock\s?box code|access code\b/.test(low))) {
     return { name: "set_gate_code", args: { clientName: grab(/for ([A-Za-z .'-]+?)(?: is|,|\.|$)/i), gateCode: grab(/code(?: for .+?)?(?: is| =|:)?\s*([A-Za-z0-9#*]{2,})\b/i) } };
   }
-  if (/\b(log (an )?expense|spent|receipt|bought|paid for)\b/.test(low) && amount() !== undefined) {
+  if (!isQuestion && /\b(log (an )?expense|spent|receipt|bought|paid for)\b/.test(low) && amount() !== undefined) {
     return { name: "log_expense", args: { amount: amount(), merchant: grab(/(?:at|from|on) ([A-Za-z0-9 .&'-]+?)(?: for|,|\.|$)/i) } };
   }
-  if (/\b(invoice|bill|charge)\b/.test(low) && amount() !== undefined) {
+  if (!isQuestion && /\b(invoice|bill|charge)\b/.test(low) && amount() !== undefined) {
     return { name: "create_invoice", args: { clientName: grab(/(?:invoice|bill|charge)\s+([A-Za-z .'-]+?)(?: for| \$|\d|,|\.|$)/i), amount: amount(), serviceDescription: grab(/for ([A-Za-z0-9 .'-]+?)(?:,|\.|$)/i) } };
   }
-  if (/\b(quote|estimate)\b/.test(low) && amount() !== undefined) {
+  if (!isQuestion && /\b(quote|estimate)\b/.test(low) && amount() !== undefined) {
     return { name: "create_quote", args: { clientName: grab(/(?:quote|estimate)\s+(?:for\s+)?([A-Za-z .'-]+?)(?: for| \$|\d|,|\.|$)/i), amount: amount(), serviceDescription: grab(/for ([A-Za-z0-9 .'-]+?)(?:,|\.|$)/i) } };
   }
-  if (/\b(schedule|book|set up)\b/.test(low) || /\bput .+ down\b/.test(low)) {
+  if (!isQuestion && (/\b(schedule|book|set up)\b/.test(low) || /\bput .+ down\b/.test(low))) {
     const date = (t.match(/\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\b/i) || [])[0];
     const svc = (t.match(/\b(mow\w*|clean\s?up|trim\w*|mulch\w*|aerat\w*|fertiliz\w*|leaf removal|snow\w*|irrigation|install\w*|landscap\w*)\b/i) || [])[0];
     return { name: "schedule_job", args: { clientName: grab(/(?:for|put|book|schedule) ([A-Za-z .'-]+?)(?: down| for| on| next| tomorrow|,|\.|$)/i), serviceType: svc, date } };
   }
-  if (/\b(used|using|took|take|grab\w*|pulled)\b/.test(low) && /\b(mulch|fertiliz\w*|fuel|gas|seed|sod|stone|gravel|bag\w*|gallon\w*|pallet\w*|unit\w*)\b/.test(low)) {
+  if (!isQuestion && /\b(used|using|took|take|grab\w*|pulled)\b/.test(low) && /\b(mulch|fertiliz\w*|fuel|gas|seed|sod|stone|gravel|bag\w*|gallon\w*|pallet\w*|unit\w*)\b/.test(low)) {
     const qty = (t.match(/\b(\d+)\b/) || [])[1];
     return { name: "log_inventory_usage", args: { itemName: (t.match(/\b(mulch|fertilizer|fuel|gas|seed|sod|stone|gravel)\b/i) || [])[1], quantity: qty ? Number(qty) : 1, clientName: grab(/for ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) } };
   }
   if (/\bcheck (the )?(stock|inventory)\b/.test(low) || /\bin stock\b/.test(low) || /how (much|many) .+ (do we have|left)/.test(low)) {
     return { name: "check_inventory", args: { itemName: (t.match(/\b(mulch|fertilizer|fuel|gas|seed|sod|stone|gravel)\b/i) || [])[1] } };
   }
-  if (/\breview\b/.test(low) && /\b(request|ask|get|remind|send)\b/.test(low)) {
+  if (!isQuestion && /\breview\b/.test(low) && /\b(request|ask|get|remind|send)\b/.test(low)) {
     return { name: "request_review", args: { clientName: grab(/from ([A-Za-z .'-]+?)(?:,|\.|$)/i) } };
   }
   if (/\b(design|redesign|render|mock\s?up|landscape (?:plan|design))\b/.test(low) || /show .+ ideas/.test(low)) {
@@ -82,7 +91,7 @@ function detectAgentIntent(text: string): { name: string; args: any } | null {
   // HOA rules — conservative: only when "hoa" is present OR an explicit "set ... rules for"
   // pattern is used, so ordinary notes never misfire. Sits BEFORE add_client_note so HOA
   // phrasing wins. The rules clause is split on commas / semicolons / " and ".
-  if (/\bhoa\b/.test(low) || /\bset\b.+\brules\s+for\b/.test(low)) {
+  if (!isQuestion && (/\bhoa\b/.test(low) || /\bset\b.+\brules\s+for\b/.test(low))) {
     const clientName =
       grab(/(?:rules for|for)\s+([A-Za-z0-9 .'&-]+?)(?:'s| is\b|:|,|\.|$)/i) ||
       grab(/\bmark\s+([A-Za-z0-9 .'&-]+?)\s+as\b/i) ||
@@ -102,7 +111,7 @@ function detectAgentIntent(text: string): { name: string; args: any } | null {
   // Add a note to a client. Gated on the word "note" so it doesn't shadow create_contact
   // ("add a lead/contact"). The note text is whatever follows the colon, or follows the
   // client name when there is no colon.
-  if (/\bnote\b/.test(low) && /\b(add|make|note that|leave|put)\b/.test(low)) {
+  if (!isQuestion && /\bnote\b/.test(low) && /\b(add|make|note that|leave|put)\b/.test(low)) {
     const clientName =
       grab(/(?:note (?:for|on|about)|for|on|about)\s+([A-Za-z0-9 .'&-]+?)(?:'s|:|,|\.|$)/i) ||
       grab(/\bnote that\s+([A-Za-z0-9 .'&-]+?)\s+(?:is|has|wants|needs|likes|prefers|said|asked)\b/i);
@@ -127,7 +136,7 @@ function detectAgentIntent(text: string): { name: string; args: any } | null {
       grab(/(?:look up|pull up|find|show me|open|search for)\s+([A-Za-z .'-]+?)(?:'s|,|\.|$)/i);
     return { name: "load_employee_data", args: { employeeName } };
   }
-  if (/\b(add|create|new)\b/.test(low) && /\b(lead|contact|customer|client|prospect)\b/.test(low)) {
+  if (!isQuestion && /\b(add|create|new)\b/.test(low) && /\b(lead|contact|customer|client|prospect)\b/.test(low)) {
     const nm = grab(/(?:named|called|:) ([A-Za-z .'-]+?)(?:,|\.| at | on |$)/i) || grab(/\b(?:lead|contact|customer|client|prospect)\s+(?:named |called )?([A-Za-z]+(?: [A-Za-z]+)?)/i);
     const parts = (nm || "").split(/\s+/);
     return { name: "create_contact", args: { firstName: parts[0] || nm, lastName: parts.slice(1).join(" "), phone: (t.match(/(\+?\d[\d\-() ]{6,}\d)/) || [])[1], email: (t.match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0] } };
@@ -136,6 +145,124 @@ function detectAgentIntent(text: string): { name: string; args: any } | null {
     return { name: "load_client_data", args: { clientName: grab(/(?:client|customer|account|profile|file|history)(?: for| named| called| of)? ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) || grab(/(?:pull up|look up|open|find|show me)(?: the)? ([A-Za-z .'-]+?)(?:'s|,|\.|$)/i) } };
   }
   return null;
+}
+
+// A tappable follow-up chip: `send:true` fires the query straight through the agent
+// (re-hitting the confirm gate if it turns out to be high-risk); otherwise it pre-fills
+// the composer so the owner just fills in the specifics (amount, note text) and sends.
+type FollowUp = { label: string; query: string; send?: boolean };
+
+// High-risk actions mutate money / schedule / the client book (or delete anything) and
+// MUST be confirmed before executeAgentAction runs. Mirrors the HIGH_RISK_ACTIONS gate in
+// LiveEar.tsx, extended to the write intents the text agent can trigger. Low-risk reads
+// (load_client_data, check_inventory, load_employee_data, status queries) run without a prompt.
+const HIGH_RISK_ACTIONS = new Set<string>([
+  "create_invoice",
+  "create_quote",
+  "create_estimate",
+  "schedule_job",
+  "log_expense",
+  "create_contact",
+  "create_lead",
+]);
+
+const isHighRiskAction = (name: string): boolean =>
+  HIGH_RISK_ACTIONS.has(name) || /^delete_/.test(name);
+
+// Human-readable confirmation line built from the PARSED args, so the owner sees exactly
+// what will happen ("Create an invoice for $450 to Dave Smith?") before it writes.
+function confirmMessageFor(name: string, args: any): string {
+  const a = args || {};
+  const client =
+    a.clientName ||
+    [a.firstName, a.lastName].filter(Boolean).join(" ").trim() ||
+    "";
+  switch (name) {
+    case "create_invoice":
+    case "create_quote":
+    case "create_estimate": {
+      const kind =
+        name === "create_invoice" ? "an invoice" : name === "create_quote" ? "a quote" : "an estimate";
+      const amt = a.amount != null && a.amount !== "" ? ` for $${a.amount}` : "";
+      return `Create ${kind}${amt}${client ? ` to ${client}` : ""}?`;
+    }
+    case "schedule_job": {
+      const svc = a.serviceType || a.service || a.title || "a visit";
+      const when = a.date ? ` ${a.date}` : "";
+      return `Schedule ${svc}${client ? ` for ${client}` : ""}${when}?`;
+    }
+    case "log_expense": {
+      const amt = a.amount != null && a.amount !== "" ? ` of $${a.amount}` : "";
+      return `Log an expense${amt}${a.merchant ? ` at ${a.merchant}` : ""}?`;
+    }
+    case "create_contact":
+    case "create_lead": {
+      const nm = [a.firstName, a.lastName].filter(Boolean).join(" ").trim() || client || "a new contact";
+      return `Add ${nm} to your client book?`;
+    }
+    default: {
+      if (/^delete_/.test(name)) return `${name.replace(/_/g, " ")}? This can't be undone.`;
+      return `${name.replace(/_/g, " ")}${client ? ` for ${client}` : ""}?`;
+    }
+  }
+}
+
+// 2-3 next-step chips shown under a successful action's confirmation so the owner keeps
+// moving without thinking. Chips that need a value (amount, note text) pre-fill the box;
+// self-sufficient ones send straight through. `clientName` (the just-resolved customer) is
+// baked into the queries so the next action targets the same client and the confirm prompt
+// reads naturally ("Schedule a visit for Dave Smith?").
+function followUpsFor(name: string, _args: any, result: any, clientName = ""): FollowUp[] {
+  if (!result?.ok) return [];
+  // Phrasings chosen so detectAgentIntent captures the CLIENT (not a stray object like
+  // "a visit") — put the name right after the verb. When there's no resolved client, fall
+  // back to generic phrasing that still routes through the confirm gate.
+  const scheduleQ = clientName ? `Schedule ${clientName} for a visit` : "Schedule a visit";
+  const invoiceQ = clientName ? `Invoice ${clientName} $` : "Draft an invoice for $";
+  const quoteQ = clientName ? `Quote ${clientName} $` : "Draft a quote for $";
+  const noteQ = clientName ? `Add a note for ${clientName}: ` : "Add a note: ";
+  const reviewQ = clientName ? `Request a review from ${clientName}` : "Request a review";
+  switch (name) {
+    case "create_invoice":
+    case "create_quote":
+    case "create_estimate":
+      return [
+        { label: "Schedule the visit", query: scheduleQ, send: true },
+        { label: "Add a note", query: noteQ },
+        { label: "Request a review", query: reviewQ, send: true },
+      ];
+    case "schedule_job":
+      return [
+        { label: "Draft the invoice", query: invoiceQ },
+        { label: "Add a note", query: noteQ },
+        { label: "Check inventory", query: "Check the inventory", send: true },
+      ];
+    case "create_contact":
+    case "create_lead":
+      return [
+        { label: "Schedule a visit", query: scheduleQ, send: true },
+        { label: "Draft a quote", query: quoteQ },
+        { label: "Add a note", query: noteQ },
+      ];
+    case "log_expense":
+      return [
+        { label: "Log another", query: "Log an expense of $" },
+        { label: "Check inventory", query: "Check the inventory", send: true },
+      ];
+    case "load_client_data":
+      return [
+        { label: "Schedule a visit", query: scheduleQ, send: true },
+        { label: "Draft an invoice", query: invoiceQ },
+        { label: "Add a note", query: noteQ },
+      ];
+    case "add_client_note":
+      return [
+        { label: "Schedule a visit", query: scheduleQ, send: true },
+        { label: "Draft an invoice", query: invoiceQ },
+      ];
+    default:
+      return [];
+  }
 }
 
 export default function BrainChat({
@@ -152,27 +279,91 @@ export default function BrainChat({
   const { transcript: hookTranscript, isListening, startListening, stopListening, setTranscript: setHookTranscript } = useSpeechRecognition();
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<
-    { id: string; text: string; sender: "user" | "agent" }[]
+    { id: string; text: string; sender: "user" | "agent"; followUps?: FollowUp[] }[]
   >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const loadedCustomerRef = useRef<any>(null);
+
+  // --- High-risk action confirmation gate (mirrors LiveEar.tsx) ---
+  // `confirmRequest` drives the ConfirmDialog; its `resolve` is awaited inside handleQuery
+  // so a high-risk intent pauses until the owner approves or cancels.
+  const [confirmRequest, setConfirmRequest] = useState<{
+    title: string;
+    description: string;
+    resolve: (approved: boolean) => void;
+  } | null>(null);
+
+  const requestConfirm = (title: string, description: string): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      setConfirmRequest({ title, description, resolve });
+    });
+
+  // Tappable follow-up chip handler: send self-sufficient queries straight through the
+  // agent (re-hitting the confirm gate as needed) or pre-fill the composer for ones that
+  // still need a value typed in.
+  const handleFollowUp = (fu: FollowUp) => {
+    if (fu.send) {
+      handleQuery(undefined, fu.query);
+    } else {
+      setQuery(fu.query);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  };
   const { startTour, setFocus } = useCuttyGuide();
   const { tenant } = useTenant();
   const { role } = useRole();
   const { toggleFieldMode } = useFieldMode();
   const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
 
+  // Honest progress copy — describes what is actually happening (no fake "vector" theater).
   const loadingMessages = [
-    "Initializing secure sandbox...",
-    "Verifying tenant boundaries...",
-    "Querying encrypted vectors...",
-    "Filtering PII patterns...",
-    "Generating safe output..."
+    "Reading your business snapshot...",
+    "Thinking it through...",
+    "Writing your answer...",
   ];
+
+  // Live business snapshot sent with each question so the assistant answers from REAL
+  // numbers (customers, today's jobs, outstanding A/R) instead of claiming database
+  // access it doesn't have. RLS scopes every list to this tenant; cached for 60s.
+  const snapshotRef = useRef<{ at: number; data: any } | null>(null);
+  const buildSnapshot = async () => {
+    if (snapshotRef.current && Date.now() - snapshotRef.current.at < 60_000) {
+      return snapshotRef.current.data;
+    }
+    try {
+      const [customers, jobs, invoices] = await Promise.all([
+        customersRepo.list().catch(() => []),
+        jobsRepo.list().catch(() => []),
+        invoicesRepo.list().catch(() => []),
+      ]);
+      const today = new Date().toISOString().slice(0, 10);
+      const jobsToday = (jobs || []).filter((j: any) => String(j.date || "").slice(0, 10) === today);
+      const openInvoices = (invoices || []).filter(
+        (i: any) => !["paid", "void", "cancelled", "canceled", "draft"].includes(String(i.status || "").toLowerCase()),
+      );
+      const outstanding = openInvoices.reduce(
+        (acc: number, i: any) =>
+          acc + Math.max(0, (Number(i.amount) || 0) - (Number(i.amountPaid ?? i.data?.amountPaid) || 0)),
+        0,
+      );
+      const data = {
+        customers: (customers || []).length,
+        jobsToday: jobsToday.length,
+        todaysJobs: jobsToday.slice(0, 5).map((j: any) => ({ title: j.title, client: j.client, status: j.status })),
+        openInvoices: openInvoices.length,
+        outstandingAR: Math.round(outstanding),
+      };
+      snapshotRef.current = { at: Date.now(), data };
+      return data;
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -579,6 +770,24 @@ export default function BrainChat({
     // things (create contact / job / invoice / expense / etc.), not just answer questions.
     const intent = detectAgentIntent(userMessage.text);
     if (intent) {
+      // Confirm gate — high-risk writes (invoices, quotes, jobs, expenses, new
+      // contacts/leads, any delete_*) must be explicitly approved BEFORE we mutate the
+      // database. The prompt is built from the parsed args so the owner sees exactly what
+      // will happen. A false trigger (e.g. an intent matcher misfiring on a stray keyword)
+      // is always catchable here. Low-risk reads fall straight through.
+      if (isHighRiskAction(intent.name)) {
+        const approved = await requestConfirm(
+          "Confirm before I do this",
+          confirmMessageFor(intent.name, intent.args),
+        );
+        if (!approved) {
+          setMessages((prev) => [
+            ...prev,
+            { id: String(Date.now()), sender: "agent", text: "Okay, didn't do it." },
+          ]);
+          return;
+        }
+      }
       setIsLoading(true);
       try {
         const result = await executeAgentAction(intent, {
@@ -590,9 +799,23 @@ export default function BrainChat({
             loadedCustomerRef.current = c;
           },
         });
+        // Name of the client this action resolved to (set by the executor), so follow-up
+        // chips can target the same person.
+        const c = loadedCustomerRef.current;
+        const resolvedClient = c
+          ? `${c.first_name || c.firstName || ""} ${c.last_name || c.lastName || ""}`.trim() ||
+            c.company_name ||
+            c.companyName ||
+            ""
+          : "";
         setMessages((prev) => [
           ...prev,
-          { id: String(Date.now()), sender: "agent", text: result.message },
+          {
+            id: String(Date.now()),
+            sender: "agent",
+            text: result.message,
+            followUps: followUpsFor(intent.name, intent.args, result, resolvedClient),
+          },
         ]);
         if (result.navigateTo && location.pathname !== result.navigateTo) {
           navigate(result.navigateTo);
@@ -613,6 +836,9 @@ export default function BrainChat({
         body: JSON.stringify({
           query: userMessage.text,
           context: "landscaping business operator",
+          // Real tenant numbers + the owner's saved agent style (persona/model/temperature).
+          snapshot: await buildSnapshot(),
+          agent: (tenant?.settings as any)?.agent || undefined,
         }),
       });
       const data = await res.json();
@@ -719,6 +945,27 @@ export default function BrainChat({
 
   const content = (
     <div className={`w-full flex flex-col relative overflow-hidden ${mode === 'overlay' ? 'max-w-2xl h-[min(800px,85vh)] bg-slate-900 rounded-2xl shadow-2xl border border-white/5' : 'h-full bg-transparent'}`}>
+      {/* High-risk action confirmation gate. ConfirmDialog calls onConfirm() then onClose(),
+          so we resolve(true) in onConfirm and only resolve(false) on a close that wasn't a
+          confirm — matching the LiveEar.tsx wiring. */}
+      <ConfirmDialog
+        isOpen={!!confirmRequest}
+        title={confirmRequest?.title || "Confirm action"}
+        description={confirmRequest?.description || ""}
+        confirmText="Do it"
+        cancelText="Cancel"
+        danger
+        onConfirm={() => {
+          confirmRequest?.resolve(true);
+          setConfirmRequest(null);
+        }}
+        onClose={() => {
+          setConfirmRequest((req) => {
+            req?.resolve(false);
+            return null;
+          });
+        }}
+      />
       {!hideHeader && (
         <header className="px-6 sm:px-10 py-6 sm:py-8 border-b border-white/5 molten-edge flex items-center justify-between shrink-0 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-10">
           <div className="flex items-center gap-4">
@@ -795,24 +1042,44 @@ export default function BrainChat({
               )}
 
               {messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`flex gap-4 ${m.sender === "user" ? "flex-row-reverse text-right" : ""}`}
-                >
+                <div key={i} className="space-y-3">
                   <div
-                    className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
-                      m.sender === "user"
-                        ? "bg-white border-white text-black"
-                        : "bg-white/5 border-white/10 text-forest-400"
-                    }`}
+                    className={`flex gap-4 ${m.sender === "user" ? "flex-row-reverse text-right" : ""}`}
                   >
-                    {m.sender === "user" ? (
-                      <User size={18} />
-                    ) : (
-                      <ShieldCheck size={18} />
-                    )}
+                    <div
+                      className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+                        m.sender === "user"
+                          ? "bg-white border-white text-black"
+                          : "bg-white/5 border-white/10 text-forest-400"
+                      }`}
+                    >
+                      {m.sender === "user" ? (
+                        <User size={18} />
+                      ) : (
+                        <ShieldCheck size={18} />
+                      )}
+                    </div>
+                    <TranslatedMessageBubble text={m.text} sender={m.sender as "user" | "bot"} targetLanguage="es" />
                   </div>
-                  <TranslatedMessageBubble text={m.text} sender={m.sender as "user" | "bot"} targetLanguage="es" />
+                  {/* Follow-up suggestion chips: only under the most recent agent
+                      confirmation, so the owner keeps moving without thinking. */}
+                  {m.sender === "agent" &&
+                    (m.followUps?.length ?? 0) > 0 &&
+                    i === messages.length - 1 &&
+                    !isLoading && (
+                      <div className="flex flex-wrap gap-2 pl-14">
+                        {m.followUps!.map((fu) => (
+                          <button
+                            key={fu.label}
+                            type="button"
+                            onClick={() => handleFollowUp(fu)}
+                            className="px-3.5 py-2 rounded-full bg-forest-500/10 border border-forest-500/25 text-[11px] font-black uppercase tracking-widest text-forest-300 hover:bg-forest-500 hover:text-black active:scale-95 transition-all"
+                          >
+                            {fu.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                 </div>
               ))}
 
@@ -863,6 +1130,7 @@ export default function BrainChat({
 
               <form onSubmit={handleQuery} className="flex-1 relative">
                 <input
+                  ref={inputRef}
                   type="text"
                   aria-label="Search or ask a question"
                   placeholder={

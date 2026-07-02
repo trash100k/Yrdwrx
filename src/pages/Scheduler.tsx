@@ -173,23 +173,11 @@ export default function Scheduler() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const handleVoiceAction = (e: CustomEvent) => {
-      const { name, args } = e.detail;
-      if (name === "schedule_job") {
-        setNewJob((prev) => ({
-          ...prev,
-          title: args.serviceType || "New Job",
-          client: args.clientName || "",
-          dateTime: args.date ? new Date(args.date).toISOString() : new Date().toISOString()
-        }));
-        setShowAddModal(true);
-      }
-    };
-
-    window.addEventListener("cutty-action", handleVoiceAction as EventListener);
-    return () => window.removeEventListener("cutty-action", handleVoiceAction as EventListener);
-  }, []);
+  // NOTE: the voice/text agent's schedule_job action is executed centrally by
+  // executeAgentAction (src/lib/agentActions.ts), which creates the job and navigates here.
+  // This page used to ALSO handle "cutty-action" by re-opening the add-job modal prefilled —
+  // a second creation path for a job the executor already booked. That listener was removed;
+  // the new job lands via the jobsRepo subscription above.
 
   // HOA quiet-hours guardrail: warn (don't block) when a job is being scheduled for an
   // HOA customer before their earliest-allowed service window. Reuses customer data the

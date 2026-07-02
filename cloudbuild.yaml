@@ -29,6 +29,14 @@ steps:
   - '80'
   - '--min-instances'
   - '1' # Keep one instance warm for immediate responses
+  # Non-secret runtime config. REQUIRE_AUTH=true is REQUIRED — the server now refuses to
+  # boot in production without it (it will not serve an unauthenticated multi-tenant API).
+  - '--set-env-vars'
+  - 'NODE_ENV=production,REQUIRE_AUTH=true,WEB_CONCURRENCY=2,BASE_URL=https://YOUR-DOMAIN'
+  # Secrets pulled from Secret Manager (create these once: gcloud secrets create <NAME>).
+  # Without GEMINI_API_KEY the app boots but serves canned mock AI to real customers.
+  - '--set-secrets'
+  - 'GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,JWT_SECRET=JWT_SECRET:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest,GOOGLE_MAPS_PLATFORM_KEY=GOOGLE_MAPS_PLATFORM_KEY:latest'
 
 images:
 - 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA'

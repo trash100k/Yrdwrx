@@ -128,14 +128,49 @@ const toRow = (c: any) => ({
   data: { serviceInterest: c.serviceInterest, budget: c.budget, ...(c.data || {}) },
 });
 
-const customerSchema = z.object({
-  firstName: z.string().min(2),
-  lastName: z.string().min(2),
-  email: z.string().email(),
-  phone: z.string().min(10),
-  address: z.string().min(5),
-  notes: z.string().optional(),
-});
+// Adding a client should be a 10-second job for a contractor standing in a driveway:
+// a name and a way to reach them. Email + full address are NICE to have, not required —
+// they can be filled in later. Only hard requirements: a name and a phone number (email
+// counts as a fallback contact method). Messages are plain English, not raw zod codes.
+const NEED_NAME_AND_CONTACT = "Add a name and a phone number to save this customer.";
+const customerSchema = z
+  .object({
+    firstName: z.string(),
+    lastName: z.string(),
+    email: z.string().optional(),
+    phone: z.string().optional(),
+    address: z.string().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((d) => Boolean((d.firstName || "").trim() || (d.lastName || "").trim()), {
+    message: NEED_NAME_AND_CONTACT,
+    path: ["firstName"],
+  })
+  .refine((d) => Boolean((d.phone || "").trim() || (d.email || "").trim()), {
+    message: NEED_NAME_AND_CONTACT,
+    path: ["phone"],
+  })
+  .refine(
+    (d) => {
+      const email = (d.email || "").trim();
+      return !email || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+    },
+    {
+      message: "That email doesn't look right — fix it or leave it blank.",
+      path: ["email"],
+    },
+  );
+
+// Safe avatar initials for ANY record. People have first/last names, but a company-only
+// or HOA record may carry only a companyName (or nothing at all). Indexing into a null/
+// empty name ([0]) white-screened the whole client book, so always derive from a
+// guaranteed-string fallback chain and guard the character access.
+const getInitials = (c: any): string => {
+  const primary = String(c?.firstName || c?.companyName || c?.lastName || "?").trim();
+  const secondary = c?.firstName ? String(c?.lastName || "").trim() : "";
+  const initials = `${primary.charAt(0)}${secondary.charAt(0)}`.toUpperCase().trim();
+  return initials || "?";
+};
 
 // Removed: generatePropertyGrowthData — it fabricated static property-value growth
 // numbers (fixed base + hard-coded multipliers) that were charted as if real.
@@ -663,51 +698,29 @@ export default function CRM() {
   }, [selectedCustomer?.id]);
 
   useEffect(() => {
+    // Post-execution notification from the voice/text agent (see LiveEar). The
+    // action already ran through executeAgentAction — the lead was created, the
+    // note was saved. We only REFLECT it here by selecting the affected customer
+    // so the owner watches the change land. No writes, no create modal (either
+    // would double-write / double-create the record the agent just made).
     const handleVoiceAction = (e: CustomEvent) => {
-      const { name, args } = e.detail;
-      console.debug("CRM Voice Action:", name, args);
+      const { name, args } = (e.detail || {}) as { name?: string; args?: any };
+      const clientName = String(args?.clientName || "").toLowerCase();
+      if (!clientName) return;
 
       if (
         name === "load_client_data" ||
         name === "schedule_job" ||
-        name === "create_invoice"
+        name === "create_invoice" ||
+        name === "add_client_note"
       ) {
-        const clientName = args.clientName.toLowerCase();
         const found = customers.find(
           (c) =>
-            `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
-            c.firstName.toLowerCase().includes(clientName) ||
-            c.lastName.toLowerCase().includes(clientName),
-        );
-
-        if (found) {
-          handleSelectCustomer(found);
-        }
-      }
-
-      if (name === "create_lead") {
-        setNewCustomer((prev) => ({
-          ...prev,
-          firstName: args.firstName || "",
-          lastName: args.lastName || "",
-          notes: args.notes || "",
-        }));
-        setShowAddModal(true);
-      }
-
-      if (name === "add_client_note") {
-        const clientName = args.clientName.toLowerCase();
-        const found = customers.find(
-          (c) =>
-            `${c.firstName} ${c.lastName}`.toLowerCase().includes(clientName) ||
+            `${c.firstName || ""} ${c.lastName || ""}`.toLowerCase().includes(clientName) ||
             c.firstName?.toLowerCase().includes(clientName) ||
             c.lastName?.toLowerCase().includes(clientName),
         );
-        if (found) {
-          handleSelectCustomer(found);
-          const newNotes = found.notes ? `${found.notes}\n${args.note}` : args.note;
-          handleUpdateNotes(found.id!, newNotes);
-        }
+        if (found) handleSelectCustomer(found);
       }
     };
 
@@ -1429,8 +1442,7 @@ export default function CRM() {
                                 className="w-14 h-14 bg-zinc-900 border border-white/5 molten-edge rounded-2xl flex items-center justify-center text-zinc-400 font-black text-xl group-hover:bg-forest-500 group-hover:text-black transition-all duration-500 shadow-2xl shrink-0"
                                 aria-hidden="true"
                               >
-                                {client.firstName[0]}
-                                {client.lastName[0]}
+                                {getInitials(client)}
                               </div>
                               <div className="min-w-0">
                                 <div className="text-xl font-black italic tracking-normal md:tracking-tighter flex items-center gap-3 lowercase mb-1 leading-none truncate">
@@ -1660,8 +1672,7 @@ export default function CRM() {
                       className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 bg-forest-500 text-black rounded-3xl flex items-center justify-center text-xl sm:text-2xl sm:text-3xl font-black italic shadow-2xl"
                       aria-hidden="true"
                     >
-                      {selectedCustomer.firstName[0]}
-                      {selectedCustomer.lastName[0]}
+                      {getInitials(selectedCustomer)}
                     </div>
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-3 flex-wrap">
@@ -2789,7 +2800,6 @@ export default function CRM() {
                     <input
                       id="last-name"
                       type="text"
-                      required
                       className={`w-full bg-white/5 border ${formErrors.lastName ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
                       value={newCustomer.lastName}
                       onChange={(e) =>
@@ -2812,12 +2822,11 @@ export default function CRM() {
                     htmlFor="client-email"
                     className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 ml-2"
                   >
-                    Email Address
+                    Email Address <span className="text-white/30">(optional)</span>
                   </label>
                   <input
                     id="client-email"
                     type="email"
-                    required
                     className={`w-full bg-white/5 border ${formErrors.email ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
                     value={newCustomer.email}
                     onChange={(e) =>
@@ -2863,12 +2872,11 @@ export default function CRM() {
                       htmlFor="service-address"
                       className="text-xs md:text-[10px] font-black uppercase tracking-widest text-white/40 ml-2"
                     >
-                      Service Address
+                      Service Address <span className="text-white/30">(optional)</span>
                     </label>
                     <input
                       id="service-address"
                       type="text"
-                      required
                       className={`w-full bg-white/5 border ${formErrors.address ? "border-rose-500/50" : "border-white/10"} rounded-2xl px-6 py-4 text-sm font-bold focus:bg-white/10 focus:border-white/20 transition-all`}
                       value={newCustomer.address}
                       onChange={(e) =>

@@ -220,6 +220,26 @@ async function cropPlaceRender(base: string, region: any, opts: { description?: 
   return { image: out.toDataURL("image/jpeg", 0.92) };
 }
 
+// Honest copy for hard credit/tier gates (402 = plan feature, 429 = usage cap) so the user
+// gets something actionable instead of a generic "try again" AFTER doing all the markup work.
+// Returns null for non-gate responses (caller keeps its normal error handling).
+function gateMessage(status: number, data: any): string | null {
+  const raw = typeof data?.error === "string" ? data.error.trim() : "";
+  // Ignore the generic express-rate-limit body ("Too many requests...") — it isn't actionable.
+  const serverMsg = raw && !/^too many/i.test(raw) ? raw : "";
+  if (status === 402) return serverMsg || "This is a Pro feature — upgrade your plan to unlock AI design renders.";
+  if (status === 429) return serverMsg || "You've used your AI renders for now — upgrade your plan to keep going.";
+  return null;
+}
+
+// Honest, staged narration for the 10-40s render so the reveal button isn't a frozen spinner.
+const RENDER_STAGES = [
+  "Reading your yard…",
+  "Placing the plants…",
+  "Blending it in…",
+  "Pricing it out…",
+];
+
 export default function DesignStudio() {
   const location = useLocation();
   const { tenant } = useTenant();
@@ -245,6 +265,11 @@ export default function DesignStudio() {
   const [result, setResult] = useState<DesignResult | null>(null);
   const [mockupImage, setMockupImage] = useState<string | null>(null);
   const [isGeneratingMockup, setIsGeneratingMockup] = useState(false);
+  // Staged narration index while a render is in flight (see RENDER_STAGES).
+  const [renderStage, setRenderStage] = useState(0);
+  // Carries the running proposal (materials / tiers / applied palette) across a
+  // Refine -> re-Finalize so the fresh analysis MERGES into it instead of wiping the quote.
+  const refineContextRef = useRef<DesignResult | null>(null);
   const { transcript: hookTranscript, isListening: isRecording, startListening, stopListening, setTranscript: setHookTranscript } = useSpeechRecognition();
   const [transcript, setTranscript] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -260,6 +285,19 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
       setTranscript(hookTranscript);
     }
   }, [hookTranscript]);
+
+  // Cycle honest render-stage copy while a mockup is generating; reset when it finishes.
+  useEffect(() => {
+    if (!isGeneratingMockup) {
+      setRenderStage(0);
+      return;
+    }
+    setRenderStage(0);
+    const id = setInterval(() => {
+      setRenderStage((s) => Math.min(s + 1, RENDER_STAGES.length - 1));
+    }, 2200);
+    return () => clearInterval(id);
+  }, [isGeneratingMockup]);
 
   const toggleRecording = () => {
     if (isRecording) {
@@ -376,22 +414,43 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const base64 = await compressImage(file, 1200, 1200, 0.8);
-        
-        setImage(base64);
-        setActiveTab("scribble");
-        
-        // Also capture the original natural aspect ratio
+    if (!file) return;
+    // A brand-new photo abandons any in-flight Refine merge (see refineOnRender / processDesign).
+    refineContextRef.current = null;
+
+    const UNSUPPORTED_MSG =
+      "That photo format isn't supported — try a JPG or PNG, or a screenshot of it.";
+    // iPhone HEIC/HEIF (and TIFF) don't decode in most browsers' <canvas>, so catch them up
+    // front by mime/extension and tell the user something they can act on instead of nothing.
+    const name = (file.name || "").toLowerCase();
+    const looksUndecodable =
+      /image\/(heic|heif|tiff)/i.test(file.type || "") ||
+      /\.(heic|heif|tiff?)$/i.test(name);
+    if (looksUndecodable) {
+      showToast(UNSUPPORTED_MSG, "error");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    try {
+      const base64 = await compressImage(file, 1200, 1200, 0.8);
+
+      // Confirm the compressed result actually decodes before committing to it — a corrupt or
+      // still-unsupported photo can slip past compression and would otherwise fail silently.
+      const ratio = await new Promise<number>((resolve, reject) => {
         const img = new Image();
-        img.onload = () => {
-          setImageAspectRatio(img.width / img.height);
-        };
+        img.onload = () => resolve(img.width / img.height);
+        img.onerror = () => reject(new Error("decode failed"));
         img.src = base64;
-      } catch (err) {
-        console.error("Image compression error:", err);
-      }
+      });
+
+      setImage(base64);
+      setImageAspectRatio(ratio);
+      setActiveTab("scribble");
+    } catch (err) {
+      console.error("Image upload error:", err);
+      showToast(UNSUPPORTED_MSG, "error");
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -453,35 +512,56 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           const baseDesc = transcript || description;
           const MAX = 2;
           let attempt = 0, lastJudge: any = null, composited: any = null;
+          // The best usable render produced so far. A judge RETRY whose retry attempt then
+          // errors (or also fails judging) must fall back to THIS — never leave the user
+          // empty-handed after they've already paid for a good image.
+          let bestComposited: string | null = null;
+          let bestJudge: any = null;
           while (attempt < MAX) {
             const fixHint = attempt > 0 && lastJudge?.fixHint ? ` Improve: ${lastJudge.fixHint}` : "";
-            const response = await fetchApi("/api/design/place-objects", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                image: base,
-                regions: regs,
-                description: baseDesc + fixHint,
-                aspectRatio: imageAspectRatio ? nearestAspect(imageAspectRatio) : undefined,
-                zone: designZone || undefined,
-              }),
-            });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok || data?.error) {
+            let response: any = null;
+            let data: any = {};
+            try {
+              response = await fetchApi("/api/design/place-objects", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  image: base,
+                  regions: regs,
+                  description: baseDesc + fixHint,
+                  aspectRatio: imageAspectRatio ? nearestAspect(imageAspectRatio) : undefined,
+                  zone: designZone || undefined,
+                }),
+              });
+              data = await response.json().catch(() => ({}));
+            } catch {
+              response = null;
+              data = {};
+            }
+
+            const gate = response ? gateMessage(response.status, data) : null;
+            const failed = !response || !response.ok || data?.error || (!data.mock && !data.imageUrl);
+
+            if (failed) {
+              // Prefer keeping a good earlier render over surfacing a retry's failure.
+              if (bestComposited) { composited = bestComposited; lastJudge = bestJudge; break; }
+              if (gate) { showToast(gate, response.status === 402 ? "info" : "warning"); return; }
               showToast(data?.error || "Couldn't render the placement. Try again.", "error");
               return;
             }
+
             if (data.mock) {
+              if (bestComposited) { composited = bestComposited; lastJudge = bestJudge; break; }
               showToast("Preview echoes your photo — AI rendering needs a Gemini key.", "info");
               setMockupImage(base);
               setActiveTab("compare");
               return;
             }
-            if (!data.imageUrl) {
-              showToast("No preview image was returned.", "error");
-              return;
-            }
+
             composited = await compositeRegions(base, data.imageUrl, regs).catch(() => data.imageUrl);
+            // This render succeeded — bank it as the fallback BEFORE we risk another attempt.
+            bestComposited = composited;
+
             // Auto-verify; retry once with the judge's fix hint (mock judge -> PASS).
             try {
               const jres = await fetchApi("/api/design/judge", {
@@ -493,9 +573,14 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
             } catch {
               lastJudge = { verdict: "PASS" };
             }
+            bestJudge = lastJudge;
             if (lastJudge?.verdict === "PASS" || lastJudge?.mock || attempt >= MAX - 1) break;
             attempt++;
           }
+
+          // Safety net: never proceed with nothing when a usable render exists.
+          if (!composited) composited = bestComposited;
+          if (!composited) { showToast("No preview image was returned.", "error"); return; }
 
           setLastComposite(composited);
           const badged = await burnAiVizBadge(composited).catch(() => composited);
@@ -518,6 +603,11 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || data?.error) {
+          const gate = gateMessage(response.status, data);
+          if (gate) {
+            showToast(gate, response.status === 402 ? "info" : "warning");
+            return;
+          }
           showToast(data?.error || "Couldn't render the preview. Try again.", "error");
           return;
         }
@@ -578,6 +668,12 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data?.error) {
+        // Honest, specific copy for a hard credit/tier gate instead of "try again".
+        const gate = gateMessage(response.status, data);
+        if (gate) {
+          showToast(gate, response.status === 402 ? "info" : "warning");
+          return;
+        }
         const msg = data?.error || `Design analysis failed (${response.status}).`;
         showToast(
           /gemini|quota|key|limit/i.test(msg)
@@ -593,7 +689,26 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
           "info",
         );
       }
-      setResult(data);
+      // If we're re-finalizing after a Refine, merge the fresh analysis INTO the running
+      // proposal so accumulated materials, Good/Better/Best tiers and applied palette items
+      // survive instead of being wiped by the new pass.
+      const prior = refineContextRef.current;
+      refineContextRef.current = null;
+      if (prior) {
+        setResult({
+          ...data,
+          visionSummary: data.visionSummary || prior.visionSummary,
+          strategicValue: data.strategicValue || prior.strategicValue,
+          estimatedMaterials: [
+            ...(prior.estimatedMaterials || []),
+            ...(data.estimatedMaterials || []),
+          ],
+          // A refine pass doesn't regenerate the tier packages — keep the ones we had.
+          tiers: data.tiers || prior.tiers,
+        });
+      } else {
+        setResult(data);
+      }
       if (data.identifiedAreas?.length && (tenant?.settings as any)?.voiceEnabled !== false) {
         let textToSpeek = "Here is the plan. ";
         data.identifiedAreas.slice(0, 2).forEach((a: any) => {
@@ -780,6 +895,9 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     setMockupImage(null);
     setRegions([]);
     setRegionLabels({});
+    // Preserve the running proposal so the next Finalize MERGES into it (see processDesign)
+    // rather than wiping accumulated materials / tiers / applied palette items.
+    refineContextRef.current = result;
     setResult((prev: any) => prev); // keep the analysis/materials context
     setActiveTab("scribble");
     showToast("Mark new spots on this design to keep refining.", "info");
@@ -884,6 +1002,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
 
   const reopenVision = (v: any) => {
     if (!v) return;
+    // Loading a saved vision replaces context — drop any pending Refine merge.
+    refineContextRef.current = null;
     setResult(v.proposal || null);
     setImage(v.beforeUrl || null);
     setMockupImage(v.afterUrl || null);
@@ -1469,7 +1589,7 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                                 className="w-full py-5 bg-gradient-to-r from-forest-500 to-forest-500 text-black border border-transparent rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(5,168,69,0.35)] hover:scale-[1.02] active:scale-95 duration-200"
                               >
                                 {isGeneratingMockup ? (
-                                    <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> Formulating High-Res Render...</>
+                                    <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> {RENDER_STAGES[renderStage]}</>
                                 ) : (
                                     <><Sparkles size={16} /> Boom! Reveal Slider Design</>
                                 )}

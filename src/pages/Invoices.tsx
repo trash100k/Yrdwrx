@@ -258,56 +258,12 @@ export default function Invoices() {
     }
   }, [location.state]);
 
-  useEffect(() => {
-    const handleVoiceAction = (e: CustomEvent) => {
-      const { name, args } = e.detail;
-      console.debug("Invoices Voice Action:", name, args);
-
-      if (name === "create_invoice") {
-        const mockAnalysis = {
-          clientName: args.clientName || "Mrs. Gable",
-          items: [
-            {
-              description: args.serviceDescription || "Landscaping Work",
-              quantity: 1,
-              rate: args.amount || 0,
-            },
-          ],
-          total: args.amount || 0,
-          summary: args.serviceDescription || "Auto-generated from live ear.",
-        };
-        setAiAnalysis(mockAnalysis);
-        setShowAIModal(true);
-      } else if (name === "log_expense") {
-        setActiveTab("Expenses");
-        if (args && args.amount) {
-          expensesRepo
-            .create(
-              toExpenseRow({
-                amount: args.amount,
-                merchant: args.vendor || "Field Expense",
-                category: "Other",
-                notes: args.description || "Added via voice",
-                date: new Date().toISOString(),
-                status: "cleared",
-              }),
-            )
-            .catch((err) =>
-              handleFirestoreError(err, OperationType.CREATE, "expenses"),
-            );
-        } else {
-          setIsScanning(true);
-        }
-      }
-    };
-
-    window.addEventListener("cutty-action", handleVoiceAction as EventListener);
-    return () =>
-      window.removeEventListener(
-        "cutty-action",
-        handleVoiceAction as EventListener,
-      );
-  }, []);
+  // NOTE: the voice/text agent's create_invoice and log_expense actions are executed
+  // centrally by executeAgentAction (src/lib/agentActions.ts), which drafts the invoice /
+  // logs the expense and navigates here. This page used to ALSO handle the "cutty-action"
+  // event by re-opening the invoice modal and re-creating the expense — a double-create /
+  // double-write now that the executor owns those mutations. That listener was removed;
+  // the executor is the single source of truth and its results land via the repo subscriptions.
 
   const simulateAIAnalysis = async () => {
     const userInput = window.prompt("Enter call transcript or job description to generate an invoice:");

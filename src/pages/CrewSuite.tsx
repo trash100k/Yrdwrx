@@ -1193,7 +1193,7 @@ export default function CrewSuite() {
             { showToast },
           );
         } else if (data?.intent === "UPDATE_CREW_STATUS") {
-          showToast("Status logged", data.summary || "Crew update noted", "success");
+          // Keep the local activity-log entry regardless of whether we can persist.
           try {
             addLog({
               type: "chat",
@@ -1202,6 +1202,90 @@ export default function CrewSuite() {
               content: data.summary || "Field status update",
             });
           } catch {}
+
+          // --- Resolve which crew this dictation refers to (best-effort fuzzy match on
+          //     name/leader against the loaded `crews` list). ---
+          const d = data?.data || {};
+          const hay = `${d.crew ?? ""} ${d.crewName ?? ""} ${d.team ?? ""} ${data?.summary ?? ""}`.toLowerCase();
+          const norm = (s: string) =>
+            (s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+          const STOP = new Set(["crew", "team", "the", "and", "unit", "group", "squad", "of"]);
+          const scoreCrew = (crew: any) => {
+            let score = 0;
+            for (const cand of [crew?.name, crew?.leader].map(norm)) {
+              if (!cand) continue;
+              if (hay.includes(cand)) {
+                score += 10; // whole crew name / leader appears verbatim
+                continue;
+              }
+              for (const tok of cand.split(" ")) {
+                if (tok.length >= 3 && !STOP.has(tok) && new RegExp(`\\b${tok}\\b`).test(hay)) {
+                  score += 1; // distinctive token overlap
+                }
+              }
+            }
+            return score;
+          };
+          let matched: any = null;
+          let bestScore = 0;
+          for (const crew of crews) {
+            const s = scoreCrew(crew);
+            if (s > bestScore) {
+              bestScore = s;
+              matched = crew;
+            }
+          }
+
+          if (!matched || bestScore === 0) {
+            // Don't fabricate an update we can't attribute to a real crew.
+            showToast("Couldn't match that to a crew.", "error");
+            return;
+          }
+
+          // --- Map the spoken status to the crew status enum used across this file
+          //     (ON_SITE / TRANSPORT / LATE / OFF_DUTY / active). ---
+          const statusText = `${d.status ?? ""} ${data?.summary ?? ""}`.toLowerCase();
+          const mapStatus = (t: string): string | null => {
+            if (/\b(arriv|on[-\s]?site|at (the )?(site|job)|reached)\b/.test(t)) return "ON_SITE";
+            if (/(en route|on (the|my) way|heading|driving|transport|travel|leaving|dispatch)/.test(t)) return "TRANSPORT";
+            if (/\b(delay|late|behind|held up)\b/.test(t)) return "LATE";
+            if (/(finish|complet|done|wrapp|off[-\s]?duty|depot|clocked out|heading home)/.test(t)) return "OFF_DUTY";
+            if (/(active|working|started|in progress|on the job|underway)/.test(t)) return "active";
+            return null;
+          };
+          const mappedStatus = mapStatus(statusText);
+          const spokenJob = (d.job ?? d.jobName ?? d.currentJob ?? "").toString().trim();
+
+          if (!mappedStatus && !spokenJob) {
+            showToast(
+              `Understood a status update for ${matched.name || "the crew"}, but couldn't tell what changed.`,
+              "warning",
+            );
+            return;
+          }
+
+          try {
+            const nextStatus = mappedStatus || matched.status;
+            const nextJob = spokenJob || matched.job || matched.currentJob;
+            // Persist the same way handleEditSubmit does: real columns top-level,
+            // currentJob merged into the crew's jsonb `data` bag via toCrewRow.
+            await crewsRepo.update(
+              matched.id,
+              toCrewRow({
+                ...matched,
+                status: nextStatus,
+                job: nextJob,
+                currentJob: nextJob,
+              }),
+            );
+            showToast(
+              `${matched.name || "Crew"} updated → ${nextStatus}${spokenJob ? ` · ${spokenJob}` : ""}.`,
+              "success",
+            );
+          } catch (err: any) {
+            console.error("Crew status dictation persist failed:", err);
+            showToast(err?.message || "Failed to update crew status.", "error");
+          }
         }
       }}
     />

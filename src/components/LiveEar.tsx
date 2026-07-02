@@ -131,9 +131,18 @@ let stream;
       } catch (e) {
         try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch(audioErr) {
+        } catch(audioErr: any) {
+            // Mic denied/unavailable — don't leave the UI stuck on "Connecting".
             console.error("Cannot access media devices", audioErr);
+            const denied = audioErr?.name === "NotAllowedError" || audioErr?.name === "SecurityError";
             setIsConnecting(false);
+            setStatus("error");
+            setStatusMessage(
+              denied
+                ? "Microphone access is blocked. Allow the mic for this site in your browser settings, then try again."
+                : "No microphone found. Connect a mic (or check your phone's permissions) and try again.",
+            );
+            try { audioCtx.close(); } catch {}
             return;
         }
       }
@@ -228,7 +237,16 @@ let stream;
         }
 
         if (data.action) {
-          handleDetectedAction(data.action);
+          if (data.demo) {
+            // Demo-mode scripted actions are PREVIEW ONLY — never execute them against the
+            // real database. Show what Live Ear *would* do so the demo still lands.
+            const names = (data.action.functionCalls || [])
+              .map((c: any) => (c?.name || "action").replace(/_/g, " "))
+              .join(", ");
+            setLastResult(`Demo preview: would ${names} (no changes made — set GEMINI_API_KEY for live actions).`);
+          } else {
+            handleDetectedAction(data.action);
+          }
         }
       };
 
@@ -242,10 +260,24 @@ let stream;
 
       ws.onclose = (ev) => {
         clearInterval(videoInterval);
-        // A normal close after an active session just returns to idle; an
-        // unexpected close (e.g. server in mock mode dropping us) surfaces a
-        // gentle "unavailable" notice rather than failing silently.
-        if (!ev || ev.wasClean === false) {
+        // App-specific close codes carry an actionable reason: 4003 = monthly AI quota spent,
+        // 1008 = auth/session expired, 1013 = server at capacity. A normal close after an active
+        // session just returns to idle; any other unexpected close surfaces a gentle reconnect
+        // hint rather than failing silently.
+        const code = ev?.code;
+        if (code === 4003) {
+          setStatus("error");
+          setStatusMessage(
+            ev?.reason ||
+              "You've used your AI minutes for this month. Upgrade to keep going.",
+          );
+        } else if (code === 1008) {
+          setStatus("error");
+          setStatusMessage("Your session expired. Refresh and sign in again to use Live Ear.");
+        } else if (code === 1013) {
+          setStatus("error");
+          setStatusMessage("Live Ear is at capacity right now. Give it a moment and try again.");
+        } else if (!ev || ev.wasClean === false) {
           setStatus("closed");
           setStatusMessage("Live Ear disconnected. Tap the mic to reconnect.");
         }
@@ -269,7 +301,10 @@ let stream;
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const pcmData = new Int16Array(bytes.buffer);
 
-    const buffer = ctx.createBuffer(1, pcmData.length, 16000);
+    // Gemini Live streams output PCM at 24kHz. Building the buffer at 16kHz
+    // stretches playback ~1.5x — the voice comes out slow and garbled. Match
+    // the source rate so replies sound natural.
+    const buffer = ctx.createBuffer(1, pcmData.length, 24000);
     const channelData = buffer.getChannelData(0);
     for (let i = 0; i < pcmData.length; i++)
       channelData[i] = pcmData[i] / 0x7fff;
@@ -358,7 +393,11 @@ let stream;
             result.ok ? "success" : "info",
           );
         } catch {}
-        // Mirror a confirmation line into the text agent's transcript.
+        // Post-execution NOTIFICATION only. The mutation already ran through
+        // executeAgentAction above, so listeners MUST NOT re-execute or re-open a
+        // create modal (that double-writes/double-creates). They may only reflect
+        // it in the UI: mirror a line into the text-agent transcript, select the
+        // affected customer, focus a search. `_result` carries the executed outcome.
         setTimeout(() => {
           window.dispatchEvent(
             new CustomEvent("cutty-action", { detail: { ...call, _result: result } }),

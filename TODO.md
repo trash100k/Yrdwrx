@@ -13,7 +13,16 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-06-29 (APP DEEP-DIVE AUDIT) — ran an 8-cluster workflow audit of all 32
+> _Last updated: 2026-07-02 (100-CUSTOMER BATTLE-READINESS) — cleared Wave 1 (base.ts realtime/pagination,
+> body-limit + threat-scan, cloudbuild env + prod fail-fast, shared PDF renderer, Gemini outbound timeout,
+> 6 broken ai.models.get sites, CRM sample-data crash, invoice-PDF false-429) and Wave 2 flagships:
+> Design Studio (best-render banking, honest gate copy, refine-merge, HEIC guard, narrated progress),
+> Live Ear (retired double-write cutty-action listeners → single executor, 24kHz playback, mic/WS-drop
+> surfaced, server session onclose/onerror + 30s heartbeat + /api/live quota enforcement), CuttyChat text-agent
+> confirm gate + interrogative guard + follow-up chips, CrewSuite crew-status persistence. Gates green:
+> tsc clean, 365 tests, vite + server bundle. Remaining: DesignStudio marker offset, Closeout job picker,
+> integration-fetch AbortSignals, Waves 3-4 (walkthrough wow, offline/multi-tab). Earlier:
+> 2026-06-29 (APP DEEP-DIVE AUDIT) — ran an 8-cluster workflow audit of all 32
 > sections; full report in **`APP_AUDIT.md`** (purpose/works/missing/research per section + cross-cutting
 > themes + top-10 research agenda). The actionable backlog derived from it is the new **"App audit
 > remediation backlog"** section below; a parallel subagent build sprint is clearing the buildable-now
@@ -1286,3 +1295,60 @@ The hollowest feature, made real where it can be without external API verificati
       "Log a review" entry so an operator can record reviews from any platform and run the
       AI-reply→post/track loop today without the integration.
 - [ ] (config) document `GOOGLE_BUSINESS_ACCESS_TOKEN` in `.env.example` when the integration lands.
+
+## 100-CONCURRENT-CUSTOMER BATTLE-READINESS SPRINT (2026-06-30) — IN PROGRESS
+
+6-auditor deep pass (scale · design-studio · live-ear · agentic · walkthrough · client-perf).
+Triaged into waves. [x] = already landed this sprint.
+
+### Wave 0 — already fixed earlier this sprint
+- [x] Shared Puppeteer renderer (one Chromium + semaphore) replacing 4 per-request launches.
+- [x] Live Ear mock-mode demo actions flagged demo:true; client renders preview, never executes.
+- [x] Agent persona/model/temperature wired into /api/agent/chat + /api/brain/query (allowlisted, clamped).
+- [x] /api/brain/query: real tenant SNAPSHOT injected + honest prompt (no more "access to entire DB" lie).
+- [x] CuttyChat honest loading copy (dropped "querying encrypted vectors").
+- [x] /api/scheduler/optimize + /api/inventory/forecast mock flag / pass inventory through.
+- [x] Invited-employee onboarding → agreements-only path (no owner wizard).
+
+### Wave 1 — P0 scale/correctness holes (make 100-concurrent not fall over / not lie)
+- [x] repos/base.ts: unique realtime channel topic per subscription (fix silent cross-component kill).
+- [x] repos/base.ts: apply postgres_changes deltas by id + trailing-debounced refetch (kill refetch storm).
+- [x] repos/base.ts: paginate list() past the 1000-row PostgREST cap (money screens truncate today).
+- [x] server.ts: default 1mb JSON parser; 20mb only on image routes; scan string leaves not stringified body; word-boundary injection patterns.
+- [x] cloudbuild.yaml: set REQUIRE_AUTH/NODE_ENV + secrets; server.ts fail-fast (exit) in prod without REQUIRE_AUTH+GEMINI_API_KEY.
+- [x] server.ts: renderPdf residual — single-flight launch promise, while-loop semaphore, idle browser close.
+- [x] server.ts: outbound timeouts — GoogleGenAI httpOptions.timeout (60s) bounds every AI + Live call (the dominant hang vector). _Residual: AbortSignal on the config-gated integration fetches (Google Docs/Sheets/Gmail/QuickBooks/Resend) — lower priority, a shared fetchWithTimeout helper. Tracked below._
+- [x] Four AI routes call non-existent ai.models.get(...).generateContent → 500 w/ real key (onboarding-magic/scrape/vision + analyze-property?). Route through ai.models.generateContent. (6 sites fixed.)
+- [x] CRM sample-data crash: company-only seeded customer → client.firstName[0] throws. Guard render + fix seed.
+- [x] aiLimiter mounted on money paths (invoice PDF) → false "AI limit" 429. Dropped the /api/invoices/ (plural) mount — only route there is generate-pdf (pure Puppeteer); globalLimiter still protects it.
+
+### Wave 2 — flagship P0/P1 (Design Studio, Live Ear, agentic) trust + wow
+- [x] DesignStudio: judge-retry discards a paid successful render on retry error — keep best render.
+- [x] DesignStudio: tier/credit gate → honest message (not "try again"/raw code); check before the work.
+- [x] DesignStudio: re-finalize after Refine wipes running quote (materials/palette/tiers) — merge.
+- [x] DesignStudio: HEIC/undecodable upload fails silently — detect + friendly message.
+- [x] DesignStudio: staged narrated progress for 10-40s render (wow); catalog label chips + autosave (wow).
+- [ ] DesignStudio: MarkupCanvas marker anchor offset (placements land down-right of the tap).
+- [x] LiveEar: retire the double-write cutty-action listeners — executeAgentAction is the single writer; the event is now a post-execution NOTIFICATION and pages only reflect it (select/search/transcript), never re-write or re-open a create modal.
+- [x] LiveEar: 24kHz output sample rate (voice replies are slow-mo garble at 16kHz).
+- [x] LiveEar: mic-denial + WS-drop surfaced (not stuck "Connecting"); session onclose/onerror + 30s ws heartbeat server-side; client maps close codes (quota/auth/capacity) to actionable copy.
+- [x] LiveEar/server: enforce AI quota on /api/live — checks the tenant's monthly wallet (same tiers as HTTP) BEFORE opening the paid session; over-quota closes 4003 → upgrade prompt.
+- [x] CuttyChat: add the high-risk confirm gate to the TEXT agent too (parity with LiveEar); fix hair-trigger schedule keyword (interrogative guard so "what's on the schedule?" can't create a job) + follow-up suggestion chips.
+- [x] CrewSuite: UPDATE_CREW_STATUS dictation persists (currently says "logged", saves nothing).
+- [ ] Closeout: honest invoice delivery + link to customer; job picker (don't bill arbitrary active job).
+- [ ] server.ts: shared fetchWithTimeout(AbortSignal) helper across the config-gated integration routes (residual from the outbound-timeout item above).
+
+### Wave 3 — walkthrough "don't make me think" wow
+- [ ] Quick Create deep-links into prefilled open modals (login→first-invoice ~9 taps → ~4).
+- [ ] Persistent "next best step" setup checklist on Dashboard (real tenant counts).
+- [ ] Guided tour: fix/skip missing spotlight IDs; survive refresh; re-offer; mobile anchors.
+- [ ] Sample data labeled + one-tap clear; demo mode survives refresh.
+- [ ] Add-Client: relax required fields (name+phone only) + human error copy.
+- [ ] Dashboard aggregates useMemo; CommandPalette server-search not full-table fetch.
+
+### Wave 4 — offline/multi-tab hardening (larger; some L)
+- [ ] base64 photos/renders → Supabase Storage (row bloat epicenter) + migration.
+- [ ] Field-mode completion offline-safe via syncService; queue multi-tab lock + idempotency + dead-letter (poison pill).
+- [ ] Offline empty-vs-error distinction + last-known snapshot; fix dead workbox /api GET rules.
+- [ ] Inbox read-map storage-event merge across tabs.
+- [ ] (wow/L) One shared refcounted per-table live store behind subscribe() — retires several P0s at once.

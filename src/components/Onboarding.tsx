@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { getCurrentUser } from "../lib/supabase";
 import { fetchApi } from "../lib/api";
-import { clearProfileCache } from "../lib/repos/profile";
+import { clearProfileCache, getCurrentProfile } from "../lib/repos/profile";
 import { motion, AnimatePresence } from "motion/react";
 import { MagicSetupNode } from "./MagicSetupNode";
 import {
@@ -36,6 +36,25 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   });
   const [error, setError] = useState<string | null>(null);
   const [activeDictationField, setActiveDictationField] = useState<string | null>(null);
+
+  // Invited team members (employee/foreman/client joining an EXISTING tenant) must not see
+  // the owner business-setup steps — their company already exists. They only need to accept
+  // the agreements, so jump straight to that step and submit acceptance alone.
+  const [isInvitedMember, setIsInvitedMember] = useState(false);
+  useEffect(() => {
+    let active = true;
+    getCurrentProfile()
+      .then((p: any) => {
+        if (!active || !p) return;
+        const role = String(p.role || "").toLowerCase();
+        if (p.tenant_id && role && !["owner", "admin"].includes(role)) {
+          setIsInvitedMember(true);
+          setStep(4);
+        }
+      })
+      .catch(() => { /* no profile yet -> normal owner flow */ });
+    return () => { active = false; };
+  }, []);
 
   const availableServices = [
     "Lawn Mowing",
@@ -134,20 +153,25 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       // tenant/settings seeding.
       if (getCurrentUser()) {
         try {
+          // Invited members only record their agreements acceptance — the server ignores
+          // tenant fields for non-owners, so don't send owner-setup data at all.
+          const body = isInvitedMember
+            ? { acceptAgreements: true }
+            : {
+                companyName: formData.companyName,
+                tier: "free",
+                loadDemoData: formData.loadDemoData,
+                settings: {
+                  serviceArea: formData.serviceArea,
+                  services: formData.services,
+                  ownerName: formData.ownerName,
+                  ownerPhone: formData.ownerPhone,
+                },
+              };
           const res = await fetchApi("/api/tenants/provision", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              companyName: formData.companyName,
-              tier: "free",
-              loadDemoData: formData.loadDemoData,
-              settings: {
-                serviceArea: formData.serviceArea,
-                services: formData.services,
-                ownerName: formData.ownerName,
-                ownerPhone: formData.ownerPhone,
-              },
-            }),
+            body: JSON.stringify(body),
           });
 
           if (!res.ok) {
@@ -183,7 +207,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         {" "}
         <div className="flex gap-3 mb-16">
           {" "}
-          {[1, 2, 3, 4].map((i) => (
+          {(isInvitedMember ? [4] : [1, 2, 3, 4]).map((i) => (
             <div
               key={i}
               className={`h-1.5 flex-1 rounded-full transition-all duration-700 ${i <= step ? "bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "bg-white/10"}`}
@@ -432,11 +456,12 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   <Sparkles size={12} /> All Set{" "}
                 </div>{" "}
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl break-words font-black italic tracking-normal md:tracking-tighter leading-none sf-text-gradient">
-                  Ready to <br /> Grow.
+                  {isInvitedMember ? <>Welcome to <br /> the Crew.</> : <>Ready to <br /> Grow.</>}
                 </h1>{" "}
                 <p className="text-white/40 font-medium text-lg leading-relaxed">
-                  Your account is ready. YardWorx is now active and ready for your
-                  first job.
+                  {isInvitedMember
+                    ? "You've been invited to your company's YardWorx workspace. Accept the terms below and you're in."
+                    : "Your account is ready. YardWorx is now active and ready for your first job."}
                 </p>{" "}
               </header>{" "}
               <div className="space-y-6">
