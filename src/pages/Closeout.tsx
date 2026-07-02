@@ -1,7 +1,20 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, Loader2, Radio, Sparkles, Truck } from "lucide-react";
+import { Link } from "react-router-dom";
+import {
+  Mic,
+  Square,
+  Loader2,
+  Radio,
+  Sparkles,
+  Truck,
+  Search,
+  CheckCircle2,
+  AlertTriangle,
+  FileText,
+  ArrowRight,
+} from "lucide-react";
 
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useToast } from "../contexts/ToastContext";
@@ -73,6 +86,16 @@ function catalogPrice(catalog: any[], description: string): number {
   return CATALOG_FALLBACK;
 }
 
+// Local (not UTC) YYYY-MM-DD, matching how the Scheduler stores job dates.
+function localToday(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// Money-adjacent action types that must never run against a guessed job.
+const NEEDS_JOB_TYPES = ["invoice", "close_job"];
+
 export default function Closeout() {
   const { showToast } = useToast();
   const { tenant } = useTenant();
@@ -81,8 +104,13 @@ export default function Closeout() {
 
   const [phase, setPhase] = useState<Phase>("listen");
   const [transcript, setTranscript] = useState("");
+  // The job this closeout applies to — explicitly picked by the user (never
+  // guessed). Once picked it carries through the whole session, including
+  // "New Closeout", until the user changes it.
   const [activeJob, setActiveJob] = useState<any | null>(null);
+  const [allJobs, setAllJobs] = useState<any[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const [planning, setPlanning] = useState(false);
   const [summary, setSummary] = useState("");
@@ -100,17 +128,15 @@ export default function Closeout() {
     if (isListening) setTranscript(liveTranscript);
   }, [liveTranscript, isListening]);
 
-  // Resolve the active job (most-recent IN_PROGRESS, else SCHEDULED).
+  // Load jobs for the picker. No auto-pick: the user chooses the job the
+  // closeout applies to, so money actions never land on a guessed job.
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const jobs = await jobsRepo.list();
         const flat = (jobs || []).map((r: any) => ({ ...(r.data || {}), ...r }));
-        const inProgress = flat.filter((j) => j.status === "IN_PROGRESS");
-        const scheduled = flat.filter((j) => j.status === "SCHEDULED");
-        const pick = inProgress[0] || scheduled[0] || flat[0] || null;
-        if (alive) setActiveJob(pick);
+        if (alive) setAllJobs(flat);
       } catch (e) {
         console.error("Failed to load jobs", e);
       } finally {
@@ -120,6 +146,11 @@ export default function Closeout() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  const pickJob = useCallback((job: any) => {
+    setActiveJob(job);
+    setPickerOpen(false);
   }, []);
 
   // --- STATE A: Listen -----------------------------------------------------
@@ -188,10 +219,22 @@ export default function Closeout() {
   const onChange = (id: string, patch: any) =>
     setActions((arr) => arr.map((a) => (a.id === id ? { ...a, ...patch } : a)));
 
+  // True when the plan wants to bill or close a job but none is selected.
+  const needsJob =
+    !activeJob?.id &&
+    actions.some((a) => selected[a.id] && NEEDS_JOB_TYPES.includes(a.type));
+
   // --- STATE C: Execute ----------------------------------------------------
   const doAll = async () => {
     const chosen = actions.filter((a) => selected[a.id]);
     if (!chosen.length) return;
+    // Refuse money-adjacent actions when no job is picked — never guess who
+    // to bill or which job to close.
+    if (!activeJob?.id && chosen.some((a) => NEEDS_JOB_TYPES.includes(a.type))) {
+      setPickerOpen(true);
+      showToast("Pick the job first — I won't bill or close anything without one.", "info");
+      return;
+    }
     setExecuting(true);
     const results: any[] = [];
     for (const action of chosen) {
@@ -249,13 +292,26 @@ export default function Closeout() {
             </h1>
             <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-1">
               {activeJob
-                ? activeJob.title || activeJob.client || "Active job"
+                ? activeJob.title || activeJob.client || "Job selected"
                 : jobsLoading
-                ? "Loading job…"
-                : "No active job"}
+                ? "Loading jobs…"
+                : "No job selected"}
             </p>
           </div>
         </div>
+
+        {/* Job picker — the closeout applies to the job picked here. */}
+        {phase !== "done" && (
+          <JobPicker
+            jobs={allJobs}
+            loading={jobsLoading}
+            activeJob={activeJob}
+            open={pickerOpen}
+            onOpen={() => setPickerOpen(true)}
+            onClose={() => setPickerOpen(false)}
+            onPick={pickJob}
+          />
+        )}
 
         <AnimatePresence mode="wait">
           {phase === "listen" && (
@@ -301,19 +357,41 @@ export default function Closeout() {
                   action={{ label: "Try Again", onClick: cancel }}
                 />
               ) : (
-                <ActionCardStack
-                  summary={summary}
-                  actions={actions}
-                  selected={selected}
-                  confirmed={confirmed}
-                  onToggle={onToggle}
-                  onConfirm={onConfirm}
-                  onChange={onChange}
-                  onDoAll={doAll}
-                  onReviewEach={reviewEach}
-                  onCancel={cancel}
-                  executing={executing}
-                />
+                <>
+                  {needsJob && (
+                    <div className="mb-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-4 flex items-start gap-3">
+                      <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-amber-300 text-sm font-bold leading-tight">
+                          Pick the job first
+                        </p>
+                        <p className="text-amber-200/70 text-xs leading-relaxed mt-1">
+                          Billing and closing need a job — choose one above so nothing
+                          lands on the wrong customer.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setPickerOpen(true)}
+                        className="shrink-0 min-h-[40px] px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-widest transition-colors"
+                      >
+                        Pick Job
+                      </button>
+                    </div>
+                  )}
+                  <ActionCardStack
+                    summary={summary}
+                    actions={actions}
+                    selected={selected}
+                    confirmed={confirmed}
+                    onToggle={onToggle}
+                    onConfirm={onConfirm}
+                    onChange={onChange}
+                    onDoAll={doAll}
+                    onReviewEach={reviewEach}
+                    onCancel={cancel}
+                    executing={executing}
+                  />
+                </>
               )}
             </motion.div>
           )}
@@ -326,6 +404,30 @@ export default function Closeout() {
               exit={{ opacity: 0 }}
             >
               <CloseoutDoneStrip executed={executed} onAgain={resetAll} />
+              {/* Honest delivery: a drafted invoice is NOT sent — hand the
+                  user straight to Invoices to review + send it. */}
+              {executed.some((e) => e.type === "invoice" && e.ok) && (
+                <Link
+                  to="/admin/invoices"
+                  className="mt-3 w-full flex items-center gap-3 rounded-2xl bg-zinc-900/60 border border-white/10 hover:border-forest-500/40 p-4 transition-colors group"
+                >
+                  <div className="shrink-0 w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+                    <FileText size={18} className="text-rose-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-bold leading-tight">
+                      Invoice drafted — nothing sent yet
+                    </p>
+                    <p className="text-zinc-500 text-xs mt-0.5">
+                      Review &amp; send it from Invoices
+                    </p>
+                  </div>
+                  <ArrowRight
+                    size={18}
+                    className="shrink-0 text-zinc-500 group-hover:text-forest-400 transition-colors"
+                  />
+                </Link>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -418,6 +520,153 @@ function ListenState({ isListening, transcript, supported, planning, onMic, onEx
 }
 
 // ---------------------------------------------------------------------------
+// Job picker — explicit selection of the job the closeout applies to.
+// Default list: in-progress + today's jobs; search reaches every job.
+// ---------------------------------------------------------------------------
+function JobPicker({ jobs, loading, activeJob, open, onOpen, onClose, onPick }: any) {
+  const [query, setQuery] = useState("");
+  const expanded = open || !activeJob;
+  const today = localToday();
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q) {
+      return (jobs || [])
+        .filter((j: any) =>
+          [j.title, j.client, j.address, j.location].some((v: any) =>
+            String(v || "").toLowerCase().includes(q)
+          )
+        )
+        .slice(0, 30);
+    }
+    const inProgress = (jobs || []).filter((j: any) => j.status === "IN_PROGRESS");
+    const todays = (jobs || []).filter(
+      (j: any) =>
+        j.status !== "IN_PROGRESS" && String(j.date || "").slice(0, 10) === today
+    );
+    return [...inProgress, ...todays].slice(0, 30);
+  }, [jobs, query, today]);
+
+  // Collapsed: compact bar showing the picked job with a one-tap "Change".
+  if (!expanded) {
+    return (
+      <div className="rounded-2xl bg-forest-500/10 border border-forest-500/20 p-4 mb-6 flex items-center gap-3">
+        <div className="shrink-0 w-10 h-10 rounded-xl bg-forest-500/15 border border-forest-500/30 flex items-center justify-center">
+          <CheckCircle2 size={18} className="text-forest-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-widest text-forest-400">
+            Closeout Job
+          </p>
+          <p className="text-white font-bold leading-tight truncate">
+            {activeJob.title || activeJob.client || "Untitled job"}
+          </p>
+          {activeJob.client && activeJob.title && (
+            <p className="text-zinc-400 text-xs truncate mt-0.5">{activeJob.client}</p>
+          )}
+        </div>
+        <button
+          onClick={onOpen}
+          className="shrink-0 min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[10px] font-black uppercase tracking-widest transition-colors"
+        >
+          Change
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl bg-zinc-950/60 border border-white/5 p-4 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+          Which job is this closeout for?
+        </p>
+        {activeJob && (
+          <button
+            onClick={onClose}
+            className="min-h-[32px] px-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+          >
+            Keep Current
+          </button>
+        )}
+      </div>
+
+      <div className="relative mb-3">
+        <Search
+          size={16}
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none"
+        />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search all jobs…"
+          className="w-full min-h-[48px] rounded-xl bg-white/5 border border-white/10 pl-10 pr-4 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-forest-500/50"
+        />
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-zinc-600 text-sm italic px-1 py-3">
+          {query
+            ? "No jobs match that search."
+            : "No in-progress or today's jobs — search to find one."}
+        </p>
+      ) : (
+        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+          {rows.map((job: any) => {
+            const isActive = activeJob?.id === job.id;
+            const isToday = String(job.date || "").slice(0, 10) === today;
+            const pill =
+              job.status === "IN_PROGRESS"
+                ? { txt: "In Progress", cls: "bg-forest-500/15 text-forest-400 border-forest-500/30" }
+                : isToday
+                ? { txt: "Today", cls: "bg-amber-500/15 text-amber-400 border-amber-500/30" }
+                : {
+                    txt: String(job.date || "").slice(0, 10) || job.status || "—",
+                    cls: "bg-white/5 text-zinc-400 border-white/10",
+                  };
+            return (
+              <button
+                key={job.id}
+                onClick={() => onPick(job)}
+                className={`w-full text-left rounded-xl border px-4 py-3 min-h-[56px] transition-colors ${
+                  isActive
+                    ? "bg-forest-500/15 border-forest-500/40"
+                    : "bg-white/5 hover:bg-white/10 border-white/5"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-bold leading-tight truncate">
+                      {job.title || job.client || "Untitled job"}
+                    </p>
+                    {job.client && job.title && (
+                      <p className="text-zinc-500 text-xs truncate mt-0.5">{job.client}</p>
+                    )}
+                  </div>
+                  <span
+                    className={`shrink-0 text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border ${pill.cls}`}
+                  >
+                    {pill.txt}
+                  </span>
+                  {isActive && (
+                    <CheckCircle2 size={16} className="text-forest-400 shrink-0" />
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Action hydration + execution helpers
 // ---------------------------------------------------------------------------
 function hydrateAction(a: any, idx: number, catalog: any[]) {
@@ -455,9 +704,16 @@ async function executeAction(action: any, ctx: { activeJob: any; catalog: any[] 
   const { activeJob } = ctx;
   switch (action.type) {
     // CLOSE JOB -> mark COMPLETED, undo reopens to previous status.
+    // Refuses without an explicitly-picked job — never closes a guessed one.
     case "close_job": {
       if (!activeJob?.id) {
-        return { id: action.id, type: action.type, title: action.title, detail: "No job linked", ok: false };
+        return {
+          id: action.id,
+          type: action.type,
+          title: action.title || "Close job",
+          detail: "No job picked — choose the job above, then run this again",
+          ok: false,
+        };
       }
       const prevStatus = activeJob.status || "IN_PROGRESS";
       await jobsRepo.update(activeJob.id, { status: "COMPLETED" });
@@ -478,8 +734,20 @@ async function executeAction(action: any, ctx: { activeJob: any; catalog: any[] 
       };
     }
 
-    // INVOICE -> create sent invoice; undo voids it (status draft, best-effort remove).
+    // INVOICE -> create a DRAFT invoice for the picked job's customer. Nothing
+    // is delivered here, so we never claim "sent" — the done screen links to
+    // /admin/invoices to review + send. Refuses without a picked job.
     case "invoice": {
+      if (!activeJob?.id) {
+        return {
+          id: action.id,
+          type: action.type,
+          title: action.title || "Invoice",
+          detail: "No job picked — choose who to bill above, then run this again",
+          ok: false,
+        };
+      }
+      const customer = activeJob.client || activeJob.title || "customer";
       const total =
         action.total != null
           ? Number(action.total)
@@ -487,21 +755,21 @@ async function executeAction(action: any, ctx: { activeJob: any; catalog: any[] 
       const created = await invoicesRepo.create({
         amount: total,
         items: action.lineItems || [],
-        status: "sent",
-        data: { client: activeJob?.client || activeJob?.title || "" },
+        status: "draft",
+        data: { client: customer, jobId: activeJob.id },
       });
       return {
         id: action.id,
         type: action.type,
-        title: action.title || "Invoice sent",
-        detail: `$${total.toFixed(2)}`,
+        title: `Invoice drafted for ${customer}`,
+        detail: `$${total.toFixed(2)} · not sent yet — review & send from Invoices`,
         ok: true,
         undo: async () => {
           try {
             await invoicesRepo.remove(created.id);
           } catch {
             // Fall back to voiding if delete is blocked.
-            await invoicesRepo.update(created.id, { status: "draft" });
+            await invoicesRepo.update(created.id, { status: "void" });
           }
         },
       };

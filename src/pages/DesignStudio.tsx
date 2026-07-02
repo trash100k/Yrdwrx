@@ -45,6 +45,7 @@ import MarkupCanvas from "../components/MarkupCanvas";
 import BeforeAfterSlider from "../components/BeforeAfterSlider";
 import Design3D from "../components/Design3D";
 import { designVisionsRepo, designCatalogRepo, customersRepo } from "../lib/repos";
+import { uploadPhoto, getPhotoUrl, deletePhoto } from "../lib/photoStorage";
 import { auth } from "../lib/firebase";
 import { playVoice } from "../lib/playVoice";
 import { burnAiVizBadge } from "../lib/aiVizBadge";
@@ -792,6 +793,26 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     if (!result) return;
     setIsSavingVision(true);
     try {
+      // Row-bloat fix: push the base64 before/after images to Supabase Storage and
+      // persist the small storage paths instead of megabyte data URLs. If an upload
+      // fails (e.g. offline), fall back to persisting the inline base64 exactly as
+      // before so saving a vision never breaks; legacy rows keep rendering either way.
+      let beforeRef: string | null = image;
+      let afterRef: string | null = mockupImage;
+      if (image && image.startsWith("data:")) {
+        try {
+          beforeRef = await uploadPhoto(image, { ext: "jpg" });
+        } catch {
+          beforeRef = image;
+        }
+      }
+      if (mockupImage && mockupImage.startsWith("data:")) {
+        try {
+          afterRef = await uploadPhoto(mockupImage, { ext: "jpg" });
+        } catch {
+          afterRef = mockupImage;
+        }
+      }
       await designVisionsRepo.create({
         customer_id: activeCustomer?.id ?? null,
         summary: result.visionSummary,
@@ -805,8 +826,8 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
             ts: Date.now(),
           }),
         },
-        before_url: image,
-        after_url: mockupImage,
+        before_url: beforeRef,
+        after_url: afterRef,
       });
       showToast("Design vision saved to quote.", "success");
     } catch (err) {
@@ -1000,13 +1021,45 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     };
   }, [activeCustomer?.id, isSavingVision]);
 
-  const reopenVision = (v: any) => {
+  // Resolve a persisted image ref (Storage path on new rows, inline data:/http(s)
+  // URL on legacy rows) into a working image for the studio. Storage paths become
+  // signed URLs via getPhotoUrl; we then best-effort rehydrate to a data URL because
+  // downstream flows (re-render, Refine, proposal PDF, the download button) send the
+  // working image inline to the server. If rehydration fails, the signed URL still
+  // renders in <img>/the compare slider.
+  const resolveVisionImage = async (ref: string | null): Promise<string | null> => {
+    if (!ref) return null;
+    let url = ref;
+    try {
+      url = await getPhotoUrl(ref);
+    } catch {
+      return ref; // offline / signing failed — legacy inline base64 still renders
+    }
+    if (url.startsWith("data:")) return url; // legacy row passthrough
+    try {
+      const blob = await (await fetch(url)).blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return url;
+    }
+  };
+
+  const reopenVision = async (v: any) => {
     if (!v) return;
     // Loading a saved vision replaces context — drop any pending Refine merge.
     refineContextRef.current = null;
     setResult(v.proposal || null);
-    setImage(v.beforeUrl || null);
-    setMockupImage(v.afterUrl || null);
+    const [before, after] = await Promise.all([
+      resolveVisionImage(v.beforeUrl || null),
+      resolveVisionImage(v.afterUrl || null),
+    ]);
+    setImage(before);
+    setMockupImage(after);
     showToast("Loaded saved vision.", "success");
   };
 
@@ -1014,6 +1067,11 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     if (!v?.id) return;
     try {
       await designVisionsRepo.remove(v.id);
+      // Best-effort Storage cleanup — deletePhoto no-ops for legacy inline/http refs.
+      await Promise.all([
+        v.beforeUrl ? deletePhoto(v.beforeUrl).catch(() => {}) : Promise.resolve(),
+        v.afterUrl ? deletePhoto(v.afterUrl).catch(() => {}) : Promise.resolve(),
+      ]);
       setSavedVisions((prev) => prev.filter((row) => row.id !== v.id));
       showToast("Saved design removed.", "success");
     } catch (e) {

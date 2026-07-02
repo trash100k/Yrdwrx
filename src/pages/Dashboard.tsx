@@ -3,11 +3,12 @@ import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
 // @ts-nocheck
 import { Link } from "react-router-dom";
-import React, { useState, useEffect, Suspense, lazy } from "react";
+import React, { useState, useEffect, useMemo, Suspense, lazy } from "react";
 import QuickActionMacros from "../components/QuickActionMacros";
 import { motion, AnimatePresence } from "motion/react";
 import WidgetConfigurator from "../components/WidgetConfigurator";
 import { crewsRepo, leadsRepo, vendorsRepo, invoicesRepo, customersRepo } from "../lib/repos";
+import { supabase } from "../lib/supabase";
 import { auth } from "../lib/firebase";
 import {
   CloudRain,
@@ -224,12 +225,88 @@ export default function Dashboard() {
     };
   }, []);
 
+  // Setup checklist — customers/jobs aren't subscribed by this page, so pull two
+  // lightweight head-counts (RLS-scoped) instead of full lists. Invoices reuse the
+  // live `invoices` state above; the tenant name comes from TenantContext.
+  const [setupCounts, setSetupCounts] = useState<{ customers: number; jobs: number } | null>(null);
+  const [setupDismissed, setSetupDismissed] = useState(
+    () => safeStorage.getItem("yw_setup_checklist_dismissed") === "true",
+  );
+
+  useEffect(() => {
+    if (setupDismissed) return;
+    let active = true;
+    Promise.all([
+      supabase.from("customers").select("id", { count: "exact", head: true }).eq("is_archived", false),
+      supabase.from("jobs").select("id", { count: "exact", head: true }),
+    ])
+      .then(([c, j]) => {
+        if (!active) return;
+        setSetupCounts({ customers: c?.count ?? 0, jobs: j?.count ?? 0 });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [setupDismissed]);
+
+  const dismissSetupChecklist = () => {
+    safeStorage.setItem("yw_setup_checklist_dismissed", "true");
+    setSetupDismissed(true);
+  };
+
   // Real revenue series + MTD totals from paid invoices (null => no paid data yet, the
-  // EarningsWidget falls back to its labeled sample).
-  const earnings = computeEarnings(invoices);
-  const analytics = computeAnalytics(invoices, crews, hotLeads);
-  const topServices = computeTopServices(invoices);
-  const alerts = computeAlerts(invoices, hotLeads);
+  // EarningsWidget falls back to its labeled sample). All four aggregates are multi-pass
+  // filter/reduce/sort chains over the live arrays — memoized so they only recompute when
+  // the underlying collections actually change, not on every keystroke/modal re-render.
+  const earnings = useMemo(() => computeEarnings(invoices), [invoices]);
+  const analytics = useMemo(() => computeAnalytics(invoices, crews, hotLeads), [invoices, crews, hotLeads]);
+  const topServices = useMemo(() => computeTopServices(invoices), [invoices]);
+  const alerts = useMemo(() => computeAlerts(invoices, hotLeads), [invoices, hotLeads]);
+
+  // "Next best step" onboarding rows — done-state comes from real data.
+  const setupSteps = useMemo(
+    () => [
+      {
+        id: "customer",
+        label: "Add your first customer",
+        done: (setupCounts?.customers ?? 0) > 0,
+        to: "/admin/crm?create=client",
+        icon: UserPlus,
+      },
+      {
+        id: "job",
+        label: "Schedule your first job",
+        done: (setupCounts?.jobs ?? 0) > 0,
+        to: "/admin/scheduler?create=job",
+        icon: Calendar,
+      },
+      {
+        id: "invoice",
+        label: "Send your first invoice",
+        done: invoices.length > 0,
+        to: "/admin/invoices?create=invoice",
+        icon: ReceiptText,
+      },
+      {
+        id: "defaults",
+        label: "Set your business defaults",
+        done: Boolean(String(tenant?.name || "").trim()),
+        to: "/admin/settings",
+        icon: Settings,
+      },
+    ],
+    [setupCounts, invoices.length, tenant?.name],
+  );
+  const setupDoneCount = setupSteps.filter((s) => s.done).length;
+  // Owner/admin only (the deep-links target the /admin portal). Hidden while dismissed,
+  // before the counts land (no flash of wrong state), and auto-hidden once all four
+  // steps are complete.
+  const showSetupChecklist =
+    (role === "admin" || role === "owner") &&
+    !setupDismissed &&
+    setupCounts !== null &&
+    setupDoneCount < setupSteps.length;
 
   
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -487,6 +564,8 @@ export default function Dashboard() {
       setNewClientPhone("");
       setNewClientAddress("");
       setShowAddClient(false);
+      // Reflect the new customer in the setup checklist without a refetch.
+      setSetupCounts((prev) => (prev ? { ...prev, customers: prev.customers + 1 } : prev));
       showToast("Client added and synced to the customer index.");
     } catch (err: any) {
       console.error(err);
@@ -1631,6 +1710,80 @@ export default function Dashboard() {
           All systems normal: {crews.length} working crew{crews.length === 1 ? "" : "s"} on-location in {tenant?.settings?.neighborhoodMask?.[0] || "your service area"}.
         </span>
       </div>
+
+      {/* SETUP CHECKLIST — "next best step" card until the workspace has real data */}
+      {showSetupChecklist && (
+        <div className="relative bg-zinc-950 border border-forest-500/20 molten-edge rounded-2xl p-5 sm:p-6 shadow-xl space-y-4 overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-forest-500/10 blur-[50px] rounded-full pointer-events-none" />
+          <div className="flex items-center justify-between gap-4 relative z-10">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 bg-forest-900/30 border border-forest-500/30 rounded-xl flex items-center justify-center text-forest-400 shrink-0">
+                <Rocket size={16} />
+              </div>
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-[10px] font-bold text-forest-400 uppercase tracking-widest leading-none">
+                  Getting Started
+                </p>
+                <h4 className="text-base font-black text-white tracking-tight uppercase truncate">
+                  Set Up Your Workspace
+                </h4>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="text-xs font-black text-white bg-white/5 border border-white/5 px-2.5 py-1 rounded-full">
+                {setupDoneCount}/{setupSteps.length}
+              </span>
+              <button
+                onClick={dismissSetupChecklist}
+                className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
+                aria-label="Hide setup checklist"
+              >
+                Hide
+              </button>
+            </div>
+          </div>
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden relative z-10">
+            <div
+              className="h-full bg-forest-500 rounded-full transition-all duration-500"
+              style={{ width: `${(setupDoneCount / setupSteps.length) * 100}%` }}
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 relative z-10">
+            {setupSteps.map((step) =>
+              step.done ? (
+                <div
+                  key={step.id}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/5 opacity-60"
+                >
+                  <span className="w-6 h-6 rounded-full bg-forest-500/15 border border-forest-500/30 flex items-center justify-center text-forest-400 shrink-0">
+                    <Check size={12} />
+                  </span>
+                  <span className="text-xs font-bold text-zinc-500 line-through decoration-zinc-600">
+                    {step.label}
+                  </span>
+                </div>
+              ) : (
+                <Link
+                  key={step.id}
+                  to={step.to}
+                  className="group flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/5 hover:border-forest-500/40 hover:bg-forest-500/5 transition-all cursor-pointer"
+                >
+                  <span className="flex items-center gap-3 min-w-0">
+                    <span className="w-6 h-6 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 group-hover:text-forest-400 transition-colors shrink-0">
+                      <step.icon size={12} />
+                    </span>
+                    <span className="text-xs font-bold text-white truncate">{step.label}</span>
+                  </span>
+                  <ArrowRight
+                    size={14}
+                    className="text-zinc-600 group-hover:text-forest-400 group-hover:translate-x-0.5 transition-all shrink-0"
+                  />
+                </Link>
+              ),
+            )}
+          </div>
+        </div>
+      )}
 
         {activeTab === "cockpit" ? (
         <section className="space-y-12">

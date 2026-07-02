@@ -1336,7 +1336,17 @@ Triaged into waves. [x] = already landed this sprint.
 - [x] CuttyChat: add the high-risk confirm gate to the TEXT agent too (parity with LiveEar); fix hair-trigger schedule keyword (interrogative guard so "what's on the schedule?" can't create a job) + follow-up suggestion chips.
 - [x] CrewSuite: UPDATE_CREW_STATUS dictation persists (currently says "logged", saves nothing).
 - [ ] Closeout: honest invoice delivery + link to customer; job picker (don't bill arbitrary active job).
-- [ ] server.ts: shared fetchWithTimeout(AbortSignal) helper across the config-gated integration routes (residual from the outbound-timeout item above).
+- [x] server.ts: shared fetchWithTimeout(AbortSignal.timeout) helper wired into ALL ~30 raw outbound fetches (Google APIs, weather, QBO, Resend, GBP, webhook dispatch, video download w/ 180s budget). Replaced the leaky Promise.race timeout too.
+
+### White-hot sellability wave (server + DB, solo lane)
+- [x] Live Ear speaks as the TENANT's business (settings.businessName/tenants.name interpolated into the Live system prompt) — no more hardcoded legacy "Meridian Green" brand read aloud to customers.
+- [x] /api/workflows/weather + /irrigation: city from request/DEFAULT_WEATHER_CITY (was hardcoded "Meridian" — every tenant got Mississippi weather).
+- [x] /api/workflows/followup: real recipient required (was client@example.com), tenant identity + real review URL, escaped interpolation.
+- [x] /api/workflows/generate-invoice-pdf: renders the CALLER's invoice under the tenant letterhead, all user data HTML-escaped before Puppeteer (was a fabricated $3,050 demo invoice from a fake letterhead emailed to client@example.com).
+- [x] Demo seeder stamps data.isSample on every row (customers/jobs/crews/leads/vendors/inventory/invoices) so sample data is labeled + one-tap clearable.
+- [x] Supabase Storage: private "photos" bucket + per-tenant folder RLS (select/insert/update/delete) — base64→Storage migration target.
+- [x] Supabase perf migration: split all 28 "<t>_write" FOR ALL policies into insert/update/delete-only (SELECT now evaluates ONE policy), wrapped auth helpers in initplan subselects, scoped policies TO authenticated, indexed 11 unindexed FKs. Advisors: 0 security lints; 146 multiple-permissive + 4 initplan warns cleared. Verified with a live 2-tenant RLS simulation (6/6 isolation checks pass).
+- [x] .env.example: DEFAULT_WEATHER_CITY, GEMINI_TIMEOUT_MS, LIVE_MAX_CONNECTIONS documented.
 
 ### Wave 3 — walkthrough "don't make me think" wow
 - [x] Quick Create deep-links into prefilled open modals — `?create=client|job|invoice` opens the

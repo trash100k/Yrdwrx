@@ -165,6 +165,18 @@ const ai = new GoogleGenAI({
   },
 });
 
+// Bounded outbound fetch for all third-party integration calls (Google Workspace, weather,
+// QuickBooks, Resend, GBP, video download...). A hung upstream must never pin an Express
+// worker — under Cloud Run concurrency 80 one wedged host stalls an entire instance.
+// Respects a caller-provided signal; override the default 15s budget via init.timeoutMs.
+const fetchWithTimeout = (input: any, init: any = {}) => {
+  const { timeoutMs, ...rest } = init || {};
+  return fetch(input, {
+    ...rest,
+    signal: rest.signal ?? AbortSignal.timeout(timeoutMs ?? 15000),
+  });
+};
+
 // Mock the Gemini API generation when running without a key
 if (isMockMode) {
   console.log(
@@ -1110,45 +1122,47 @@ export async function createApp({ startListening = false } = {}) {
       }
 
       // Optional starter dataset so a brand-new owner can see how YardWorx works immediately.
+      // Every seeded row is stamped { isSample: true } inside its `data` jsonb so the client
+      // can identify it and one-tap remove it later (src/lib/sampleData.ts + SampleDataBanner).
       let demoDataLoaded = false;
       if (loadDemoData && tenantId && isOwnerSetup) {
         try {
           const { data: existing } = await sb.from("customers").select("id").eq("tenant_id", tenantId).limit(1);
           if (!existing || existing.length === 0) {
             const { data: custs } = await sb.from("customers").insert([
-              { tenant_id: tenantId, first_name: "Gable", last_name: "Jenkins", email: "gable.jenkins@example.com", phone: "601-555-0123", address: "12 Poplar Springs Dr", status: "active", priority: true, is_hoa: true, ai_score: 94, ai_score_label: "Growth Potential", ai_score_reasoning: "Wants holly swap and irrigation check.", notes: "Specific trimming patterns along the driveway approach.", segment: "Platinum", data: { hoaRules: ["No mowing before 9 AM", "Electric equipment only", "Badge ID required"], propertyDetails: { size: "4.5 acres", grassType: "Bermuda", hasIrrigation: true } } },
-              { tenant_id: tenantId, first_name: "Marcus", last_name: "Pohl", email: "marcus.pohl@example.com", phone: "601-555-9922", address: "442 Pine Grove Rd", status: "active", is_hoa: false, ai_score: 42, ai_score_label: "Maintenance", ai_score_reasoning: "Standard bi-weekly cuts; small lot.", notes: "Gate code 4420. Dog in the back yard sometimes.", segment: "Base", data: { propertyDetails: { size: "0.25 acres", grassType: "Fescue", hasPets: true }, gateCode: "4420" } },
-              { tenant_id: tenantId, company_name: "Cedar Ridge HOA", email: "board@cedarridge.org", phone: "601-555-0103", address: "Cedar Ridge Community", status: "lead", is_hoa: true, ai_score: 82, ai_score_label: "New Lead", notes: "Requested a quote for noise-compliant electric clearing." },
+              { tenant_id: tenantId, first_name: "Gable", last_name: "Jenkins", email: "gable.jenkins@example.com", phone: "601-555-0123", address: "12 Poplar Springs Dr", status: "active", priority: true, is_hoa: true, ai_score: 94, ai_score_label: "Growth Potential", ai_score_reasoning: "Wants holly swap and irrigation check.", notes: "Specific trimming patterns along the driveway approach.", segment: "Platinum", data: { isSample: true, hoaRules: ["No mowing before 9 AM", "Electric equipment only", "Badge ID required"], propertyDetails: { size: "4.5 acres", grassType: "Bermuda", hasIrrigation: true } } },
+              { tenant_id: tenantId, first_name: "Marcus", last_name: "Pohl", email: "marcus.pohl@example.com", phone: "601-555-9922", address: "442 Pine Grove Rd", status: "active", is_hoa: false, ai_score: 42, ai_score_label: "Maintenance", ai_score_reasoning: "Standard bi-weekly cuts; small lot.", notes: "Gate code 4420. Dog in the back yard sometimes.", segment: "Base", data: { isSample: true, propertyDetails: { size: "0.25 acres", grassType: "Fescue", hasPets: true }, gateCode: "4420" } },
+              { tenant_id: tenantId, company_name: "Cedar Ridge HOA", email: "board@cedarridge.org", phone: "601-555-0103", address: "Cedar Ridge Community", status: "lead", is_hoa: true, ai_score: 82, ai_score_label: "New Lead", notes: "Requested a quote for noise-compliant electric clearing.", data: { isSample: true } },
             ]).select();
             const c0 = custs?.[0]?.id || null;
             const c1 = custs?.[1]?.id || null;
             await sb.from("jobs").insert([
-              { tenant_id: tenantId, customer_id: c0, title: "HOA Weekly Mow & Edge", status: "SCHEDULED", date: new Date(Date.now() + 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { client: "Gable Jenkins" } },
-              { tenant_id: tenantId, customer_id: c1, title: "Bi-Weekly Maintenance", status: "IN_PROGRESS", date: new Date().toISOString(), address: "442 Pine Grove Rd", progress: 40, data: { client: "Marcus Pohl" } },
-              { tenant_id: tenantId, customer_id: c0, title: "Spring Cleanup", status: "COMPLETED", date: new Date(Date.now() - 7 * 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { client: "Gable Jenkins", snapshotNotes: "Beds mulched, hollies trimmed, irrigation checked." } },
+              { tenant_id: tenantId, customer_id: c0, title: "HOA Weekly Mow & Edge", status: "SCHEDULED", date: new Date(Date.now() + 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { isSample: true, client: "Gable Jenkins" } },
+              { tenant_id: tenantId, customer_id: c1, title: "Bi-Weekly Maintenance", status: "IN_PROGRESS", date: new Date().toISOString(), address: "442 Pine Grove Rd", progress: 40, data: { isSample: true, client: "Marcus Pohl" } },
+              { tenant_id: tenantId, customer_id: c0, title: "Spring Cleanup", status: "COMPLETED", date: new Date(Date.now() - 7 * 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { isSample: true, client: "Gable Jenkins", snapshotNotes: "Beds mulched, hollies trimmed, irrigation checked." } },
             ]);
             await sb.from("crews").insert([
-              { tenant_id: tenantId, name: "Alpha Crew", status: "ON_SITE", leader: "Davis", equip: "Zero-Turn #4", phone: "601-555-0101", job: "Arbor Lakes HOA", progress: 65 },
-              { tenant_id: tenantId, name: "Beta Crew", status: "TRANSPORT", leader: "Miller", equip: "F-250 + trailer", phone: "601-555-0102", job: "Schmidt Residence", progress: 10 },
+              { tenant_id: tenantId, name: "Alpha Crew", status: "ON_SITE", leader: "Davis", equip: "Zero-Turn #4", phone: "601-555-0101", job: "Arbor Lakes HOA", progress: 65, data: { isSample: true } },
+              { tenant_id: tenantId, name: "Beta Crew", status: "TRANSPORT", leader: "Miller", equip: "F-250 + trailer", phone: "601-555-0102", job: "Schmidt Residence", progress: 10, data: { isSample: true } },
             ]);
             await sb.from("leads").insert([
-              { tenant_id: tenantId, name: "Regency Senior Care", address: "120 Poplar Springs Dr", prop_size: "4.5 acres", match_reason: "High upsell potential for turf irrigation.", score: 95 },
-              { tenant_id: tenantId, name: "Governor Hills HOA Office", address: "492 Hills Ct", prop_size: "2.8 acres", match_reason: "Needs a noise-compliant electric clearing quote.", score: 82 },
+              { tenant_id: tenantId, name: "Regency Senior Care", address: "120 Poplar Springs Dr", prop_size: "4.5 acres", match_reason: "High upsell potential for turf irrigation.", score: 95, data: { isSample: true } },
+              { tenant_id: tenantId, name: "Governor Hills HOA Office", address: "492 Hills Ct", prop_size: "2.8 acres", match_reason: "Needs a noise-compliant electric clearing quote.", score: 82, data: { isSample: true } },
             ]);
             await sb.from("vendors").insert([
-              { tenant_id: tenantId, name: "Local Supply & Mulch", category: "Materials", status: "ACTIVE", contact: "Bob H.", next_delivery: "Mon 8:00 AM" },
-              { tenant_id: tenantId, name: "Southern Agronomics", category: "Chemicals", status: "ACTIVE", contact: "Sarah J.", next_delivery: "Wed 10:30 AM" },
+              { tenant_id: tenantId, name: "Local Supply & Mulch", category: "Materials", status: "ACTIVE", contact: "Bob H.", next_delivery: "Mon 8:00 AM", data: { isSample: true } },
+              { tenant_id: tenantId, name: "Southern Agronomics", category: "Chemicals", status: "ACTIVE", contact: "Sarah J.", next_delivery: "Wed 10:30 AM", data: { isSample: true } },
             ]);
             await sb.from("inventory").insert([
-              { tenant_id: tenantId, name: "Double-Shredded Hardwood Mulch", category: "Mulch/Soil", quantity: 80, min_threshold: 15, unit: "yards", sku: "MUL-HW-DS" },
-              { tenant_id: tenantId, name: "Limelight Hydrangea (3-Gallon)", category: "Shrubs", quantity: 45, min_threshold: 15, unit: "pots", sku: "HYD-LIM-3G" },
-              { tenant_id: tenantId, name: "Muhly Grass (1-Gallon)", category: "Grasses", quantity: 120, min_threshold: 30, unit: "pots", sku: "MUH-GR-1G" },
-              { tenant_id: tenantId, name: "Fertilizer 24-0-6", category: "Consumables", quantity: 12, min_threshold: 5, unit: "bags", sku: "FERT-2406" },
-              { tenant_id: tenantId, name: "Mower Fuel", category: "Fuel", quantity: 20, min_threshold: 10, unit: "gallons", sku: "FUEL-87" },
+              { tenant_id: tenantId, name: "Double-Shredded Hardwood Mulch", category: "Mulch/Soil", quantity: 80, min_threshold: 15, unit: "yards", sku: "MUL-HW-DS", data: { isSample: true } },
+              { tenant_id: tenantId, name: "Limelight Hydrangea (3-Gallon)", category: "Shrubs", quantity: 45, min_threshold: 15, unit: "pots", sku: "HYD-LIM-3G", data: { isSample: true } },
+              { tenant_id: tenantId, name: "Muhly Grass (1-Gallon)", category: "Grasses", quantity: 120, min_threshold: 30, unit: "pots", sku: "MUH-GR-1G", data: { isSample: true } },
+              { tenant_id: tenantId, name: "Fertilizer 24-0-6", category: "Consumables", quantity: 12, min_threshold: 5, unit: "bags", sku: "FERT-2406", data: { isSample: true } },
+              { tenant_id: tenantId, name: "Mower Fuel", category: "Fuel", quantity: 20, min_threshold: 10, unit: "gallons", sku: "FUEL-87", data: { isSample: true } },
             ]);
             if (c0) await sb.from("invoices").insert([
-              { tenant_id: tenantId, customer_id: c0, amount: 280, status: "sent", items: [{ description: "Spring Cleanup", quantity: 1, rate: 280 }], data: { client: "Gable Jenkins" } },
-              { tenant_id: tenantId, customer_id: c1, amount: 150, status: "paid", items: [{ description: "Bi-Weekly Maintenance", quantity: 1, rate: 150 }], data: { client: "Marcus Pohl" } },
+              { tenant_id: tenantId, customer_id: c0, amount: 280, status: "sent", items: [{ description: "Spring Cleanup", quantity: 1, rate: 280 }], data: { isSample: true, client: "Gable Jenkins" } },
+              { tenant_id: tenantId, customer_id: c1, amount: 150, status: "paid", items: [{ description: "Bi-Weekly Maintenance", quantity: 1, rate: 150 }], data: { isSample: true, client: "Marcus Pohl" } },
             ]);
             demoDataLoaded = true;
           }
@@ -1328,7 +1342,7 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/workflows/proposal", async (req, res) => {
     try {
       if (!process.env.GEMINI_API_KEY) throw new Error("Missing Gemini key");
-      const draftRes = await fetch(
+      const draftRes = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
@@ -1363,7 +1377,7 @@ export async function createApp({ startListening = false } = {}) {
       }
 
       // 1. Create Doc
-      const docRes = await fetch("https://docs.googleapis.com/v1/documents", {
+      const docRes = await fetchWithTimeout("https://docs.googleapis.com/v1/documents", {
         method: "POST",
         headers: {
           Authorization: authHeader,
@@ -1377,7 +1391,7 @@ export async function createApp({ startListening = false } = {}) {
 
       // 2. Insert text
       if (docData.documentId) {
-        await fetch(
+        await fetchWithTimeout(
           `https://docs.googleapis.com/v1/documents/${docData.documentId}:batchUpdate`,
           {
             method: "POST",
@@ -1408,8 +1422,11 @@ export async function createApp({ startListening = false } = {}) {
       if (!process.env.OPENWEATHER_API_KEY)
         throw new Error("Missing OpenWeather API Key");
 
-      const weatherRes = await fetch(
-        `http://api.openweathermap.org/data/2.5/weather?q=Meridian&appid=${process.env.OPENWEATHER_API_KEY}`,
+      // City comes from the caller (tenant's service area), falling back to the
+      // deploy-level default — never a hardcoded town.
+      const city = String(req.body?.city || process.env.DEFAULT_WEATHER_CITY || "Austin,US").slice(0, 80);
+      const weatherRes = await fetchWithTimeout(
+        `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${process.env.OPENWEATHER_API_KEY}`,
       );
       const weatherData = await weatherRes.json();
 
@@ -1446,7 +1463,7 @@ export async function createApp({ startListening = false } = {}) {
         lat && lon
           ? `https://api.openweathermap.org/data/2.5/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&units=imperial&appid=${key}`
           : `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=imperial&appid=${key}`;
-      const r = await fetch(url);
+      const r = await fetchWithTimeout(url);
       if (!r.ok) throw new Error("weather upstream " + r.status);
       const d: any = await r.json();
       const main = d?.weather?.[0]?.main || "Clear";
@@ -1483,7 +1500,7 @@ export async function createApp({ startListening = false } = {}) {
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
-      const r = await fetch(url, { signal: controller.signal });
+      const r = await fetchWithTimeout(url, { signal: controller.signal });
       if (!r.ok) throw new Error("geocode upstream " + r.status);
       const d: any = await r.json();
       const first = d?.results?.[0];
@@ -1516,7 +1533,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!process.env.GOOGLE_SHEETS_SPREADSHEET_ID)
         throw new Error("Missing GOOGLE_SHEETS_SPREADSHEET_ID");
 
-      const sheetRes = await fetch(
+      const sheetRes = await fetchWithTimeout(
         `https://sheets.googleapis.com/v4/spreadsheets/${process.env.GOOGLE_SHEETS_SPREADSHEET_ID}/values/Sheet1!A1:append?valueInputOption=USER_ENTERED`,
         {
           method: "POST",
@@ -1555,33 +1572,42 @@ export async function createApp({ startListening = false } = {}) {
       if (!authHeader)
         throw new Error("Missing Google OAuth token in Authorization header");
 
+      // Real recipient + the tenant's real identity — no hardcoded demo brand/address.
+      const to = String(req.body?.to || "").trim();
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))
+        return res.status(400).json({ error: "A valid recipient email ('to') is required." });
+      const esc = (s: any) =>
+        String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const tenant = await resolveTenant(req);
+      const businessName = esc(req.body?.businessName || tenant?.settings?.businessName || tenant?.name || "our team");
+      const reviewUrl = String(req.body?.reviewUrl || tenant?.settings?.googleReviewUrl || "").trim();
+      const footer = esc(req.body?.footer || tenant?.settings?.businessAddress || "");
+
       const htmlBody = `
         <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 8px; border: 1px solid #eaeaec;">
-          <h2 style="color: #1a1a1a; margin-top: 0;">Thank you for choosing Cutty.</h2>
+          <h2 style="color: #1a1a1a; margin-top: 0;">Thank you for choosing ${businessName}.</h2>
           <p style="color: #4a4a4a; line-height: 1.6; font-size: 16px;">
             We appreciate your recent business. Our team is dedicated to providing the highest quality service.
           </p>
-          <div style="margin: 32px 0; padding: 24px; background-color: #f8f9fa; border-radius: 8px;">
+          ${/^https:\/\//.test(reviewUrl) ? `<div style="margin: 32px 0; padding: 24px; background-color: #f8f9fa; border-radius: 8px;">
             <p style="margin: 0; color: #4a4a4a; font-size: 14px; text-align: center;">
               <strong>How did we do?</strong><br>
-              <a href="#" style="color: #2563eb; text-decoration: none; font-weight: bold;">Leave us a review</a>
+              <a href="${esc(reviewUrl)}" style="color: #2563eb; text-decoration: none; font-weight: bold;">Leave us a review</a>
             </p>
-          </div>
-          <p style="color: #888888; font-size: 12px; margin-bottom: 0;">
-            Cutty Operations • Meridian, MS
-          </p>
+          </div>` : ""}
+          ${footer ? `<p style="color: #888888; font-size: 12px; margin-bottom: 0;">${businessName} • ${footer}</p>` : `<p style="color: #888888; font-size: 12px; margin-bottom: 0;">${businessName}</p>`}
         </div>
       `;
 
       const emailRaw = [
-        "To: client@example.com",
+        `To: ${to}`,
         "Subject: Thank you for your business",
         "Content-Type: text/html; charset=utf-8",
         "",
         htmlBody,
       ].join("\n");
 
-      const emailRes = await fetch(
+      const emailRes = await fetchWithTimeout(
         "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send",
         {
           method: "POST",
@@ -1612,7 +1638,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!authHeader)
         throw new Error("Missing Google OAuth token in Authorization header");
 
-      const calRes = await fetch(
+      const calRes = await fetchWithTimeout(
         "https://www.googleapis.com/calendar/v3/calendars/primary/events",
         {
           method: "POST",
@@ -1650,11 +1676,53 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
-  // WORKFLOW: GENERATE INVOICE PDF
+  // WORKFLOW: GENERATE INVOICE PDF — renders the CALLER'S invoice data under the tenant's
+  // real identity and emails it. (This used to render a fully fabricated demo invoice from a
+  // hardcoded fake letterhead to client@example.com — never acceptable against a real inbox.)
   app.post("/api/workflows/generate-invoice-pdf", async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader) throw new Error("Missing OAuth token to dispatch");
+
+      const to = String(req.body?.to || "").trim();
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))
+        return res.status(400).json({ error: "A valid recipient email ('to') is required." });
+      const inv = req.body?.invoice || {};
+      const items = Array.isArray(inv.items) ? inv.items.slice(0, 50) : [];
+      if (!items.length)
+        return res.status(400).json({ error: "invoice.items is required — this route no longer fabricates demo invoices." });
+
+      // Everything user-supplied is escaped before it reaches Puppeteer-rendered HTML.
+      const esc = (s: any) =>
+        String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const money = (n: any) => {
+        const v = Number(n) || 0;
+        return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      };
+      const tenant = await resolveTenant(req);
+      const businessName = esc(inv.businessName || tenant?.settings?.businessName || tenant?.name || "Your Business");
+      const businessLine = esc(inv.businessLine || tenant?.settings?.businessAddress || "");
+      const number = esc(inv.number || "");
+      const client = esc(inv.client || inv.clientName || "");
+      const clientAddress = esc(inv.clientAddress || "");
+      const date = esc(inv.date || new Date().toLocaleDateString("en-US"));
+      const dueDate = esc(inv.dueDate || "");
+      const subtotal = items.reduce((s: number, it: any) => s + (Number(it.rate) || 0) * (Number(it.quantity) || 1), 0);
+      const tax = Number(inv.tax) || 0;
+      const total = subtotal + tax;
+
+      const rows = items
+        .map((it: any) => {
+          const qty = Number(it.quantity) || 1;
+          const rate = Number(it.rate) || 0;
+          return `<tr>
+              <td style="padding: 16px 12px; border-bottom: 1px solid #eee;">${esc(it.description || "Service")}</td>
+              <td style="padding: 16px 12px; text-align: center; border-bottom: 1px solid #eee;">${qty}</td>
+              <td style="padding: 16px 12px; text-align: right; border-bottom: 1px solid #eee;">${money(rate)}</td>
+              <td style="padding: 16px 12px; text-align: right; border-bottom: 1px solid #eee;">${money(qty * rate)}</td>
+            </tr>`;
+        })
+        .join("");
 
       const invoiceHtml = `
         <html>
@@ -1662,25 +1730,25 @@ export async function createApp({ startListening = false } = {}) {
           <div style="max-width: 800px; margin: 0 auto; border: 1px solid #eee; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
             <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 20px; text-transform: uppercase;">
               <div>
-                <h1 style="margin:0; font-size: 32px; font-weight: 900; letter-spacing: -1px;">CUTTY INC.</h1>
-                <p style="margin:5px 0 0 0; font-size: 12px; color: #888;">Meridian, MS • (555) 012-3456</p>
+                <h1 style="margin:0; font-size: 32px; font-weight: 900; letter-spacing: -1px;">${businessName}</h1>
+                ${businessLine ? `<p style="margin:5px 0 0 0; font-size: 12px; color: #888;">${businessLine}</p>` : ""}
               </div>
               <div style="text-align: right;">
                 <h2 style="margin:0; font-size: 24px; color: #666; font-weight: 300;">INVOICE</h2>
-                <p style="margin:5px 0 0 0; font-size: 14px; font-weight: bold;">#INV-2026-904</p>
+                ${number ? `<p style="margin:5px 0 0 0; font-size: 14px; font-weight: bold;">#${number}</p>` : ""}
               </div>
             </div>
-            
+
             <div style="display: flex; justify-content: space-between; margin: 40px 0;">
               <div>
                 <h3 style="margin: 0 0 10px 0; font-size: 12px; color: #888; text-transform: uppercase;">Billed To:</h3>
-                <p style="margin: 0; font-weight: bold;">Sunset Ridge HOA</p>
-                <p style="margin: 5px 0 0 0; font-size: 14px; color: #555;">Attn: Board of Directors<br>100 Sunset Blvd<br>Meridian, MS 39301</p>
+                <p style="margin: 0; font-weight: bold;">${client || "—"}</p>
+                ${clientAddress ? `<p style="margin: 5px 0 0 0; font-size: 14px; color: #555;">${clientAddress}</p>` : ""}
               </div>
               <div style="text-align: right;">
                 <h3 style="margin: 0 0 10px 0; font-size: 12px; color: #888; text-transform: uppercase;">Details:</h3>
-                <p style="margin: 0; font-size: 14px;"><strong>Date:</strong> May 24, 2026</p>
-                <p style="margin: 5px 0 0 0; font-size: 14px;"><strong>Due Date:</strong> June 23, 2026</p>
+                <p style="margin: 0; font-size: 14px;"><strong>Date:</strong> ${date}</p>
+                ${dueDate ? `<p style="margin: 5px 0 0 0; font-size: 14px;"><strong>Due Date:</strong> ${dueDate}</p>` : ""}
               </div>
             </div>
 
@@ -1693,30 +1761,17 @@ export async function createApp({ startListening = false } = {}) {
                   <th style="padding: 12px; text-align: right; border-bottom: 1px solid #ddd;">Amount</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr>
-                  <td style="padding: 16px 12px; border-bottom: 1px solid #eee;">Premium Mowing & Trim (Monthly)</td>
-                  <td style="padding: 16px 12px; text-align: center; border-bottom: 1px solid #eee;">1</td>
-                  <td style="padding: 16px 12px; text-align: right; border-bottom: 1px solid #eee;">$2,400.00</td>
-                  <td style="padding: 16px 12px; text-align: right; border-bottom: 1px solid #eee;">$2,400.00</td>
-                </tr>
-                <tr>
-                  <td style="padding: 16px 12px; border-bottom: 1px solid #eee;">Spring Aeration & Overseeding</td>
-                  <td style="padding: 16px 12px; text-align: center; border-bottom: 1px solid #eee;">1</td>
-                  <td style="padding: 16px 12px; text-align: right; border-bottom: 1px solid #eee;">$650.00</td>
-                  <td style="padding: 16px 12px; text-align: right; border-bottom: 1px solid #eee;">$650.00</td>
-                </tr>
-              </tbody>
+              <tbody>${rows}</tbody>
             </table>
 
             <div style="display: flex; justify-content: space-between; border-top: 2px solid #000; padding-top: 20px;">
               <div style="width: 50%;">
-                <p style="margin: 0; font-size: 12px; color: #888;">Note: Thank you for your continued partnership. Please make checks payable to "Cutty Inc".</p>
+                <p style="margin: 0; font-size: 12px; color: #888;">${esc(inv.note || "Thank you for your business.")}</p>
               </div>
               <div style="width: 40%; text-align: right;">
-                <p style="margin: 0 0 10px 0; font-size: 14px;">Subtotal: <span style="font-weight: bold;">$3,050.00</span></p>
-                <p style="margin: 0 0 15px 0; font-size: 14px; color: #888;">Tax: <span style="font-weight: bold;">$0.00</span></p>
-                <h3 style="margin: 0; font-size: 24px; font-weight: 900;">Total: $3,050.00</h3>
+                <p style="margin: 0 0 10px 0; font-size: 14px;">Subtotal: <span style="font-weight: bold;">${money(subtotal)}</span></p>
+                <p style="margin: 0 0 15px 0; font-size: 14px; color: #888;">Tax: <span style="font-weight: bold;">${money(tax)}</span></p>
+                <h3 style="margin: 0; font-size: 24px; font-weight: 900;">Total: ${money(total)}</h3>
               </div>
             </div>
           </div>
@@ -1727,17 +1782,17 @@ export async function createApp({ startListening = false } = {}) {
       const pdfBuffer = await renderPdf(invoiceHtml);
 
       // Dispatch to Gmail as attachment
-      const boundary = "cutty_boundary_" + Date.now().toString(16);
+      const boundary = "yw_boundary_" + Date.now().toString(16);
       const emailRaw = [
-        "To: client@example.com",
-        "Subject: Your Monthly Invoice - Cutty Inc.",
+        `To: ${to}`,
+        `Subject: ${number ? `Invoice #${number}` : "Your invoice"} — ${businessName}`,
         "MIME-Version: 1.0",
         `Content-Type: multipart/mixed; boundary="${boundary}"`,
         "",
         `--${boundary}`,
         "Content-Type: text/html; charset=utf-8",
         "",
-        "<p>Hello,</p><p>Please find attached your invoice for this month's service.</p><p>Thank you,<br>Cutty Operations</p>",
+        `<p>Hello,</p><p>Please find attached your invoice${client ? ` for ${client}` : ""}.</p><p>Thank you,<br>${businessName}</p>`,
         "",
         `--${boundary}`,
         'Content-Type: application/pdf; name="Invoice.pdf"',
@@ -1750,7 +1805,7 @@ export async function createApp({ startListening = false } = {}) {
         "",
       ].join("\r\n");
 
-      const emailRes = await fetch(
+      const emailRes = await fetchWithTimeout(
         "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send",
         {
           method: "POST",
@@ -1768,7 +1823,7 @@ export async function createApp({ startListening = false } = {}) {
 
       res.json({
         message:
-          "Beautiful Invoice PDF generated and dispatched successfully via Gmail.",
+          "Invoice PDF generated and emailed.",
       });
     } catch (e: any) {
       res
@@ -1783,7 +1838,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!process.env.GEMINI_API_KEY)
         throw new Error("Missing Gemini API Key");
 
-      const draftRes = await fetch(
+      const draftRes = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
@@ -1822,7 +1877,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       if (!process.env.GEMINI_API_KEY)
         throw new Error("Missing Gemini API Key for generation");
-      const draftRes = await fetch(
+      const draftRes = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
@@ -1857,7 +1912,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!process.env.GOOGLE_SHEETS_SPREADSHEET_ID)
         throw new Error("Missing GOOGLE_SHEETS_SPREADSHEET_ID");
 
-      const sheetRes = await fetch(
+      const sheetRes = await fetchWithTimeout(
         `https://sheets.googleapis.com/v4/spreadsheets/${process.env.GOOGLE_SHEETS_SPREADSHEET_ID}/values/ChemicalLog!A1:append?valueInputOption=USER_ENTERED`,
         {
           method: "POST",
@@ -1896,7 +1951,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!process.env.GEMINI_API_KEY)
         throw new Error("Missing Gemini API Key for payroll audit");
 
-      const draftRes = await fetch(
+      const draftRes = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
@@ -1945,7 +2000,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!authHeader)
         throw new Error("Missing Google Workspace token for onboarding");
 
-      const emailRes = await fetch(
+      const emailRes = await fetchWithTimeout(
         "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send",
         {
           method: "POST",
@@ -1994,7 +2049,7 @@ export async function createApp({ startListening = false } = {}) {
         location: { latLng: { latitude: wp.lat, longitude: wp.lng } }
       }));
 
-      const routingRes = await fetch(
+      const routingRes = await fetchWithTimeout(
         `https://routes.googleapis.com/directions/v2:computeRoutes`,
         {
           method: "POST",
@@ -2036,8 +2091,9 @@ export async function createApp({ startListening = false } = {}) {
     try {
       if (!process.env.OPENWEATHER_API_KEY)
         throw new Error("Missing OpenWeather API Key");
-      const weatherRes = await fetch(
-        `http://api.openweathermap.org/data/2.5/forecast?q=Meridian&appid=${process.env.OPENWEATHER_API_KEY}`,
+      const city = String(req.body?.city || process.env.DEFAULT_WEATHER_CITY || "Austin,US").slice(0, 80);
+      const weatherRes = await fetchWithTimeout(
+        `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(city)}&appid=${process.env.OPENWEATHER_API_KEY}`,
       );
       if (!weatherRes.ok) throw new Error("OpenWeather fetch failed");
       res.json({ message: "Forecast fetched and parsed via OpenWeather API." });
@@ -2300,7 +2356,7 @@ export async function createApp({ startListening = false } = {}) {
     if (!integ.refresh_token || !cfg.configured) return integ.access_token || null;
     const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
     const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: integ.refresh_token });
-    const r = await fetch(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
+    const r = await fetchWithTimeout(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
     if (!r.ok) return integ.access_token || null;
     const tok = await r.json();
     const sb = getServiceSupabase();
@@ -2334,7 +2390,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
       const body = new URLSearchParams({ grant_type: "authorization_code", code: String(code), redirect_uri: cfg.redirectUri });
-      const r = await fetch(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
+      const r = await fetchWithTimeout(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
       if (!r.ok) throw new Error(`Token exchange failed (${r.status})`);
       const tok = await r.json();
       const sb = getServiceSupabase();
@@ -2368,7 +2424,7 @@ export async function createApp({ startListening = false } = {}) {
       for (const c of customers || []) {
         const displayName = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.company_name || c.email || "Customer";
         const payload: any = { DisplayName: displayName, PrimaryEmailAddr: c.email ? { Address: c.email } : undefined, PrimaryPhone: c.phone ? { FreeFormNumber: c.phone } : undefined };
-        const r = await fetch(`${cfg.apiBase}/v3/company/${integ.realm_id}/customer`, {
+        const r = await fetchWithTimeout(`${cfg.apiBase}/v3/company/${integ.realm_id}/customer`, {
           method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload),
         });
         if (r.ok) synced++; else errors.push(`${displayName}: ${r.status}`);
@@ -2771,7 +2827,7 @@ export async function createApp({ startListening = false } = {}) {
 
       let rawText = "";
       try {
-          const fetchRes = await fetch(url, { redirect: 'error' });
+          const fetchRes = await fetchWithTimeout(url, { redirect: 'error' });
           rawText = await fetchRes.text();
           rawText = rawText.replace(/<[^>]*>?/gm, ' ').slice(0, 10000); // Rudimentary tag stripping to fit in context window
       } catch (fetchErr) {
@@ -3928,8 +3984,11 @@ export async function createApp({ startListening = false } = {}) {
             return res.status(404).json({ error: "Video not found or not done" });
          }
          const uri = updated.response.generatedVideos[0].video.uri;
-         const videoRes = await fetch(uri, {
+         // Streaming a generated MP4 — give it a long budget (the abort covers the whole
+         // body stream, not just headers; the 15s default would truncate large videos).
+         const videoRes = await fetchWithTimeout(uri, {
            headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY! },
+           timeoutMs: 180000,
          });
          res.setHeader('Content-Type', 'video/mp4');
          if (videoRes.body) {
@@ -4116,7 +4175,7 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/integration/keep", async (req, res) => {
     try {
       const { accessToken, title, body } = req.body;
-      const keepRes = await fetch("https://keep.googleapis.com/v1/notes", {
+      const keepRes = await fetchWithTimeout("https://keep.googleapis.com/v1/notes", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
@@ -4142,7 +4201,7 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const { accessToken, query } = req.body;
       const params = new URLSearchParams({ q: query || "", maxResults: "5" });
-      const gmailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, {
+      const gmailRes = await fetchWithTimeout(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, {
         headers: { "Authorization": `Bearer ${accessToken}` }
       });
       if (!gmailRes.ok) throw new Error(await gmailRes.text());
@@ -4151,7 +4210,7 @@ export async function createApp({ startListening = false } = {}) {
       const messages = [];
       if (data.messages) {
         for (const msg of data.messages) {
-          const detailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
+          const detailRes = await fetchWithTimeout(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
              headers: { "Authorization": `Bearer ${accessToken}` }
           });
           if (detailRes.ok) {
@@ -4172,7 +4231,7 @@ export async function createApp({ startListening = false } = {}) {
       const { accessToken, spaceName, message } = req.body;
       // Google Chat API requires specific OAuth scopes + App config. 
       // We'll mimic the request, but if it fails we soft-fail for UX.
-      const chatRes = await fetch(`https://chat.googleapis.com/v1/spaces/${spaceName || "messages"}`, {
+      const chatRes = await fetchWithTimeout(`https://chat.googleapis.com/v1/spaces/${spaceName || "messages"}`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
@@ -4209,7 +4268,7 @@ export async function createApp({ startListening = false } = {}) {
         `--${boundary}--`
       ].join('\\r\\n');
 
-      const driveRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+      const driveRes = await fetchWithTimeout("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
@@ -4320,7 +4379,7 @@ export async function createApp({ startListening = false } = {}) {
       const isGoogle = String(platform || "").toLowerCase().includes("google");
       if (gbpToken && externalName && isGoogle) {
         try {
-          const r = await fetch(`https://mybusiness.googleapis.com/v4/${externalName}/reply`, {
+          const r = await fetchWithTimeout(`https://mybusiness.googleapis.com/v4/${externalName}/reply`, {
             method: "PUT",
             headers: { Authorization: `Bearer ${gbpToken}`, "Content-Type": "application/json" },
             body: JSON.stringify({ comment: String(reply) }),
@@ -4843,10 +4902,9 @@ export async function createApp({ startListening = false } = {}) {
       let lastErr: any = null;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          const r = await Promise.race([
-            fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
-            new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
-          ]) as Response;
+          // fetchWithTimeout actually aborts at the deadline (the old Promise.race left
+          // the socket open and the request still running after "timeout").
+          const r = (await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, timeoutMs: 8000 })) as Response;
           if (r.ok) return res.json({ delivered: true, status: r.status, attempts: attempt });
           lastErr = `HTTP ${r.status}`;
         } catch (e: any) {
@@ -5314,7 +5372,7 @@ export async function createApp({ startListening = false } = {}) {
     const key = process.env.RESEND_API_KEY;
     const from = process.env.EMAIL_FROM || "YardWorx <onboarding@resend.dev>";
     if (!key) return { sent: false, simulated: true, reason: "RESEND_API_KEY not configured" };
-    const resp = await fetch("https://api.resend.com/emails", {
+    const resp = await fetchWithTimeout("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -5542,6 +5600,9 @@ OUTPUT JSON ONLY, shape:
     // arrives as ?token= on the URL. We verify it, then enforce the tenant's monthly AI wallet
     // (same tiers as the HTTP routes) BEFORE opening a paid Gemini Live session — an unmetered
     // audio/video socket is the single most expensive way for one tenant to blow their quota.
+    // Resolved during auth; makes the voice agent introduce itself as THIS tenant's
+    // company instead of a hardcoded legacy brand. Falls back to the product name.
+    let liveTenantName = "";
     if (REQUIRE_AUTH) {
       let authed = false;
       let overQuota = false;
@@ -5558,7 +5619,8 @@ OUTPUT JSON ONLY, shape:
               const tid = prof?.tenant_id;
               if (tid) {
                 const period = new Date().toISOString().slice(0, 7);
-                const { data: t } = await sb.from("tenants").select("tier,ai_credits_used,ai_credits_period").eq("id", tid).maybeSingle();
+                const { data: t } = await sb.from("tenants").select("name,settings,tier,ai_credits_used,ai_credits_period").eq("id", tid).maybeSingle();
+                liveTenantName = (t?.settings?.businessName || t?.name || "").toString().slice(0, 80);
                 const limit = AI_CREDITS[t?.tier || "free"] ?? AI_CREDITS.free;
                 const used = t?.ai_credits_period === period ? (t?.ai_credits_used || 0) : 0;
                 if (used >= limit) {
@@ -5618,6 +5680,8 @@ OUTPUT JSON ONLY, shape:
     }
 
     let sessionClosed = false;
+    // The company the assistant speaks for — the tenant's business when known.
+    const bizName = liveTenantName || "YardWorx";
     try {
       const session = await ai.live.connect({
         model: "gemini-2.0-flash-live-001",
@@ -5664,7 +5728,7 @@ OUTPUT JSON ONLY, shape:
                   functionResponses: toolCall.functionCalls.map((fc) => ({
                     id: fc.id,
                     response: {
-                      result: "Action queued for dispatch in Meridian UI.",
+                      result: "Action queued for dispatch in the operations UI.",
                     },
                   })),
                 });
@@ -5682,7 +5746,7 @@ OUTPUT JSON ONLY, shape:
             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
           },
           systemInstruction: `
-            You are "Meridian Ear", the real-time situational awareness layer of Meridian Green Landscaping.
+            You are "${bizName} Ear", the real-time situational awareness layer of ${bizName}.
             You listen to the environment (calls on speaker, yard conversations) and can see video frames from the user's camera.
             
             YOUR JOB is to help the owner manage everything seamlessly while they are on the phone or in the field.

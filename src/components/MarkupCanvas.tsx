@@ -96,8 +96,12 @@ export default function MarkupCanvas({
       fabricCanvas.on("mouse:down", (options) => {
         const pointer = fabricCanvas.getScenePoint(options.e);
         const rect = new fabric.Rect({
+          // Center the marker on the tap point (fabric defaults to top-left origin,
+          // which lands the shape down-right of where the user actually tapped).
           left: pointer.x,
           top: pointer.y,
+          originX: "center",
+          originY: "center",
           width: 50,
           height: 50,
           fill: "transparent",
@@ -118,6 +122,8 @@ export default function MarkupCanvas({
         const circle = new fabric.Circle({
           left: pointer.x,
           top: pointer.y,
+          originX: "center",
+          originY: "center",
           radius: 30,
           fill: "transparent",
           stroke: "#3b82f6", // Blue for "that"
@@ -138,6 +144,8 @@ export default function MarkupCanvas({
         ], {
            left: pointer.x,
            top: pointer.y,
+           originX: "center",
+           originY: "center",
         });
         (group as any).regionMeta = { shape: "rect", intent: "remove" };
         fabricCanvas.add(group);

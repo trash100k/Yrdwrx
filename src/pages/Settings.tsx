@@ -6,8 +6,10 @@ import { useTenant } from "../contexts/TenantContext";
 import { tenantsRepo } from "../lib/repos";
 import { getCurrentUser, signOutUser } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
-import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain } from "lucide-react";
+import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain, Sparkles } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
+import { useCuttyGuide, buildDefaultTourSteps } from "../contexts/CuttyGuideContext";
+import { useRole } from "../hooks/useRole";
 import { fetchApi } from "../lib/api";
 import { useEffect } from "react";
 
@@ -118,12 +120,22 @@ function QuickBooksSection() {
 export default function Settings() {
   const { tenant } = useTenant();
   const { showToast } = useToast();
+  const { startTour } = useCuttyGuide();
+  const { role } = useRole();
   const [updating, setUpdating] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
   if (!tenant) return null;
+
+  // Restart the guided walkthrough from step 0; startTour navigates to the
+  // tour's first screen (the role-appropriate dashboard) automatically.
+  const replayWalkthrough = () => {
+    const rolePrefix =
+      role === "employee" || role === "foreman" ? "/employee" : "/admin";
+    startTour(buildDefaultTourSteps(rolePrefix));
+  };
 
   const features = tenant.settings?.features || {
     crewTracking: true,
@@ -495,6 +507,23 @@ export default function Settings() {
       <WorkflowBuilderSection />
 
       <TeamManagement />
+
+      {/* Onboarding: replay the guided product walkthrough on demand */}
+      <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Onboarding</span>
+            <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">Guided Walkthrough</h3>
+            <p className="text-sm text-zinc-400">Take the cockpit tour again — dashboard, client book, crews, billing, routing, and your copilot.</p>
+          </div>
+          <button
+            onClick={replayWalkthrough}
+            className="shrink-0 px-6 py-3 bg-forest-500 hover:bg-forest-400 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+          >
+            <Sparkles size={14} /> Replay the Walkthrough
+          </button>
+        </div>
+      </section>
 
       {/* Platform & Cooperation Agreements */}
       <section className="bg-zinc-900 border border-white/5 molten-edge rounded-3xl p-6 sm:p-8 space-y-6 mt-12">

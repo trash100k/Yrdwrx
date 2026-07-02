@@ -22,15 +22,26 @@ export default defineConfig(({mode}) => {
         },
         workbox: {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          // NOTE: previous rules for /api/crm, /api/knowledge and /api/workflows were
+          // removed — every route under those paths is POST-only (server.ts registers
+          // them exclusively via app.post, and all frontend call sites send POST), and
+          // workbox runtimeCaching only matches GET requests by default, so those rules
+          // could never cache anything. App data actually flows through the Supabase
+          // REST endpoint (PostgREST GETs issued by src/lib/repos/*), cached below.
           runtimeCaching: [
             {
-              urlPattern: ({ url }) => url.pathname.startsWith('/api/crm'),
-              handler: 'StaleWhileRevalidate',
+              // Tenant data reads (customers, jobs, invoices, ...) via Supabase
+              // PostgREST. NetworkFirst with a short timeout so flaky field
+              // connections fall back to the last-known-good rows fast.
+              urlPattern: ({ url }) =>
+                url.host.endsWith('.supabase.co') && url.pathname.startsWith('/rest/'),
+              handler: 'NetworkFirst',
               options: {
-                cacheName: 'crm-profiles-cache',
+                cacheName: 'supabase-rest-cache',
+                networkTimeoutSeconds: 4,
                 expiration: {
                   maxEntries: 200,
-                  maxAgeSeconds: 60 * 60 * 24 * 30,
+                  maxAgeSeconds: 60 * 60 * 24, // 24h — field-day freshness
                 },
                 cacheableResponse: {
                   statuses: [0, 200],
@@ -38,14 +49,21 @@ export default defineConfig(({mode}) => {
               },
             },
             {
-              urlPattern: ({ url }) => url.pathname.startsWith('/api/knowledge') || url.pathname.startsWith('/api/workflows'),
+              // The only /api endpoints the frontend actually GETs: weather widget,
+              // Maps key config, AI credit usage, team roster. Small, cheap to keep
+              // warm for offline/field mode.
+              urlPattern: ({ url }) =>
+                url.pathname.startsWith('/api/weather') ||
+                url.pathname.startsWith('/api/config/maps') ||
+                url.pathname.startsWith('/api/usage/credits') ||
+                url.pathname.startsWith('/api/team'),
               handler: 'NetworkFirst',
               options: {
-                cacheName: 'semantic-brain-cache',
-                networkTimeoutSeconds: 3,
+                cacheName: 'api-get-cache',
+                networkTimeoutSeconds: 4,
                 expiration: {
-                  maxEntries: 100,
-                  maxAgeSeconds: 60 * 60 * 24 * 7,
+                  maxEntries: 32,
+                  maxAgeSeconds: 60 * 60 * 24,
                 },
                 cacheableResponse: {
                   statuses: [0, 200],

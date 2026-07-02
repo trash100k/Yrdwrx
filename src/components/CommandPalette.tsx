@@ -1,14 +1,68 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Map, Users, Calendar, Truck, Terminal, Sparkles, X, Activity, Send, ReceiptText, BarChart3, Settings as SettingsIcon, Shield, Palette, Package, FileText, User, Briefcase } from "lucide-react";
+import { Search, Map, Users, Calendar, Truck, Terminal, Sparkles, X, Activity, Send, ReceiptText, BarChart3, Settings as SettingsIcon, Shield, Palette, Package, FileText, User, Briefcase, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { useRole } from "../hooks/useRole";
-import { customersRepo, jobsRepo, invoicesRepo } from "../lib/repos";
+import { supabase } from "../lib/supabase";
+import { toCamelKey } from "../lib/repos/base";
 
-// Repos return camelCase columns; some display fields live in the freeform `data`
-// jsonb. Flatten jsonb first so real columns win on key collisions (matches the
-// adapt* pattern used across the pages).
-const flatten = (r: any) => ({ ...(r?.data || {}), ...r });
+// Raw supabase rows are snake_case (we bypass the repos to use ilike filters), so
+// camelize top-level keys, then flatten the freeform `data` jsonb FIRST so real
+// columns win on key collisions (matches the adapt* pattern used across the pages).
+const flatten = (r: any) => {
+  const row: any = {};
+  for (const k of Object.keys(r || {})) row[toCamelKey(k)] = r[k];
+  return { ...(row.data || {}), ...row };
+};
+
+// PostgREST `or()` strings parse commas/parens/quotes as syntax, and LIKE treats
+// %/_ as wildcards — blank the former, escape the latter so user input is literal.
+const sanitizeTerm = (s: string) =>
+  s
+    .replace(/[,()"'\\]/g, " ")
+    .replace(/[%_]/g, "\\$&")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const EMPTY_RESULTS = { clients: [], jobs: [], invoices: [] };
+
+// Tenant-scoped (via RLS) server-side search: 8 rows per entity, newest first.
+async function searchEntities(rawTerm: string) {
+  const term = sanitizeTerm(rawTerm);
+  if (!term) return EMPTY_RESULTS;
+  const pat = `%${term}%`;
+
+  const [c, j, i] = await Promise.all([
+    supabase
+      .from("customers")
+      .select("*")
+      .eq("is_archived", false)
+      .or(
+        `first_name.ilike.${pat},last_name.ilike.${pat},company_name.ilike.${pat},phone.ilike.${pat},email.ilike.${pat}`,
+      )
+      .order("created_at", { ascending: false })
+      .limit(8),
+    supabase
+      .from("jobs")
+      .select("*")
+      .ilike("title", pat)
+      .order("date", { ascending: false, nullsFirst: false })
+      .limit(8),
+    supabase
+      .from("invoices")
+      .select("*")
+      .eq("is_archived", false)
+      .or(`data->>client.ilike.${pat},data->>number.ilike.${pat}`)
+      .order("created_at", { ascending: false })
+      .limit(8),
+  ]);
+
+  return {
+    clients: (c.data ?? []).map(flatten),
+    jobs: (j.data ?? []).map(flatten),
+    invoices: (i.data ?? []).map(flatten),
+  };
+}
 
 const customerName = (c: any) =>
   [c.firstName, c.lastName].filter(Boolean).join(" ").trim() ||
@@ -24,11 +78,11 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
   const { role } = useRole();
   const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
 
-  // Entity caches — loaded once when the palette opens so typing never refetches.
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // Server-side entity results for the current debounced term.
+  const [results, setResults] = useState<{ clients: any[]; jobs: any[]; invoices: any[] }>(EMPTY_RESULTS);
+  const [searching, setSearching] = useState(false);
+  // Latest-wins: each search bumps the seq; stale responses are dropped.
+  const seqRef = useRef(0);
 
   // A command either navigates (path + optional state) or runs an action.
   const run = (a: any) => {
@@ -37,39 +91,38 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
     onClose();
   };
 
-  // Lightly debounce the typed term so filtering doesn't run on every keystroke.
+  // Debounce the typed term so the server search doesn't fire on every keystroke.
+  // Static section/action filtering stays instant on `searchTerm` (see `groups`).
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedTerm(searchTerm), 120);
+    const t = setTimeout(() => setDebouncedTerm(searchTerm), 250);
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // Load entity lists once per palette-open. Reset cache on close so re-opening
-  // picks up fresh data.
+  // Server-side search per debounced term. Latest-wins via seqRef: any response
+  // arriving after a newer request started is ignored.
   useEffect(() => {
-    if (!isOpen) {
-      setLoaded(false);
+    const seq = ++seqRef.current;
+    const q = debouncedTerm.trim();
+
+    if (!isOpen || !q) {
+      setResults(EMPTY_RESULTS);
+      setSearching(false);
       return;
     }
-    let active = true;
-    (async () => {
-      try {
-        const [c, j, i] = await Promise.all([
-          customersRepo.list().catch(() => []),
-          jobsRepo.list().catch(() => []),
-          invoicesRepo.list().catch(() => []),
-        ]);
-        if (!active) return;
-        setCustomers((c || []).map(flatten));
-        setJobs((j || []).map(flatten));
-        setInvoices((i || []).map(flatten));
-      } finally {
-        if (active) setLoaded(true);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [isOpen]);
+
+    setSearching(true);
+    searchEntities(q)
+      .then((fresh) => {
+        if (seq !== seqRef.current) return; // stale response
+        setResults(fresh);
+        setSearching(false);
+      })
+      .catch(() => {
+        if (seq !== seqRef.current) return;
+        setResults(EMPTY_RESULTS);
+        setSearching(false);
+      });
+  }, [debouncedTerm, isOpen]);
 
   const sectionActions = useMemo(() => [
     { id: "Dashboard", icon: Activity, path: `${rolePrefix}` },
@@ -89,74 +142,49 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
 
   // Build grouped result list. Each group has a label and an array of items; the
   // flat ordering (Sections -> Clients -> Jobs -> Invoices) drives arrow nav.
+  // Sections filter INSTANTLY on the raw term; entity rows come from the debounced
+  // server-side search in `results`.
   const groups = useMemo(() => {
-    const q = debouncedTerm.trim().toLowerCase();
-    const digits = q.replace(/\D/g, "");
+    const q = searchTerm.trim().toLowerCase();
 
     const sections = sectionActions
       .filter((a) => !q || a.id.toLowerCase().includes(q))
       .map((a) => ({ ...a, kind: "section", label: a.id }));
 
-    // Only run entity search once there's a query (avoids dumping the whole book).
-    let clients: any[] = [];
-    let jobItems: any[] = [];
-    let invoiceItems: any[] = [];
+    // Hide entity rows the instant the input is emptied (don't wait out the
+    // debounce window with stale results on screen).
+    const rows = q ? results : EMPTY_RESULTS;
 
-    if (q) {
-      clients = customers
-        .filter((c) => {
-          const name = customerName(c).toLowerCase();
-          const company = (c.companyName || "").toLowerCase();
-          const phone = (c.phone || "").replace(/\D/g, "");
-          return (
-            name.includes(q) ||
-            company.includes(q) ||
-            (digits.length >= 3 && phone.includes(digits))
-          );
-        })
-        .slice(0, 6)
-        .map((c) => ({
-          kind: "client",
-          icon: User,
-          label: customerName(c),
-          sub: c.companyName || c.phone || c.email || "",
-          path: `${rolePrefix}/crm`,
-          state: { client: customerName(c), customer: c },
-        }));
+    const clients: any[] = rows.clients.map((c) => ({
+      kind: "client",
+      icon: User,
+      label: customerName(c),
+      sub: c.companyName || c.phone || c.email || "",
+      path: `${rolePrefix}/crm`,
+      state: { client: customerName(c), customer: c },
+    }));
 
-      jobItems = jobs
-        .filter((j) => {
-          const title = (j.title || "").toLowerCase();
-          const client = (j.client || "").toLowerCase();
-          return title.includes(q) || client.includes(q);
-        })
-        .slice(0, 6)
-        .map((j) => ({
-          kind: "job",
-          icon: Briefcase,
-          label: j.title || "Untitled Job",
-          sub: [j.client, j.status].filter(Boolean).join(" · "),
-          path: `${rolePrefix}/scheduler`,
-        }));
+    const jobItems: any[] = rows.jobs.map((j) => ({
+      kind: "job",
+      icon: Briefcase,
+      label: j.title || "Untitled Job",
+      sub: [j.client, j.status].filter(Boolean).join(" · "),
+      path: `${rolePrefix}/scheduler`,
+    }));
 
-      invoiceItems = invoices
-        .filter((inv) => {
-          const client = (inv.client || inv.customer || "").toString().toLowerCase();
-          const id = (inv.id || "").toString().toLowerCase();
-          return client.includes(q) || id.includes(q);
-        })
-        .slice(0, 6)
-        .map((inv) => ({
-          kind: "invoice",
-          icon: ReceiptText,
-          label: inv.client || inv.customer || `Invoice ${String(inv.id).slice(0, 8)}`,
-          sub: [
-            inv.amount != null ? `$${Number(inv.amount).toLocaleString()}` : null,
-            (inv.status || "").toString().toUpperCase(),
-          ].filter(Boolean).join(" · "),
-          path: `${rolePrefix}/invoices`,
-        }));
-    }
+    const invoiceItems: any[] = rows.invoices.map((inv) => ({
+      kind: "invoice",
+      icon: ReceiptText,
+      label:
+        inv.client ||
+        inv.customer ||
+        (inv.number ? `Invoice #${inv.number}` : `Invoice ${String(inv.id).slice(0, 8)}`),
+      sub: [
+        inv.amount != null ? `$${Number(inv.amount).toLocaleString()}` : null,
+        (inv.status || "").toString().toUpperCase(),
+      ].filter(Boolean).join(" · "),
+      path: `${rolePrefix}/invoices`,
+    }));
 
     return [
       { key: "Sections", label: "Sections", items: sections },
@@ -164,14 +192,16 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
       { key: "Jobs", label: "Jobs", items: jobItems },
       { key: "Invoices", label: "Invoices", items: invoiceItems },
     ].filter((g) => g.items.length > 0);
-  }, [debouncedTerm, sectionActions, customers, jobs, invoices, rolePrefix]);
+  }, [searchTerm, sectionActions, results, rolePrefix]);
 
   // Flat, ordered list of selectable items for keyboard navigation.
   const flatItems = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
+  // Reset selection when the term changes (instant section filtering) AND when
+  // server results land (the flat list re-shuffles under the cursor).
   useEffect(() => {
     setSelectedIndex(0);
-  }, [debouncedTerm]);
+  }, [searchTerm, results]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -227,7 +257,11 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
             className="w-full max-w-2xl bg-zinc-950 border border-white/10 rounded-3xl shadow-2xl overflow-hidden relative z-10"
           >
             <div className="flex items-center px-6 py-5 border-b border-white/5">
-              <Search size={22} className="text-forest-400 mr-4" />
+              {searching ? (
+                <Loader2 size={22} className="text-forest-400 mr-4 animate-spin" />
+              ) : (
+                <Search size={22} className="text-forest-400 mr-4" />
+              )}
               <input
                 autoFocus
                 type="text"
@@ -285,10 +319,23 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
                   ))}
                 </div>
               ) : (
-                <div className="p-10 text-center text-zinc-500 font-bold">
-                  {searchTerm
-                    ? (loaded ? `No results found for "${searchTerm}"` : "Searching…")
-                    : "Type to search clients, jobs, and invoices"}
+                <div className="p-10 text-center">
+                  {searchTerm ? (
+                    searching || searchTerm !== debouncedTerm ? (
+                      <span className="text-zinc-500 font-bold flex items-center justify-center gap-2">
+                        <Loader2 size={14} className="animate-spin text-forest-400" /> Searching…
+                      </span>
+                    ) : (
+                      <>
+                        <p className="text-zinc-400 font-bold">No matches for "{searchTerm}"</p>
+                        <p className="mt-2 text-[10px] uppercase font-black tracking-widest text-zinc-600">
+                          Clients · Jobs · Invoices · Sections
+                        </p>
+                      </>
+                    )
+                  ) : (
+                    <span className="text-zinc-500 font-bold">Type to search clients, jobs, and invoices</span>
+                  )}
                 </div>
               )}
             </div>

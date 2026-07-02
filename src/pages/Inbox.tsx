@@ -122,6 +122,25 @@ const loadReadMap = (): Record<string, number> => {
   }
 };
 
+// Merge two read maps, keeping the NEWEST (max) epoch per customer. Non-numeric or
+// non-positive entries are dropped (absent == 0 == "never read"), so a corrupted
+// value from another tab can never mask a real read.
+const mergeReadMaps = (
+  a: Record<string, number>,
+  b: Record<string, number>,
+): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const map of [a, b]) {
+    if (!map || typeof map !== "object") continue;
+    for (const [cid, v] of Object.entries(map)) {
+      const t = Number(v);
+      if (!Number.isFinite(t) || t <= 0) continue;
+      out[cid] = Math.max(out[cid] ?? 0, t);
+    }
+  }
+  return out;
+};
+
 // ---------------------------------------------------------------------------
 // page
 // ---------------------------------------------------------------------------
@@ -144,10 +163,23 @@ export default function Inbox() {
   const [readMap, setReadMap] = useState<Record<string, number>>(() => loadReadMap());
 
   // Update state + persist (try/catch so a full/blocked localStorage never breaks the UI).
-  const persistReadMap = (next: Record<string, number>) => {
-    setReadMap(next);
+  // Merge-before-write: re-read localStorage first (another tab may have written since we
+  // loaded) and keep the newest epoch per customer, so a stale tab can't erase a newer
+  // tab's reads. Keys listed in opts.force take `next`'s value verbatim even if OLDER —
+  // "mark unread" intentionally rewinds an epoch and must win over max().
+  const persistReadMap = (
+    next: Record<string, number>,
+    opts?: { force?: string[] },
+  ) => {
+    const merged = mergeReadMaps(loadReadMap(), next);
+    for (const cid of opts?.force || []) {
+      const t = Number(next[cid]);
+      if (Number.isFinite(t) && t > 0) merged[cid] = t;
+      else delete merged[cid];
+    }
+    setReadMap(merged);
     try {
-      localStorage.setItem(READ_MAP_KEY, JSON.stringify(next));
+      localStorage.setItem(READ_MAP_KEY, JSON.stringify(merged));
     } catch {
       /* ignore quota / privacy-mode failures */
     }
@@ -180,6 +212,24 @@ export default function Inbox() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant?.id]);
+
+  // Cross-tab sync: when ANOTHER tab writes the read map, the browser fires "storage"
+  // here (never in the writing tab). Merge the incoming map into state by per-customer
+  // max(epoch) so open tabs converge instead of clobbering each other's read marks.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== READ_MAP_KEY) return;
+      try {
+        const incoming = e.newValue ? JSON.parse(e.newValue) : null;
+        if (!incoming || typeof incoming !== "object") return;
+        setReadMap((prev) => mergeReadMaps(prev, incoming));
+      } catch {
+        /* ignore malformed payloads from other tabs */
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   // Manual reload after a send (subscribe usually covers it, but be deterministic).
   const reloadMessages = async () => {
@@ -372,7 +422,12 @@ export default function Inbox() {
           0,
         )
       : 0;
-    persistReadMap({ ...readMap, [cid]: lastInboundMs > 0 ? lastInboundMs - 1 : 0 });
+    // force: this write intentionally REWINDS the epoch; without it the
+    // merge-before-write max() would immediately restore the newer read mark.
+    persistReadMap(
+      { ...readMap, [cid]: lastInboundMs > 0 ? lastInboundMs - 1 : 0 },
+      { force: [cid] },
+    );
     showToast("Marked as unread.", "info");
   };
 
