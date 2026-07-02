@@ -283,12 +283,18 @@ export default function Layout() {
         setIsBrainOpen(prev => !prev);
       }
       
-      // "G then <key>" chord navigation (e.g. G then C -> CRM).
       const typing =
         e.target instanceof HTMLElement &&
         (e.target.tagName === "INPUT" ||
           e.target.tagName === "TEXTAREA" ||
           (e.target as HTMLElement).isContentEditable);
+
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !typing) {
+        e.preventDefault();
+        setIsCommandPaletteOpen(true);
+      }
+
+      // "G then <key>" chord navigation (e.g. G then C -> CRM).
       if (!e.metaKey && !e.ctrlKey && !e.altKey && !typing) {
         const k = e.key.toLowerCase();
         if (k === "g") {
@@ -723,17 +729,17 @@ export default function Layout() {
             </Link>
 
             <div className="flex-1 max-w-2xl hidden lg:flex justify-start mr-auto lg:pr-12">
-              <div 
-                className="relative group w-full cursor-pointer"
+              <button
+                type="button"
+                id="system-search"
+                aria-label="Search"
+                className="relative group w-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-2xl"
                 onClick={() => setIsCommandPaletteOpen(true)}
               >
                 <Search
                   size={22}
                   className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-hover:text-forest-500 transition-colors pointer-events-none"
                 />
-                <label htmlFor="system-search" className="sr-only">
-                  Search
-                </label>
                 <div
                   className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-500 flex items-center justify-between"
                 >
@@ -741,9 +747,11 @@ export default function Layout() {
                   <div className="flex items-center gap-1">
                     <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">⌘</kbd>
                     <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">K</kbd>
+                    <span className="mx-1 text-zinc-600">or</span>
+                    <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">/</kbd>
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
