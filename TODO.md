@@ -1,5 +1,22 @@
 # YardWorx — Ship-Ready Launch Checklist
 
+<!-- MARKET GAP ANALYSIS (2026-07-02) — grounded in MARKET_RESEARCH.md + a code inventory.
+Verdict: table-stakes are LARGELY MET. Confirmed already-shipped: CRM, scheduler, invoicing,
+estimate→invoice, partial/deposit payments, Stripe card + **ACH** (us_bank_account already on
+/api/stripe/checkout:2215), recurring contracts + per-contract visit/invoice generation, AI
+payment-chaser, online booking (/book), instant estimate, client portal + magic links, route
+optimizer, inventory, reviews loop, Design Studio, Live Ear, Cutty, job costing, timesheets,
+referrals, equipment, unified inbox, offline/PWA, QuickBooks (one-way), Twilio SMS, property-measure
+scaffold (AI fallback + provider-pending).
+GENUINE GAPS being built this wave:
+  [P0] E-signature on estimates — the "sign it in the driveway" close (was MISSING). Server
+       endpoint POST /api/portal/estimate/sign added; SignaturePad + portal + owner-tablet UI in flight.
+  [P1] Payroll export — timesheets existed but no hours→payroll CSV. src/lib/payroll.ts + Reports tab.
+  [P1] Batch "Bill This Cycle" — invoice all active recurring contracts in one idempotent click.
+DEFERRED (need a paid vendor / more scope): aerial/satellite takeoff provider (Nearmap/Regrid key),
+two-way QuickBooks (needs sandbox verification), deposit-required-on-acceptance (chains off e-sign). -->
+
+
 The single, comprehensive roadmap to take YardWorx from "feature-rich demo" to a **multi-tenant
 SaaS sold to multiple landscaping companies** on Google Cloud Run + Firebase + Gemini.
 

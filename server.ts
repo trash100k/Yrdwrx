@@ -5268,6 +5268,63 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
+  // Client e-signs + accepts an estimate from the portal. Records a legally-meaningful
+  // signature block (typed name, optional drawn signature, timestamp, IP, user-agent) on the
+  // estimate and flips it to "accepted" so the owner can schedule + collect. Token-scoped: the
+  // estimate must belong to the token's client. This is the "sign it in the driveway" close,
+  // made real — the same block is written owner-side (client repo) when signing on the owner's tablet.
+  app.post("/api/portal/estimate/sign", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal unavailable" });
+    const { invoiceId, signerName, signatureDataUrl, acceptedTier } = req.body || {};
+    const name = String(signerName || "").trim().slice(0, 120);
+    if (!invoiceId || !name) return res.status(400).json({ error: "invoiceId and your name are required to sign." });
+    // A drawn signature is optional; if present it must be a small inline PNG/JPEG data-URI
+    // (cap keeps the row from bloating and blocks a data-URI abuse vector).
+    let sigImage: string | null = null;
+    if (typeof signatureDataUrl === "string" && signatureDataUrl) {
+      if (!/^data:image\/(png|jpeg);base64,[a-z0-9+/=\s]+$/i.test(signatureDataUrl) || signatureDataUrl.length > 200_000) {
+        return res.status(400).json({ error: "Signature image invalid or too large." });
+      }
+      sigImage = signatureDataUrl;
+    }
+    try {
+      const { data: inv } = await sb
+        .from("invoices").select("id,customer_id,tenant_id,status,data,amount").eq("id", invoiceId).maybeSingle();
+      if (!inv) return res.status(404).json({ error: "Estimate not found" });
+      if (inv.customer_id !== tok.clientId) return res.status(403).json({ error: "Not your estimate" });
+      if (["paid", "accepted"].includes(String(inv.status || "").toLowerCase())) {
+        return res.status(409).json({ error: `This estimate is already ${inv.status}.` });
+      }
+      const fwd = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+      const signature = {
+        name,
+        image: sigImage,
+        signedAt: new Date().toISOString(),
+        ip: fwd || req.ip || null,
+        userAgent: String(req.headers["user-agent"] || "").slice(0, 300),
+        acceptedTier: acceptedTier ? String(acceptedTier).slice(0, 80) : null,
+        via: "portal",
+      };
+      const data = { ...(inv.data || {}), signature, acceptedAt: signature.signedAt };
+      await sb.from("invoices").update({ status: "accepted", data }).eq("id", invoiceId);
+      try {
+        await sb.from("customer_messages").insert({
+          tenant_id: inv.tenant_id,
+          customer_id: tok.clientId,
+          sender: "client",
+          text: `✍️ ${name} signed and accepted the estimate${signature.acceptedTier ? ` (${signature.acceptedTier})` : ""}. Ready to schedule!`,
+        });
+      } catch {}
+      res.json({ success: true, status: "accepted", signedAt: signature.signedAt });
+    } catch (e: any) {
+      console.error("portal estimate sign error", e?.message);
+      res.status(500).json({ error: "Failed to record signature" });
+    }
+  });
+
   // Client downloads a PDF of one of THEIR invoices (token-scoped; server-rendered).
   app.post("/api/portal/invoice-pdf", strictLimiter, async (req: any, res: any) => {
     const tok = verifyPortalToken(req);
