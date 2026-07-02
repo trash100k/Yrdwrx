@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { fetchApi } from "../lib/api";
 import { safeStorage } from '../lib/storage';
+import { toCsv } from "../lib/csv";
 import React, { useState, useEffect, useRef } from "react";
 import { auth, handleFirestoreError, OperationType, logSystemEvent } from "../lib/firebase";
 import { customersRepo, knowledgeRepo, invoicesRepo } from "../lib/repos";
@@ -1318,16 +1319,22 @@ export default function CRM() {
                       </label>
                       <button
                         onClick={() => {
-                            const csvContent = "data:text/csv;charset=utf-8," 
-                                + "First Name,Last Name,Email,Phone,Address,Notes\n"
-                                + customers.map((c: any) => `${c.firstName || ''},${c.lastName || ''},${c.email || ''},${c.phone || ''},"${c.address || ''}","${c.notes || ''}"`).join("\n");
-                            const encodedUri = encodeURI(csvContent);
+                            // Every field routed through the CSV-safe serializer: quotes/commas
+                            // can't break columns and a name like "=cmd|..." can't execute as a
+                            // formula when the export opens in Excel/Sheets.
+                            const csv = toCsv(
+                              ["First Name", "Last Name", "Email", "Phone", "Address", "Notes"],
+                              customers.map((c: any) => [c.firstName || "", c.lastName || "", c.email || "", c.phone || "", c.address || "", c.notes || ""]),
+                            );
+                            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                            const url = URL.createObjectURL(blob);
                             const link = document.createElement("a");
-                            link.setAttribute("href", encodedUri);
-                            link.setAttribute("download", "cutty_clients_export.csv");
+                            link.setAttribute("href", url);
+                            link.setAttribute("download", "clients_export.csv");
                             document.body.appendChild(link);
                             link.click();
                             document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
                         }}
                         className="flex items-center gap-3 px-6 py-4 bg-white/5 border border-white/5 text-white rounded-xl font-bold text-sm tracking-wide hover:bg-white/10 transition-all shadow-lg"
                       >

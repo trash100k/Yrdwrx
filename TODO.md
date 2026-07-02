@@ -1348,6 +1348,18 @@ Triaged into waves. [x] = already landed this sprint.
 - [x] Supabase perf migration: split all 28 "<t>_write" FOR ALL policies into insert/update/delete-only (SELECT now evaluates ONE policy), wrapped auth helpers in initplan subselects, scoped policies TO authenticated, indexed 11 unindexed FKs. Advisors: 0 security lints; 146 multiple-permissive + 4 initplan warns cleared. Verified with a live 2-tenant RLS simulation (6/6 isolation checks pass).
 - [x] .env.example: DEFAULT_WEATHER_CITY, GEMINI_TIMEOUT_MS, LIVE_MAX_CONNECTIONS documented.
 
+### Security audit remediation (10/10 confirmed findings, adversarially verified)
+- [x] HIGH proposal-pdf XSS/SSRF: esc() now escapes quotes/&/'; images validated as data:image URIs; renderPdf hardened globally (JS disabled + only data: requests allowed) — protects every PDF template.
+- [x] HIGH QuickBooks OAuth: callback derived tenant from a raw `state` (token-planting onto any tenant). Now HMAC-signed, short-TTL, tamper-proof state; verified with a 4-case test (valid/forged/tampered/expired).
+- [x] MED webhook SSRF redirect: /api/automations/webhook fetch now redirect:"error" (a 3xx couldn't be bounced to an internal host after the initial URL check).
+- [x] MED DNS-rebind/SSRF: validateSafeUrl checks ALL resolved addresses (was first-only); isPrivateIP now covers 100.64/10 CGNAT + IPv4-mapped IPv6 (::ffff:169.254.169.254).
+- [x] MED cache PII bleed: cacheApiResponse emitted Cache-Control: public,s-maxage on authed tenant data. Now private,max-age + Vary — shared CDNs can't cross-serve tenants (in-process tenant-keyed cache keeps the speedup).
+- [x] MED SMS toll-fraud: /api/sms/send accepted any `to`. Now requires E.164 + the number must belong to one of the caller's own customers (tenant-scoped).
+- [x] LOW reviews/reply IDOR: review lookup scoped to the caller's tenant (was id-only service-role query → cross-tenant GBP reply).
+- [x] LOW error leakage: swept ~45 catch blocks so 500s return a generic message (raw Supabase/Stripe/Gemini detail stays in server logs only).
+- [x] MED CSV injection (CRM export + Reports export): new src/lib/csv.ts (csvCell neutralizes = + - @ formula leads + quote-escapes; tested); wired into both exports.
+- [x] Supabase security advisors: 0 lints. RLS 2-tenant isolation simulation: 6/6 pass.
+
 ### Wave 3 — walkthrough "don't make me think" wow
 - [x] Quick Create deep-links into prefilled open modals — `?create=client|job|invoice` opens the
       target page's modal on arrival and strips the param (CRM/Scheduler/Invoices). (Draft Quote still

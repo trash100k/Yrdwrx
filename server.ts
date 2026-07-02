@@ -46,7 +46,9 @@ function handleAiError(res: any, e: any, context = "AI request failed") {
     return res.status(503).json({ error: e.message, code: e.code });
   }
   console.error(context + ":", e?.message || e);
-  return res.status(500).json({ error: e?.message || context });
+  // Return the generic context only — the raw upstream message (may carry Gemini/Supabase
+  // internal detail) stays in the server log above, not in the client response.
+  return res.status(500).json({ error: context });
 }
 
 // --- Catalog-grounded pricing (the trust point: quotes use the contractor's real numbers,
@@ -134,6 +136,20 @@ async function renderPdf(html: string, pdfOptions: any = { format: "A4", printBa
   try {
     const browser = await getSharedBrowser();
     page = await browser.newPage();
+    // Defense-in-depth for every PDF template: even if a value slips past HTML-escaping,
+    // scripts can't run and the renderer can't be turned into an SSRF/exfil client.
+    // (1) No JavaScript — kills injected inline event handlers / <script>.
+    // (2) Only data: (and about:blank) requests allowed — a leaked-in http(s) <img>/<link>
+    //     can't reach internal metadata endpoints or beacon data out of the headless browser.
+    try { await page.setJavaScriptEnabled(false); } catch { /* older puppeteer */ }
+    try {
+      await page.setRequestInterception(true);
+      page.on("request", (r: any) => {
+        const u = String(r.url() || "");
+        if (u.startsWith("data:") || u === "about:blank") r.continue();
+        else r.abort();
+      });
+    } catch { /* interception unsupported — JS is still disabled */ }
     await page.setContent(html, { waitUntil: "networkidle0", timeout: 30000 });
     return await page.pdf(pdfOptions);
   } finally {
@@ -480,18 +496,15 @@ function cacheApiResponse(durationSeconds: number) {
     // Only cache GET and well-formed POSTs
     if (req.method !== "GET" && req.method !== "POST") return next();
 
-    // Set Cache-Control for CDN and Browser Cache
-    if (req.method === "GET") {
-      res.setHeader(
-        "Cache-Control",
-        `public, max-age=${durationSeconds}, s-maxage=${durationSeconds}, stale-while-revalidate=${Math.floor(durationSeconds/2)}`
-      );
-    } else if (req.method === "POST") {
-      res.setHeader(
-        "Cache-Control",
-        `public, max-age=${durationSeconds}, s-maxage=${durationSeconds}`
-      );
-    }
+    // These responses are authenticated + tenant-scoped (financial/CRM PII). A shared CDN/proxy
+    // keys on URL only, so "public, s-maxage" would let it store one tenant's data and serve it
+    // to another. Keep the speedup in our own tenant-keyed in-process apiCacheStore (below) and
+    // tell shared caches NEVER to store this — only the user's own browser may briefly reuse it.
+    res.setHeader(
+      "Cache-Control",
+      `private, max-age=${durationSeconds}`
+    );
+    res.setHeader("Vary", "Authorization, x-firebase-auth");
 
     // Tenant-scope the cache key so two tenants issuing an identical body (common for
     // templated CRM/design prompts) never receive each other's cached result (PII bleed).
@@ -1174,7 +1187,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ tenantId, profile: { tenant_id: tenantId, role: "owner" }, demoDataLoaded });
     } catch (e: any) {
       console.error("Provision error:", e?.message || e);
-      res.status(500).json({ error: e?.message || "Provision failed" });
+      res.status(500).json({ error: "Provision failed" });
     }
   });
 
@@ -1219,7 +1232,7 @@ export async function createApp({ startListening = false } = {}) {
       return res.json({ success: true, tenantId, membersRemoved: uids.length, authDeleted });
     } catch (e: any) {
       console.error("Account deletion error:", e?.message || e);
-      res.status(500).json({ error: e?.message || "Account deletion failed" });
+      res.status(500).json({ error: "Account deletion failed" });
     }
   });
 
@@ -1412,7 +1425,7 @@ export async function createApp({ startListening = false } = {}) {
       });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed auto-proposal" });
+      res.status(500).json({ error: "Failed auto-proposal" });
     }
   });
 
@@ -1444,7 +1457,7 @@ export async function createApp({ startListening = false } = {}) {
       });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed weather reroute" });
+      res.status(500).json({ error: "Failed weather reroute" });
     }
   });
 
@@ -1561,7 +1574,7 @@ export async function createApp({ startListening = false } = {}) {
       });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed reorder workflow" });
+      res.status(500).json({ error: "Failed reorder workflow" });
     }
   });
 
@@ -1627,7 +1640,7 @@ export async function createApp({ startListening = false } = {}) {
           "Beautiful HTML Thank You email dispatched successfully via Gmail.",
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed followup workflow" });
+      res.status(500).json({ error: "Failed followup workflow" });
     }
   });
 
@@ -1661,7 +1674,7 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       res
         .status(500)
-        .json({ error: e.message || "Failed maintenance workflow" });
+        .json({ error: "Failed maintenance workflow" });
     }
   });
 
@@ -1672,7 +1685,7 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       res
         .status(500)
-        .json({ error: e.message || "Failed lead-routing workflow" });
+        .json({ error: "Failed lead-routing workflow" });
     }
   });
 
@@ -1828,7 +1841,7 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       res
         .status(500)
-        .json({ error: e.message || "Failed generate-invoice-pdf workflow" });
+        .json({ error: "Failed generate-invoice-pdf workflow" });
     }
   });
 
@@ -1868,7 +1881,7 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       res
         .status(500)
-        .json({ error: e.message || "Failed invoice chase workflow" });
+        .json({ error: "Failed invoice chase workflow" });
     }
   });
 
@@ -1897,7 +1910,7 @@ export async function createApp({ startListening = false } = {}) {
       await draftRes.json();
       res.json({ message: "Seasonal upsell drafted successfully." });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed seasonal workflow" });
+      res.status(500).json({ error: "Failed seasonal workflow" });
     }
   });
 
@@ -1941,7 +1954,7 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       res
         .status(500)
-        .json({ error: e.message || "Failed chemical log workflow" });
+        .json({ error: "Failed chemical log workflow" });
     }
   });
 
@@ -1977,7 +1990,7 @@ export async function createApp({ startListening = false } = {}) {
 
       res.json({ message: `Payroll AI audit completed. Finding: ${output}` });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed payroll workflow" });
+      res.status(500).json({ error: "Failed payroll workflow" });
     }
   });
 
@@ -1989,7 +2002,7 @@ export async function createApp({ startListening = false } = {}) {
           "Retention discount securely dispatched to at-risk client via Portal notification.",
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed retention workflow" });
+      res.status(500).json({ error: "Failed retention workflow" });
     }
   });
 
@@ -2024,7 +2037,7 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       res
         .status(500)
-        .json({ error: e.message || "Failed onboarding workflow" });
+        .json({ error: "Failed onboarding workflow" });
     }
   });
 
@@ -2082,7 +2095,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ message: "Route optimized via Google Maps Routes API.", data });
     } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: e.message || "Failed routing workflow" });
+      res.status(500).json({ error: "Failed routing workflow" });
     }
   });
 
@@ -2100,7 +2113,7 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       res
         .status(500)
-        .json({ error: e.message || "Failed irrigation workflow" });
+        .json({ error: "Failed irrigation workflow" });
     }
   });
 
@@ -2148,7 +2161,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ url: accountLink.url, stripeAccountId: account.id });
     } catch (error: any) {
       console.error("Stripe Connect Error:", error.message);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2259,7 +2272,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
       console.error("Stripe Subscribe Error:", error?.message);
-      res.status(500).json({ error: error?.message || "Subscription failed" });
+      res.status(500).json({ error: "Subscription failed" });
     }
   });
 
@@ -2314,7 +2327,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
       console.error("Recurring billing error:", error?.message);
-      res.status(500).json({ error: error?.message || "Could not set up recurring billing." });
+      res.status(500).json({ error: "Could not set up recurring billing." });
     }
   });
 
@@ -2326,6 +2339,33 @@ export async function createApp({ startListening = false } = {}) {
   // pending sandbox verification — the OAuth + mapping code is wired, not yet run
   // against a real Intuit company.
   // ===========================================================================
+  // HMAC-signed, short-TTL OAuth state so an auth-excluded provider callback can trust which
+  // tenant it belongs to. Stateless (no DB nonce table) but unforgeable: an attacker can't
+  // produce a valid signature for a tenant id that isn't theirs, and expired states are rejected.
+  const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+  const signOauthState = (tenantId: string): string => {
+    const secret = process.env.JWT_SECRET || "";
+    const payload = `${tenantId}.${Date.now() + OAUTH_STATE_TTL_MS}`;
+    const sig = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+    return Buffer.from(payload).toString("base64url") + "." + sig;
+  };
+  const verifyOauthState = (state: string): string | null => {
+    const secret = process.env.JWT_SECRET || "";
+    if (!secret) return null; // can't verify without a signing key -> refuse
+    const [b64, sig] = String(state).split(".");
+    if (!b64 || !sig) return null;
+    let payload = "";
+    try { payload = Buffer.from(b64, "base64url").toString("utf8"); } catch { return null; }
+    const expected = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+    const a = Buffer.from(sig), b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const dot = payload.lastIndexOf(".");
+    const tenantId = payload.slice(0, dot);
+    const exp = Number(payload.slice(dot + 1));
+    if (!tenantId || !Number.isFinite(exp) || Date.now() > exp) return null;
+    return tenantId;
+  };
+
   const qboConfig = () => {
     const clientId = process.env.QBO_CLIENT_ID;
     const clientSecret = process.env.QBO_CLIENT_SECRET;
@@ -2376,7 +2416,11 @@ export async function createApp({ startListening = false } = {}) {
     const cfg = qboConfig();
     if (!cfg.configured) return res.status(503).json({ error: "QuickBooks is not configured (set QBO_CLIENT_ID / QBO_CLIENT_SECRET).", code: "QBO_UNCONFIGURED" });
     const tenant = await resolveTenant(req);
-    const state = tenant?.id || req.query?.tenantId || "demo";
+    // The OAuth callback is auth-excluded (Intuit redirects a bare browser), so `state` must
+    // be an HMAC-signed token we can trust to name the tenant — NOT a raw tenant id an
+    // attacker could swap to plant their QuickBooks tokens onto someone else's account.
+    if (!tenant?.id) return res.status(401).json({ error: "Sign in before connecting QuickBooks." });
+    const state = signOauthState(tenant.id);
     const url = `${cfg.authUrl}?client_id=${encodeURIComponent(cfg.clientId)}&response_type=code&scope=${encodeURIComponent("com.intuit.quickbooks.accounting")}&redirect_uri=${encodeURIComponent(cfg.redirectUri)}&state=${encodeURIComponent(state)}`;
     res.json({ url });
   });
@@ -2387,6 +2431,9 @@ export async function createApp({ startListening = false } = {}) {
     const { code, state, realmId } = req.query || {};
     if (!cfg.configured) return res.status(503).send("QuickBooks not configured.");
     if (!code || !state) return res.status(400).send("Missing code/state.");
+    // Verify the signed state and DERIVE the tenant from it — never trust the raw value.
+    const tenantId = verifyOauthState(String(state));
+    if (!tenantId) return res.redirect(`${BASE_URL}/admin/settings?quickbooks=error`);
     try {
       const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
       const body = new URLSearchParams({ grant_type: "authorization_code", code: String(code), redirect_uri: cfg.redirectUri });
@@ -2397,7 +2444,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!sb) throw new Error("SUPABASE_SERVICE_ROLE_KEY required to store the connection.");
       const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
       await sb.from("integrations").upsert({
-        tenant_id: String(state), provider: "quickbooks", realm_id: realmId ? String(realmId) : null,
+        tenant_id: tenantId, provider: "quickbooks", realm_id: realmId ? String(realmId) : null,
         access_token: tok.access_token, refresh_token: tok.refresh_token, expires_at, status: "connected", updated_at: new Date().toISOString(),
       }, { onConflict: "tenant_id,provider" });
       res.redirect(`${BASE_URL}/admin/settings?quickbooks=connected`);
@@ -2432,7 +2479,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ synced, total: (customers || []).length, errors: errors.slice(0, 10) });
     } catch (e: any) {
       console.error("QBO sync error:", e?.message);
-      res.status(500).json({ error: e?.message || "QuickBooks sync failed." });
+      res.status(500).json({ error: "QuickBooks sync failed." });
     }
   });
 
@@ -2482,7 +2529,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Ingest Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2525,7 +2572,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(parsed || { intent: "UNKNOWN_OR_UNPARSEABLE", summary: "", data: {} });
     } catch (e: any) {
       console.error("Hands-free error:", e);
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2555,7 +2602,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ audio });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2610,7 +2657,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ text: response.text });
     } catch (error: any) {
       console.error("Agent Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2666,7 +2713,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2681,7 +2728,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json({ compressedContext: response.text });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2782,7 +2829,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -2988,7 +3035,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3007,7 +3054,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3053,7 +3100,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Briefing Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3110,7 +3157,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Extraction Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3266,7 +3313,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ suggestions, mock: isMockMode });
     } catch (error: any) {
       console.error("Optimization Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3294,7 +3341,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3334,7 +3381,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3392,7 +3439,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3534,7 +3581,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ ...designResult, mock: isMockMode });
     } catch (error: any) {
       console.error("Design Process Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -3719,7 +3766,13 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/design/proposal-pdf", async (req: any, res: any) => {
     try {
       const { beforeImage, afterImage, visionSummary, materials, total, clientName, tenantName, strategicValue } = req.body || {};
-      const esc = (s: any) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      // Escape ALL five HTML-significant chars — escaping only <> left a double-quote
+      // attribute-breakout (esc(src) in an <img src="..."> -> onerror handler in Chrome).
+      const esc = (s: any) =>
+        String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      // Only embed genuine inline image data-URIs — never a caller-supplied http(s)/file URL
+      // (that would be SSRF/exfil via the renderer, now also blocked at the renderPdf layer).
+      const safeImg = (s: any) => (typeof s === "string" && /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(s) ? s : "");
       const brand = esc(tenantName || "YardWorx");
       const client = esc(clientName || "Valued Client");
       const mats = Array.isArray(materials) ? materials : [];
@@ -3731,10 +3784,12 @@ export async function createApp({ startListening = false } = {}) {
             )
             .join("")
         : `<tr><td style="padding:10px 0;">Proposed landscaping scope</td><td></td></tr>`;
-      const imgCell = (src: any, label: string) =>
-        src
-          ? `<div style="flex:1;text-align:center;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#888;margin-bottom:6px;">${label}</div><img src="${esc(src)}" style="width:100%;border-radius:10px;border:1px solid #ddd;"/></div>`
+      const imgCell = (src: any, label: string) => {
+        const safe = safeImg(src);
+        return safe
+          ? `<div style="flex:1;text-align:center;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#888;margin-bottom:6px;">${label}</div><img src="${safe}" style="width:100%;border-radius:10px;border:1px solid #ddd;"/></div>`
           : "";
+      };
       const totalNum = Number(total) || 0;
       const html = `<html><body style="font-family:Helvetica,Arial,sans-serif;padding:40px;color:#1a1a1a;">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #05a845;padding-bottom:16px;">
@@ -4084,7 +4139,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ ...designResult, mock: isMockMode });
     } catch (error: any) {
       console.error("Design Tiers Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4168,7 +4223,7 @@ export async function createApp({ startListening = false } = {}) {
       res.send(pdfBuffer);
     } catch (error: any) {
       console.error("PDF Generate Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4193,7 +4248,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ success: true, message: "Note synced to Google Keep." });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4222,7 +4277,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ success: true, messages });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4245,7 +4300,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ success: true, message: "Dispatched to Google Chat." });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4280,7 +4335,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ success: true, file: await driveRes.json() });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4320,7 +4375,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
       console.error("Vision Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4349,7 +4404,7 @@ export async function createApp({ startListening = false } = {}) {
 
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4371,8 +4426,15 @@ export async function createApp({ startListening = false } = {}) {
       try {
         const sb = getServiceSupabase();
         if (sb) {
-          const { data: row } = await sb.from("reviews").select("data").eq("id", reviewId).maybeSingle();
-          externalName = row?.data?.googleReviewName || row?.data?.externalId || "";
+          // Scope the lookup to the caller's tenant — this is a service-role query that bypasses
+          // RLS, so without the tenant filter any owner could pass another tenant's reviewId and
+          // publish a reply to THAT business's Google listing (IDOR). No tenant -> no lookup.
+          const tenant = await resolveTenant(req);
+          if (tenant) {
+            const { data: row } = await sb
+              .from("reviews").select("data").eq("id", reviewId).eq("tenant_id", tenant.id).maybeSingle();
+            externalName = row?.data?.googleReviewName || row?.data?.externalId || "";
+          }
         }
       } catch (e) { /* fall through to honest "not configured" */ }
 
@@ -4430,7 +4492,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4464,7 +4526,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(parsed);
     } catch (e: any) {
       console.error("Snapshot check failed:", e);
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4485,7 +4547,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json({ message: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4528,7 +4590,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(data);
     } catch (error: any) {
       console.error("[crm/enrich]", error?.message);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4553,7 +4615,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4594,7 +4656,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(JSON.parse(response.text || '{"drafts":[]}'));
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4628,7 +4690,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4664,7 +4726,7 @@ export async function createApp({ startListening = false } = {}) {
       });
       res.json(parseGeminiJson(response.text));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4716,7 +4778,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json(parsed);
     } catch (error: any) {
       console.error("Voice Memo Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4752,7 +4814,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ translatedText: response.text?.trim() });
     } catch (error: any) {
       console.error("Translation ERROR:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4784,7 +4846,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ text: response.text });
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4903,8 +4965,10 @@ export async function createApp({ startListening = false } = {}) {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           // fetchWithTimeout actually aborts at the deadline (the old Promise.race left
-          // the socket open and the request still running after "timeout").
-          const r = (await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, timeoutMs: 8000 })) as Response;
+          // the socket open and the request still running after "timeout"). redirect:"error"
+          // stops a 3xx from an attacker's public host bouncing us to an internal address
+          // (validateSafeUrl only vetted the original URL).
+          const r = (await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, timeoutMs: 8000, redirect: "error" })) as Response;
           if (r.ok) return res.json({ delivered: true, status: r.status, attempts: attempt });
           lastErr = `HTTP ${r.status}`;
         } catch (e: any) {
@@ -4913,7 +4977,7 @@ export async function createApp({ startListening = false } = {}) {
       }
       return res.status(502).json({ delivered: false, error: lastErr, attempts: maxAttempts });
     } catch (e: any) {
-      return res.status(500).json({ error: e?.message || "Webhook dispatch failed" });
+      return res.status(500).json({ error: "Webhook dispatch failed" });
     }
   });
 
@@ -4921,6 +4985,30 @@ export async function createApp({ startListening = false } = {}) {
   app.post("/api/sms/send", async (req: any, res) => {
     try {
       const { to, message, customerId } = req.body;
+      const digits = String(to || "").replace(/\D/g, "");
+      if (digits.length < 10 || digits.length > 15) {
+        return res.status(400).json({ error: "A valid destination phone number is required." });
+      }
+      // Toll-fraud / spam guard: the platform Twilio number must only text the caller's OWN
+      // customers. With auth on, verify the destination matches a customer phone in this tenant
+      // before we ever hand the number to Twilio. (Demo mode has no tenant, so it only simulates.)
+      if (REQUIRE_AUTH) {
+        const sb = getServiceSupabase();
+        const tenant = await resolveTenant(req);
+        if (!sb || !tenant) return res.status(401).json({ error: "Unauthorized" });
+        const last10 = digits.slice(-10);
+        // Narrow by the last 4 digits (cheap), then verify the normalized last-10 in JS so
+        // formatting differences ("(601) 555-0123" vs "6015550123") still match.
+        let owns = false;
+        const { data: cands } = await sb
+          .from("customers").select("phone").eq("tenant_id", tenant.id).ilike("phone", `%${last10.slice(-4)}%`).limit(50);
+        for (const c of cands || []) {
+          if (String(c.phone || "").replace(/\D/g, "").slice(-10) === last10) { owns = true; break; }
+        }
+        if (!owns) {
+          return res.status(403).json({ error: "You can only text a phone number saved to one of your customers." });
+        }
+      }
       // Persist the outbound text into customer_messages so it shows in the CRM thread and
       // the client portal (pairs with the inbound webhook). Only when a customerId is given
       // AND that customer belongs to the caller's tenant. Non-breaking when omitted.
@@ -4960,7 +5048,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ success: true, sid: result.sid });
     } catch (err: any) {
       console.error("Twilio error:", err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -4998,7 +5086,7 @@ export async function createApp({ startListening = false } = {}) {
       const magicLink = req.protocol + "://" + req.get("host") + "/portal/auth/" + token;
       res.json({ success: true, token, magicLink });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -5408,7 +5496,7 @@ export async function createApp({ startListening = false } = {}) {
       res.json({ success: true, ...result });
     } catch (e: any) {
       console.error("[email/send]", e?.message);
-      res.status(500).json({ error: e?.message || "Email send failed" });
+      res.status(500).json({ error: "Email send failed" });
     }
   });
 
@@ -5451,7 +5539,7 @@ OUTPUT JSON ONLY, shape:
       res.json(plan);
     } catch (e: any) {
       console.error("[agent/closeout]", e?.message);
-      res.status(500).json({ error: e?.message || "Closeout planning failed" });
+      res.status(500).json({ error: "Closeout planning failed" });
     }
   });
 
@@ -5479,7 +5567,7 @@ OUTPUT JSON ONLY, shape:
       res.json({ source: "ai_estimate", configured: false, lawnSqft: est.lawnSqft || null, confidence: est.confidence || "low", note: "Rough AI estimate — connect a measurement provider for survey-grade takeoff." });
     } catch (e: any) {
       console.error("[measure/property]", e?.message);
-      res.status(500).json({ error: e?.message || "Measurement failed" });
+      res.status(500).json({ error: "Measurement failed" });
     }
   });
 
@@ -5521,7 +5609,7 @@ OUTPUT JSON ONLY, shape:
       res.json(digest);
     } catch (e: any) {
       console.error("[agent/owner-digest]", e?.message);
-      res.status(500).json({ error: e?.message || "Digest failed" });
+      res.status(500).json({ error: "Digest failed" });
     }
   });
 
@@ -5555,7 +5643,7 @@ OUTPUT JSON ONLY, shape:
       res.json(play);
     } catch (e: any) {
       console.error("[agent/save-play]", e?.message);
-      res.status(500).json({ error: e?.message || "Save play failed" });
+      res.status(500).json({ error: "Save play failed" });
     }
   });
 

@@ -1,4 +1,5 @@
 import { fetchApi } from "../lib/api";
+import { csvCell } from "../lib/csv";
 // @ts-nocheck
 import {
   BarChart3,
@@ -181,11 +182,11 @@ export default function Reports() {
   // Client-side CSV export of the currently active view (revenue breakdown for
   // analytics, audit feed for the activity log). Uses a Blob download — no server.
   const exportCsv = () => {
-    const esc = (v: any) => {
-      const s = v == null ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    let rows: string[][] = [];
+    // csvCell (../lib/csv) both quote-escapes AND neutralizes formula-injection leads
+    // (= + - @) — the old esc() only quoted, so a job title like "=WEBSERVICE(...)" flowing
+    // into the revenue-breakdown export would execute as a formula when opened in a spreadsheet.
+    const esc = csvCell;
+    let rows: any[][] = [];
     let filename = "report.csv";
 
     if (activeView === "audit") {
