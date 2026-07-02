@@ -11,7 +11,15 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
-  const parts = ip.split('.').map(Number);
+  // Normalize IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1)
+  let normalizedIp = ip;
+  if (ip.toLowerCase().startsWith('::ffff:')) {
+    normalizedIp = ip.substring(7);
+  }
+
+  if (!isIP(normalizedIp)) return false;
+
+  const parts = normalizedIp.split('.').map(Number);
 
   // IPv4 Private Ranges:
   // 10.0.0.0 – 10.255.255.255
@@ -28,7 +36,7 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 0) return true; // 0.0.0.0
 
   // IPv6 (basic check for loopback and unique local addresses)
-  if (ip === '::1' || ip.toLowerCase().startsWith('fe80:') || ip.toLowerCase().startsWith('fc00:') || ip.toLowerCase().startsWith('fd00:')) {
+  if (ip === '::' || ip === '::1' || ip.toLowerCase().startsWith('fe80:') || ip.toLowerCase().startsWith('fc00:') || ip.toLowerCase().startsWith('fd00:')) {
     return true;
   }
 
