@@ -9,10 +9,13 @@ export const QuickCreateMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
   const { role } = useRole();
   const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
 
+  // Each create deep-links straight into the target page's prefilled modal via ?create=<kind>
+  // (the page opens it on mount and strips the param) — so "Create Invoice" lands the owner in
+  // the invoice form, not on a page where they still have to find the button.
   const actions = [
-    { id: "new_client", label: "New Client", icon: Users, path: `${rolePrefix}/crm`, bg: "bg-blue-500/10", border: "border-blue-500/20", color: "text-blue-400" },
-    { id: "new_job", label: "Schedule Job", icon: Calendar, path: `${rolePrefix}/scheduler`, bg: "bg-forest-500/10", border: "border-forest-500/20", color: "text-forest-400" },
-    { id: "new_invoice", label: "Create Invoice", icon: ReceiptText, path: `${rolePrefix}/invoices`, bg: "bg-amber-500/10", border: "border-amber-500/20", color: "text-amber-400" },
+    { id: "new_client", label: "New Client", icon: Users, path: `${rolePrefix}/crm?create=client`, bg: "bg-blue-500/10", border: "border-blue-500/20", color: "text-blue-400" },
+    { id: "new_job", label: "Schedule Job", icon: Calendar, path: `${rolePrefix}/scheduler?create=job`, bg: "bg-forest-500/10", border: "border-forest-500/20", color: "text-forest-400" },
+    { id: "new_invoice", label: "Create Invoice", icon: ReceiptText, path: `${rolePrefix}/invoices?create=invoice`, bg: "bg-amber-500/10", border: "border-amber-500/20", color: "text-amber-400" },
     { id: "new_quote", label: "Draft Quote", icon: FileText, path: `${rolePrefix}/crm`, bg: "bg-purple-500/10", border: "border-purple-500/20", color: "text-purple-400" },
   ];
 

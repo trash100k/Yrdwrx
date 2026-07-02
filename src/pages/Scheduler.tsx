@@ -12,6 +12,7 @@ import {
   ChevronRight,
   List,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { jobsRepo, invoicesRepo, customersRepo } from "../lib/repos";
 import OnMyWayButton from "../components/OnMyWayButton";
@@ -178,6 +179,18 @@ export default function Scheduler() {
   // This page used to ALSO handle "cutty-action" by re-opening the add-job modal prefilled —
   // a second creation path for a job the executor already booked. That listener was removed;
   // the new job lands via the jobsRepo subscription above.
+
+  // Quick Create deep-link: /scheduler?create=job opens the add-job modal on arrival. Strip the
+  // param afterward so a refresh or Back doesn't force it reopen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("create") === "job") {
+      setShowAddModal(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("create");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // HOA quiet-hours guardrail: warn (don't block) when a job is being scheduled for an
   // HOA customer before their earliest-allowed service window. Reuses customer data the

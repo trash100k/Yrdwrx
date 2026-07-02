@@ -47,7 +47,7 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 import { motion, AnimatePresence } from "motion/react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ingestKnowledge, fetchRelevantMemory } from "../services/brainService";
 import { z } from "zod";
 import { useTenant } from "../contexts/TenantContext";
@@ -731,6 +731,18 @@ export default function CRM() {
         handleVoiceAction as EventListener,
       );
   }, [customers]);
+
+  // Quick Create deep-link: /crm?create=client opens the Add Client modal on arrival so the owner
+  // lands ready to type. Strip the param afterward so a refresh or Back doesn't force it reopen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("create") === "client") {
+      setShowAddModal(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("create");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const handleUpdateNotes = async (id: string, notes: string) => {
     setIsSavingNotes(true);

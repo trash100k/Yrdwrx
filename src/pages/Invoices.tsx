@@ -44,7 +44,7 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 import { useReactToPrint } from "react-to-print";
 import { PrinterFriendlyInvoice } from "../components/PrinterFriendlyInvoice";
 
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Invoice } from "../types";
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -257,6 +257,25 @@ export default function Invoices() {
       setShowAIModal(true);
     }
   }, [location.state]);
+
+  // Quick Create deep-link: /invoices?create=invoice opens the invoice modal on arrival with a
+  // blank draft so the owner can start typing immediately. Strip the param afterward so a refresh
+  // or Back doesn't force it reopen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("create") === "invoice") {
+      setAiAnalysis({
+        clientName: "",
+        items: [{ description: "", quantity: 1, rate: 0 }],
+        total: 0,
+        summary: "",
+      });
+      setShowAIModal(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("create");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // NOTE: the voice/text agent's create_invoice and log_expense actions are executed
   // centrally by executeAgentAction (src/lib/agentActions.ts), which drafts the invoice /

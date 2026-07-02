@@ -1339,7 +1339,9 @@ Triaged into waves. [x] = already landed this sprint.
 - [ ] server.ts: shared fetchWithTimeout(AbortSignal) helper across the config-gated integration routes (residual from the outbound-timeout item above).
 
 ### Wave 3 — walkthrough "don't make me think" wow
-- [ ] Quick Create deep-links into prefilled open modals (login→first-invoice ~9 taps → ~4).
+- [x] Quick Create deep-links into prefilled open modals — `?create=client|job|invoice` opens the
+      target page's modal on arrival and strips the param (CRM/Scheduler/Invoices). (Draft Quote still
+      lands on CRM; wire a quote deep-link once the quote modal supports a standalone open.)
 - [ ] Persistent "next best step" setup checklist on Dashboard (real tenant counts).
 - [ ] Guided tour: fix/skip missing spotlight IDs; survive refresh; re-offer; mobile anchors.
 - [ ] Sample data labeled + one-tap clear; demo mode survives refresh.
