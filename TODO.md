@@ -8,11 +8,15 @@ payment-chaser, online booking (/book), instant estimate, client portal + magic 
 optimizer, inventory, reviews loop, Design Studio, Live Ear, Cutty, job costing, timesheets,
 referrals, equipment, unified inbox, offline/PWA, QuickBooks (one-way), Twilio SMS, property-measure
 scaffold (AI fallback + provider-pending).
-GENUINE GAPS being built this wave:
-  [P0] E-signature on estimates — the "sign it in the driveway" close (was MISSING). Server
-       endpoint POST /api/portal/estimate/sign added; SignaturePad + portal + owner-tablet UI in flight.
-  [P1] Payroll export — timesheets existed but no hours→payroll CSV. src/lib/payroll.ts + Reports tab.
-  [P1] Batch "Bill This Cycle" — invoice all active recurring contracts in one idempotent click.
+GENUINE GAPS — ALL SHIPPED this wave (459 tests, tsc clean, build OK):
+  [x][P0] E-signature on estimates — the "sign it in the driveway" close. Server endpoint
+       POST /api/portal/estimate/sign + reusable SignaturePad.tsx (canvas draw + typed fallback)
+       wired into the client portal (customer signs on their phone → estimate flips to "accepted")
+       AND owner Invoices (customer signs on the owner's tablet on-site, written via the repo).
+  [x][P1] Payroll export — src/lib/payroll.ts (per-worker regular/OT hours, weekly-40 OT, 17 tests)
+       + a Payroll tab in Reports with date-range + CSV export.
+  [x][P1] Batch "Bill This Cycle" — one idempotent click drafts this period's invoices for every
+       active recurring contract (two-layer dup-guard + partial-failure safe); recurring.ts helpers tested.
 DEFERRED (need a paid vendor / more scope): aerial/satellite takeoff provider (Nearmap/Regrid key),
 two-way QuickBooks (needs sandbox verification), deposit-required-on-acceptance (chains off e-sign). -->
 

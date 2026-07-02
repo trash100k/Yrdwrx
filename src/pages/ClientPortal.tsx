@@ -1,8 +1,9 @@
 // @ts-nocheck
 import React, { useEffect, useState, useRef } from "react";
-import { MapPin, Calendar, CreditCard, Leaf, CheckCircle2, Lock, Send, AlertCircle, Clock, Image as ImageIcon, Download, ThumbsUp } from "lucide-react";
+import { MapPin, Calendar, CreditCard, Leaf, CheckCircle2, Lock, Send, AlertCircle, Clock, Image as ImageIcon, Download, ThumbsUp, FileSignature } from "lucide-react";
 import { safeStorage } from "../lib/storage";
 import ClientDashboard from "../components/ClientDashboard";
+import SignaturePad from "../components/SignaturePad";
 
 // SECURE PORTAL: the visitor has no app session. Their only credential is the signed
 // capability token (set by MagicLinkAuth). Every read/write goes through server endpoints
@@ -38,6 +39,13 @@ export default function ClientPortal() {
 
   const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // E-signature: the estimate currently open in the SignaturePad, any sign error, and a
+  // local map of invoiceId -> signedAt so a freshly-signed estimate shows its date without
+  // waiting on a re-fetch (the portal data shape doesn't return the signature block).
+  const [signingEstimate, setSigningEstimate] = useState<any>(null);
+  const [signError, setSignError] = useState<string | null>(null);
+  const [signedAtById, setSignedAtById] = useState<Record<string, string>>({});
 
   const portalFetch = (path: string, init: RequestInit = {}) =>
     fetch(path, {
@@ -175,6 +183,45 @@ export default function ClientPortal() {
       setApproveError(e?.message || "Network error approving proposal.");
     } finally {
       setApprovingDesignId(null);
+    }
+  };
+
+  // Client e-signs + accepts an estimate (a draft/quote invoice) from the portal. The
+  // signature block is recorded server-side, which flips the estimate to "accepted".
+  // SignaturePad manages its own "Signing..." state while this promise is in flight.
+  const handleSignEstimate = async ({ name, dataUrl }: { name: string; dataUrl: string }) => {
+    const est = signingEstimate;
+    if (!est?.id) return;
+    setSignError(null);
+    try {
+      const res = await portalFetch("/api/portal/estimate/sign", {
+        method: "POST",
+        body: JSON.stringify({
+          invoiceId: est.id,
+          signerName: name,
+          // Only send a drawn signature when one exists (typed-only signs name-only).
+          ...(dataUrl ? { signatureDataUrl: dataUrl } : {}),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      // 409 => already accepted/paid elsewhere. Treat as signed so the UI settles cleanly.
+      if (res.status === 409) {
+        setSignedAtById((prev) => ({ ...prev, [est.id]: prev[est.id] || new Date().toISOString() }));
+        setSigningEstimate(null);
+        await refreshPortalData();
+        return;
+      }
+      if (!res.ok || json.success === false) {
+        setSignError(json.error || "Couldn't record your signature. Please try again.");
+        setSigningEstimate(null);
+        return;
+      }
+      setSignedAtById((prev) => ({ ...prev, [est.id]: json.signedAt || new Date().toISOString() }));
+      setSigningEstimate(null);
+      await refreshPortalData();
+    } catch (e: any) {
+      setSignError(e?.message || "Network error while signing. Please try again.");
+      setSigningEstimate(null);
     }
   };
 
@@ -358,9 +405,9 @@ export default function ClientPortal() {
                       <h3 className="text-rose-400 font-black uppercase tracking-widest text-xs mb-1">Outstanding Balance</h3>
                       <p className="text-2xl sm:text-3xl sm:text-4xl font-black italic tracking-normal md:tracking-tighter text-white">${money(outstanding)}</p>
                     </div>
-                    {(paymentError || downloadError) && (
+                    {(paymentError || downloadError || signError) && (
                       <div className="bg-rose-500/20 text-rose-400 text-xs px-3 py-2 rounded-lg flex items-center gap-2 max-w-sm">
-                        <AlertCircle size={14} /> {paymentError || downloadError}
+                        <AlertCircle size={14} /> {paymentError || downloadError || signError}
                       </div>
                     )}
                   </div>
@@ -371,6 +418,14 @@ export default function ClientPortal() {
                       const balance = balanceOf(inv);
                       // Partially paid: some money in, but a balance remains (and not flagged fully paid).
                       const isPartial = !paid && amountPaid > 0 && balance > 0;
+                      // Estimate = a quote awaiting acceptance ("draft") or one already e-signed
+                      // ("accepted"). The portal only exposes `status`, so we key off that plus any
+                      // signature captured this session. Signed estimates show a green ✓ state; unsigned
+                      // ones offer "Accept & Sign" instead of "Pay Now".
+                      const statusLc = String(inv.status || "").toLowerCase();
+                      const signedAt = signedAtById[inv.id];
+                      const isSigned = statusLc === "accepted" || !!signedAt;
+                      const isEstimate = statusLc === "draft" || isSigned;
                       return (
                         <div key={inv.id} className={`flex flex-col sm:flex-row sm:items-center justify-between bg-black/40 p-4 sm:p-6 rounded-2xl border-2 border-white/5 gap-4 ${paid ? "opacity-50 grayscale" : ""}`}>
                           <div>
@@ -390,7 +445,7 @@ export default function ClientPortal() {
                                   Partially paid
                                 </span>
                               ) : (
-                                <p className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${paid ? "text-forest-400" : "text-rose-400"}`}>{paid ? "Paid" : inv.status || "Unpaid"}</p>
+                                <p className={`text-xs md:text-[10px] font-black uppercase tracking-widest ${paid || isSigned ? "text-forest-400" : "text-rose-400"}`}>{paid ? "Paid" : isSigned ? "Accepted" : isEstimate ? "Estimate" : inv.status || "Unpaid"}</p>
                               )}
                             </div>
                             <button
@@ -400,7 +455,21 @@ export default function ClientPortal() {
                             >
                               <Download size={14} /> {downloadingInvoiceId === inv.id ? "Generating..." : "Download PDF"}
                             </button>
-                            {!paid && (
+                            {isEstimate ? (
+                              isSigned ? (
+                                <div className="inline-flex items-center gap-2 bg-forest-500/10 text-forest-400 border-2 border-forest-500/20 font-black uppercase tracking-widest text-[10px] sm:text-xs py-3 px-5 rounded-xl whitespace-nowrap">
+                                  <CheckCircle2 size={14} /> Signed{signedAt ? ` ${new Date(signedAt).toLocaleDateString()}` : ""}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setSignError(null); setSigningEstimate(inv); }}
+                                  className="bg-forest-500 hover:bg-forest-400 text-black font-black uppercase tracking-widest text-[10px] sm:text-xs py-3 px-5 rounded-xl hover:scale-105 transition-transform flex items-center justify-center gap-2 whitespace-nowrap"
+                                >
+                                  <FileSignature size={14} /> Accept &amp; Sign
+                                </button>
+                              )
+                            ) : (
+                              !paid && (
                               <button
                                 onClick={() => handlePayment(inv)}
                                 disabled={paymentLoading}
@@ -408,6 +477,7 @@ export default function ClientPortal() {
                               >
                                 <CreditCard size={14} /> {payingInvoiceId === inv.id ? "Processing..." : isPartial ? `Pay balance $${money(balance)}` : "Pay Now"}
                               </button>
+                              )
                             )}
                           </div>
                         </div>
@@ -535,6 +605,15 @@ export default function ClientPortal() {
           )}
         </main>
       </div>
+
+      {/* E-signature capture for accepting an estimate ("sign it in the driveway"). */}
+      <SignaturePad
+        open={!!signingEstimate}
+        title="Accept & Sign Estimate"
+        amountLabel={signingEstimate ? `$${money(signingEstimate.amount)}` : undefined}
+        onCancel={() => setSigningEstimate(null)}
+        onSign={handleSignEstimate}
+      />
     </div>
   );
 }

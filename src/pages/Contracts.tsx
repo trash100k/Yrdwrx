@@ -9,7 +9,13 @@ import { motion, AnimatePresence } from "motion/react";
 import { contractsRepo, customersRepo, jobsRepo, invoicesRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { visitDatesUntil, parseCadence, pricePerVisitFromMrr } from "../lib/recurring";
+import {
+  visitDatesUntil,
+  parseCadence,
+  pricePerVisitFromMrr,
+  currentBillingPeriod,
+  isContractDueThisPeriod,
+} from "../lib/recurring";
 
 const VISITS_TO_GENERATE = 4;
 
@@ -60,6 +66,12 @@ export default function Contracts() {
   const [generatingId, setGeneratingId] = useState(null); // contract.id currently generating visits
   const [alsoInvoice, setAlsoInvoice] = useState(false);   // generate draft invoices alongside visits
   const [upcomingByContract, setUpcomingByContract] = useState({}); // contractId -> # of future jobs
+
+  // "Bill This Cycle" — whole-book draft-invoice run for the current period.
+  const [showBillModal, setShowBillModal] = useState(false);
+  const [billing, setBilling] = useState(false);            // confirm handler in flight
+  const [billPeriod, setBillPeriod] = useState("");         // "YYYY-MM" being billed
+  const [billPreview, setBillPreview] = useState([]);       // [{ contract, id, name, customer, amount }]
 
   // --- Realtime list --------------------------------------------------------
   useEffect(() => {
@@ -364,6 +376,126 @@ export default function Contracts() {
     return c?.address || null;
   }
 
+  // --- "Bill This Cycle": whole-book period billing -------------------------
+  // Derive a contract's per-visit charge exactly like handleGenerateVisits:
+  // explicit data.pricePerVisit when set, else derive from MRR + cadence.
+  function deriveVisitPrice(c) {
+    const cadence = parseCadence(c?.data?.frequency || c?.data?.cycle);
+    const explicitPrice = c?.data?.pricePerVisit;
+    return explicitPrice != null && explicitPrice !== ""
+      ? Number(explicitPrice) || 0
+      : pricePerVisitFromMrr(Number(c?.mrr || 0), cadence);
+  }
+
+  // Open the preview modal: compute this period + the set of active contracts
+  // that haven't been billed for it yet (idempotency gate lives in recurring.ts).
+  function openBillCycle() {
+    const period = currentBillingPeriod();
+    const due = contracts
+      .filter((c) => isContractDueThisPeriod(c, period))
+      .map((c) => ({
+        contract: c,
+        id: c.id,
+        name: c.name || "Untitled contract",
+        customer: customerName(c.customer_id || c.customerId),
+        amount: deriveVisitPrice(c),
+      }));
+    setBillPeriod(period);
+    setBillPreview(due);
+    setShowBillModal(true);
+  }
+
+  // Confirm: draft ONE invoice per due contract, then stamp lastBilledPeriod so
+  // the contract drops out of future runs. Idempotent + partial-failure safe:
+  //  - a pre-load of this period's invoices skips any contract already billed
+  //    (covers a prior run where the invoice landed but the stamp didn't);
+  //  - lastBilledPeriod is stamped ONLY after its invoice succeeds, so a failed
+  //    invoice leaves the contract billable next time (no silent skip).
+  async function handleBillCycle() {
+    const period = billPeriod;
+    const toBill = billPreview;
+    if (!toBill.length) { setShowBillModal(false); return; }
+    setBilling(true);
+
+    // Defense-in-depth dup-guard: contractIds that already carry an invoice
+    // stamped with this billingPeriod. Best-effort — fall back to the
+    // lastBilledPeriod stamp alone if invoices can't be loaded.
+    const alreadyBilled = new Set();
+    try {
+      const invoices = await invoicesRepo.list();
+      for (const inv of invoices || []) {
+        const cid = inv?.data?.contractId || inv?.data?.contract_id;
+        if (cid && inv?.data?.billingPeriod === period) alreadyBilled.add(cid);
+      }
+    } catch {
+      // Non-fatal: rely on lastBilledPeriod for idempotency.
+    }
+
+    let created = 0;
+    let total = 0;
+    let failures = 0;
+    let skipped = 0;
+    try {
+      for (const item of toBill) {
+        const c = item.contract;
+        // Already invoiced this period elsewhere — don't double-bill. Backfill
+        // the stamp so it stops surfacing, then move on.
+        if (alreadyBilled.has(c.id)) {
+          skipped++;
+          try {
+            await contractsRepo.update(c.id, { data: { ...(c.data || {}), lastBilledPeriod: period } });
+          } catch { /* stamp is best-effort; the invoice guard still protects us */ }
+          continue;
+        }
+
+        const customerId = c.customerId || c.customer_id || null;
+        const price = item.amount;
+        const title = c.data?.serviceType || c.data?.services || c.name || "Maintenance visit";
+        try {
+          // Mirror handleGenerateVisits' invoice shape; stamp the billing period.
+          await invoicesRepo.create({
+            amount: price,
+            items: [{ description: title, quantity: 1, rate: price }],
+            status: "draft",
+            customerId,
+            date: todayISO(),
+            data: {
+              contractId: c.id,
+              client: item.customer || c.name || null,
+              billingPeriod: period,
+              autoBilled: true,
+            },
+          });
+          // Only NOW mark the contract billed for this period.
+          await contractsRepo.update(c.id, { data: { ...(c.data || {}), lastBilledPeriod: period } });
+          created++;
+          total += Number(price) || 0;
+        } catch {
+          failures++;
+        }
+      }
+
+      if (created > 0) {
+        const bits = [];
+        if (skipped > 0) bits.push(`${skipped} already billed`);
+        if (failures > 0) bits.push(`${failures} failed`);
+        const suffix = bits.length ? ` (${bits.join(", ")})` : "";
+        showToast(
+          `Drafted ${created} invoice${created === 1 ? "" : "s"} totaling ${fmtMoney(total)} for ${period}${suffix}`,
+          failures > 0 ? "warning" : "success"
+        );
+      } else if (skipped > 0 && failures === 0) {
+        showToast(`All active contracts are already billed for ${period}.`, "info");
+      } else {
+        showToast("Couldn't draft any invoices — please try again", "error");
+      }
+      refreshUpcoming();
+    } finally {
+      setBilling(false);
+      setShowBillModal(false);
+    }
+  }
+
   // --- Render ---------------------------------------------------------------
   return (
     <div className="p-5 sm:p-8 max-w-7xl mx-auto min-h-[100dvh]">
@@ -563,6 +695,120 @@ export default function Contracts() {
         )}
       </AnimatePresence>
 
+      {/* Bill This Cycle — preview + confirm modal */}
+      <AnimatePresence>
+        {showBillModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => !billing && setShowBillModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar"
+            >
+              <button
+                onClick={() => !billing && setShowBillModal(false)}
+                className="absolute top-4 right-4 text-zinc-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-forest-500/10 rounded-xl flex items-center justify-center text-forest-400">
+                  <DollarSign size={20} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Bill This Cycle</h2>
+                  <p className="text-zinc-400 text-sm">
+                    Draft invoices for active contracts · <span className="font-mono">{billPeriod}</span>
+                  </p>
+                </div>
+              </div>
+
+              {billPreview.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-8 px-2">
+                  <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-forest-400 mb-4">
+                    <ShieldCheck size={22} />
+                  </div>
+                  <p className="text-white font-bold mb-1">Nothing to bill</p>
+                  <p className="text-zinc-500 text-sm max-w-xs">
+                    All active contracts are already billed for {billPeriod}.
+                  </p>
+                  <button
+                    onClick={() => setShowBillModal(false)}
+                    className="mt-6 px-5 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-sm transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Summary */}
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="bg-black/40 border border-white/10 rounded-xl p-3">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Contracts</div>
+                      <div className="text-2xl font-black text-white">{billPreview.length}</div>
+                    </div>
+                    <div className="bg-black/40 border border-forest-500/20 rounded-xl p-3">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Draft Total</div>
+                      <div className="text-2xl font-black text-forest-400">
+                        {fmtMoney(billPreview.reduce((s, x) => s + (Number(x.amount) || 0), 0))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Per-contract preview list */}
+                  <div className="border border-white/10 rounded-xl divide-y divide-white/5 overflow-hidden mb-2 max-h-[40vh] overflow-y-auto custom-scrollbar">
+                    {billPreview.map((x) => (
+                      <div key={x.id} className="flex items-center justify-between gap-3 px-4 py-3 bg-black/20">
+                        <div className="min-w-0">
+                          <div className="text-white font-bold truncate">{x.name}</div>
+                          {x.customer && (
+                            <div className="text-[11px] font-medium text-zinc-500 truncate">{x.customer}</div>
+                          )}
+                        </div>
+                        <div className="text-forest-400 font-bold shrink-0">{fmtMoney(x.amount)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-zinc-500 mb-4">
+                    One draft invoice per contract for {billPeriod}. Safe to re-run — a contract already
+                    billed this period is skipped.
+                  </p>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowBillModal(false)}
+                      disabled={billing}
+                      className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleBillCycle}
+                      disabled={billing}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-forest-600 hover:bg-forest-500 text-white rounded-xl font-bold uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
+                    >
+                      {billing ? <Loader2 size={18} className="animate-spin" /> : <Receipt size={18} />}
+                      {billing
+                        ? "Drafting…"
+                        : `Draft ${billPreview.length} Invoice${billPreview.length === 1 ? "" : "s"}`}
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <ConfirmDialog
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -593,6 +839,13 @@ export default function Contracts() {
           >
             <Receipt size={15} />
             {alsoInvoice ? "Visits + Draft Invoices" : "Visits Only"}
+          </button>
+          <button
+            onClick={openBillCycle}
+            title="Draft this period's invoices for every active recurring contract (safe to re-run — never double-bills a contract in the same period)"
+            className="px-5 py-3 rounded-full font-bold uppercase text-xs tracking-widest border border-forest-500/40 bg-forest-500/15 text-forest-400 hover:bg-forest-500/25 transition-colors flex items-center gap-2"
+          >
+            <DollarSign size={16} /> Bill This Cycle
           </button>
           <button
             onClick={openCreate}

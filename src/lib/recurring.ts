@@ -3,9 +3,10 @@
 // scheduled visits from a recurring contract's cadence.
 //
 // Everything here is PURE and DETERMINISTIC: callers pass in the starting
-// date (startISO) and any "now" reference as a string. Nothing in this module
-// reads the clock (no Date.now() / new Date() with no args), so the same inputs
-// always yield the same outputs and it's trivial to unit-test.
+// date (startISO) and any "now" reference. The one clock read is
+// currentBillingPeriod()'s DEFAULT argument, and it accepts an explicit `now`
+// so tests stay deterministic. Given inputs, the same inputs always yield the
+// same outputs and it's trivial to unit-test.
 
 export type Cadence = "weekly" | "biweekly" | "monthly" | "annually";
 
@@ -124,4 +125,34 @@ export function pricePerVisitFromMrr(mrr: number, cadence: Cadence): number {
     default: raw = m; break;
   }
   return Math.round(raw * 100) / 100;
+}
+
+// --- Whole-book "Bill This Cycle" helpers ----------------------------------
+// These back one-click billing of the current period across ALL active
+// recurring contracts. Idempotency lives here: a contract is billable for a
+// period exactly once, gated by a `data.lastBilledPeriod` stamp the caller
+// writes after a successful invoice.
+
+// The current billing period as "YYYY-MM" (UTC). Accepts an optional `now` for
+// deterministic tests; defaults to the wall clock. UTC fields are used so the
+// period never drifts across timezones (matches the app's UTC date handling).
+export function currentBillingPeriod(now: Date = new Date()): string {
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+// Minimal shape needed to decide billability — a recurring contract row.
+export interface BillableContract {
+  status?: string;
+  data?: { lastBilledPeriod?: string | null } | null;
+}
+
+// A contract is due to be billed for `period` when it is ACTIVE and has not
+// already been stamped as billed for that same period. This is the idempotency
+// gate behind "Bill This Cycle": once a contract's data.lastBilledPeriod equals
+// the period, it drops out of the due set and can't be double-billed.
+export function isContractDueThisPeriod(contract: BillableContract, period: string): boolean {
+  if (!contract || contract.status !== "active") return false;
+  return contract.data?.lastBilledPeriod !== period;
 }

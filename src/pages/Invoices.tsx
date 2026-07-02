@@ -34,6 +34,7 @@ import {
   Printer,
   Repeat,
   FileSignature,
+  PenLine,
   Bell,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -47,6 +48,7 @@ import { PrinterFriendlyInvoice } from "../components/PrinterFriendlyInvoice";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Invoice } from "../types";
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
+import SignaturePad from "../components/SignaturePad";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmptyState } from "../components/EmptyState";
 import { Skeleton } from "../components/Skeleton";
@@ -105,6 +107,8 @@ export default function Invoices() {
   const [loaded, setLoaded] = useState(false);
   // Pending destructive action (invoice deletion), gated behind a confirm dialog.
   const [pendingDeleteInvoice, setPendingDeleteInvoice] = useState<any>(null);
+  // Estimate currently open in the on-site SignaturePad ("Get Signature" -> sign in the driveway).
+  const [signingEstimate, setSigningEstimate] = useState<any>(null);
   const [expenses, setExpenses] = useState<
     { id: string; amount: number; vendor?: string; merchant?: string; category?: string; date: string; notes?: string; status?: string; isArchived?: boolean; }[]
   >([]);
@@ -507,6 +511,42 @@ export default function Invoices() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `invoices/${inv.id}`);
       showToast(err?.message || "Could not finalize estimate.", "error");
+    }
+  };
+
+  // Capture an on-site signature on the owner's own tablet ("sign it in the driveway").
+  // The owner is already authed, so we write straight through the repo (no portal token):
+  // flip the estimate to "accepted" and record the signature block on data. SignaturePad
+  // manages its own "Signing..." state while this promise is in flight.
+  const handleSignEstimate = async ({ name, dataUrl }: { name: string; dataUrl: string }) => {
+    const est = signingEstimate;
+    if (!est?.id) return;
+    const tenantId = tenant?.id || "genesis-1";
+    try {
+      await invoicesRepo.update(est.id, {
+        status: "accepted",
+        data: {
+          ...(est.data || {}),
+          signature: {
+            name,
+            image: dataUrl || null,
+            signedAt: new Date().toISOString(),
+            via: "owner",
+          },
+          acceptedAt: new Date().toISOString(),
+        },
+      });
+      await logSystemEvent("ESTIMATE_SIGNED", {
+        invoiceId: est.id,
+        client: est.client,
+        signer: name,
+        tenantId,
+      });
+      setSigningEstimate(null);
+      showToast(`Estimate signed by ${name}.`, "success");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `invoices/${est.id}`);
+      showToast(err?.message || "Could not record signature.", "error");
     }
   };
 
@@ -1167,7 +1207,13 @@ export default function Invoices() {
                 }}
               />
             ) : (
-              filteredInvoices.map((inv) => (
+              filteredInvoices.map((inv) => {
+              // An estimate is a draft/quote or an already-accepted (signed) invoice. `signed`
+              // is true once a signature block exists on data, or the status is "accepted".
+              const statusLc = (inv.status || "").toLowerCase();
+              const isEstimate = statusLc === "draft" || statusLc === "accepted";
+              const signed = !!((inv as any).data?.signature || (inv as any).signature) || statusLc === "accepted";
+              return (
               <motion.div
                 layout
                 key={inv.id}
@@ -1201,6 +1247,11 @@ export default function Invoices() {
                         if (unpaid && inv.dueDate) return <span className="text-[10px] text-zinc-600">Due {inv.dueDate}</span>;
                         return null;
                       })()}
+                      {signed && (
+                        <span className="text-[10px] font-black uppercase tracking-widest text-forest-400 bg-forest-500/10 border border-forest-500/30 px-2 py-0.5 rounded inline-flex items-center gap-1">
+                          <CheckCircle2 size={11} /> {((inv as any).data?.signature || (inv as any).signature) ? "Signed" : "Accepted"}
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1280,6 +1331,16 @@ export default function Invoices() {
                         ) : (
                           <Bell size={18} aria-hidden="true" />
                         )}
+                      </button>
+                    )}
+                    {isEstimate && !signed && (
+                      <button
+                        onClick={() => setSigningEstimate(inv)}
+                        className="p-2.5 text-forest-400 hover:bg-forest-500/10 rounded-md transition-all"
+                        aria-label={`Capture an on-site signature for ${inv.client}`}
+                        title="Get Signature (sign in the driveway)"
+                      >
+                        <PenLine size={18} aria-hidden="true" />
                       </button>
                     )}
                     {(inv.status || "").toLowerCase() === "draft" && (
@@ -1367,7 +1428,8 @@ export default function Invoices() {
                   </div>
                 </div>
               </motion.div>
-              ))
+              );
+              })
             )}
           </div>
 
@@ -1894,6 +1956,15 @@ export default function Invoices() {
         } from your ledger. This can't be undone.`}
         confirmText="Delete"
         danger
+      />
+
+      {/* On-site e-signature capture ("Get Signature" -> sign in the driveway). */}
+      <SignaturePad
+        open={!!signingEstimate}
+        title="Get Signature"
+        amountLabel={signingEstimate ? formatCurrency(signingEstimate.amount) : undefined}
+        onCancel={() => setSigningEstimate(null)}
+        onSign={handleSignEstimate}
       />
 
       <div className="hidden">

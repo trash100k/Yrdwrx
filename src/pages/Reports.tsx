@@ -1,6 +1,7 @@
-import { fetchApi } from "../lib/api";
-import { csvCell } from "../lib/csv";
 // @ts-nocheck
+import { fetchApi } from "../lib/api";
+import { csvCell, toCsv } from "../lib/csv";
+import { summarizePayroll, type PayrollLine } from "../lib/payroll";
 import {
   BarChart3,
   TrendingDown,
@@ -36,9 +37,19 @@ import {
   customersRepo,
   jobsRepo,
   inventoryRepo,
+  timesheetsRepo,
 } from "../lib/repos";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
+
+// Format a Date as a local YYYY-MM-DD string for <input type="date"> (avoids the UTC-shift
+// bug of toISOString().slice(0,10), which can land on the wrong calendar day near midnight).
+function toDateInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export default function Reports() {
   const { tenant } = useTenant();
@@ -82,9 +93,59 @@ export default function Reports() {
       metadata?: Record<string, string>;
     }[]
   >([]);
-  const [activeView, setActiveView] = useState<"analytics" | "audit" | "loss-leaders">(
-    "analytics",
+  const [activeView, setActiveView] = useState<
+    "analytics" | "audit" | "loss-leaders" | "payroll"
+  >("analytics");
+
+  // Payroll: raw timesheet rows (RLS-scoped) + the selected pay-period range. Default to
+  // the last 14 days — a common bi-weekly pay period. Range strings are YYYY-MM-DD (the
+  // native <input type="date"> format); we widen them to local start/end-of-day when
+  // handing off to summarizePayroll so a whole end-day's shifts are included.
+  const [timesheets, setTimesheets] = useState<any[]>([]);
+  const [isTimesheetsLoading, setIsTimesheetsLoading] = useState(false);
+  const [payrollRange, setPayrollRange] = useState<{ start: string; end: string }>(() => {
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(start.getDate() - 13); // 14 days inclusive of today
+    return { start: toDateInput(start), end: toDateInput(now) };
+  });
+
+  const payrollStartISO = `${payrollRange.start}T00:00:00`;
+  const payrollEndISO = `${payrollRange.end}T23:59:59.999`;
+  const payrollLines: PayrollLine[] = summarizePayroll(timesheets, {
+    startISO: payrollStartISO,
+    endISO: payrollEndISO,
+  });
+  const payrollTotals = payrollLines.reduce(
+    (acc, l) => ({
+      regularHours: acc.regularHours + l.regularHours,
+      otHours: acc.otHours + l.otHours,
+      totalHours: acc.totalHours + l.totalHours,
+      shifts: acc.shifts + l.shifts,
+    }),
+    { regularHours: 0, otHours: 0, totalHours: 0, shifts: 0 },
   );
+
+  // Load timesheets once per tenant for the payroll rollup (repo is tenant-scoped by RLS).
+  useEffect(() => {
+    let cancelled = false;
+    setIsTimesheetsLoading(true);
+    timesheetsRepo
+      .list()
+      .then((rows) => {
+        if (!cancelled) setTimesheets(rows || []);
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, "reports/payroll");
+        if (!cancelled) setTimesheets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsTimesheetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tenant]);
 
   useEffect(() => {
     fetchPredictiveMaintenance();
@@ -179,13 +240,49 @@ export default function Reports() {
     }
   };
 
-  // Client-side CSV export of the currently active view (revenue breakdown for
-  // analytics, audit feed for the activity log). Uses a Blob download — no server.
+  // Blob-download a prebuilt CSV string — no server round-trip.
+  const saveCsv = (csv: string, filename: string) => {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Client-side CSV export of the currently active view (payroll table, revenue breakdown
+  // for analytics, or the audit feed for the activity log).
   const exportCsv = () => {
     // csvCell (../lib/csv) both quote-escapes AND neutralizes formula-injection leads
     // (= + - @) — the old esc() only quoted, so a job title like "=WEBSERVICE(...)" flowing
     // into the revenue-breakdown export would execute as a formula when opened in a spreadsheet.
     const esc = csvCell;
+
+    // Payroll export uses the shared toCsv() builder (header + rows, each field csvCell-escaped)
+    // and a range-stamped filename. Numbers are fixed to 2 decimals to match the table.
+    if (activeView === "payroll") {
+      const body: (string | number)[][] = payrollLines.map((l) => [
+        l.name,
+        l.regularHours.toFixed(2),
+        l.otHours.toFixed(2),
+        l.totalHours.toFixed(2),
+        l.shifts,
+      ]);
+      body.push([
+        "TOTAL",
+        payrollTotals.regularHours.toFixed(2),
+        payrollTotals.otHours.toFixed(2),
+        payrollTotals.totalHours.toFixed(2),
+        payrollTotals.shifts,
+      ]);
+      const csv = toCsv(["Worker", "Regular Hrs", "OT Hrs", "Total Hrs", "Shifts"], body);
+      saveCsv(csv, `payroll-${payrollRange.start}-to-${payrollRange.end}.csv`);
+      return;
+    }
+
     let rows: any[][] = [];
     let filename = "report.csv";
 
@@ -212,15 +309,7 @@ export default function Reports() {
     }
 
     const csv = rows.map((r) => r.map(esc).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    saveCsv(csv, filename);
   };
 
   const fetchInventoryForecast = async () => {
@@ -278,12 +367,17 @@ export default function Reports() {
           >
             {[
               { id: "analytics", label: "Stats", icon: BarChart3 },
+              { id: "payroll", label: "Payroll", icon: DollarSign },
               { id: "loss-leaders", label: "Loss-Leader Analysis", icon: TrendingDown },
               { id: "audit", label: "Activity Log", icon: ShieldCheck },
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveView(tab.id as "analytics" | "audit" | "loss-leaders")}
+                onClick={() =>
+                  setActiveView(
+                    tab.id as "analytics" | "audit" | "loss-leaders" | "payroll",
+                  )
+                }
                 className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-transform whitespace-nowrap border-4 ${
                   activeView === tab.id
                     ? "bg-white text-black border-black shadow-[4px_4px_0_0_#000] scale-105"
@@ -309,7 +403,7 @@ export default function Reports() {
       </header>
 
       <AnimatePresence mode="wait">
-        {activeView === "analytics" ? (
+        {activeView === "analytics" && (
           <motion.div
             key="analytics"
             initial={{ opacity: 0, y: 10 }}
@@ -521,7 +615,9 @@ export default function Reports() {
               </div>
             </div>
           </motion.div>
-        ) : (
+        )}
+
+        {activeView === "audit" && (
           <motion.div
             key="audit"
             initial={{ opacity: 0, y: 10 }}
@@ -661,6 +757,150 @@ export default function Reports() {
             className="space-y-10"
           >
             <LossLeaderAnalyzer />
+          </motion.div>
+        )}
+
+        {activeView === "payroll" && (
+          <motion.div
+            key="payroll"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-10"
+          >
+            <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-8 sm:p-10 text-white relative overflow-hidden group">
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8 mb-10">
+                <div className="flex items-center gap-4">
+                  <DollarSign size={24} className="text-forest-400 shadow-glow" />
+                  <div>
+                    <h3 className="text-2xl sm:text-3xl font-black italic tracking-normal md:tracking-tighter leading-none lowercase">
+                      payroll export.
+                    </h3>
+                    <p className="micro-label font-black text-white/20 uppercase tracking-[0.3em] mt-2">
+                      Hours &rarr; Payroll &middot; Overtime after 40h / week
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-end gap-4 flex-wrap">
+                  <label className="space-y-2">
+                    <span className="block micro-label font-black text-white/30 uppercase tracking-widest">
+                      Start
+                    </span>
+                    <input
+                      type="date"
+                      value={payrollRange.start}
+                      max={payrollRange.end || undefined}
+                      onChange={(e) =>
+                        setPayrollRange((r) => ({ ...r, start: e.target.value }))
+                      }
+                      className="bg-black border border-white/10 rounded-xl px-4 py-3 text-sm font-black text-white tracking-widest focus:border-forest-500 outline-none transition-colors"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="block micro-label font-black text-white/30 uppercase tracking-widest">
+                      End
+                    </span>
+                    <input
+                      type="date"
+                      value={payrollRange.end}
+                      min={payrollRange.start || undefined}
+                      onChange={(e) =>
+                        setPayrollRange((r) => ({ ...r, end: e.target.value }))
+                      }
+                      className="bg-black border border-white/10 rounded-xl px-4 py-3 text-sm font-black text-white tracking-widest focus:border-forest-500 outline-none transition-colors"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {isTimesheetsLoading ? (
+                <div className="micro-label text-white/10 animate-pulse py-16 text-center italic font-black uppercase tracking-widest">
+                  Tallying clocked hours...
+                </div>
+              ) : payrollLines.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center gap-3 py-16">
+                  <Clock className="text-white/10" size={40} />
+                  <p className="micro-label text-white/20 italic font-black uppercase tracking-widest">
+                    No hours in this range
+                  </p>
+                  <p className="text-xs text-white/30 font-bold max-w-xs leading-relaxed">
+                    Payroll totals appear once crews clock in and out within the selected pay period.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-white/5">
+                  <table className="w-full text-left border-collapse min-w-[640px]">
+                    <thead>
+                      <tr className="border-b border-white/10 bg-black/40">
+                        <th className="py-4 px-5 micro-label font-black text-white/30 uppercase tracking-widest text-xs">
+                          Worker
+                        </th>
+                        <th className="py-4 px-5 text-right micro-label font-black text-white/30 uppercase tracking-widest text-xs">
+                          Regular Hrs
+                        </th>
+                        <th className="py-4 px-5 text-right micro-label font-black text-white/30 uppercase tracking-widest text-xs">
+                          OT Hrs
+                        </th>
+                        <th className="py-4 px-5 text-right micro-label font-black text-white/30 uppercase tracking-widest text-xs">
+                          Total Hrs
+                        </th>
+                        <th className="py-4 px-5 text-right micro-label font-black text-white/30 uppercase tracking-widest text-xs">
+                          Shifts
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payrollLines.map((l) => (
+                        <tr
+                          key={l.workerId}
+                          className="border-b border-white/5 hover:bg-white/5 transition-colors"
+                        >
+                          <td className="py-4 px-5 text-sm font-black text-white italic uppercase truncate max-w-[220px]">
+                            {l.name}
+                          </td>
+                          <td className="py-4 px-5 text-right text-sm font-bold text-white/70 tabular-nums">
+                            {l.regularHours.toFixed(2)}
+                          </td>
+                          <td
+                            className={`py-4 px-5 text-right text-sm font-black tabular-nums ${
+                              l.otHours > 0 ? "text-amber-400" : "text-white/30"
+                            }`}
+                          >
+                            {l.otHours.toFixed(2)}
+                          </td>
+                          <td className="py-4 px-5 text-right text-sm font-black text-white tabular-nums">
+                            {l.totalHours.toFixed(2)}
+                          </td>
+                          <td className="py-4 px-5 text-right text-sm font-bold text-white/50 tabular-nums">
+                            {l.shifts}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-white/20 bg-black/40">
+                        <td className="py-4 px-5 text-xs font-black text-forest-400 uppercase tracking-widest italic">
+                          Total
+                        </td>
+                        <td className="py-4 px-5 text-right text-sm font-black text-white tabular-nums">
+                          {payrollTotals.regularHours.toFixed(2)}
+                        </td>
+                        <td className="py-4 px-5 text-right text-sm font-black text-amber-400 tabular-nums">
+                          {payrollTotals.otHours.toFixed(2)}
+                        </td>
+                        <td className="py-4 px-5 text-right text-sm font-black text-white tabular-nums">
+                          {payrollTotals.totalHours.toFixed(2)}
+                        </td>
+                        <td className="py-4 px-5 text-right text-sm font-black text-white/70 tabular-nums">
+                          {payrollTotals.shifts}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -5,6 +5,8 @@ import {
   nextVisitDates,
   visitDatesUntil,
   pricePerVisitFromMrr,
+  currentBillingPeriod,
+  isContractDueThisPeriod,
 } from "./recurring";
 
 describe("parseCadence", () => {
@@ -176,5 +178,52 @@ describe("pricePerVisitFromMrr", () => {
   it("guards non-finite mrr", () => {
     expect(pricePerVisitFromMrr(NaN, "monthly")).toBe(0);
     expect(pricePerVisitFromMrr(Infinity, "monthly")).toBe(0);
+  });
+});
+
+describe("currentBillingPeriod", () => {
+  it("formats a date as YYYY-MM in UTC", () => {
+    expect(currentBillingPeriod(new Date("2026-07-02T12:00:00Z"))).toBe("2026-07");
+  });
+
+  it("zero-pads single-digit months", () => {
+    expect(currentBillingPeriod(new Date("2026-01-15T00:00:00Z"))).toBe("2026-01");
+    expect(currentBillingPeriod(new Date("2026-09-30T23:59:59Z"))).toBe("2026-09");
+  });
+
+  it("uses UTC fields so a late-UTC instant stays in its UTC month", () => {
+    expect(currentBillingPeriod(new Date("2026-12-31T23:30:00Z"))).toBe("2026-12");
+  });
+
+  it("returns a YYYY-MM shaped string when called with no argument", () => {
+    expect(currentBillingPeriod()).toMatch(/^\d{4}-\d{2}$/);
+  });
+});
+
+describe("isContractDueThisPeriod", () => {
+  const period = "2026-07";
+
+  it("is due when active and never billed", () => {
+    expect(isContractDueThisPeriod({ status: "active" }, period)).toBe(true);
+    expect(isContractDueThisPeriod({ status: "active", data: {} }, period)).toBe(true);
+    expect(isContractDueThisPeriod({ status: "active", data: null }, period)).toBe(true);
+  });
+
+  it("is due when active and last billed in a different period", () => {
+    expect(
+      isContractDueThisPeriod({ status: "active", data: { lastBilledPeriod: "2026-06" } }, period)
+    ).toBe(true);
+  });
+
+  it("is NOT due when already billed this period", () => {
+    expect(
+      isContractDueThisPeriod({ status: "active", data: { lastBilledPeriod: "2026-07" } }, period)
+    ).toBe(false);
+  });
+
+  it("is NOT due for non-active statuses even if never billed", () => {
+    for (const status of ["at_risk", "pending_renewal", "cancelled", undefined]) {
+      expect(isContractDueThisPeriod({ status }, period)).toBe(false);
+    }
   });
 });
