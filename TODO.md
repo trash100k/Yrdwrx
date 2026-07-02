@@ -13,7 +13,18 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-07-02 (100-CUSTOMER BATTLE-READINESS) — cleared Wave 1 (base.ts realtime/pagination,
+> _Last updated: 2026-07-02 (WHITE-HOT SELLABILITY) — 14-agent workflow + solo server/DB lane + a
+> 10-finding adversarially-verified security audit, all remediated. Feature: Dashboard setup checklist +
+> memoized aggregates, guided-tour resume/fallback/replay, sample-data label+clear, CommandPalette
+> server search, Closeout job picker, MarkupCanvas offset, Inbox cross-tab reads, syncService
+> lock+dead-letter, base64→Storage. Honesty: Live Ear speaks as the tenant, weather/followup/invoice-PDF
+> de-hardcoded + escaped. Scale: fetchWithTimeout on all outbound, RLS perf migration (28 policies split,
+> initplan subselects, 11 FK indexes; advisors 0 security/perf-cleared), private photos bucket + RLS,
+> 2-tenant isolation sim 6/6. Security: proposal-PDF XSS/SSRF (esc+renderPdf JS-off/data-only), QBO
+> OAuth HMAC state, webhook redirect:error, DNS-rebind all-addr check, cache PII (private), SMS
+> toll-fraud (own-customer-only), reviews IDOR, error-leak sweep, CSV-injection lib. 434 tests, tsc
+> clean, bundles, boots. Commits a47685b + 164f5bc on branch+main. Earlier:
+> 2026-07-02 (100-CUSTOMER BATTLE-READINESS) — cleared Wave 1 (base.ts realtime/pagination,
 > body-limit + threat-scan, cloudbuild env + prod fail-fast, shared PDF renderer, Gemini outbound timeout,
 > 6 broken ai.models.get sites, CRM sample-data crash, invoice-PDF false-429) and Wave 2 flagships:
 > Design Studio (best-render banking, honest gate copy, refine-merge, HEIC guard, narrated progress),
