@@ -39,7 +39,11 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
       <div className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-6 right-6 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10 text-white">
+        <button
+          onClick={onClose}
+          aria-label="Close modal"
+          className="absolute top-6 right-6 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10 text-white focus-visible:ring-2 focus-visible:ring-forest-500 outline-none"
+        >
           <X size={20} />
         </button>
 
