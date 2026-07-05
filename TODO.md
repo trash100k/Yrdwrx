@@ -180,6 +180,67 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > QuickBooks/payments/recurring billing as launch table-stakes (A7); AI repositioned as on-site closing;
 > added the Gemini-native build-leverage map + the beachhead._
 
+## Ship-it fleet backlog (2026-07-05) — 10 features + standing agent workstreams
+
+Grounded in `MARKET_RESEARCH.md` (table-stakes met; the one open lane = **on-site visual
+selling / "close it in the driveway"**) + a fresh code inventory. Built and driven by a dedicated
+subagent fleet defined in `.claude/agents/*.md`. Each feature ships **gated green** (`tsc`, vitest,
+build) and committed. Ranked by **value × readiness**.
+
+### The 10 features (build order)
+- [ ] **1. Deposit on acceptance** (`feat-deposit-on-accept`) — chains off the shipped e-signature:
+      client signs an estimate → required deposit collected via the existing `/api/portal/checkout`
+      Stripe Connect flow → estimate flips accepted + optional auto-create job. Owner sets a deposit
+      %/flat (per-estimate + tenant default). Idempotent, tenant-safe, mock-safe. *Highest ROI, lowest lift.*
+- [ ] **2. Design Studio iterative image editing** (`feat-design-studio-inpaint`) — THE differentiator.
+      Multi-step region-aware edits (Gemini `*-flash-image`): "swap this bed, keep the rest of the yard,"
+      edit stacking + undo/redo + before/after slider. Mock-safe placeholder (no white-screen), 400-not-500
+      on bad input, pricing stays catalog-grounded.
+- [ ] **3. Aerial/satellite property takeoff** (`feat-aerial-takeoff`) — neutralizes the incumbents'
+      remote-measurement lane. Provider-pluggable adapter (Google Solar / Regrid / Nearmap) behind the
+      existing `/api/property/measure` hook → lawn/bed/hardscape sqft + source + confidence; prefills the
+      instant estimate. **No fake precision** when unkeyed (labeled estimate/manual). *Needs a paid key (human).*
+- [ ] **4. Geocoding layer** (`feat-geocoding`) — the single highest-leverage enabler. Geocode-on-write
+      (Google Geocoding, mock-safe) caches lat/lng on customer/job; unblocks Route Optimizer, CustomerMap,
+      and drive-time Scheduler at once.
+- [ ] **5. Event notifications** (`feat-notifications`) — email/SMS/web-push on invoice created/paid, new
+      message, design approved, low stock, crew arrival, via the existing senders; per-tenant/per-customer
+      prefs + quiet hours + CAN-SPAM/TCPA opt-out; honest `simulated:true` when no provider.
+- [ ] **6. Two-way QuickBooks** (`feat-quickbooks-twoway`) — the accounting moat. Pull invoices/payments/
+      items back + reconcile + nightly sync on top of the shipped one-way push. Fixture-tested; live
+      round-trip is a documented human Intuit-sandbox step. *Needs sandbox creds (human).*
+- [ ] **7. Reviews ingestion** (`feat-reviews-ingestion`) — pull Google/Yelp reviews into the table
+      (dedup + real rating rollups) so the Reviews surface reflects actual reputation, not just outbound
+      requests. Mock-safe labeled samples.
+- [ ] **8. CSV import + dedupe/merge** (`feat-csv-import-dedupe`) — header-mapped import for customers/
+      inventory that **updates instead of duplicating** on re-import, flags near-dupes, + merge-duplicate-
+      customers (reassign children, archive loser). Lowers switching cost from Jobber/LMN. Injection-safe.
+- [ ] **9. Crew timeclock → payroll** (`feat-timeclock-payroll`) — clock-in/out tied to a job (optional
+      geofence, offline-safe) writing `jobId`/`customerId` timesheets that feed the shipped `payroll.ts`
+      export; makes Job Costing real instead of estimate-fallback.
+- [ ] **10. Document understanding** (`feat-doc-understanding`) — Gemini PDF extraction: vendor invoice →
+      draft expense (feeds Job Costing); contract/permit → structured fields. `responseSchema`, mock-safe,
+      400-not-500, confirm-before-commit.
+
+### Standing agent workstreams (continuous until shippable)
+- [ ] **QA smoke** (`qa-smoke-tester`) — after every wave: gates + headless route crawl + API probe;
+      logs every crash/regression back here as a bug.
+- [ ] **Pentest** (`pentester`) — adversarial passes on auth/RLS/injection/SSRF/cost-abuse/token forgery;
+      findings feed `security-hardener`.
+- [ ] **Security hardening** (`security-hardener`) — layer-by-layer sweep, fixes every leak/vuln, verifies.
+- [ ] **Market pain research** (`market-pain-researcher`) — landscaper pains → feature backlog (this list).
+- [ ] **Pricing strategy** (`pricing-strategist`) — `PRICING_STRATEGY.md`: monthly base + per-seat +
+      usage-metered (SMS/AI/voice) model; implementation plan extends the AI credit wallet to a usage ledger.
+- [ ] **Feature ideation** (`feature-ideator`) — keeps this backlog fed with ranked, de-duped, buildable ideas.
+- [ ] **Widgets + Dashboard** (`widget-dashboard-designer`) — strengthen/replace/kill widgets (no metrics
+      theater), invent high-signal ones, redesign the Dashboard cockpit.
+
+> **Bugs found during this sprint** are appended under "Sprint bug log" below as they're discovered,
+> then cleared as they're fixed.
+
+<!-- SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
+(none yet) -->
+
 ## App audit remediation backlog (2026-06-29) — from `APP_AUDIT.md`
 
 Derived from the section-by-section deep dive. **Full per-section detail (purpose/works/missing/
