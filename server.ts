@@ -669,12 +669,26 @@ function designImageCacheSet(key: string, dataUrl: string) {
 }
 // =================================================
 
-// Stripe webhook idempotency. L11 (scaling): PER-INSTANCE — under Cloud Run autoscale a
-// redelivery can land on a DIFFERENT instance whose Set doesn't have the id, so this is a
-// best-effort double-apply guard, not a global exactly-once (a shared store / DB idempotency
-// key is the documented scale follow-up). BOUNDED: cleared past 5000 ids so it can't grow
+// Stripe webhook idempotency — L1 fast path. PER-INSTANCE/PER-WORKER: under the production
+// cluster + Cloud Run autoscale a redelivery can land on a DIFFERENT worker/instance whose Set
+// doesn't have the id, so this Set alone is NOT a global exactly-once guard. The durable
+// stripe_events table (migration 0016) is the real cross-worker claim; this Set just saves a DB
+// round-trip on repeat hits to the same worker. BOUNDED: cleared past 5000 ids so it can't grow
 // without limit (see the webhook handler).
 const processedStripeEvents = new Set<string>();
+
+// Deterministic Stripe idempotency key. A double-submit (user double-clicks "Pay") or an
+// internal retry of the SAME intended charge reuses the SAME Checkout Session instead of
+// minting a duplicate. Derived from the charge identity (purpose + invoice/tenant id + the
+// amount in cents) so an intentionally DIFFERENT charge — e.g. a second partial payment of a
+// different amount on the same invoice — still gets its own session. Stripe retains idempotency
+// keys ~24h, which lines up with the Checkout Session lifetime.
+function stripeIdempotencyKey(purpose: string, ...parts: (string | number | null | undefined)[]): string {
+  return crypto
+    .createHash("sha256")
+    .update(["yw:v1", purpose, ...parts.map((p) => String(p ?? ""))].join("|"))
+    .digest("hex");
+}
 
 // ==== In-Memory API Cache Middlewares ====
 // L11 (scaling): PER-INSTANCE tenant-scoped response cache (approximate hit rate across the
@@ -848,38 +862,89 @@ export async function createApp({ startListening = false } = {}) {
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
       const event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
 
-      // Idempotency: ack duplicates without re-applying.
+      // ==== Idempotency (double-billing guard) ====
+      // L1 (per-worker fast path): if THIS worker already applied this event, ack immediately
+      // and skip the DB round-trip. NOTE the Set alone is NOT safe under the cluster / autoscale
+      // (a redelivery can hit a different worker whose Set is empty) — the durable claim below is
+      // the real cross-worker exactly-once guard; the Set just avoids a query on repeat hits.
       if (processedStripeEvents.has(event.id)) return res.json({ received: true, duplicate: true });
-      processedStripeEvents.add(event.id);
-      if (processedStripeEvents.size > 5000) processedStripeEvents.clear();
 
       // Supabase is the system of record. (The legacy Firestore mirror was removed —
       // it wrote to a dead project and added latency/failure surface inside the ack window.)
       const sb = getServiceSupabase();
 
-      // Map a Stripe subscription's price/metadata to a tenant tier.
-      const setTenantTier = async (tenantId: string, tier: string) => {
-        if (!tenantId || !tier || !sb) return;
-        try { await sb.from("tenants").update({ tier }).eq("id", tenantId); } catch (e) {}
+      // L2 (durable, cross-worker): atomically CLAIM this event id BEFORE applying any payment.
+      // `.upsert(..., { ignoreDuplicates: true })` compiles to `INSERT ... ON CONFLICT DO NOTHING`
+      // against stripe_events (migration 0016):
+      //   • 1 row returned  -> we are the first to see this id -> proceed to apply it.
+      //   • 0 rows returned -> another worker/instance already claimed+applied it -> duplicate:
+      //                        ack 200 and DO NOT re-apply (this is what stops the double credit).
+      // If the idempotency store is UNREACHABLE we return 500 so Stripe RETRIES rather than risk
+      // applying a payment with no exactly-once guarantee. When Supabase isn't configured at all
+      // (demo/dev), there is no durable store — fall back to the in-memory Set only.
+      let claimedDurably = false;
+      if (sb) {
+        try {
+          const { data: claimed, error: claimErr } = await sb
+            .from("stripe_events")
+            .upsert({ id: event.id }, { onConflict: "id", ignoreDuplicates: true })
+            .select("id");
+          if (claimErr) {
+            console.error("Stripe idempotency claim failed:", claimErr.message);
+            return res.status(500).send("Idempotency store unavailable");
+          }
+          if (!claimed || claimed.length === 0) {
+            processedStripeEvents.add(event.id); // seed L1 so repeat redeliveries here are cheap
+            return res.json({ received: true, duplicate: true });
+          }
+          claimedDurably = true;
+        } catch (e: any) {
+          console.error("Stripe idempotency claim threw:", e?.message);
+          return res.status(500).send("Idempotency store unavailable");
+        }
+      }
+
+      // We hold the claim — record it in the L1 fast path too.
+      processedStripeEvents.add(event.id);
+      if (processedStripeEvents.size > 5000) processedStripeEvents.clear();
+
+      // If applying the event fails AFTER we claimed it, RELEASE the claim (durable row + L1) so
+      // Stripe's retry can legitimately re-apply — otherwise the claim we just took would make
+      // every retry a no-op "duplicate" and the payment would be silently lost.
+      const releaseClaim = async () => {
+        processedStripeEvents.delete(event.id);
+        if (sb && claimedDurably) {
+          try { await sb.from("stripe_events").delete().eq("id", event.id); } catch (e) { /* best effort */ }
+        }
       };
 
-      switch (event.type) {
-        case 'checkout.session.completed': {
-          const session = event.data.object;
-          const md = session.metadata || {};
-          if (md.invoiceId && sb) {
-            // Apply the payment to the invoice ledger (system of record). The portal
-            // supports SMALLER partial payments, so we must accumulate data.amountPaid and
-            // only mark fully "paid" when the balance is settled — blindly setting "paid"
-            // would write off the remainder and let the client be charged again later.
-            // We read the invoice first so the data jsonb is merged (a column write replaces
-            // it wholesale, which would otherwise erase number/tax/contractId).
-            // A `type:"deposit"` session credits the ledger too, but keeps the estimate
-            // "accepted" (a deposit is a partial payment, not a converted invoice).
-            try {
+      try {
+        // Map a Stripe subscription's price/metadata to a tenant tier. Throws on a real DB error
+        // so it propagates to the 500-on-failure path below (Stripe retries) instead of being lost.
+        const setTenantTier = async (tenantId: string, tier: string) => {
+          if (!tenantId || !tier || !sb) return;
+          const { error } = await sb.from("tenants").update({ tier }).eq("id", tenantId);
+          if (error) throw new Error("setTenantTier failed: " + error.message);
+        };
+
+        switch (event.type) {
+          case 'checkout.session.completed': {
+            const session = event.data.object;
+            const md = session.metadata || {};
+            if (md.invoiceId && sb) {
+              // Apply the payment to the invoice ledger (system of record). The portal
+              // supports SMALLER partial payments, so we must accumulate data.amountPaid and
+              // only mark fully "paid" when the balance is settled — blindly setting "paid"
+              // would write off the remainder and let the client be charged again later.
+              // We read the invoice first so the data jsonb is merged (a column write replaces
+              // it wholesale, which would otherwise erase number/tax/contractId).
+              // A `type:"deposit"` session credits the ledger too, but keeps the estimate
+              // "accepted" (a deposit is a partial payment, not a converted invoice).
+              // A real read/write error THROWS (caught below) so Stripe retries — never swallowed.
               const invId = md.invoiceId;
               const isDeposit = md.type === "deposit";
-              const { data: inv } = await sb.from("invoices").select("amount,data,status").eq("id", invId).maybeSingle();
+              const { data: inv, error: readErr } = await sb.from("invoices").select("amount,data,status").eq("id", invId).maybeSingle();
+              if (readErr) throw new Error("invoice read failed: " + readErr.message);
               if (inv) {
                 const paid = (Number(session.amount_total) || 0) / 100;
                 const prevPaid = Number(inv.data?.amountPaid) || 0;
@@ -895,35 +960,43 @@ export async function createApp({ startListening = false } = {}) {
                 } else {
                   status = amountPaid >= total - 0.005 ? "paid" : "partial";
                 }
-                await sb.from("invoices").update({ status, data: nextData }).eq("id", invId);
+                const { error: updErr } = await sb.from("invoices").update({ status, data: nextData }).eq("id", invId);
+                if (updErr) throw new Error("invoice update failed: " + updErr.message);
               }
-            } catch (e) { console.warn("Supabase invoice payment apply failed:", (e as any)?.message); }
+            }
+            // SaaS subscription checkout → set tenant tier.
+            if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
+              await setTenantTier(session.metadata.tenantId, session.metadata.tier);
+            }
+            break;
           }
-          // SaaS subscription checkout → set tenant tier.
-          if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
-            await setTenantTier(session.metadata.tenantId, session.metadata.tier);
+          case 'customer.subscription.created':
+          case 'customer.subscription.updated': {
+            const sub = event.data.object;
+            const tenantId = sub.metadata?.tenantId;
+            const tier = sub.metadata?.tier || (sub.items?.data?.[0]?.price?.metadata?.tier);
+            if (tenantId && tier && sub.status === "active") await setTenantTier(tenantId, tier);
+            break;
           }
-          break;
+          case 'customer.subscription.deleted': {
+            const sub = event.data.object;
+            if (sub.metadata?.tenantId) await setTenantTier(sub.metadata.tenantId, "free");
+            break;
+          }
+          case 'invoice.payment_failed': {
+            console.warn("[BILLING] invoice.payment_failed", event.data.object?.id);
+            break;
+          }
+          default:
+            break;
         }
-        case 'customer.subscription.created':
-        case 'customer.subscription.updated': {
-          const sub = event.data.object;
-          const tenantId = sub.metadata?.tenantId;
-          const tier = sub.metadata?.tier || (sub.items?.data?.[0]?.price?.metadata?.tier);
-          if (tenantId && tier && sub.status === "active") await setTenantTier(tenantId, tier);
-          break;
-        }
-        case 'customer.subscription.deleted': {
-          const sub = event.data.object;
-          if (sub.metadata?.tenantId) await setTenantTier(sub.metadata.tenantId, "free");
-          break;
-        }
-        case 'invoice.payment_failed': {
-          console.warn("[BILLING] invoice.payment_failed", event.data.object?.id);
-          break;
-        }
-        default:
-          break;
+      } catch (applyErr: any) {
+        // Genuine processing failure AFTER we claimed the event. Release the claim and return 500
+        // so Stripe retries the delivery. The previous code swallowed this and acked 200, silently
+        // dropping the payment apply while marking the event "processed".
+        console.error("Stripe event apply failed:", applyErr?.message);
+        await releaseClaim();
+        return res.status(500).send("Event processing failed");
       }
 
       res.json({ received: true });
@@ -1440,13 +1513,18 @@ export async function createApp({ startListening = false } = {}) {
   // a tenant if one somehow doesn't exist yet. Optionally seeds starter "practice" data.
   app.post("/api/tenants/provision", async (req: any, res) => {
     try {
-      const { companyName, tier = "free", loadDemoData = false, settings = {} } = req.body || {};
+      // SECURITY: NEVER trust a client-supplied tier/credits here. Provisioning always creates a
+      // workspace at the DEFAULT (free) tier server-side; a paid tier is granted ONLY by the
+      // Stripe subscription webhook (customer.subscription.* / checkout.session.completed) or the
+      // platform-admin path. Reading `tier` from req.body previously let any caller self-grant
+      // `enterprise` + its 10k AI-credit quota — a privilege/quota-escalation bug.
+      const { companyName, loadDemoData = false, settings = {} } = req.body || {};
       if (!companyName || typeof companyName !== "string") return res.status(400).json({ error: "companyName required" });
       const uid = req.user?.uid;
       if (REQUIRE_AUTH && !uid) return res.status(401).json({ error: "Unauthorized" });
       const sb = getServiceSupabase();
       if (!sb) return res.status(503).json({ error: "Provisioning unavailable: SUPABASE_SERVICE_ROLE_KEY not configured", code: "PROVISION_UNAVAILABLE" });
-      const safeTier = ["free", "pro", "enterprise"].includes(tier) ? tier : "free";
+      const DEFAULT_TENANT_TIER = "free"; // server-set; tier upgrades only via Stripe webhook / platform-admin
       const email = req.user?.email || null;
       const isPlatformAdmin = !!(email && process.env.PLATFORM_OWNER_EMAIL && email === process.env.PLATFORM_OWNER_EMAIL);
       const tenantSettings = {
@@ -1476,14 +1554,17 @@ export async function createApp({ startListening = false } = {}) {
       const legal = { aiDisclaimerAccepted: true, acceptedAt: new Date().toISOString() };
       if (tenantId) {
         // Don't let a non-owner clobber tenant fields; still record their disclaimer.
+        // NOTE: `tier` is deliberately NOT written on re-onboarding — it is owned by the Stripe
+        // webhook. Writing it here (even the default) would silently DOWNGRADE a paid tenant back
+        // to free if the owner revisits onboarding.
         if (isOwnerSetup) {
-          await sb.from("tenants").update({ name: companyName, tier: safeTier, settings: tenantSettings, legal }).eq("id", tenantId);
+          await sb.from("tenants").update({ name: companyName, settings: tenantSettings, legal }).eq("id", tenantId);
         } else {
           await sb.from("tenants").update({ legal }).eq("id", tenantId);
         }
       } else {
         tenantId = crypto.randomUUID();
-        const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: safeTier, settings: tenantSettings, legal });
+        const { error: tErr } = await sb.from("tenants").insert({ id: tenantId, name: companyName, tier: DEFAULT_TENANT_TIER, settings: tenantSettings, legal });
         if (tErr) throw tErr;
       }
       if (uid) {
@@ -2634,7 +2715,9 @@ export async function createApp({ startListening = false } = {}) {
         sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
       }
 
-      const requestOptions = connectedAccount ? { stripeAccount: connectedAccount } : {};
+      const requestOptions: any = connectedAccount ? { stripeAccount: connectedAccount } : {};
+      // Idempotency: a double-submit of the same invoice/deposit charge reuses the same session.
+      requestOptions.idempotencyKey = stripeIdempotencyKey(isDeposit ? "checkout-deposit" : "checkout-invoice", invoiceId || "adhoc", unitAmount);
 
       const session = await stripe.checkout.sessions.create(sessionOptions, requestOptions);
       res.json({ checkoutUrl: session.url, url: session.url });
@@ -2668,6 +2751,9 @@ export async function createApp({ startListening = false } = {}) {
         subscription_data: { metadata: { tenantId: tenantId || "", tier } },
         success_url: `${BASE_URL}/admin/settings?subscribed=${tier}`,
         cancel_url: `${BASE_URL}/admin/settings?subscribe_canceled=true`,
+      }, {
+        // Idempotency: repeated subscribe clicks for the same tenant+tier reuse the same session.
+        idempotencyKey: stripeIdempotencyKey("subscribe", tenantId || "", tier, priceId),
       });
       res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
@@ -2723,7 +2809,11 @@ export async function createApp({ startListening = false } = {}) {
         },
         success_url: sameOriginOrDefault(successUrl, `${BASE_URL}/admin/invoices?recurring=created`),
         cancel_url: sameOriginOrDefault(cancelUrl, `${BASE_URL}/admin/invoices?recurring=canceled`),
-      }, connectedAccount ? { stripeAccount: connectedAccount } : {});
+      }, {
+        ...(connectedAccount ? { stripeAccount: connectedAccount } : {}),
+        // Idempotency: a double-submit of the same recurring plan reuses the same session.
+        idempotencyKey: stripeIdempotencyKey("recurring", tenant?.id || "", customerId || "", amt, interval),
+      });
       res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
       console.error("Recurring billing error:", error?.message);
@@ -5966,7 +6056,11 @@ export async function createApp({ startListening = false } = {}) {
     if (connectedAccount && PLATFORM_FEE_PCT > 0) {
       sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
     }
-    const requestOptions = connectedAccount ? { stripeAccount: connectedAccount } : {};
+    const requestOptions: any = connectedAccount ? { stripeAccount: connectedAccount } : {};
+    // Idempotency: reopening the same deposit/balance charge (e.g. the client closed the Stripe
+    // tab) reuses the same session instead of minting a duplicate. Keyed on invoice+purpose+amount.
+    const purpose = extraMetadata?.type === "deposit" ? "invoice-deposit" : "invoice-balance";
+    requestOptions.idempotencyKey = stripeIdempotencyKey(purpose, inv.id, unitAmount);
     return stripe.checkout.sessions.create(sessionOptions, requestOptions);
   };
 
@@ -6013,7 +6107,10 @@ export async function createApp({ startListening = false } = {}) {
       if (connectedAccount && PLATFORM_FEE_PCT > 0) {
         sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
       }
-      const requestOptions = connectedAccount ? { stripeAccount: connectedAccount } : {};
+      const requestOptions: any = connectedAccount ? { stripeAccount: connectedAccount } : {};
+      // Idempotency keyed on invoice+amount: a double-submit of the SAME partial/balance amount
+      // reuses the session, but a later partial of a DIFFERENT amount still gets its own session.
+      requestOptions.idempotencyKey = stripeIdempotencyKey("portal-balance", invoiceId, unitAmount);
       const session = await stripe.checkout.sessions.create(sessionOptions, requestOptions);
       res.json({ checkoutUrl: session.url, url: session.url });
     } catch (e: any) {
