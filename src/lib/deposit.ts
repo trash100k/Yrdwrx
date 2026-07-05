@@ -33,7 +33,10 @@ function toCents(n: number): number {
  * straight through with no payment step.
  */
 export function computeDeposit(total: number, cfg: DepositConfig | null | undefined): DepositResult {
-  const grandTotal = Math.max(0, Number(total) || 0);
+  // `Number(total) || 0` collapses NaN/null/undefined/-Infinity to 0 but leaves +Infinity intact
+  // (it's truthy) — guard explicitly so a non-finite total yields no chargeable deposit.
+  const t = Number(total);
+  const grandTotal = Number.isFinite(t) && t > 0 ? t : 0;
   const cfgAmount = Number(cfg?.depositAmount);
   const cfgPct = Number(cfg?.depositPct);
 

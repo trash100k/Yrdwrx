@@ -2471,9 +2471,10 @@ export default function Dashboard() {
                     </div>
                     <Link
                       to="../crew-suite"
+                      aria-label="Open Crew Suite"
                       className="text-zinc-500 hover:text-white p-2 bg-white/5 rounded-lg transition-all"
                     >
-                      <ArrowRight size={16} />
+                      <ArrowRight size={16} aria-hidden="true" />
                     </Link>
                   </div>
 

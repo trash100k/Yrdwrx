@@ -1188,6 +1188,7 @@ export default function Invoices() {
               
               <select
                 value={quarterFilter}
+                aria-label="Filter invoices by quarter"
                 onChange={(e) => setQuarterFilter(e.target.value)}
                 className="bg-zinc-900 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm font-medium outline-none hover:border-white/20 transition-colors"
               >
