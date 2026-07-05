@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { Truck, Map as MapIcon, Route, Play, Settings, CheckCircle2, Navigation2, Navigation, Copy } from "lucide-react";
 import { APIProvider, Map, AdvancedMarker } from "@vis.gl/react-google-maps";
 import { jobsRepo } from "../lib/repos";
-import { geocodeAddress } from "../lib/geocode";
+import { backfillCoords } from "../lib/geocode";
 import { useToast } from "../contexts/ToastContext";
 
 // READ adapter: flatten the jsonb `data` bag first (carries client/time/coords),
@@ -93,29 +93,20 @@ export default function RouteOptimizer() {
         setRouteData(null);
       }
 
-      // Geocode (best-effort, in parallel) only the stops missing stored coords.
-      const needsGeocode = base.filter((s) => !s.hasCoords && s.address);
+      // Resolve + PERSIST coords for stops missing stored ones in one tenant-scoped batch
+      // (geocode-on-write): next load reads stored lat/lng, no per-view re-geocode.
+      const needsGeocode = base.filter((s) => !s.hasCoords && s.address && s.id);
       if (needsGeocode.length === 0) return;
 
-      const geocoded = await Promise.all(
-        needsGeocode.map(async (s) => {
-          const result = await geocodeAddress(s.address); // {lat,lng}|null, never throws
-          return { id: s.id, result };
-        })
+      const coordsById = await backfillCoords(
+        needsGeocode.map((s) => ({ table: "jobs", id: String(s.id), address: s.address }))
       );
-      if (cancelled) return;
-
-      const coordsById = new Map(
-        geocoded
-          .filter((g) => g.result && typeof g.result.lat === "number" && typeof g.result.lng === "number")
-          .map((g) => [g.id, g.result])
-      );
-      if (coordsById.size === 0) return;
+      if (cancelled || coordsById.size === 0) return;
 
       setStops((prev) =>
         prev.map((s) => {
           if (s.hasCoords) return s;
-          const c = coordsById.get(s.id);
+          const c = coordsById.get(String(s.id));
           if (!c) return s;
           return { ...s, lat: c.lat, lng: c.lng, hasCoords: true };
         })

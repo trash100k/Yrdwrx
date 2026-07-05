@@ -15,6 +15,7 @@ import {
 import { useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { jobsRepo, invoicesRepo, customersRepo } from "../lib/repos";
+import { geocodeAddress } from "../lib/geocode";
 import OnMyWayButton from "../components/OnMyWayButton";
 import { runAutomations } from "../lib/automations";
 import { useTenant } from "../contexts/TenantContext";
@@ -247,7 +248,18 @@ export default function Scheduler() {
        invoiceId = invRow?.id || "";
     }
 
-    await jobsRepo.create(toJobRow({ ...newJob, invoiceId }));
+    // Geocode-on-write: stamp lat/lng onto the job when it has an address so the Route
+    // Optimizer / map can plot it without re-geocoding on every view. Best-effort — a
+    // failed/unresolvable lookup never blocks creating the job.
+    const row = toJobRow({ ...newJob, invoiceId });
+    if (newJob.address && newJob.address.trim() !== "") {
+      const coords = await geocodeAddress(newJob.address); // {lat,lng,stub}|null, never throws
+      if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
+        row.lat = coords.lat;
+        row.lng = coords.lng;
+      }
+    }
+    await jobsRepo.create(row);
     setShowAddModal(false);
     setNewJob({ title: "", status: "SCHEDULED" });
   };

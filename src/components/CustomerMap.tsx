@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { fetchApi } from "../lib/api";
-import { geocodeAddress } from "../lib/geocode";
+import { geocodeAddress, backfillCoords } from "../lib/geocode";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Customer } from "../types";
 import { MapPin } from "lucide-react";
@@ -173,26 +173,39 @@ function CustomerMarkers({
         else if (c.address && c.address.trim() !== "") toGeocode.push(c);
       }
 
-      // Fallback only for records missing coords: geocode in parallel, tolerate nulls.
+      // Fallback only for records missing coords. Resolve + PERSIST them in one
+      // tenant-scoped batch (geocode-on-write) so the next view reads stored coords
+      // instead of re-geocoding. Records with no id (can't be persisted) fall back to a
+      // best-effort per-address lookup so they still plot for this view.
       if (toGeocode.length > 0) {
-        const geocoded = await Promise.all(
-          toGeocode.map(async (c) => ({
-            customer: c,
-            pos: await geocodeAddress(c.address), // {lat,lng}|null, never throws
-          })),
-        );
-        for (const g of geocoded) {
-          if (
-            g.pos &&
-            Number.isFinite(g.pos.lat) &&
-            Number.isFinite(g.pos.lng)
-          ) {
-            resolved.push({
-              customer: g.customer,
-              pos: { lat: g.pos.lat, lng: g.pos.lng },
-            });
+        const withId = toGeocode.filter((c) => c.id);
+        const withoutId = toGeocode.filter((c) => !c.id);
+
+        if (withId.length > 0) {
+          const coordsById = await backfillCoords(
+            withId.map((c) => ({ table: "customers", id: String(c.id), address: c.address })),
+          );
+          for (const c of withId) {
+            const pos = coordsById.get(String(c.id));
+            if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
+              resolved.push({ customer: c, pos: { lat: pos.lat, lng: pos.lng } });
+            }
+            // Skip unresolvable addresses rather than fabricating a location.
           }
-          // Skip unresolvable addresses rather than fabricating a location.
+        }
+
+        if (withoutId.length > 0) {
+          const geocoded = await Promise.all(
+            withoutId.map(async (c) => ({
+              customer: c,
+              pos: await geocodeAddress(c.address), // {lat,lng}|null, never throws
+            })),
+          );
+          for (const g of geocoded) {
+            if (g.pos && Number.isFinite(g.pos.lat) && Number.isFinite(g.pos.lng)) {
+              resolved.push({ customer: g.customer, pos: { lat: g.pos.lat, lng: g.pos.lng } });
+            }
+          }
         }
       }
 

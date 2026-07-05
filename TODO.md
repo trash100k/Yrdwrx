@@ -238,8 +238,34 @@ build) and committed. Ranked by **value × readiness**.
 > **Bugs found during this sprint** are appended under "Sprint bug log" below as they're discovered,
 > then cleared as they're fixed.
 
-<!-- SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
-(none yet) -->
+### SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
+
+**Security — adversarial pentest (read-only pass, findings reproduced live in rolled-back txns):**
+- [x] **[SEC-1 CRITICAL] profiles privilege escalation → cross-tenant takeover — FIXED + VERIFIED.**
+      `profiles_update` RLS had no WITH CHECK + no anti-escalation trigger, so any authenticated user
+      could PATCH their own row to `is_platform_admin=true` / `role=owner` / switch `tenant_id` and take
+      over every tenant. Migration **0013_profiles_anti_escalation.sql** adds a BEFORE UPDATE trigger
+      (`private.guard_profile_privileged_columns`) blocking role/tenant_id/is_platform_admin/firebase_uid
+      changes unless service_role or platform admin. Applied to the live DB; the exploit now raises 42501
+      (verified in a rolled-back sim).
+- [ ] **[SEC-2 HIGH] `cc_*` tables world-readable/writable via the public anon key (live prospect PII).**
+      **NOT YardWorx's tables** — 16 `cc_*` tables (cc_leads/cc_deals/cc_voice_calls/cc_agents/…), zero
+      references in this codebase, no `tenant_id`, `USING/WITH CHECK (true)` for role `public`. They belong
+      to a *separate "command center" app* sharing this Supabase project. **SURFACED to the owner** — not
+      altering another app's tables/data unilaterally. Owner decision needed: drop them, move them to their
+      own project, or add `tenant_id` + tenant-scoped policies + revoke anon.
+- [ ] **[SEC-3 MED] Raw exception messages echoed to clients** (server.ts 5539, 2256, 4988 [also blind-SSRF
+      oracle], 4463/4461, 4002, 644). Return generic strings; keep `e.message` in `console.error`. → security-hardener.
+- [ ] **[SEC-4 MED] DNS-rebind TOCTOU in `validateSafeUrl`** (securityUtils.ts:47-83) — pin the validated IP
+      at connect time. Affects onboarding-scrape (2887) + automations webhook (4981). → security-hardener.
+- [ ] **[SEC-5 LOW] video-download fetch** (server.ts:4054) lacks validateSafeUrl/redirect:"error". → security-hardener.
+- [ ] **[SEC-6 LOW] Open redirect** via body `success_url`/`cancel_url` (server.ts 2180/2303/5228/5407) — allowlist to BASE_URL. → security-hardener.
+- [ ] **[SEC-7 LOW] Portal JWT accepted from `?token=`** (server.ts:5121) leaks via logs/Referer — prefer header-only. → security-hardener.
+- _Verified NOT vulnerable: core tenant tables, storage buckets, Stripe/QBO/portal/PDF, SPA XSS, CSV injection, /api/live quota._
+
+**Geocoding follow-ups (from feat-geocoding):**
+- [ ] CRM.tsx customer-create doesn't geocode-on-write (customers get coords lazily via CustomerMap backfill) — mirror the Scheduler change.
+- [ ] `/api/public/lead-intake` writes addresses to `leads` un-geocoded (leads.lat/lng columns unconfirmed — schema check if leads need mapping).
 
 ## Research-fed backlog (2026-07-05) — from the pricing/market-pain/ideation fleet
 

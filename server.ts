@@ -194,6 +194,84 @@ const fetchWithTimeout = (input: any, init: any = {}) => {
   });
 };
 
+// ---- Geocoding (address -> lat/lng), mock-safe + cached ---------------------
+// The authoritative geocoder. With GOOGLE_MAPS_PLATFORM_KEY set it calls Google
+// Geocoding (bounded via fetchWithTimeout) and caches results to avoid re-billing the
+// same address. With NO key it returns a DETERMINISTIC stub coord (hash of the address)
+// so maps + routing still render in dev — clearly a stub, never fake precision.
+//
+// MIRROR of src/lib/geocode.ts (stubCoordForAddress/normalizeAddress). server.ts can't
+// import that module (it reaches Supabase/import.meta.env and would break the CJS
+// bundle), so the tiny pure core is duplicated here — keep the two in sync.
+const geoNormalize = (a: any) => String(a ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+function geoStubCoord(address: any) {
+  const s = geoNormalize(address);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  h = h >>> 0;
+  const a = (h & 0xffff) / 0xffff;
+  const b = ((h >>> 16) & 0xffff) / 0xffff;
+  const r5 = (n: number) => Math.round(n * 1e5) / 1e5;
+  return { lat: r5(31.4 + a * 2.0), lng: r5(-89.9 + b * 2.3) };
+}
+// Bounded cache: normalized address -> resolved coords (or null for keyed no-result).
+const GEO_CACHE = new Map<string, any>();
+const GEO_CACHE_MAX = 5000;
+function geoCacheSet(key: string, val: any) {
+  if (GEO_CACHE.size >= GEO_CACHE_MAX) {
+    const first = GEO_CACHE.keys().next().value;
+    if (first !== undefined) GEO_CACHE.delete(first);
+  }
+  GEO_CACHE.set(key, val);
+}
+// Resolve an address to { lat, lng, formatted?, stub }. No key -> deterministic stub
+// (stub:true). With a key -> Google (cached). Returns null only when a KEYED lookup
+// yields no result (we never fabricate precision for a real key). Never throws.
+async function geocodeResolve(address: any): Promise<any | null> {
+  const key = geoNormalize(address);
+  if (!key) return null;
+  if (GEO_CACHE.has(key)) return GEO_CACHE.get(key);
+  const mapsKey = process.env.GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_API_KEY;
+  if (!mapsKey) {
+    const stub = { ...geoStubCoord(key), stub: true, source: "stub" };
+    geoCacheSet(key, stub);
+    return stub;
+  }
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(String(address))}&key=${mapsKey}`;
+    const r = await fetchWithTimeout(url, { timeoutMs: 8000 });
+    if (!r.ok) throw new Error("geocode upstream " + r.status);
+    const d: any = await r.json();
+    const first = d?.results?.[0];
+    const loc = first?.geometry?.location;
+    if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") {
+      geoCacheSet(key, null); // cache the miss so we don't re-bill an unknown address
+      return null;
+    }
+    const result = { lat: loc.lat, lng: loc.lng, formatted: first?.formatted_address || undefined, stub: false, source: "google" };
+    geoCacheSet(key, result);
+    return result;
+  } catch (e: any) {
+    console.error("geocode error", e?.message);
+    return null; // transient error: don't cache, allow a later retry
+  }
+}
+// Geocode-on-write helper: for a row that has an `address` but no numeric lat/lng,
+// resolve coords and stamp lat/lng onto it (mutates + returns the row). Best-effort.
+async function stampGeocode<T extends Record<string, any>>(row: T): Promise<T> {
+  try {
+    if (!row) return row;
+    const hasCoords = typeof row.lat === "number" && typeof row.lng === "number";
+    if (hasCoords || !row.address) return row;
+    const geo = await geocodeResolve(row.address);
+    if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+      row.lat = geo.lat;
+      row.lng = geo.lng;
+    }
+  } catch { /* geocode-on-write is best-effort; never block the write */ }
+  return row;
+}
+
 // Mock the Gemini API generation when running without a key
 if (isMockMode) {
   console.log(
@@ -1152,18 +1230,18 @@ export async function createApp({ startListening = false } = {}) {
         try {
           const { data: existing } = await sb.from("customers").select("id").eq("tenant_id", tenantId).limit(1);
           if (!existing || existing.length === 0) {
-            const { data: custs } = await sb.from("customers").insert([
+            const { data: custs } = await sb.from("customers").insert(await Promise.all([
               { tenant_id: tenantId, first_name: "Gable", last_name: "Jenkins", email: "gable.jenkins@example.com", phone: "601-555-0123", address: "12 Poplar Springs Dr", status: "active", priority: true, is_hoa: true, ai_score: 94, ai_score_label: "Growth Potential", ai_score_reasoning: "Wants holly swap and irrigation check.", notes: "Specific trimming patterns along the driveway approach.", segment: "Platinum", data: { isSample: true, hoaRules: ["No mowing before 9 AM", "Electric equipment only", "Badge ID required"], propertyDetails: { size: "4.5 acres", grassType: "Bermuda", hasIrrigation: true } } },
               { tenant_id: tenantId, first_name: "Marcus", last_name: "Pohl", email: "marcus.pohl@example.com", phone: "601-555-9922", address: "442 Pine Grove Rd", status: "active", is_hoa: false, ai_score: 42, ai_score_label: "Maintenance", ai_score_reasoning: "Standard bi-weekly cuts; small lot.", notes: "Gate code 4420. Dog in the back yard sometimes.", segment: "Base", data: { isSample: true, propertyDetails: { size: "0.25 acres", grassType: "Fescue", hasPets: true }, gateCode: "4420" } },
               { tenant_id: tenantId, company_name: "Cedar Ridge HOA", email: "board@cedarridge.org", phone: "601-555-0103", address: "Cedar Ridge Community", status: "lead", is_hoa: true, ai_score: 82, ai_score_label: "New Lead", notes: "Requested a quote for noise-compliant electric clearing.", data: { isSample: true } },
-            ]).select();
+            ].map(stampGeocode))).select();
             const c0 = custs?.[0]?.id || null;
             const c1 = custs?.[1]?.id || null;
-            await sb.from("jobs").insert([
+            await sb.from("jobs").insert(await Promise.all([
               { tenant_id: tenantId, customer_id: c0, title: "HOA Weekly Mow & Edge", status: "SCHEDULED", date: new Date(Date.now() + 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { isSample: true, client: "Gable Jenkins" } },
               { tenant_id: tenantId, customer_id: c1, title: "Bi-Weekly Maintenance", status: "IN_PROGRESS", date: new Date().toISOString(), address: "442 Pine Grove Rd", progress: 40, data: { isSample: true, client: "Marcus Pohl" } },
               { tenant_id: tenantId, customer_id: c0, title: "Spring Cleanup", status: "COMPLETED", date: new Date(Date.now() - 7 * 86400000).toISOString(), address: "12 Poplar Springs Dr", data: { isSample: true, client: "Gable Jenkins", snapshotNotes: "Beds mulched, hollies trimmed, irrigation checked." } },
-            ]);
+            ].map(stampGeocode)));
             await sb.from("crews").insert([
               { tenant_id: tenantId, name: "Alpha Crew", status: "ON_SITE", leader: "Davis", equip: "Zero-Turn #4", phone: "601-555-0101", job: "Arbor Lakes HOA", progress: 65, data: { isSample: true } },
               { tenant_id: tenantId, name: "Beta Crew", status: "TRANSPORT", leader: "Miller", equip: "F-250 + trailer", phone: "601-555-0102", job: "Schmidt Residence", progress: 10, data: { isSample: true } },
@@ -1509,39 +1587,78 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
-  // Geocode a street address → { lat, lng, formatted }. Returns real coordinates when
-  // GOOGLE_MAPS_PLATFORM_KEY is set; otherwise reports unconfigured (no fabricated coords).
-  // Body: { address }. Covered by globalLimiter via the /api/ mount.
+  // Geocode a street address → { configured, lat, lng, formatted, stub }. With
+  // GOOGLE_MAPS_PLATFORM_KEY set, returns real coordinates (cached to avoid re-billing).
+  // Without a key it returns DETERMINISTIC stub coords (stub:true, configured:false) so
+  // maps/routing render in dev — honestly flagged, never fake precision. Body: { address }.
+  // Covered by globalLimiter via the /api/ mount.
   app.post("/api/geocode", async (req: any, res: any) => {
-    const key = process.env.GOOGLE_MAPS_PLATFORM_KEY;
-    if (!key) {
-      return res.json({ configured: false });
-    }
     const address = String(req.body?.address ?? "").trim().slice(0, 500);
     if (!address) return res.status(400).json({ error: "address required" });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
     try {
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
-      const r = await fetchWithTimeout(url, { signal: controller.signal });
-      if (!r.ok) throw new Error("geocode upstream " + r.status);
-      const d: any = await r.json();
-      const first = d?.results?.[0];
-      if (!first) {
+      const r = await geocodeResolve(address);
+      if (!r) {
+        // Real key configured but the address didn't resolve — no coords, no fabrication.
         return res.json({ configured: true, lat: null, lng: null });
       }
-      const loc = first?.geometry?.location || {};
-      res.json({
-        configured: true,
-        lat: typeof loc?.lat === "number" ? loc.lat : null,
-        lng: typeof loc?.lng === "number" ? loc.lng : null,
-        formatted: first?.formatted_address || null,
+      return res.json({
+        configured: !r.stub, // real key -> true; dev stub -> false (honest)
+        lat: r.lat,
+        lng: r.lng,
+        formatted: r.formatted ?? null,
+        stub: !!r.stub,
       });
     } catch (e: any) {
       console.error("geocode error", e?.message);
       res.status(500).json({ error: "Geocoding failed." });
-    } finally {
-      clearTimeout(timer);
+    }
+  });
+
+  // GEOCODE-ON-WRITE (backfill/persist). Given a batch of records missing coords, resolve
+  // each address (cached, mock-safe) and PERSIST lat/lng back onto the row, tenant-scoped,
+  // so later views read stored coords instead of re-geocoding every render. Idempotent —
+  // callers pass only rows that lack coords. In demo mode (no service role) coords are
+  // still returned for the current view but not persisted. Body: { items: [{table,id,address}] }.
+  app.post("/api/geocode/backfill", async (req: any, res: any) => {
+    try {
+      const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
+      if (items.length === 0) return res.json({ results: [] });
+      const ALLOWED = new Set(["customers", "jobs"]);
+      const tenant = await resolveTenant(req).catch(() => null);
+      const sb = getServiceSupabase();
+      const results: any[] = [];
+      for (const it of items) {
+        const table = String(it?.table || "");
+        const id = String(it?.id || "");
+        const address = String(it?.address || "").trim().slice(0, 500);
+        if (!ALLOWED.has(table) || !address) {
+          results.push({ id, lat: null, lng: null });
+          continue;
+        }
+        const geo = await geocodeResolve(address);
+        if (!geo || !Number.isFinite(geo.lat) || !Number.isFinite(geo.lng)) {
+          results.push({ id, lat: null, lng: null });
+          continue;
+        }
+        let persisted = false;
+        // Only write real, tenant-owned rows (WHERE id AND tenant_id). No service role /
+        // no tenant (demo) → skip the write, still return coords for the current view.
+        if (sb && tenant?.id && id && UUID_RE.test(id)) {
+          try {
+            const { error } = await sb
+              .from(table)
+              .update({ lat: geo.lat, lng: geo.lng })
+              .eq("id", id)
+              .eq("tenant_id", tenant.id);
+            if (!error) persisted = true;
+          } catch { /* best-effort persist */ }
+        }
+        results.push({ id, lat: geo.lat, lng: geo.lng, stub: !!geo.stub, persisted });
+      }
+      res.json({ results });
+    } catch (e: any) {
+      console.error("geocode backfill error", e?.message);
+      res.status(500).json({ error: "Backfill failed." });
     }
   });
 
