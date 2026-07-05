@@ -51,6 +51,7 @@ import { mapCustomerToQbo, mapInvoiceToQbo, reconcile, type Link } from "./src/l
 // unchanged (forward-compatible). NEVER log token material. See src/lib/secretCrypto.ts.
 import { encryptSecret, decryptSecret } from "./src/lib/secretCrypto.js";
 import { SingleFlight } from "./src/lib/singleFlight.js";
+import { OutboundRateLimiter } from "./src/lib/outboundLimiter.js";
 // Pure, deterministic document-understanding core (no I/O). Turns the loosely-parsed JSON a
 // vision/LLM extractor emits for a vendor invoice into a normalized, defensively-coerced expense
 // DRAFT for human review. The /api/documents/parse route feeds Gemini's structured output straight
@@ -1895,6 +1896,31 @@ export async function createApp({ startListening = false } = {}) {
         await sb.from("tenants").update({ ai_credits_used: usedNow + q, ai_credits_period: period }).eq("id", tenant.id);
       }
     } catch { /* fail-open: a metering write must never fail a served request */ }
+  }
+
+  // Per-tenant OUTBOUND rate limit (email / SMS / notifications) — Scenario A blast guard.
+  // The spend meter above caps DOLLARS; this caps RATE, so a single tenant (or a scripted client
+  // hitting the API directly) cannot fan out an unbounded blast that torches the shared sender's
+  // deliverability or gets the shared Twilio number A2P-blocked for everyone. Bounds volume
+  // regardless of recipient (so it does not break legitimate sends to non-customers, e.g. referral
+  // invites). Env-tunable; PER-INSTANCE (a shared/Redis store is the documented fleet-wide follow-up).
+  const outboundLimiter = new OutboundRateLimiter({
+    perMinute: Number(process.env.OUTBOUND_PER_MINUTE) || 60,
+    perDay: Number(process.env.OUTBOUND_PER_DAY) || 5000,
+  });
+  // Shared gate for outbound handlers. Returns true if allowed; on cap it writes a 429 +
+  // Retry-After and returns false (caller does `if (!gateOutbound(res, tenant)) return;`). Demo /
+  // unresolved-tenant is not throttled (a single mock tenant has nothing to cap).
+  function gateOutbound(res: any, tenant: any, qty = 1): boolean {
+    const id = tenant?.id;
+    if (!id) return true;
+    const d = outboundLimiter.take(id, Date.now(), qty);
+    if (!d.ok) {
+      res.set("Retry-After", String(d.retryAfterSec || 60));
+      res.status(429).json({ error: "Outbound rate limit exceeded", reason: d.reason, scope: d.scope, retryAfterSec: d.retryAfterSec });
+      return false;
+    }
+    return true;
   }
 
   // Count billable SEATS = tenant members whose role is not `client` (portal users are free).
@@ -7049,6 +7075,9 @@ field is absent, use null — never invent values. Return the key structured fie
       // (a real, billable carrier send), then record it after a successful create. One segment per
       // send here (multi-segment long messages are a follow-up; see TODO).
       const smsTenant = await resolveTenant(req);
+      // Scenario A blast guard — bound outbound SMS rate per tenant (protects the shared Twilio
+      // number's carrier reputation / A2P standing) before the spend meter and the billable send.
+      if (!gateOutbound(res, smsTenant)) return;
       const smsGate = await gateUsage(smsTenant, "sms", 1);
       if (!smsGate.ok) return res.status(smsGate.status).json(smsGate.body);
 
@@ -8181,6 +8210,8 @@ field is absent, use null — never invent values. Return the key structured fie
       const tenant = sb ? await resolveTenant(req) : null;
       if (REQUIRE_AUTH && !tenant) return res.status(401).json({ error: "Unauthorized" });
       if (!tenant) return res.json({ simulated: true, reason: "demo_mode_no_tenant", channels: [], suppressed: [], results: [] });
+      // Scenario A blast guard — a dispatch fans out email/SMS/push, so cap it per tenant too.
+      if (!gateOutbound(res, tenant)) return;
       const result = await dispatchNotification(tenant.id, customerId ? String(customerId) : null, event, payload || {});
       res.json(result);
     } catch (e: any) {
@@ -8498,6 +8529,10 @@ field is absent, use null — never invent values. Return the key structured fie
       const { to, subject, html, text, replyTo } = req.body || {};
       const cap = (s: any, n: number) => String(s ?? "").slice(0, n);
       if (!to || !subject) return res.status(400).json({ error: "to + subject required" });
+      // Scenario A blast guard — bound this tenant's outbound email volume (per-minute + per-day)
+      // before touching the shared sender. A scripted client looping this endpoint is capped here.
+      const emailTenant = await resolveTenant(req);
+      if (!gateOutbound(res, emailTenant)) return;
       const result = await sendEmail({
         to: cap(to, 240),
         subject: cap(subject, 300),
