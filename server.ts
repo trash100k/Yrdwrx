@@ -12,9 +12,11 @@ import puppeteer from "puppeteer";
 import { GoogleGenAI, Modality, Type, LiveServerMessage, GenerateVideosOperation } from "@google/genai";
 import { WebSocketServer } from "ws";
 import { Readable } from "stream";
+import dns from "dns";
+import { Agent } from "undici";
 import dotenv from "dotenv";
 import helmet from "helmet";
-import { validateSafeUrl } from "./src/lib/securityUtils.js";
+import { validateSafeUrl, isPrivateIP } from "./src/lib/securityUtils.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
 import { computeDeposit } from "./src/lib/deposit.js";
@@ -190,6 +192,46 @@ const fetchWithTimeout = (input: any, init: any = {}) => {
   const { timeoutMs, ...rest } = init || {};
   return fetch(input, {
     ...rest,
+    signal: rest.signal ?? AbortSignal.timeout(timeoutMs ?? 15000),
+  });
+};
+
+// SSRF egress hardening — DNS-rebind (TOCTOU) defense for USER-SUPPLIED URLs.
+// validateSafeUrl() resolves + checks a hostname's addresses, but a plain fetch RE-RESOLVES at
+// connect time, so an attacker controlling DNS can answer "public" for our check and
+// 169.254.169.254 / 127.0.0.1 microseconds later for the real dial. We close that window by
+// pinning the connection to an address we vet AT CONNECT TIME: undici invokes this lookup
+// immediately before dialing and we only ever hand back public addresses (private/CGNAT/
+// metadata resolutions are refused). The TLS servername + Host header stay the original
+// hostname, so certificate validation is unaffected.
+function pinnedPublicLookup(hostname: string, options: any, callback: any) {
+  const cb = typeof options === "function" ? options : callback;
+  const wantAll = options && typeof options === "object" ? options.all : false;
+  dns.lookup(hostname, { all: true, verbatim: true }, (err: any, addresses: any) => {
+    if (err) return cb(err);
+    const list = Array.isArray(addresses) ? addresses : [addresses];
+    const publicOnly = list.filter((a: any) => a && !isPrivateIP(a.address));
+    if (publicOnly.length === 0) {
+      return cb(Object.assign(new Error("SSRF blocked: host does not resolve to a public address"), { code: "ESSRFBLOCKED" }));
+    }
+    if (wantAll) return cb(null, publicOnly);
+    return cb(null, publicOnly[0].address, publicOnly[0].family);
+  });
+}
+
+// Shared dispatcher whose connector can only reach the vetted public IPs above.
+const ssrfSafeAgent = new Agent({ connect: { lookup: pinnedPublicLookup } });
+
+// Outbound fetch for user-supplied URLs (onboarding scrape, tenant automation webhooks).
+// Layers the pinned-DNS agent (rebind defense) with redirect:"error" (a 3xx from an
+// attacker's public host can't bounce us onto an internal address) on top of the standard
+// timeout. Callers should STILL run validateSafeUrl() first for a clean 400 + scheme check.
+const fetchSafeExternal = (input: any, init: any = {}) => {
+  const { timeoutMs, ...rest } = init || {};
+  return fetch(input, {
+    ...rest,
+    dispatcher: ssrfSafeAgent,
+    redirect: rest.redirect ?? "error",
     signal: rest.signal ?? AbortSignal.timeout(timeoutMs ?? 15000),
   });
 };
@@ -718,8 +760,10 @@ export async function createApp({ startListening = false } = {}) {
 
       res.json({ received: true });
     } catch (err: any) {
+      // Keep Stripe's documented 400 (so it retries) but don't echo the internal
+      // signature/parse detail back over the wire — it stays in the server log only.
       console.error("Stripe Webhook Error:", err.message);
-      res.status(400).send(`Webhook Error: ${err.message}`);
+      res.status(400).send("Webhook Error");
     }
   });
 
@@ -886,6 +930,19 @@ export async function createApp({ startListening = false } = {}) {
   const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD ? "" : "cutty-dev-only-ephemeral-secret");
   const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
   const PLATFORM_FEE_PCT = Math.max(0, Number(process.env.PLATFORM_FEE_PCT || 0)); // e.g. 0.02 = 2% platform fee
+
+  // Constrain a client-supplied post-checkout redirect (success_url / cancel_url) to OUR origin.
+  // Left unchecked, an attacker passes success_url=https://evil.example and rides the trusted
+  // Stripe flow into an open redirect / phishing landing. Relative paths resolve under BASE_URL;
+  // anything off-origin (or unparseable, e.g. javascript:) falls back to the safe default.
+  const sameOriginOrDefault = (candidate: any, fallback: string): string => {
+    if (!candidate || typeof candidate !== "string") return fallback;
+    try {
+      const u = new URL(candidate, BASE_URL);
+      if (u.origin === new URL(BASE_URL).origin) return u.toString();
+    } catch { /* unparseable -> fall through to the safe default */ }
+    return fallback;
+  };
 
   // Fail-fast / loud-warn on insecure production config. We do NOT silently fall back to
   // dev defaults in prod (forgeable magic-links, open API). JWT_SECRET is required whenever
@@ -2298,7 +2355,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!process.env.STRIPE_SECRET_KEY) {
         return res.json({
           error: "Stripe key missing. Payment simulated.",
-          simulatedUrl: successUrl || "http://localhost:3000?success=mock",
+          simulatedUrl: sameOriginOrDefault(successUrl, `${BASE_URL}?success=mock`),
         });
       }
       
@@ -2352,8 +2409,8 @@ export async function createApp({ startListening = false } = {}) {
           },
         ],
         mode: "payment",
-        success_url: successUrl || `${BASE_URL}?success=true`,
-        cancel_url: cancelUrl || `${BASE_URL}?canceled=true`,
+        success_url: sameOriginOrDefault(successUrl, `${BASE_URL}?success=true`),
+        cancel_url: sameOriginOrDefault(cancelUrl, `${BASE_URL}?canceled=true`),
       };
 
       // Platform application fee on connected-account payments (the platform's cut).
@@ -2366,11 +2423,11 @@ export async function createApp({ startListening = false } = {}) {
       const session = await stripe.checkout.sessions.create(sessionOptions, requestOptions);
       res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
-      // SECURITY: Sanitize logging of payment provider errors to prevent leaking sensitive variables
-      const safeErrorMsg = error?.message || "Unknown Stripe Error";
+      // Log the provider detail server-side; NEVER return the raw Stripe message to the client
+      // (it can carry account/config internals). The client gets a generic, actionable string.
       const safeErrorCode = error?.raw?.code || error?.code || "unknown_code";
-      console.error("Stripe Error (Sanitized):", { code: safeErrorCode, msg: safeErrorMsg });
-      res.status(500).json({ error: safeErrorMsg }); // Only return safe message to client
+      console.error("Stripe checkout error:", { code: safeErrorCode, msg: error?.message });
+      res.status(500).json({ error: "Unable to start checkout. Please try again." });
     }
   });
 
@@ -2448,8 +2505,8 @@ export async function createApp({ startListening = false } = {}) {
           metadata: { tenantId: tenant?.id || "", customerId: customerId || "", type: "recurring" },
           ...(PLATFORM_FEE_PCT > 0 ? { application_fee_percent: Math.round(PLATFORM_FEE_PCT * 100) } : {}),
         },
-        success_url: successUrl || `${BASE_URL}/admin/invoices?recurring=created`,
-        cancel_url: cancelUrl || `${BASE_URL}/admin/invoices?recurring=canceled`,
+        success_url: sameOriginOrDefault(successUrl, `${BASE_URL}/admin/invoices?recurring=created`),
+        cancel_url: sameOriginOrDefault(cancelUrl, `${BASE_URL}/admin/invoices?recurring=canceled`),
       }, connectedAccount ? { stripeAccount: connectedAccount } : {});
       res.json({ checkoutUrl: session.url, url: session.url });
     } catch (error: any) {
@@ -3001,7 +3058,9 @@ export async function createApp({ startListening = false } = {}) {
 
       let rawText = "";
       try {
-          const fetchRes = await fetchWithTimeout(url, { redirect: 'error' });
+          // fetchSafeExternal pins the connection to the vetted public IP (DNS-rebind defense)
+          // and refuses redirects, so a rebound/301 can't reach an internal address post-check.
+          const fetchRes = await fetchSafeExternal(url, { redirect: 'error' });
           rawText = await fetchRes.text();
           rawText = rawText.replace(/<[^>]*>?/gm, ' ').slice(0, 10000); // Rudimentary tag stripping to fit in context window
       } catch (fetchErr) {
@@ -4100,7 +4159,12 @@ export async function createApp({ startListening = false } = {}) {
       // Fire-and-forget; the client polls /status. Errors are captured onto the job.
       runDeepResearch(prompt.slice(0, 4000))
         .then((report) => researchJobs.set(id, { status: "completed", report, ts: Date.now() }))
-        .catch((e: any) => researchJobs.set(id, { status: "failed", error: e?.message || "failed", ts: Date.now() }));
+        .catch((e: any) => {
+          // The raw model/upstream message (surfaced verbatim to the client via /status below)
+          // could leak Gemini internals — log the detail, store only a generic status.
+          console.error("[research] generation failed:", e?.message || e);
+          researchJobs.set(id, { status: "failed", error: "Research failed to complete.", ts: Date.now() });
+        });
       // Opportunistic cleanup of jobs older than an hour.
       for (const [k, v] of researchJobs) if (Date.now() - v.ts > 3600_000) researchJobs.delete(k);
       res.json({ interactionId: id });
@@ -4166,11 +4230,19 @@ export async function createApp({ startListening = false } = {}) {
             return res.status(404).json({ error: "Video not found or not done" });
          }
          const uri = updated.response.generatedVideos[0].video.uri;
+         // Defense in depth: the URI comes from Google's operation response, but we still SSRF-vet
+         // it (public host only) and forbid redirects before attaching our API key and streaming —
+         // a compromised/spoofed upstream must not turn this into an internal fetch or key exfil.
+         if (!(await validateSafeUrl(uri))) {
+           console.error("[video-download] refusing non-public video URI");
+           return res.status(502).json({ error: "Video source unavailable" });
+         }
          // Streaming a generated MP4 — give it a long budget (the abort covers the whole
          // body stream, not just headers; the 15s default would truncate large videos).
          const videoRes = await fetchWithTimeout(uri, {
            headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY! },
            timeoutMs: 180000,
+           redirect: 'error',
          });
          res.setHeader('Content-Type', 'video/mp4');
          if (videoRes.body) {
@@ -4574,10 +4646,14 @@ export async function createApp({ startListening = false } = {}) {
             body: JSON.stringify({ comment: String(reply) }),
           });
           if (r.ok) return res.json({ posted: true });
+          // The upstream Google API body can carry account/resource internals — log it, don't
+          // echo it. The client gets a generic, non-leaky reason.
           const t = await r.text().catch(() => "");
-          return res.json({ posted: false, configured: true, reason: `Google API ${r.status}${t ? `: ${t.slice(0, 120)}` : ""}` });
+          console.error("[reviews/reply] Google API error", r.status, t.slice(0, 500));
+          return res.json({ posted: false, configured: true, reason: "Google rejected the reply. Check your Business Profile connection." });
         } catch (e: any) {
-          return res.json({ posted: false, configured: true, reason: e?.message || "post failed" });
+          console.error("[reviews/reply] post failed:", e?.message);
+          return res.json({ posted: false, configured: true, reason: "Could not publish the reply right now." });
         }
       }
       return res.json({ posted: false, configured: false, reason: "Connect a Google Business Profile to publish replies." });
@@ -5091,18 +5167,21 @@ export async function createApp({ startListening = false } = {}) {
       let lastErr: any = null;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          // fetchWithTimeout actually aborts at the deadline (the old Promise.race left
-          // the socket open and the request still running after "timeout"). redirect:"error"
-          // stops a 3xx from an attacker's public host bouncing us to an internal address
-          // (validateSafeUrl only vetted the original URL).
-          const r = (await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, timeoutMs: 8000, redirect: "error" })) as Response;
+          // fetchSafeExternal aborts at the deadline AND pins the connection to the vetted
+          // public IP (DNS-rebind defense); redirect:"error" stops a 3xx from an attacker's
+          // public host bouncing us to an internal address (validateSafeUrl only vetted the
+          // original URL, and it re-resolves at connect time without the pin).
+          const r = (await fetchSafeExternal(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, timeoutMs: 8000, redirect: "error" })) as Response;
           if (r.ok) return res.json({ delivered: true, status: r.status, attempts: attempt });
           lastErr = `HTTP ${r.status}`;
         } catch (e: any) {
           lastErr = e?.message || "fetch failed";
         }
       }
-      return res.status(502).json({ delivered: false, error: lastErr, attempts: maxAttempts });
+      // Do NOT echo lastErr to the client: the connect-time detail (ECONNREFUSED vs timeout vs
+      // an internal service's HTTP status) is a blind-SSRF oracle. Keep it in the server log.
+      console.error("[automations/webhook] delivery failed after", maxAttempts, "attempts:", lastErr);
+      return res.status(502).json({ delivered: false, error: "Webhook delivery failed", attempts: maxAttempts });
     } catch (e: any) {
       return res.status(500).json({ error: "Webhook dispatch failed" });
     }
@@ -5230,12 +5309,17 @@ export async function createApp({ startListening = false } = {}) {
     }
   });
 
-  // Verify the portal capability token off the request (header or query). Returns the decoded
+  // Verify the portal capability token off the request. Returns the decoded
   // {clientId, tenantId, scope} or null. The token is the credential — never trust a clientId
   // from the body/query; every portal query is scoped to THIS token's clientId.
+  // HEADER-ONLY (x-portal-token, or an Authorization: Bearer). We deliberately do NOT accept
+  // ?token= — a capability token in the query string leaks into access logs, Referer headers,
+  // and browser history. The magic-link exchange never hits a server route via ?token=: it's a
+  // client path param (/portal/auth/:token) validated through the request body, after which the
+  // SPA sends this header on every call (src/pages/ClientPortal.tsx).
   const verifyPortalToken = (req: any) => {
     const auth = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "");
-    const token = req.headers["x-portal-token"] || auth || req.query?.token;
+    const token = req.headers["x-portal-token"] || auth;
     if (!token || !JWT_SECRET) return null;
     try {
       const d: any = jwt.verify(token, JWT_SECRET);
@@ -5329,8 +5413,8 @@ export async function createApp({ startListening = false } = {}) {
       metadata: { invoiceId: inv.id, ...extraMetadata },
       line_items: [{ price_data: { currency: "usd", product_data: { name: productName }, unit_amount: unitAmount }, quantity: 1 }],
       mode: "payment",
-      success_url: successUrl || `${BASE_URL}?success=true`,
-      cancel_url: cancelUrl || `${BASE_URL}?canceled=true`,
+      success_url: sameOriginOrDefault(successUrl, `${BASE_URL}?success=true`),
+      cancel_url: sameOriginOrDefault(cancelUrl, `${BASE_URL}?canceled=true`),
     };
     if (connectedAccount && PLATFORM_FEE_PCT > 0) {
       sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
@@ -5355,7 +5439,7 @@ export async function createApp({ startListening = false } = {}) {
         return res.status(409).json({ error: "This invoice is already settled" });
       }
       if (!process.env.STRIPE_SECRET_KEY) {
-        return res.json({ error: "Stripe key missing. Payment simulated.", simulatedUrl: successUrl || `${BASE_URL}?success=mock` });
+        return res.json({ error: "Stripe key missing. Payment simulated.", simulatedUrl: sameOriginOrDefault(successUrl, `${BASE_URL}?success=mock`) });
       }
       let connectedAccount: string | null = null;
       if (inv.tenant_id) {
@@ -5376,8 +5460,8 @@ export async function createApp({ startListening = false } = {}) {
         metadata: { invoiceId },
         line_items: [{ price_data: { currency: "usd", product_data: { name: `Invoice ${invoiceId}` }, unit_amount: unitAmount }, quantity: 1 }],
         mode: "payment",
-        success_url: successUrl || `${BASE_URL}?success=true`,
-        cancel_url: cancelUrl || `${BASE_URL}?canceled=true`,
+        success_url: sameOriginOrDefault(successUrl, `${BASE_URL}?success=true`),
+        cancel_url: sameOriginOrDefault(cancelUrl, `${BASE_URL}?canceled=true`),
       };
       if (connectedAccount && PLATFORM_FEE_PCT > 0) {
         sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
@@ -5532,7 +5616,7 @@ export async function createApp({ startListening = false } = {}) {
       const dep = computeDeposit(Number(inv.amount) || 0, { depositAmount: inv.data?.depositAmount, depositPct: inv.data?.depositPct });
       if (!dep.required) return res.status(400).json({ error: "No deposit is due on this estimate." });
       if (!process.env.STRIPE_SECRET_KEY) {
-        return res.json({ simulated: true, simulatedUrl: successUrl || `${BASE_URL}?success=mock`, depositAmount: dep.amount });
+        return res.json({ simulated: true, simulatedUrl: sameOriginOrDefault(successUrl, `${BASE_URL}?success=mock`), depositAmount: dep.amount });
       }
       const session = await createInvoiceCheckout(
         sb, { id: invoiceId, tenant_id: inv.tenant_id }, dep.amount,
@@ -5652,8 +5736,10 @@ export async function createApp({ startListening = false } = {}) {
         if (error) throw error;
         return res.json({ success: true, emailed: false, inviteLink: data?.properties?.action_link || null });
       } catch (e2: any) {
+        // Keep the provider detail in the server log; return a generic client message so a
+        // raw Supabase/SMTP exception can't leak internal config or user-enumeration hints.
         console.error("team invite error", e2?.message || e1?.message);
-        return res.status(500).json({ error: e2?.message || e1?.message || "Failed to create invite." });
+        return res.status(500).json({ error: "Failed to create invite." });
       }
     }
   });

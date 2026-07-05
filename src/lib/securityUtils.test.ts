@@ -10,21 +10,29 @@ import { promisify } from 'util';
 // `promisify(dns.lookup)` returns `{ address, family }`. We attach the well-known
 // `util.promisify.custom` symbol to our mock `lookup` so the promisified version resolves
 // to that exact shape (mirroring Node's real custom-promisified dns.lookup).
-const RESOLUTIONS: Record<string, string> = {
+const RESOLUTIONS: Record<string, string | string[]> = {
   'www.google.com': '142.250.72.36', // public
   'example.com': '93.184.216.34', // public
   localhost: '127.0.0.1', // loopback -> private
+  // Multi-record host: one public, one link-local metadata IP. validateSafeUrl must reject the
+  // WHOLE name (a rebind / split-horizon answer that mixes a good and a bad address must fail).
+  'mixed-rebind.example': ['93.184.216.34', '169.254.169.254'],
 };
 
 function makeMockLookup() {
-  const custom = async (hostname: string) => {
-    const address = RESOLUTIONS[hostname];
-    if (!address) {
+  const custom = async (hostname: string, opts?: any) => {
+    const entry = RESOLUTIONS[hostname];
+    if (entry == null) {
       const err: any = new Error(`getaddrinfo ENOTFOUND ${hostname}`);
       err.code = 'ENOTFOUND';
       throw err;
     }
-    return { address, family: address.includes(':') ? 6 : 4 };
+    const addrs = Array.isArray(entry) ? entry : [entry];
+    const records = addrs.map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+    // validateSafeUrl resolves with { all: true } and expects the array; the callback form
+    // (no opts) keeps returning a single record to mirror Node's default dns.lookup.
+    if (opts && opts.all) return records;
+    return records[0];
   };
   // Callback form (in case anything promisifies without the custom symbol).
   const lookup: any = (hostname: string, _opts: any, cb?: any) => {
@@ -97,6 +105,11 @@ describe('securityUtils', () => {
     it('should block hostnames that resolve to private IPs (mocked DNS)', async () => {
       // localhost resolves to 127.0.0.1 in our mock table -> blocked.
       expect(await validateSafeUrl('http://localhost')).toBe(false);
+    });
+
+    it('should block multi-record hosts where ANY address is private (SSRF rebind/split-horizon)', async () => {
+      // mixed-rebind.example resolves to [public, 169.254.169.254] -> the private one must veto.
+      expect(await validateSafeUrl('http://mixed-rebind.example')).toBe(false);
     });
 
     it('should block hostnames that fail to resolve (mocked DNS ENOTFOUND)', async () => {
