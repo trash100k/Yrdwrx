@@ -20,9 +20,20 @@ export function isPrivateIP(ip: string): boolean {
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
 
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
+  // IPv4-mapped IPv6 (::ffff:127.0.0.1 or ::ffff:7f00:1)
+  if (ip.toLowerCase().startsWith('::ffff:')) {
+    const tail = ip.substring(7);
+    if (isIP(tail) === 4) return isPrivateIP(tail);
+
+    const hexParts = tail.split(':');
+    if (hexParts.length === 2) {
+      const high = parseInt(hexParts[0], 16);
+      const low = parseInt(hexParts[1], 16);
+      if (!isNaN(high) && !isNaN(low)) {
+        return isPrivateIP(`${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`);
+      }
+    }
+  }
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -32,9 +43,15 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
-  // IPv6 loopback / link-local / unique-local.
+  // IPv6 loopback / link-local / unique-local / unspecified.
   const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  if (
+    ip === '::' ||
+    ip === '::1' ||
+    low.startsWith('fe80:') ||
+    low.startsWith('fc') ||
+    low.startsWith('fd')
+  ) {
     return true;
   }
 
