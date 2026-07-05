@@ -17,6 +17,7 @@ import { Agent } from "undici";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import { validateSafeUrl, isPrivateIP } from "./src/lib/securityUtils.js";
+import { selectAdapter, resolveApiKey, sanitizeSqft, manualFallback, type MeasureResult } from "./src/lib/measureAdapter.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
 import { computeDeposit } from "./src/lib/deposit.js";
@@ -342,6 +343,19 @@ async function stampGeocode<T extends Record<string, any>>(row: T): Promise<T> {
     }
   } catch { /* geocode-on-write is best-effort; never block the write */ }
   return row;
+}
+
+// Property-measurement cache: normalized address -> MeasureResult. Keyed by address so we
+// reuse the geocode + provider lookup (and DON'T re-bill the `aerial` meter) for a repeated
+// address. PER-INSTANCE + FIFO-capped like GEO_CACHE (can't grow unbounded / OOM the box).
+const MEASURE_CACHE = new Map<string, any>();
+const MEASURE_CACHE_MAX = 2000;
+function measureCacheSet(key: string, val: any) {
+  if (MEASURE_CACHE.size >= MEASURE_CACHE_MAX) {
+    const first = MEASURE_CACHE.keys().next().value;
+    if (first !== undefined) MEASURE_CACHE.delete(first);
+  }
+  MEASURE_CACHE.set(key, val);
 }
 
 // Mock the Gemini API generation when running without a key
@@ -7702,35 +7716,102 @@ OUTPUT JSON ONLY, shape:
   });
 
   // ===========================================================================
-  // PROPERTY MEASUREMENT (pluggable) — survey-grade takeoff needs a real provider
-  // (MEASUREMENT_API_KEY). Without one we DO NOT fake a measurement; with a Gemini
-  // key we return a clearly-flagged rough AI estimate as a starting point.
+  // PROPERTY MEASUREMENT (provider-pluggable) — POST /api/measure/property
+  //
+  // Returns a normalized { lawnSqft, bedSqft, hardscapeSqft, lotSqft, source, confidence }.
+  // The provider layer lives in src/lib/measureAdapter.ts (adapter interface + registry);
+  // this handler only owns I/O: geocode, the SSRF-safe bounded provider fetch, metering,
+  // and caching. Provenance ladder (never fakes precision):
+  //   1) A configured provider adapter (REGRID_API_KEY / MEASUREMENT_API_KEY) → survey-grade
+  //      `source:"provider"`. SSRF-vetted (validateSafeUrl) + bounded (fetchWithTimeout).
+  //   2) No provider but a Gemini key → clearly-flagged `source:"ai_estimate"` (rough).
+  //   3) Nothing configured → honest `source:"manual"`, all areas null — operator enters
+  //      them by hand; we DO NOT invent a measurement.
+  // Metered as an `aerial` unit (gate before real work, record after). Cached by address
+  // so a repeat lookup reuses the geocode + provider call and isn't re-billed.
   // ===========================================================================
   app.post("/api/measure/property", aiLimiter, async (req: any, res) => {
     try {
-      const { address } = req.body || {};
-      if (!address) return res.status(400).json({ error: "address required" });
-      if (process.env.MEASUREMENT_API_KEY) {
-        return res.json({ source: "provider", configured: true, lawnSqft: null, note: "Measurement provider key set; vendor takeoff integration pending." });
+      const raw = req.body?.address;
+      if (typeof raw !== "string" || !raw.trim()) {
+        return res.status(400).json({ error: "address required" });
       }
-      if (isMockMode) {
-        return res.json({ source: "unavailable", configured: false, lawnSqft: null, message: "Automated property measurement needs a provider (MEASUREMENT_API_KEY)." });
-      }
-      // This branch performs a real (AI-estimated) property lookup — meter it as an `aerial`
-      // unit. Gate on allotment/spend-cap BEFORE the lookup (Free includes 0 aerial → 402),
-      // record after a successful estimate. (Provider-key metering lands with the vendor takeoff
-      // integration above — see TODO.)
+      const address = raw.trim().slice(0, 200);
+      const cacheKey = geoNormalize(address);
+
+      // Cache-first: reuse a prior result for the same address (and don't re-meter it).
+      if (MEASURE_CACHE.has(cacheKey)) return res.json(MEASURE_CACHE.get(cacheKey));
+
+      // Meter as an `aerial` unit — gate on allotment/spend-cap BEFORE the lookup (Free
+      // includes 0 aerial → 402), record ONLY after real work (provider/AI). The manual
+      // fallback does no billable work, so it isn't charged.
       const aerialTenant = await resolveTenant(req);
       const aerialGate = await gateUsage(aerialTenant, "aerial", 1);
       if (!aerialGate.ok) return res.status(aerialGate.status).json(aerialGate.body);
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Estimate the typical residential lawn/maintainable area in square feet for this US address. Respond JSON {"lawnSqft": number, "confidence":"low"|"medium"}. Address: ${String(address).slice(0, 200)}`,
-        config: { responseMimeType: "application/json" },
-      });
-      const est = parseGeminiJson(response.text) || {};
-      writeUsage(aerialTenant, "aerial", 1).catch(() => {});
-      res.json({ source: "ai_estimate", configured: false, lawnSqft: est.lawnSqft || null, confidence: est.confidence || "low", note: "Rough AI estimate — connect a measurement provider for survey-grade takeoff." });
+
+      // Reuse geocoded coords if present (point providers need real, non-stub lat/lng).
+      const geo = await geocodeResolve(address).catch(() => null);
+      const coords = geo && geo.stub !== true && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)
+        ? { lat: geo.lat, lng: geo.lng }
+        : null;
+
+      // 1) Real provider adapter, if one is configured.
+      const adapter = selectAdapter(process.env as any);
+      if (adapter) {
+        const apiKey = resolveApiKey(adapter, process.env as any) || "";
+        const url = coords
+          ? adapter.buildRequestUrl({ lat: coords.lat, lng: coords.lng, address, apiKey })
+          : null;
+        if (url && (await validateSafeUrl(url))) {
+          try {
+            const r = await fetchWithTimeout(url, { timeoutMs: 8000, headers: { Accept: "application/json" } });
+            if (r.ok) {
+              const body = await r.json().catch(() => null);
+              const parsed: MeasureResult | null = adapter.parse(body);
+              if (parsed && (parsed.lotSqft || parsed.lawnSqft)) {
+                const out = { ...parsed, configured: true };
+                writeUsage(aerialTenant, "aerial", 1).catch(() => {});
+                measureCacheSet(cacheKey, out);
+                return res.json(out);
+              }
+            }
+            // Provider reachable but no usable measurement → fall through to an estimate.
+          } catch (provErr: any) {
+            // Provider transport error: log server-side, don't leak, fall through (not a 500).
+            console.error("[measure/property] provider", adapter.id, provErr?.message);
+          }
+        }
+        // No coords / URL / SSRF-blocked / provider miss → fall through to the estimate ladder.
+      }
+
+      // 2) No usable provider result but Gemini is available → clearly-flagged rough estimate.
+      if (!isMockMode) {
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `Estimate the typical residential lawn/maintainable turf area in square feet for this US address. Respond JSON {"lawnSqft": number, "confidence":"low"|"medium"}. Address: ${address}`,
+          config: { responseMimeType: "application/json" },
+        });
+        const est = parseGeminiJson(response.text) || {};
+        const out = {
+          lawnSqft: sanitizeSqft(est.lawnSqft),
+          bedSqft: null,
+          hardscapeSqft: null,
+          lotSqft: null,
+          source: "ai_estimate",
+          confidence: est.confidence === "medium" ? "medium" : "low",
+          provider: null,
+          configured: false,
+          note: "Rough AI estimate — connect a measurement provider (REGRID_API_KEY / MEASUREMENT_API_KEY) for survey-grade parcel takeoff.",
+        };
+        writeUsage(aerialTenant, "aerial", 1).catch(() => {});
+        measureCacheSet(cacheKey, out);
+        return res.json(out);
+      }
+
+      // 3) Nothing configured — honest manual result (no fabricated numbers, no billing).
+      const out = { ...manualFallback(), configured: false };
+      measureCacheSet(cacheKey, out);
+      return res.json(out);
     } catch (e: any) {
       console.error("[measure/property]", e?.message);
       res.status(500).json({ error: "Measurement failed" });
