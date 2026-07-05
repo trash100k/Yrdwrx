@@ -41,7 +41,8 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > placeholder DB), Stripe idempotency (double-billing under cluster), migrations-not-authoritative + PITR,
 > graceful SIGTERM, photos-bucket RLS, error tracking (L12 missing), distributed rate-limiter, CI deploy +
 > branch protection. Every layer scored partial except L12 (missing). The clean/fast/smooth/secure code audit
-> produced no completed result (empty output) — pending re-run. Earlier:
+> now landed too (13 confirmed-high / 13 total; 4 P0 / 2 P1 / 7 P2) → new "Code-quality audit
+> (clean/fast/smooth/secure)" subsection under the Sprint Bug Log, de-duped into the 13-layer backlog. Earlier:
 > 2026-07-02 (WHITE-HOT SELLABILITY) — 14-agent workflow + solo server/DB lane + a
 > 10-finding adversarially-verified security audit, all remediated. Feature: Dashboard setup checklist +
 > memoized aggregates, guided-tour resume/fallback/replay, sample-data label+clear, CommandPalette
@@ -276,8 +277,9 @@ canonical layer with an `(also Lx)` pointer) and against work already done (SEC-
 e-sign, etc.). Tags: **[P0]** blocks a real launch / correctness / security / data-loss · **[P1]**
 breaks or degrades at scale / in real prod · **[P2]** polish. Effort S/M/L.
 
-> _The clean/fast/smooth/secure code audit (`clean-fast-smooth-secure-audit`) did **not** produce a
-> completed result file (its output was empty) — **pending**; re-run and fold its findings in here when it lands._
+> _The clean/fast/smooth/secure code audit (`clean-fast-smooth-secure-audit`) **landed** (2026-07-05; 13
+> confirmed-high findings, 0 refuted) — folded into the **"Code-quality audit (clean/fast/smooth/secure)"**
+> subsection under the Sprint Bug Log below (4 P0 / 2 P1 / 7 P2, de-duped against this backlog via `(see LN)` cross-refs)._
 
 #### P0 fix list (do first) — what most separates this demo from a real product
 These are the handful that make the deployed app actually authenticate, not lose money/data, and survive a deploy:
@@ -398,6 +400,40 @@ These are the handful that make the deployed app actually authenticate, not lose
 
 
 ### SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
+
+### Code-quality audit (clean/fast/smooth/secure) — 2026-07-05
+
+**13 confirmed-high / 13 total** (0 refuted; no concrete medium/low surfaced — every finding was
+reproduced + verified live). Synthesized from the **clean/fast/smooth/secure read-only code audit**
+(19-agent workflow: 6 research lanes → 13 per-finding verify agents, all `CONFIRMED`). By priority:
+**4 P0 · 2 P1 · 7 P2**. Tags per the 13-layer scheme (**[P0]** correctness/security/data-loss ·
+**[P1]** the getUser-hop + any unbounded-memory/leak · **[P2]** polish/perf); effort S/M/L.
+De-duped against the 13-layer backlog above via `(see LN)` cross-refs.
+
+**Backend perf**
+- [ ] **Stop the per-request GoTrue round-trip in auth** `[P1]` M — `verifySupabaseToken` calls `sb.auth.getUser(token)` (an HTTP hop to Supabase Auth) before every `/api` handler → ~50–150ms + a hard GoTrue dependency at concurrency-80. Tier 1: wrap `getUser` in a size-capped 30–60s in-memory cache keyed by `sha256(token)` (per-worker; collapses repeat dashboard calls). Tier 2 (network-free): `jwt.verify(token, SUPABASE_JWT_SECRET, {algorithms:["HS256"], audience:"authenticated", issuer:`${SUPABASE_URL}/auth/v1`})` — MUST pin `algorithms` (else alg:none/confusion) + validate aud/iss; keep `getUser` as fallback when no secret/JWKS. (`server.ts:1035`) *(see L4 — same fix)*
+- [ ] **Bound the unbounded `geminiCache`** `[P1]` S — `geminiCache` is an ever-growing in-memory object → slow OOM on the min-1 instance. Convert to a size-capped LRU `Map` (`GEMINI_CACHE_MAX≈2000`) mirroring `geoCacheSet`: evict-oldest on write, LRU-touch on hit, and fix disk persistence (`JSON.stringify(Object.fromEntries(map))` on save; `new Map(Object.entries(obj))` + trim on load). Caps worst-case at ~8MB. (`server.ts:552,601`) *(see L10 "Bound the in-memory caches" — same fix; L10 item also covers `apiCacheStore`)*
+- [ ] **Stop re-hashing 25MB base64 images on every vision call** `[P2]` S — `cacheApiResponse` JSON-stringifies + SHA-256s the full image body for a ~0% hit rate, stalling the event loop on the hot path. Remove `cacheApiResponse` from `/api/design/process` (3660), `/api/inventory/process-image` (4677), `/api/expenses/ocr` (5024) **only** (keep it on `/api/crm/analyze-property` — small body, real hit rate); also extend the `geminiCache` inlineData-image bypass so the second hash is skipped too. (`server.ts:~668`, IMAGE_ROUTES)
+
+**Frontend perf**
+- [ ] **Lazy-load three.js + fabric.js in DesignStudio** `[P2]` M — both are statically imported (~250KB gz) yet render only behind tabs; three.js is double-gated (needs an AI result + a 3D-tab click) so most sessions never need it. Replace the two static imports with `React.lazy` and wrap the canvas-switch block in a single local `<Suspense>` (required, not cosmetic — else a re-suspend blanks the whole route). (`src/pages/DesignStudio.tsx:44,46`, render 1327-1345) *(see L1 manualChunks — same three/fabric split, targeted approach)*
+- [ ] **Delete the unused `recharts` import from Dashboard** `[P2]` S — dead `import {AreaChart,Area,Tooltip,ResponsiveContainer} from "recharts"` (unflagged under `@ts-nocheck`) drags recharts + its d3 deps into the Dashboard landing chunk. Delete the line; charts still load lazily via EarningsWidget. Zero behavior change. (`src/pages/Dashboard.tsx:77`)
+- [ ] **Split Layout's heavy children out of the entry chunk** `[P2]` M — Layout statically pulls CuttyChat (51KB) + LiveEar (28.7KB) + CommandPalette (15.8KB) + NotificationsCenter into the main entry chunk. `React.lazy` each, gated per lifecycle: open-gate CommandPalette (Cmd-K) + the NotificationsCenter panel; one-way `hasOpenedBrain` flag for CuttyChat (preserve history/exit anim); `<Suspense fallback={null}>` for always-on LiveEar. Extract the unread-count into a tiny hook so the bell still works. ~100KB+ off the entry bundle. (`src/components/Layout.tsx:56-57,70-71`)
+
+**DB perf**
+- [ ] **Kill whole-table `select("*")` over-fetch + add scoped reads** `[P2]` L — `makeRepo().list()` does `select("*")` and pages ALL rows to `MAX_ROWS=10000` across ~89 call sites with no UI pagination. Priority fixes (not blanket column-narrowing — several JSON cols are consumed off list rows): (1) add scoped repo methods (e.g. `designVisionsRepo.forCustomer` via `.eq`) to replace client-side `.filter`-after-list; (2) bounded/paged reads for the few append-heavy tables (customer_messages, system_logs, invoices, timesheets, compliance_logs); (3) gate the 30s post-every-event subscribe backstop to reconnect/id-less deltas only. (`src/lib/repos/base.ts:135-142,46-47,207-276`)
+- [ ] **Drop the redundant `material_logs.inventory_item_id` FK column** `[P2]` S — `material_logs` carries two FKs to `inventory(id)` (`item_id` + `inventory_item_id`); nothing reads `inventory_item_id` and only the agent writer sets it. Ship a NEW append-only migration `0007_material_logs_drop_dup_fk.sql` with `alter table public.material_logs drop column if exists inventory_item_id;` (auto-drops its FK + idx) and delete the write at `agentActions.ts:278`. Keep `item_id` (the canonical job-costing join key). (`supabase/migrations/0006_supporting_tables.sql:22,28`; `agentActions.ts:278`)
+
+**Security**
+- [ ] **Reject client-supplied `tier` on `/api/tenants/provision`** `[P0]` S — provision reads `tier` from `req.body`, so any self-serve signup self-grants `enterprise` + 10k AI credits (and an onboarded owner can re-POST for a persistent self-upgrade). Drop `tier` from the destructure + the `safeTier` line; remove `tier` from the UPDATE payload; hardcode `tier:"free"` on the INSERT fallback. Leave the Stripe webhook `setTenantTier` + the platform-admin-gated `/api/admin/tenants/:id/tier` as the only tier writers. (`server.ts:1253,1290,1296`)
+- [ ] **Declare undici/helmet as prod deps + patch 4 npm highs** `[P0]` S — undici (`server.ts:16`) and helmet (`server.ts:18`) are phantom prod deps: the prod image builds with `npm install --omit=dev`, so today the server **crashes on boot** and the SSRF DNS-rebind Agent may be silently ignored (version mismatch vs Node 20's internal undici). Add `"undici":"^7.28.0"` + move `helmet` to `dependencies`; then `npm audit fix` the transitive highs (form-data CRLF, protobufjs DoS) + bump `vite` ≥8.0.16; add a smoke test asserting the pinned lookup rejects a private-IP resolution. (`package.json`; `server.ts:16,224`) *(see L7 dep-scan — this is the P0 boot-crash/SSRF slice of that item)*
+
+**Cleanliness**
+- [ ] **Remove the dead "Google Workspace Hub" feature** `[P2]` L — the Dashboard "Card E" widget advertises Calendar/Gmail auto-dispatch that can never work (no token flow exists anywhere; guarded by the dead Firebase shim's always-null `auth`). Delete the UI (`Dashboard.tsx:2544-2700`), the dead handlers (`handleConnectWorkspace`/`runSyncCalendar`/`runDispatchGmail`/`runIntegration` etc. ~595-815), the state + `cutty_workspace_active` read + `workspace:true` default-widget, and the sibling CrewSuite "Field Report" Gmail button (`CrewSuite.tsx:650-660`); drop the now-unused `auth` import. Never ship a button whose only behavior is an error toast. (`src/pages/Dashboard.tsx:595-860,2544-2700`)
+
+**Reliability**
+- [ ] **Make the Stripe webhook idempotent + 500-on-error** `[P0]` M — the handler marks the event processed (`processedStripeEvents.add`) BEFORE any DB work, swallows apply errors, and still acks 200 → double-counts payments under cluster mode and drops failed applies silently. Stamp each `payments[]` entry with `stripeId`; do the read-modify-write in an atomic SECURITY DEFINER RPC guarded by `WHERE NOT (data->'payments' @> …stripeId)` (true no-op on redelivery, closes the two-worker race); return **500** (not 200) whenever apply / `sb`-null / `setTenantTier` throws so Stripe retries; record `event.id` in a durable `stripe_events(UNIQUE)` table only after commit, replacing the in-memory Set. Fix the empty `setTenantTier` catch (server.ts:723). (`server.ts:709-758,787`) *(see L2/L11 — adds the 200→500 + atomic `@>`-guarded apply slice to the idempotency fix)*
+- [ ] **Stop the LiveEar mic/camera after stop/unmount** `[P0]` S — `LiveEar` never calls `getTracks().forEach(t=>t.stop())`, so the device keeps recording (camera/mic indicator stays lit) after the user stops — a privacy defect. Add a `streamRef`, assign it right after `getUserMedia` (covers both AV + audio-only fallback paths), and in `stopLiveEar()` stop all tracks + null the ref; also promote `videoInterval` to a ref and clear it in `stopLiveEar` instead of relying on `ws.onclose`. (`src/components/LiveEar.tsx:98-112,125-133`)
 
 **Security — adversarial pentest (read-only pass, findings reproduced live in rolled-back txns):**
 - [x] **[SEC-1 CRITICAL] profiles privilege escalation → cross-tenant takeover — FIXED + VERIFIED.**
