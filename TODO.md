@@ -236,6 +236,31 @@ build) and committed. Ranked by **value × readiness**.
 > **Bugs found during this sprint** are appended under "Sprint bug log" below as they're discovered,
 > then cleared as they're fixed.
 
+## 13-Layer Production Readiness (2026-07-05) — the demo→product gap
+
+The full production stack is 13 layers; a demo ships ~2–4 (frontend, backend, DB, sometimes auth).
+Two audits are mapping YardWorx against all 13 + code quality (clean/fast/smooth/secure); **verified
+findings + concrete fixes are appended below as each audit lane lands**, then worked P0→P2, each fix
+gated + committed + pushed. Current known state per layer (refined by the audits):
+
+| # | Layer | Known state |
+|---|-------|-------------|
+| 1 | Front-end foundations | React19/Vite/Router/Tailwind; lazy routes; error boundaries; PWA. Audit: bundle-size/code-split, memoization, list virtualization. |
+| 2 | APIs & back-end logic | ~80 Express routes; mock-mode; fetchWithTimeout. Audit: 400-vs-500 validation, error envelopes, monolith risk. |
+| 3 | Database & storage | Supabase Postgres + RLS + Storage; migrations 0001–0015. Audit: backups/PITR, indexes, seed separation. |
+| 4 | Auth & permissions | Supabase Auth + RLS helpers; **demo mock-admin bypass still on** (REQUIRE_AUTH/VITE_REQUIRE_AUTH gate the flip). Audit: real-auth cutover. |
+| 5 | Hosting & deployment | Dockerfile multi-stage + cloudbuild.yaml → Cloud Run; dist/server.cjs. Audit: Secret Manager vs env, pipeline health. |
+| 6 | Cloud & compute | Cloud Run 2vCPU/1Gi/conc80/min1 + cluster workers + system Chromium. Audit: worker×concurrency tuning, cold start. |
+| 7 | CI/CD & version control | GitHub Actions (tsc + vitest on PR). Audit: deploy workflow, branch protection, staging, dep/secret scan. |
+| 8 | Security & RLS | **SEC-1..7 fixed; advisors 0 lints; cc_* PII leak removed.** Audit: residual CSP/prompt-injection/secrets. |
+| 9 | Rate limiting | express-rate-limit (global/ai/strict) + AI credit wallet. Audit: **per-worker/instance limiter → distributed**, public-endpoint abuse guards. |
+| 10 | Caching & CDN | Gemini disk cache, cacheApiResponse (private), workbox runtime caching. Audit: Cache-Control coverage, SPA CDN, asset hashing. |
+| 11 | Load balancing & scaling | Cloud Run autoscale. Audit: **in-memory state breaks multi-instance** (threatLog/limiter/processedStripeEvents/GEO_CACHE), /api/live sticky-session FIXME. |
+| 12 | Error tracking & logs | console.* + in-memory threatLog. Audit: **structured logging + error tracking (Sentry/GCP Error Reporting) + threat-log persistence + tracing**. |
+| 13 | Availability & recovery | health route. Audit: **graceful SIGTERM drain, readiness probe, DB backups/PITR, retries/circuit-breakers, DR**. |
+
+<!-- 13-LAYER AUDIT FINDINGS land here (from production-stack-13-layer-audit + clean-fast-smooth-secure-audit). -->
+
 ### SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
 
 **Security — adversarial pentest (read-only pass, findings reproduced live in rolled-back txns):**
