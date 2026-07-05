@@ -34,7 +34,15 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-07-02 (WHITE-HOT SELLABILITY) — 14-agent workflow + solo server/DB lane + a
+> _Last updated: 2026-07-05 (13-LAYER PRODUCTION AUDIT synthesized) — the 7-agent production-stack
+> audit landed and its verified fixes are now the **"13-layer audit fix backlog"** section above
+> (73 concrete fixes: 15 P0 / 36 P1 / 22 P2, de-duped across layers → ~12 distinct P0). Headline demo→product
+> gaps: real-auth cutover + baking real-auth env into the prod build (the deployed SPA is mock-admin on a
+> placeholder DB), Stripe idempotency (double-billing under cluster), migrations-not-authoritative + PITR,
+> graceful SIGTERM, photos-bucket RLS, error tracking (L12 missing), distributed rate-limiter, CI deploy +
+> branch protection. Every layer scored partial except L12 (missing). The clean/fast/smooth/secure code audit
+> produced no completed result (empty output) — pending re-run. Earlier:
+> 2026-07-02 (WHITE-HOT SELLABILITY) — 14-agent workflow + solo server/DB lane + a
 > 10-finding adversarially-verified security audit, all remediated. Feature: Dashboard setup checklist +
 > memoized aggregates, guided-tour resume/fallback/replay, sample-data label+clear, CommandPalette
 > server search, Closeout job picker, MarkupCanvas offset, Inbox cross-tab reads, syncService
@@ -259,7 +267,135 @@ gated + committed + pushed. Current known state per layer (refined by the audits
 | 12 | Error tracking & logs | console.* + in-memory threatLog. Audit: **structured logging + error tracking (Sentry/GCP Error Reporting) + threat-log persistence + tracing**. |
 | 13 | Availability & recovery | health route. Audit: **graceful SIGTERM drain, readiness probe, DB backups/PITR, retries/circuit-breakers, DR**. |
 
-<!-- 13-LAYER AUDIT FINDINGS land here (from production-stack-13-layer-audit + clean-fast-smooth-secure-audit). -->
+### 13-layer audit fix backlog (2026-07-05)
+
+Synthesized from the **production-stack 13-layer audit** (7-agent workflow; per-layer
+status/whatExists/gaps/fixes with file refs). Every layer scored **partial** except **L12 (missing)**;
+none scored solid. Items are de-duped across layers (a fix that serves two layers lives once at its
+canonical layer with an `(also Lx)` pointer) and against work already done (SEC-1..7, geocoding,
+e-sign, etc.). Tags: **[P0]** blocks a real launch / correctness / security / data-loss · **[P1]**
+breaks or degrades at scale / in real prod · **[P2]** polish. Effort S/M/L.
+
+> _The clean/fast/smooth/secure code audit (`clean-fast-smooth-secure-audit`) did **not** produce a
+> completed result file (its output was empty) — **pending**; re-run and fold its findings in here when it lands._
+
+#### P0 fix list (do first) — what most separates this demo from a real product
+These are the handful that make the deployed app actually authenticate, not lose money/data, and survive a deploy:
+
+1. **Real-auth cutover** [L8] — flip `REQUIRE_AUTH` + `VITE_REQUIRE_AUTH` true, restore `onAuthStateChanged` in `App.tsx`, verify tenant isolation under two real JWTs. *Until this is on, all RLS is inert and the app is mock-admin.*
+2. **Bake real-auth env into the prod build** [L5/L4] — inject `VITE_SUPABASE_URL/ANON_KEY/REQUIRE_AUTH=true` as Dockerfile build args (+ `--build-arg` from cloudbuild) **and** add `SUPABASE_ANON_KEY` to Cloud Run runtime secrets. *Today the shipped SPA bakes `placeholder.supabase.co` and the server 503s every authed call — the deploy is functionally dead.*
+3. **Fix `BASE_URL` + `.dockerignore` + reproducible `npm ci` + `npm run build` in CI** [L5/L7] — the deploy-hygiene blockers (broken magic-links/redirects, secret leak into image, drifted runtime deps, build breakage only caught at deploy).
+4. **Stripe idempotency → durable table + idempotency keys** [L2/L11] — the in-memory `processedStripeEvents` Set double-credits invoices under cluster mode (2 workers = live bug, no multi-instance needed).
+5. **Migrations authoritative + capture `handle_new_user` trigger** [L3] — repo `migrations/` (15 files) does not reproduce the live DB (27 applied); a rebuild has no signup provisioning → blank app under real auth.
+6. **`photos` storage bucket RLS policy** [L8] — `photoStorage.ts` writes `${tenantId}/<uuid>` to a bucket with **no** migration/policy → cross-tenant photo read hole.
+7. **Graceful SIGTERM shutdown** [L13] — zero SIGTERM handling; every deploy + scale-in hard-kills in-flight invoice PDF renders and paid Gemini Live sockets.
+8. **Enable Supabase PITR before the first real tenant** [L3/L13] — service-role writes bypass RLS, so one bad migration/admin write between daily snapshots = unrecoverable multi-tenant financial data loss.
+9. **Error tracking + structured logging** [L12, missing layer; audit-P1, existential] — no Sentry/pino/tracing; 117 unstructured `console.*`, no request/tenant/trace correlation, uncaught rejections keep serving corrupt.
+10. **Distributed rate-limiter / shared store** [L9/L11, audit-P1] — every limiter is per-process `MemoryStore`; the AI-cost cap evaporates exactly at scale-out. Plus **CI deploy workflow + branch protection** [L7] so deploy is reproducible and gated.
+
+---
+
+#### Layer 1 — Front-end foundations `[partial]`
+- [ ] **Restore visible keyboard focus + skip link** `[P1]` S — global `*:focus-visible` outline in `index.css` @layer base (stop bare `focus:outline-none` on inputs/buttons); skip-to-content anchor as first child of Layout `<main>` → `#main-content`.
+- [ ] **Add `prefers-reduced-motion` handling** `[P1]` M — `@media (prefers-reduced-motion: reduce)` block in `src/index.css` zeroing transitions/animations (mirror `.field-mode-active`); gate Motion props behind `useReducedMotion()`. Fails WCAG 2.3.3 today.
+- [ ] **Fix contrast + min text size for sunlight legibility** `[P1]` M — raise labels to ≥12px, lift `text-zinc-500`/`text-white/40` → `zinc-400`/`white/60` to clear AA; wire the already-installed `@axe-core/react` into `main.tsx` under DEV as a standing gate. (`Layout.tsx:563,664,713`)
+- [ ] **Self-host fonts** `[P1]` M — remove the render-blocking Google Fonts `@import` (`index.css:1`), add `@font-face` woff2 + `font-display:swap`. Unblocks CSP hardening, stops the Google leak, and lets Workbox precache the brand offline. *(feeds L10 precache)*
+- [ ] **Unify brand + palette** `[P1]` M — delete the ember-orange `!important` overrides (`index.css:72`) or update CLAUDE.md to match; replace `GAELWORX`/`TerraMind` wordmarks (`Layout.tsx:568,718`) with one YardWorx identity.
+- [ ] **Image alt/lazy + 44px tap targets + route skeletons + `manualChunks`** `[P2]` M — `alt`/`loading="lazy"` on non-hero `<img>` (18/24 lack alt); header icon buttons `min h-11 w-11` on mobile; per-route Skeleton fallbacks instead of the bare `PageLoader` spinner (`App.tsx:71`); add `build.rollupOptions.output.manualChunks` in `vite.config.ts` (split react/router, charts, three/fabric, firebase/supabase).
+
+#### Layer 2 — APIs & Back-End Logic `[partial]`
+- [ ] **Persist Stripe idempotency across workers/instances + add idempotency keys** `[P0]` M — replace the in-memory `processedStripeEvents` Set with a `stripe_events(id pk, processed_at)` table (`INSERT … ON CONFLICT DO NOTHING`, 0-row = duplicate short-circuit before re-applying payment); pass `{idempotencyKey}` to every `stripe.checkout.sessions.create` (`~5534`, `~5604`). Closes cross-worker/instance invoice double-credit. *(canonical; = L11 fix)*
+- [ ] **Add a global Express error handler + terminal `/api` JSON 404** `[P1]` S — after all routes in `createApp`: `app.use('/api', 404 {error})` + final `(err,req,res,next)` mapping `entity.parse.failed`→400, else 500 `{error}`. Guarantees the `{error}` envelope for unknown routes / thrown-outside-try / malformed JSON instead of HTML/stack (`server.ts:5282`).
+- [ ] **Restore mock-mode contract on legacy workflow routes** `[P1]` M — `/api/workflows/{proposal:1528, invoice-chaser:2061, chemical-log:2101, payroll:2174, seasonal}` call the Gemini REST endpoint directly and 500 in mock mode; route them through shared `ai.models.generateContent` (inherits mock + cache + 503 mapping) or add an `isMockMode` guard. Also stop overloading the app's `Authorization` header for Google OAuth (header collision).
+- [ ] **Set explicit HTTP server timeouts** `[P2]` S — set `server.requestTimeout`/`headersTimeout`/`keepAliveTimeout` aligned to Cloud Run's 300s cap (`server.ts:6152`) so a wedged handler can't hold a concurrency-80 slot.
+- [ ] **Add input validation + a single AI-bad-output contract** `[P2]` M — `assertBody`/zod on high-traffic AI routes (`scheduler/optimize:3478`, `compliance/check`, `daily-briefing`, `reports/*`, `crm/briefing`) → 400 before the model call; wrap `parseGeminiJson` failures uniformly as 502 `AI_BAD_OUTPUT` (status drifts 500/502 today).
+- [ ] **Begin decomposing the monolith into domain routers** `[P2]` L — split `server.ts` (6541 lines / ~130 handlers) into `src/server/routes/*.ts` via `express.Router()` (stripe, portal, workflows, crm, design, agent); drop `@ts-nocheck` on new modules (`routeAuth.ts` is the proof pattern).
+- _Credit-metering atomicity → **L9**. High-sev prod deps (form-data CRLF, protobufjs DoS) → **L7** scanning._
+
+#### Layer 3 — Database & Storage `[partial]`
+- [ ] **Make `supabase/migrations/` the authoritative source of truth** `[P0]` M — `supabase db pull` from `bzpxudpmksnawmaanxal`, commit a squashed baseline (or backfill 8+ live-only migrations: full SMS schema, `photos` bucket, `rls_perf_split_write_policies`, `add_customer_latlng`); fix the `0010/0011/0012` filename collision (repo referrals/documents/timesheets vs live SMS); verify parity by diffing a fresh `db reset`.
+- [ ] **Capture the `handle_new_user` signup trigger (+ execute lockdown) as committed migrations** `[P0]` S — capture-only (exists live). Without it a rebuilt DB creates `auth.users` on signup but no profile/tenant → every new user fails RLS on everything under `REQUIRE_AUTH=true`.
+- [ ] **Add a migration gate to the deploy pipeline** `[P1]` M — `supabase db push` (or migra/diff) step in `cloudbuild.yaml` before deploy + a drift-check in `ci.yml`, so schema and code ship together and PR CI fails on divergence. *(also L7)*
+- [ ] **Verify + enable Point-in-Time Recovery before the first real tenant** `[P1]` S — confirm plan, enable PITR (Pro add-on), document RPO/RTO. Tables are empty now — do it before real data lands. *(also L13)*
+- [ ] **Index the `timesheets.customer_id` FK + re-audit indexes post-launch** `[P2]` S — `create index on public.timesheets(customer_id)` (composite `(tenant_id, customer_id)` doesn't cover the single-col FK check); defer unused-index cleanup until there's real traffic.
+
+#### Layer 4 — Auth & Permissions `[partial]`
+- [ ] **Enforce the 5-role model server-side, not just in the UI** `[P1]` L — RLS write policies gate only `auth_role()<>'client'`, so employee/foreman/owner/admin have identical full write to every tenant table; the granular `ROLE_PERMISSIONS` map is frontend-only cosmetics. Differentiate write policies by role (field tables for employee/foreman; owner/admin full) or add per-route checks. *(overlaps L8 destructive-op RLS)*
+- [ ] **Verify Supabase JWTs locally instead of `getUser` per request** `[P1]` M — validate the access-token signature via JWT secret/JWKS + cache claims, replacing the `sb.auth.getUser(token)` network round-trip in `verifySupabaseToken` (per-request latency + hard Auth-service dependency at concurrency 80).
+- [ ] **Require email verification before privileged provisioning** `[P2]` S — keep "Confirm email" ON in prod; gate the `PLATFORM_OWNER_EMAIL→is_platform_admin` assignment (`server.ts:~1261`) on a verified address. *(BASE_URL half of this fix → L5)*
+- [ ] **Fix the `useRole()` Rules-of-Hooks violation** `[P2]` S — it returns before `useState`/`useEffect` when `!REQUIRE_AUTH`; restructure so hooks always run and the real-auth path is the default branch (so the authed path is actually exercised).
+- _Baking real-auth env into the prod build + `SUPABASE_ANON_KEY` → **L5**. Flip flags + restore `onAuthStateChanged` → **L8**._
+
+#### Layer 5 — Hosting & Deployment `[partial]`
+- [ ] **Inject `VITE_` build args in the Dockerfile builder + pass from cloudbuild** `[P0]` M — add `ARG/ENV VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_REQUIRE_AUTH=true`, `VITE_GOOGLE_MAPS_PLATFORM_KEY` before `npm run build`; matching `--build-arg` in cloudbuild. **The top launch blocker** — without it the SPA ships mock-admin against `placeholder.supabase.co`. *(= L4 "build frontend with real-auth env")*
+- [ ] **Add `SUPABASE_ANON_KEY` to the Cloud Run runtime secrets** `[P0]` S — append `SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest` to `--set-secrets`; without it `verifySupabaseToken`/the auth-login proxy 503 every authed call (`server.ts:1003,1033`). *(= L4 anon-key fix)*
+- [ ] **Add a `.dockerignore` (and `.gcloudignore`)** `[P0]` S — exclude `node_modules`, `.git`, `.env*`, `dist`, `coverage`, `cypress`, `*.log`, and the root scratch scripts/dumps. Prevents secret leakage into the builder layer and stops a host `node_modules` from clobbering clean deps at `COPY . .` (`Dockerfile:17`).
+- [ ] **Set a real `BASE_URL`** `[P0]` S — replace `BASE_URL=https://YOUR-DOMAIN` (`cloudbuild.yaml:35`) via substitution/Secret Manager; drives Stripe redirects, portal magic links, QBO callback (`server.ts:2366,2438,2582`). Ships broken/phishing-shaped links as-is. *(also L4/L7)*
+- [ ] **Drop redundant apk `nodejs`/`yarn` + migrate GCR→Artifact Registry** `[P2]` M — remove `nodejs yarn` from the runner `apk add` (base already has Node 20); repoint image refs off deprecated `gcr.io`, rename `react-example-app`→`yardworx`, add an image-scan step before deploy.
+- _Reproducible runtime install (`npm ci` from lockfile) → **L7** (there it's tagged P0)._
+
+#### Layer 6 — Cloud & Compute `[partial]`
+- [ ] **Set `--no-cpu-throttling` + `--timeout=3600` for the Live WebSocket** `[P1]` S — Cloud Run throttles CPU to ~zero between requests, stalling the Live audio bridge, 30s heartbeat, respawn logic, and Chromium idle-timer; the 300s default request timeout also severs Live voice sessions.
+- [ ] **Cap `--max-instances` + size the DB pool (+ `--session-affinity` for `/api/live`)** `[P1]` S — no `--max-instances` defaults to 100 (100×2 workers ≈ 200 Supabase clients → connection storm + cost blowout); set e.g. `--max-instances=10` and confirm the pooler covers max-instances × `WEB_CONCURRENCY`. *(= L11 "cap and pin the fleet")*
+- [ ] **Give Chromium real memory headroom** `[P1]` M — 2 workers each holding a ~200MB Chromium on 1024Mi → concurrent PDF renders OOM/SIGKILL. Bump `--memory 2048Mi`, or `WEB_CONCURRENCY=1`, or move PDF rendering to a dedicated Cloud Run service.
+- [ ] **Document/tune cluster-vs-Cloud-Run scaling + cold-start mitigation** `[P2]` M — decide `WEB_CONCURRENCY=2` vs 1 + horizontal scale; add `--cpu-boost`/a warmup ping to `getSharedBrowser` (first PDF pays ~1–2s Chromium cold start); record the `min-instances=1` always-on billing tradeoff.
+- _Graceful SIGTERM shutdown → **L13** (tagged P0 there)._
+
+#### Layer 7 — CI/CD & Version Control `[partial]`
+- [ ] **Add `npm run build` to CI** `[P0]` S — insert `- run: npm run build` in `ci.yml` after the test step to exercise both `vite build` and the esbuild `dist/server.cjs` entrypoint. Cheapest highest-signal fix (build breakage currently surfaces only at Cloud Build deploy).
+- [ ] **Make the prod Docker image reproducible (`npm ci` from lockfile)** `[P0]` S — `COPY package-lock.json` into the runner and use `npm ci --omit=dev` (not `npm install`) so runtime deps match what CI tested (`Dockerfile:47,50`); pin base by digest, drop `npm i -g npm@latest` and the unused `yarn`. *(= L5 reproducible-install)*
+- [ ] **Fix the `BASE_URL` placeholder + rename `react-example-app`→`yardworx` in the deploy path** `[P0]` S — *(same underlying fix as L5 BASE_URL; also de-risks the stale-branding footgun in cloudbuild + package.json name)*.
+- [ ] **Add dependency + secret scanning gates to CI + patch current highs** `[P1]` M — `dependabot.yml` (npm weekly), `npm audit --audit-level=high` (or gitleaks/trufflehog) as a failing step, enable CodeQL; remediate the current highs now (vite `fs.deny` bypass, protobufjs DoS, form-data CRLF) via `npm audit fix` + re-lock. *(consolidates L2 + L8 scanning items)*
+- [ ] **Version-control the deploy pipeline with least-privilege auth** `[P1]` M — add `.github/workflows/deploy.yml` gated on push-to-main **and** green CI via Workload Identity Federation (no long-lived JSON key), or commit the Cloud Build trigger config (`gcloud builds triggers export`). Deploy is console-only today — not reproducible/auditable.
+- [ ] **Introduce a staging Cloud Run service + approval gate before prod** `[P1]` L — deploy main→`yardworx-staging` automatically, require a GitHub Environment manual approval (or version tag) to promote; optional per-PR previews. Every trigger fire ships straight to prod today.
+- [ ] **Codify branch protection so tests gate merges** `[P1]` S — make CI (build+lint+test) a required status check on `main`, require 1 review, block direct pushes, commit `CODEOWNERS` + a ruleset. Nothing enforces green-before-merge today.
+- [ ] **Give the lint/type gate teeth + resolve E2E dead weight** `[P2]` M — `tsc --noEmit` is a near-noop under pervasive `@ts-nocheck`; add ESLint + a CI step and/or a `@ts-nocheck`-count ratchet; wire the installed Cypress into a CI e2e job or remove it; add `engines: {node: ">=20 <21"}` and align `@types/node` to 20.
+- [ ] **Delete the divergent `pnpm-lock.yaml` + add build provenance** `[P2]` S — remove `pnpm-lock.yaml` (npm is canonical) for a single dependency source of truth; add Cloud Build layer caching + an SBOM/attestation on the pushed image.
+
+#### Layer 8 — Security & RLS `[partial]`
+> **SEC-1..7 remediated** (SEC-1 anti-escalation trigger `0013`/`0015`; SEC-2 16 world-open `cc_*` tables dropped `0014`; SEC-3..7 tracked in the Sprint Bug Log → `security-hardener`). **Supabase security advisors: 0 lints.** NEW items from the 13-layer audit:
+- [ ] **Flip `REQUIRE_AUTH` + `VITE_REQUIRE_AUTH` true and restore real auth** `[P0]` M — restore the Supabase `onAuthStateChanged` gate in `App.tsx` so every `/api/*` carries a verified JWT and RLS actually governs data. **Nothing else in L8 matters until this is on.** Verify with an `RLS_ISOLATION_TEST.sql` harness under two real tenant JWTs. *(the real-auth cutover; couples L4/L5 build args)*
+- [ ] **Add a migration for the `photos` storage bucket + tenant-scoped policy** `[P0]` S — `0016_photos_storage.sql`: create `photos` (private) bucket + policy `bucket_id='photos' and (storage.foldername(name))[1] = private.auth_tenant_id()::text`. `photoStorage.ts` writes `${tenantId}/<uuid>` to a bucket with **no** policy → cross-tenant photo read hole (advisors don't flag missing per-bucket storage policies). Audit the dashboard for other unpolicied buckets.
+- [ ] **Split CSP by environment** `[P1]` M — prod `scriptSrc` = `'self'` (drop `unsafe-eval`/`unsafe-inline` → nonces/hashes), drop `ws://localhost:*`/`http://localhost:*` from `connectSrc` (`server.ts:1108-1113`); keep the permissive set only for dev/Vite. Prod inherits an XSS-friendly dev CSP today.
+- [ ] **Wrap untrusted external/model input with an explicit injection guard** `[P1]` M — `onboarding-scrape` (`server.ts:3076`) feeds arbitrary scraped-web text straight as model `contents` then writes the JSON into tenant settings; wrap in a labeled `<UNTRUSTED>` delimiter + a "data, never instructions" system rule; length-cap + schema-validate the output. Treatment is inconsistent across ~25 AI handlers.
+- [ ] **Populate `req.user.role` in the auth middleware** `[P2]` S — `verifySupabaseToken` (`server.ts:~1041`) sets only uid/sub/email, so the `/api/security/threats` role gate 403s everyone (the feature is dead). Attach role/`is_platform_admin` from the profile.
+- [ ] **Refine intra-tenant RLS for destructive/financial ops** `[P2]` M — restrict `DELETE` on invoices/contracts and `UPDATE` of financial fields to `role in ('admin','owner')` so a compromised employee/foreman can't wipe or alter billing within its own tenant. *(overlaps L4 5-role enforcement)*
+- _Dependency + secret scanning + patch highs → **L7**._
+
+#### Layer 9 — Rate limiting `[partial]`
+- [ ] **Back the limiters with a shared store, or make credits the source of truth** `[P1]` M — every `express-rate-limit` tier uses per-worker/per-instance `MemoryStore`, so the effective ceiling is `limit × workers × instances` (the "100 AI/day" cost cap evaporates at scale-out). Add `rate-limit-redis`/Memorystore or `@acpr/rate-limit-postgresql`, or explicitly designate the (fixed) credit wallet as authoritative. *(= L11 shared-store fix)*
+- [ ] **Make credit metering atomic + stream-aware + choose fail mode** `[P1]` M — `meterCredits` (`server.ts:1198-1212`) does a non-atomic read-modify-write (concurrent calls lost-update/undercount), only hooks `res.json` (streaming/`res.send`/`res.end` bypass metering), charges on cache HITs, and fails **open** silently. Use an atomic Postgres increment RPC, meter on `res` finish, skip charge on `X-App-Cache: HIT`, and deliberately pick fail-open vs fail-closed. *(consolidates the L2 metering item)*
+- [ ] **Add a CAPTCHA/honeypot to public lead-intake** `[P1]` M — `/api/public/lead-intake` (`server.ts:1482`) has only a per-IP limiter; a botnet rotating IPs sprays lead inserts into tenants' pipelines. Add Turnstile/hCaptcha + a hidden honeypot + min-fill-time; keep the IP limiter as backstop. *(the one unauthenticated write endpoint)*
+- [ ] **Add a per-tenant daily AI ceiling + weight credits by cost** `[P2]` M — quotas are per-user not per-tenant (10 employees = 10×100/day), and a megapixel design generation charges the same 1 credit as a one-line text call. Add a per-tenant daily cap + weight image/vision routes above text.
+
+#### Layer 10 — Caching & CDN `[partial]`
+> The caching **logic** is correct (tenant-keyed `cacheApiResponse` w/ `private,max-age` + `Vary`; content-hashed `immutable` asset headers; opt-in Gemini disk cache) but the **delivery topology** is not — there is no CDN, so those headers are honored by nobody.
+- [ ] **Put a CDN in front of static assets** `[P1]` L — no Cloud CDN / external HTTPS LB / Firebase Hosting exists, so every JS/CSS/font/image request terminates at the single Node process (`express.static`, `server.ts:5138`) competing with API/PDF/Puppeteer/WS on 2 CPU. Add an external HTTPS LB + Cloud CDN with a serverless NEG, or move SPA/static serving to Firebase Hosting / a GCS backend-bucket + Cloud CDN and reserve Cloud Run for `/api`. Makes the existing `immutable`/`s-maxage` headers actually pay off.
+- [ ] **Bound the in-memory caches** `[P1]` S — `apiCacheStore` (`server.ts:614`) and `geminiCache` (`server.ts:553`) have **no** eviction/size cap (unlike `GEO_CACHE`/`designImageCache`/`processedStripeEvents` which self-bound); on a long-lived instance they grow toward the 1Gi OOM ceiling. Add an LRU/size cap mirroring `designImageCache`'s `while(size>MAX) delete oldest` (`server.ts:626`).
+- [ ] **Fix the PWA install surface** `[P1]` M — two conflicting manifests (hardcoded `public/manifest.json` "YardWorx" `#05a845` at `index.html:10` vs VitePWA-generated "TerraMind Ops OS" `#000000`), three different theme-colors, no 192/512 PNG icons, and an SVG apple-touch-icon iOS ignores → blank home-screen icon; fails Android installability. Drop the redundant manifest, add PNG icons (incl. maskable + apple-touch), unify theme-color.
+- [ ] **Move to a shared cache for multi-instance hit rates** `[P2]` L — back the API + Gemini caches with Memorystore (Redis) instead of per-process Maps so cluster workers and autoscaled instances share entries; keep the tenant-keyed hashing. *(overlaps L11 shared-cache)*
+- [ ] **Precache self-hosted fonts + add an offline fallback** `[P2]` M — after self-hosting fonts (**L1**), include them in the Workbox precache so the offline shell (incl. the Cinzel wordmark) is self-contained; add a small `navigateFallback`/data-unavailable view beyond the connectivity banner.
+
+#### L11 — Load balancing & scaling `[partial]`
+> This layer's failure modes are **per-process in-memory state that doesn't survive horizontal scale-out** (2 workers × up to 100 instances ≈ 200 independent processes). The concrete fixes live at their canonical layers:
+- [ ] **Move Stripe idempotency to a durable table** `[P0]` M — the live double-billing bug (fires at the default 2 workers). *(→ **L2**)*
+- [ ] **Back rate limiters with a shared store** `[P1]` M — the cost-abuse cap goes unbounded under scale-out. *(→ **L9**)*
+- [ ] **Cap + pin the fleet in `cloudbuild.yaml`** `[P1]` S — `--max-instances 10` + `--session-affinity` (helps `/api/live`, which carries an explicit ws-multiplexing scale FIXME at `server.ts:6157`). *(→ **L6**)*
+- [ ] **Persist `threatLog` + shared caches out of process** `[P2]` M — `threatLog` (per-process, capped 200) → a Supabase table so `/api/security/threats` aggregates fleet-wide and survives scale-in; move `GEO_CACHE`/`geminiCache`/`apiCacheStore` to Redis/Memorystore or accept the duplicated Google/Gemini spend. *(threatLog persistence → **L12**)*
+
+#### L12 — Error tracking & logs `[MISSING]`
+> The only fully-missing layer. Cloud Logging captures stdout, but as 117 unstructured `console.*` lines with no severity/request-id/tenant/trace correlation; no error aggregation, tracing, metrics, or alerting.
+- [ ] **Introduce structured JSON logging** `[P1]` M — add `pino` + `pino-http` (or `@google-cloud/logging-bunyan`); emit JSON with severity, trace (parsed from `X-Cloud-Trace-Context`), `tenantId`, route; replace the 117 `console.*` calls. Makes Cloud Logging severity, log-based metrics, and alerts work.
+- [ ] **Add error tracking (Sentry / Error Reporting)** `[P1]` S — `@sentry/node` init at the top of `server.ts`, `Sentry.setupExpressErrorHandler(app)` before the final handler (`server.ts:6631`), report from the process guards (`6670-6675`); tag release with `COMMIT_SHA` (already in cloudbuild) so errors group per deploy.
+- [ ] **Emit metrics + define alert policies** `[P2]` M — Cloud Monitoring custom metrics for AI calls (count + estimated cost per tenant) + alert policies (5xx rate, instance-count==max, `aiLimiter` 429 spikes); check the config into `monitoring/`/Terraform.
+- [ ] **Persist + alert on the threat log** `[P2]` S — write `threatLog` entries (`server.ts:869`) to Supabase + alert on new HIGH-severity rows so injection/path-traversal attempts surface without an admin polling `/api/security/threats`. *(also L11)*
+
+#### L13 — Availability & recovery `[partial]`
+- [ ] **Implement SIGTERM/SIGINT graceful shutdown** `[P0]` M — after `app.listen` (`server.ts:6152`): `server.close()`, close the WSS (drain upstream Gemini Live), await in-flight PDF renders, `sharedBrowser.close()` within a ~25s budget (< Cloud Run grace); the cluster primary forwards SIGTERM to workers and stops respawning. **Top availability fix** — every deploy + scale-in currently hard-kills live invoice PDFs and paid voice sessions (zero SIGTERM handling today).
+- [ ] **Split readiness from liveness** `[P1]` S — add `/readyz` doing a real `select 1` vs Supabase (+ a cheap Gemini/mock check) → 503 when a critical dep is down; keep `/api/health` shallow; wire a Cloud Run `startupProbe` to `/readyz` so a wedged instance is recycled, not served. `/api/health` is liveness-only today (always 200, only checks the client object exists).
+- [ ] **Enable Supabase PITR + a tested restore runbook** `[P1]` M — PITR (Pro add-on) or an external `pg_dump`→GCS cron; document RTO/RPO. The only safety net for a bad service-role/migration write between daily snapshots on a financial system. *(= L3 PITR)*
+- [ ] **Add circuit breakers/backoff on external deps + fix the uncaught-exception exit** `[P2]` M — wrap Gemini/Stripe with a breaker (opossum)/fail-fast after N timeouts; add jitter to the webhook retry (`server.ts:5300-5313`) + worker respawn; change the standalone `uncaughtException` path (`server.ts:6673`) to log then `process.exit(1)` so the container restarts clean instead of serving in an undefined state.
+
 
 ### SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
 
