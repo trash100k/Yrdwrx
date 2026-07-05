@@ -21,6 +21,9 @@ import { selectAdapter, resolveApiKey, sanitizeSqft, manualFallback, type Measur
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
 import { computeDeposit } from "./src/lib/deposit.js";
+// Living Proposal — pure view-tracking + follow-up-threshold + tier-ladder math. Shared with
+// the owner-side engagement badge so "opened 2×, hasn't signed" is defined in exactly one place.
+import { recordProposalView, shouldFollowUp, deriveTiers } from "./src/lib/proposal.js";
 import { validateEditInput, buildEditInstruction, MAX_REFERENCE_IMAGES } from "./src/lib/designEdit.js";
 // Pure, deterministic dedup + rating rollup for reviews ingestion (no I/O, safe to bundle).
 import { dedupePlan, rollupRatings, IngestedReview } from "./src/lib/reviewsDedup.js";
@@ -7263,6 +7266,140 @@ field is absent, use null — never invent values. Return the key structured fie
     }
   });
 
+  // LIVING PROPOSAL — the read-only, capability-token proposal view + engagement tracking.
+  // Served through the existing portal-token path (this route is under /api/portal/*, so it is
+  // auth-excluded and the visitor needs no app session). The proposal is a customer_design_visions
+  // row whose `proposal` JSONB carries good/better/best tiers + before/after refs + the linked
+  // estimate invoice (which carries the SHIPPED e-sign + deposit hooks). This endpoint:
+  //   1. scopes to THIS token's client + the token's proposalId (never a body-supplied id when the
+  //      token pins one — the token is the authority),
+  //   2. LOGS the open/view (viewCount + first/last + capped views[]) via the pure proposal lib, and
+  //   3. fires a one-time owner follow-up ("opened 2×, hasn't signed") once the threshold trips,
+  //      suppressed if the linked estimate is already signed.
+  app.post("/api/portal/proposal/view", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal unavailable" });
+    // The token pins the proposal when it was minted as a proposal link; fall back to the body
+    // only for a plain portal token (which then simply carries no proposal → no-op).
+    const proposalId = tok.proposalId || req.body?.proposalId || null;
+    if (!proposalId) return res.json({ proposal: null });
+    try {
+      const { data: dv } = await sb
+        .from("customer_design_visions")
+        .select("id,customer_id,tenant_id,summary,before_url,after_url,proposal")
+        .eq("id", proposalId)
+        .maybeSingle();
+      if (!dv || dv.customer_id !== tok.clientId) return res.status(404).json({ error: "Proposal not found" });
+      if (tok.tenantId && dv.tenant_id && dv.tenant_id !== tok.tenantId) return res.status(403).json({ error: "Scope mismatch" });
+
+      const base: any = dv.proposal || {};
+      // Resolve "signed" from the linked estimate invoice (authoritative), so we never nudge a
+      // signed proposal and the view never downgrades a closed one.
+      let est: any = null, signed = false;
+      const estId = base.estimateInvoiceId || null;
+      if (estId) {
+        const { data: inv } = await sb.from("invoices").select("id,amount,status,data,customer_id").eq("id", estId).maybeSingle();
+        if (inv && inv.customer_id === tok.clientId) {
+          est = inv;
+          const s = String(inv.status || "").toLowerCase();
+          signed = s === "accepted" || s === "paid" || !!inv.data?.signature;
+        }
+      }
+
+      const now = new Date().toISOString();
+      const fwd = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+      const { proposal: viewed } = recordProposalView(base, {
+        now, ip: fwd || req.ip || null, ua: req.headers["user-agent"], signed,
+      });
+      let patch = viewed;
+      let fireFollowUp = false;
+      if (shouldFollowUp(patch, { now, signed })) {
+        patch = { ...patch, followUpSentAt: now };
+        fireFollowUp = true;
+      }
+      await sb.from("customer_design_visions").update({ proposal: patch }).eq("id", dv.id);
+      if (fireFollowUp) {
+        // Fire-and-forget owner alert; dispatchNotification never throws.
+        Promise.resolve()
+          .then(() => dispatchNotification(dv.tenant_id, tok.clientId, "proposal_viewed", {
+            viewCount: patch.viewCount, summary: dv.summary || patch.title || null,
+          }))
+          .catch(() => {});
+      }
+
+      res.json({
+        proposal: {
+          id: dv.id,
+          title: patch.title || dv.summary || "Your Proposal",
+          summary: patch.summary || dv.summary || null,
+          tiers: Array.isArray(patch.tiers) ? patch.tiers : [],
+          recommendedTier: patch.recommendedTier || null,
+          selectedTier: patch.selectedTier || null,
+          beforeUrl: dv.before_url || patch.beforeUrl || null,
+          afterUrl: dv.after_url || patch.afterUrl || null,
+          estimateInvoiceId: estId,
+          status: signed ? "signed" : (patch.status || "sent"),
+          viewCount: patch.viewCount || 0,
+          signed,
+          estimate: est ? {
+            id: est.id,
+            amount: Number(est.amount) || 0,
+            status: est.status,
+            depositPct: est.data?.depositPct ?? null,
+            depositAmount: est.data?.depositAmount ?? null,
+          } : null,
+        },
+      });
+    } catch (e: any) {
+      console.error("portal proposal view error", e?.message);
+      res.status(500).json({ error: "Failed to load proposal" });
+    }
+  });
+
+  // Client picks a tier on the Living Proposal. Reflects the chosen tier's price onto the
+  // LINKED estimate invoice (so the shipped sign/deposit endpoints charge the right amount) and
+  // records the selection on the proposal. Token-scoped + safe: the invoice must belong to the
+  // token's client, be the proposal's own estimate, and not already be settled. Does NOT rewrite
+  // the sign/deposit flow — it just adjusts the estimate the existing flow reads.
+  app.post("/api/portal/proposal/select-tier", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal unavailable" });
+    const proposalId = tok.proposalId || req.body?.proposalId || null;
+    const tierId = String(req.body?.tierId || "").slice(0, 40);
+    if (!proposalId || !tierId) return res.status(400).json({ error: "proposalId and tierId are required" });
+    try {
+      const { data: dv } = await sb
+        .from("customer_design_visions")
+        .select("id,customer_id,tenant_id,proposal")
+        .eq("id", proposalId)
+        .maybeSingle();
+      if (!dv || dv.customer_id !== tok.clientId) return res.status(404).json({ error: "Proposal not found" });
+      const base: any = dv.proposal || {};
+      const tier = (Array.isArray(base.tiers) ? base.tiers : []).find((t: any) => t?.id === tierId);
+      if (!tier) return res.status(404).json({ error: "Tier not found" });
+      const estId = base.estimateInvoiceId || null;
+      if (!estId) return res.status(400).json({ error: "This proposal has no estimate to accept." });
+
+      const { data: inv } = await sb.from("invoices").select("id,customer_id,status,data,amount").eq("id", estId).maybeSingle();
+      if (!inv || inv.customer_id !== tok.clientId) return res.status(404).json({ error: "Estimate not found" });
+      const s = String(inv.status || "").toLowerCase();
+      if (["paid", "accepted", "void", "cancelled", "canceled"].includes(s)) {
+        return res.status(409).json({ error: "This estimate can no longer be changed." });
+      }
+      const price = Math.max(0, Number(tier.price) || 0);
+      await sb.from("invoices").update({ amount: price, data: { ...(inv.data || {}), proposalTier: { id: tier.id, name: tier.name, price } } }).eq("id", estId);
+      await sb.from("customer_design_visions").update({ proposal: { ...base, selectedTier: tierId } }).eq("id", dv.id);
+      res.json({ success: true, amount: price, tier: { id: tier.id, name: tier.name, price } });
+    } catch (e: any) {
+      console.error("portal proposal select-tier error", e?.message);
+      res.status(500).json({ error: "Could not update your selection" });
+    }
+  });
+
   // Client e-signs + accepts an estimate from the portal. Records a legally-meaningful
   // signature block (typed name, optional drawn signature, timestamp, IP, user-agent) on the
   // estimate and flips it to "accepted" so the owner can schedule + collect. Token-scoped: the
@@ -7437,6 +7574,174 @@ field is absent, use null — never invent values. Return the key structured fie
     } catch (e: any) {
       console.error("portal invoice-pdf error", e?.message);
       res.status(500).json({ error: "Failed to generate PDF" });
+    }
+  });
+
+  // ===========================================================================
+  // LIVING PROPOSAL — OWNER SIDE. Promote a tiered estimate/design into a first-class
+  // shareable Proposal (reuses customer_design_visions), and report engagement back.
+  // These are authed owner routes (NOT under /api/portal/*, so verifyFirebaseToken runs).
+  // ===========================================================================
+
+  // Sanitize owner-supplied tiers (good/better/best) → a clean, bounded array.
+  const cleanProposalTiers = (raw: any, fallbackAmount: number): any[] => {
+    const arr = Array.isArray(raw) ? raw.filter(Boolean).slice(0, 6) : [];
+    if (!arr.length) return deriveTiers(fallbackAmount);
+    return arr.map((t: any, i: number) => ({
+      id: String(t?.id || ["good", "better", "best"][i] || `tier${i}`).slice(0, 40),
+      name: String(t?.name || `Tier ${i + 1}`).slice(0, 80),
+      price: Math.max(0, Number(t?.price) || 0),
+      blurb: t?.blurb ? String(t.blurb).slice(0, 240) : "",
+      bullets: Array.isArray(t?.bullets) ? t.bullets.slice(0, 12).map((b: any) => String(b).slice(0, 160)) : [],
+    }));
+  };
+
+  // Send a proposal: persist it (create or update a customer_design_visions row), stamp it
+  // "sent", and mint a portal capability token pinned to this proposal so the shareable link
+  // opens the read-only proposal view. Tenant-safe (customer + estimate must belong to the
+  // owner's tenant); mock-safe (no JWT_SECRET → persists but returns a null share link honestly).
+  app.post("/api/proposals/send", async (req: any, res: any) => {
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Proposals unavailable (service role not configured)" });
+    try {
+      const tenant = await resolveTenant(req);
+      if (REQUIRE_AUTH && !tenant) return res.status(401).json({ error: "Unauthorized" });
+      const b = req.body || {};
+      let tenantId: string | null = tenant?.id || null;
+      let customerId: string | null = b.customerId ? String(b.customerId) : null;
+      let estAmount = Number(b.estimateAmount) || 0;
+      const invoiceId = b.invoiceId ? String(b.invoiceId) : null;
+
+      // Derive tenant + customer + base amount from the linked estimate when provided.
+      if (invoiceId) {
+        const { data: inv } = await sb.from("invoices").select("id,amount,customer_id,tenant_id").eq("id", invoiceId).maybeSingle();
+        if (!inv) return res.status(404).json({ error: "Estimate not found" });
+        if (tenantId && inv.tenant_id && inv.tenant_id !== tenantId) return res.status(403).json({ error: "Not in your workspace" });
+        tenantId = tenantId || inv.tenant_id;
+        customerId = customerId || inv.customer_id;
+        if (!estAmount) estAmount = Number(inv.amount) || 0;
+      }
+      if (!customerId) return res.status(400).json({ error: "Link this estimate to a customer before sending a proposal." });
+
+      // Verify the customer is in the owner's tenant (and resolve tenant in demo mode).
+      const { data: cust } = await sb.from("customers").select("id,tenant_id,first_name,last_name,company_name").eq("id", customerId).maybeSingle();
+      if (!cust) return res.status(404).json({ error: "Customer not found" });
+      if (tenantId && cust.tenant_id !== tenantId) return res.status(403).json({ error: "Not in your workspace" });
+      tenantId = tenantId || cust.tenant_id;
+      if (REQUIRE_AUTH && tenant && tenantId && tenant.id !== tenantId) return res.status(403).json({ error: "Not in your workspace" });
+
+      const now = new Date().toISOString();
+      const tiers = cleanProposalTiers(b.tiers, estAmount);
+
+      // Update an existing design vision (preserving its prior engagement) or create a new one.
+      const designId = b.designId ? String(b.designId) : null;
+      let existing: any = null;
+      if (designId) {
+        const { data: dv } = await sb.from("customer_design_visions").select("id,customer_id,tenant_id,summary,before_url,after_url,proposal").eq("id", designId).maybeSingle();
+        if (dv && dv.customer_id === customerId && (!tenantId || dv.tenant_id === tenantId)) existing = dv;
+      }
+      const prev: any = existing?.proposal || {};
+      const summary = b.summary != null ? String(b.summary).slice(0, 400) : (existing?.summary || null);
+      const beforeUrl = b.beforeUrl != null ? String(b.beforeUrl) : (existing?.before_url || prev.beforeUrl || null);
+      const afterUrl = b.afterUrl != null ? String(b.afterUrl) : (existing?.after_url || prev.afterUrl || null);
+      const proposal = {
+        ...prev,
+        title: b.title != null ? String(b.title).slice(0, 160) : (prev.title || summary || "Your Proposal"),
+        summary,
+        tiers,
+        recommendedTier: b.recommendedTier ? String(b.recommendedTier).slice(0, 40) : (prev.recommendedTier || "better"),
+        estimateInvoiceId: invoiceId || prev.estimateInvoiceId || null,
+        beforeUrl, afterUrl,
+        status: "sent",
+        sentAt: now,
+        // Preserve prior engagement across resends; reset the follow-up cooldown so a resend can nudge again.
+        viewCount: Number(prev.viewCount) || 0,
+        views: Array.isArray(prev.views) ? prev.views : [],
+        firstViewedAt: prev.firstViewedAt || null,
+        lastViewedAt: prev.lastViewedAt || null,
+        followUpSentAt: null,
+      };
+
+      let proposalId: string | null = existing?.id || null;
+      if (existing) {
+        await sb.from("customer_design_visions").update({ summary, before_url: beforeUrl, after_url: afterUrl, proposal }).eq("id", existing.id);
+      } else {
+        const { data: ins } = await sb
+          .from("customer_design_visions")
+          .insert({ tenant_id: tenantId, customer_id: customerId, summary, before_url: beforeUrl, after_url: afterUrl, proposal })
+          .select("id")
+          .maybeSingle();
+        proposalId = ins?.id || null;
+      }
+      if (!proposalId) return res.status(500).json({ error: "Failed to save proposal" });
+
+      // Mint the shareable capability token (a portal token pinned to this proposal). The
+      // proposalId narrows the VIEW; the token itself is a scoped portal credential for this
+      // customer, so the SHIPPED sign/deposit/checkout endpoints accept it unchanged.
+      let token: string | null = null, shareUrl: string | null = null;
+      if (JWT_SECRET) {
+        token = jwt.sign({ scope: "portal", clientId: customerId, tenantId, proposalId, kind: "proposal" }, JWT_SECRET, { expiresIn: "30d" });
+        shareUrl = req.protocol + "://" + req.get("host") + "/portal/auth/" + token;
+      }
+      res.json({ success: true, proposalId, token, shareUrl, jwtMissing: !JWT_SECRET, tiers });
+    } catch (e: any) {
+      console.error("proposals/send error", e?.message);
+      res.status(500).json({ error: "Failed to send proposal" });
+    }
+  });
+
+  // Engagement readout for the owner surface (Invoices): every sent proposal's open/view
+  // telemetry, keyed by its linked estimate invoice so the Invoices list can badge each estimate
+  // row ("Opened 2× · not signed"). Tenant-scoped; "signed" resolved from the linked invoice.
+  app.get("/api/proposals/engagement", async (req: any, res: any) => {
+    const sb = getServiceSupabase();
+    if (!sb) return res.json({ proposals: [], byInvoice: {} });
+    try {
+      const tenant = await resolveTenant(req);
+      if (REQUIRE_AUTH && !tenant) return res.status(401).json({ error: "Unauthorized" });
+      if (!tenant) return res.json({ proposals: [], byInvoice: {} });
+      const { data: rows } = await sb
+        .from("customer_design_visions")
+        .select("id,customer_id,summary,proposal")
+        .eq("tenant_id", tenant.id)
+        .limit(300);
+      const sent = (rows || []).filter((r: any) => r?.proposal?.sentAt);
+
+      // Resolve "signed" from the linked estimates in a single batch query.
+      const estIds = Array.from(new Set(sent.map((r: any) => r.proposal?.estimateInvoiceId).filter(Boolean)));
+      const signedByInvoice: Record<string, boolean> = {};
+      if (estIds.length) {
+        const { data: invs } = await sb.from("invoices").select("id,status,data").in("id", estIds);
+        for (const inv of invs || []) {
+          const s = String(inv.status || "").toLowerCase();
+          signedByInvoice[inv.id] = s === "accepted" || s === "paid" || !!inv.data?.signature;
+        }
+      }
+
+      const proposals = sent.map((r: any) => {
+        const p = r.proposal || {};
+        const estimateInvoiceId = p.estimateInvoiceId || null;
+        const signed = estimateInvoiceId ? !!signedByInvoice[estimateInvoiceId] : (p.status === "signed" || p.status === "accepted" || !!p.approved);
+        return {
+          proposalId: r.id,
+          customerId: r.customer_id,
+          estimateInvoiceId,
+          summary: r.summary || p.title || null,
+          viewCount: Number(p.viewCount) || 0,
+          sentAt: p.sentAt || null,
+          firstViewedAt: p.firstViewedAt || null,
+          lastViewedAt: p.lastViewedAt || null,
+          followUpSentAt: p.followUpSentAt || null,
+          selectedTier: p.selectedTier || null,
+          signed,
+        };
+      });
+      const byInvoice: Record<string, any> = {};
+      for (const p of proposals) if (p.estimateInvoiceId) byInvoice[p.estimateInvoiceId] = p;
+      res.json({ proposals, byInvoice });
+    } catch (e: any) {
+      console.error("proposals/engagement error", e?.message);
+      res.status(500).json({ error: "Failed to load proposal engagement" });
     }
   });
 
@@ -7619,6 +7924,7 @@ field is absent, use null — never invent values. Return the key structured fie
     crew_arrival: "customer",
     new_message: "owner",
     design_approved: "owner",
+    proposal_viewed: "owner", // Living Proposal: customer opened it N× but hasn't signed — nudge to close
     low_stock: "owner",
     missed_call: "owner", // AI receptionist captured a new lead (missed call / voicemail / net-new text)
   };
@@ -7677,6 +7983,10 @@ field is absent, use null — never invent values. Return the key structured fie
       case "design_approved":
         subject = `Design proposal approved`;
         body = `${p.customerName || "A customer"} approved the design proposal${p.summary ? `: ${String(p.summary).slice(0, 160)}` : ""}. Time to schedule the work.`;
+        break;
+      case "proposal_viewed":
+        subject = `Proposal opened — not signed yet`;
+        body = `${p.customerName || "A customer"} opened your proposal${p.viewCount ? ` ${p.viewCount}×` : ""}${p.summary ? ` (${String(p.summary).slice(0, 120)})` : ""} but hasn't signed. A quick nudge now is the best moment to close the deal.`;
         break;
       case "low_stock":
         subject = `Low stock alert — ${p.count || 0} item(s)`;

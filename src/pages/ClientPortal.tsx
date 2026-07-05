@@ -47,6 +47,13 @@ export default function ClientPortal() {
   const [signError, setSignError] = useState<string | null>(null);
   const [signedAtById, setSignedAtById] = useState<Record<string, string>>({});
 
+  // Living Proposal: when this portal link was opened via a proposal share link, the token pins
+  // a proposalId and /api/portal/proposal/view returns the tiered (good/better/best) offer +
+  // before/after refs + the linked estimate. Fetching it also LOGS the open (engagement tracking).
+  const [livingProposal, setLivingProposal] = useState<any>(null);
+  const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
+  const [tierSaving, setTierSaving] = useState(false);
+
   const portalFetch = (path: string, init: RequestInit = {}) =>
     fetch(path, {
       ...init,
@@ -76,6 +83,20 @@ export default function ClientPortal() {
       } finally {
         if (active) setLoading(false);
       }
+
+      // Living Proposal open: the token itself carries the proposalId (a plain magic-link token
+      // just returns { proposal: null }). This call logs the open server-side (view tracking).
+      try {
+        const pr = await portalFetch("/api/portal/proposal/view", { method: "POST", body: JSON.stringify({}) });
+        const pj = await pr.json().catch(() => ({}));
+        if (active && pr.ok && pj.proposal) {
+          setLivingProposal(pj.proposal);
+          setSelectedTierId(pj.proposal.selectedTier || pj.proposal.recommendedTier || pj.proposal.tiers?.[0]?.id || null);
+          setActiveTab("proposal"); // land them on the offer
+        }
+      } catch {
+        /* proposal view is best-effort; the rest of the portal still works */
+      }
     })();
     return () => {
       active = false;
@@ -97,6 +118,10 @@ export default function ClientPortal() {
   const jobs = data?.jobs || [];
   const invoices = data?.invoices || [];
   const designs = data?.designs || [];
+  // Proposal is "signed" once the linked estimate is accepted (server flag) or was signed this session.
+  const proposalSigned = livingProposal
+    ? !!(livingProposal.signed || signedAtById[livingProposal.estimateInvoiceId])
+    : false;
 
   const isPaid = (inv: any) => String(inv?.status || "").toLowerCase() === "paid";
   // Payments are recorded on the invoice's `data`: data.amountPaid (running total) and
@@ -201,6 +226,8 @@ export default function ClientPortal() {
           signerName: name,
           // Only send a drawn signature when one exists (typed-only signs name-only).
           ...(dataUrl ? { signatureDataUrl: dataUrl } : {}),
+          // Record the chosen good/better/best tier when signing off a Living Proposal.
+          ...(est._acceptedTier ? { acceptedTier: est._acceptedTier } : {}),
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -232,6 +259,33 @@ export default function ClientPortal() {
     } catch (e: any) {
       setSignError(e?.message || "Network error while signing. Please try again.");
       setSigningEstimate(null);
+    }
+  };
+
+  // Accept a Living Proposal tier: reflect the chosen tier's price onto the linked estimate
+  // (server-side, so the shipped deposit math is right), then open the SignaturePad to accept &
+  // sign that estimate — reusing the exact same e-sign + deposit flow the invoice list uses.
+  const handleAcceptProposal = async () => {
+    const p = livingProposal;
+    if (!p?.estimateInvoiceId || tierSaving) return;
+    const tier = (p.tiers || []).find((t: any) => t.id === selectedTierId) || (p.tiers || [])[0] || null;
+    setSignError(null);
+    setTierSaving(true);
+    try {
+      if (tier?.id) {
+        // Best-effort: if this fails we still let them sign (deposit falls back to the base amount).
+        await portalFetch("/api/portal/proposal/select-tier", {
+          method: "POST",
+          body: JSON.stringify({ proposalId: p.id, tierId: tier.id }),
+        }).catch(() => {});
+      }
+      setSigningEstimate({
+        id: p.estimateInvoiceId,
+        amount: tier?.price ?? p.estimate?.amount ?? 0,
+        _acceptedTier: tier?.name || null,
+      });
+    } finally {
+      setTierSaving(false);
     }
   };
 
@@ -335,7 +389,7 @@ export default function ClientPortal() {
         </header>
 
         <div className="flex bg-black p-2 border border-white/5 rounded-3xl mb-8 overflow-x-auto">
-          {["dashboard", "jobs", "invoices", "design", "messages"].map((tab) => (
+          {[...(livingProposal ? ["proposal"] : []), "dashboard", "jobs", "invoices", "design", "messages"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -347,6 +401,100 @@ export default function ClientPortal() {
         </div>
 
         <main>
+          {activeTab === "proposal" && livingProposal && (() => {
+            const p = livingProposal;
+            const tiers = p.tiers || [];
+            const selected = tiers.find((t: any) => t.id === selectedTierId) || tiers[0] || null;
+            return (
+              <div className="bg-zinc-900 border-4 border-forest-500/10 rounded-2xl p-5 sm:p-8 shadow-2xl space-y-8">
+                <div>
+                  <div className="inline-block px-3 py-1 bg-forest-500/10 text-forest-400 font-bold uppercase tracking-widest text-xs md:text-[10px] rounded-lg mb-4">
+                    Your Proposal
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-black text-white mb-2">{p.title || "Your Proposal"}</h2>
+                  {p.summary && <p className="text-white/60 text-sm leading-relaxed">{p.summary}</p>}
+                </div>
+
+                {(p.beforeUrl || p.afterUrl) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {[{ u: p.beforeUrl, l: "Before" }, { u: p.afterUrl, l: "After (Your Vision)" }].filter((x) => x.u).map((x) => (
+                      <div key={x.l} className="relative rounded-2xl overflow-hidden border-2 border-white/5 aspect-video bg-black/40">
+                        <img src={x.u} alt={x.l} loading="lazy" className="w-full h-full object-cover" />
+                        <span className="absolute top-2 left-2 text-[10px] font-black uppercase tracking-widest bg-black/60 px-2 py-1 rounded">{x.l}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {tiers.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-black text-forest-400 uppercase tracking-widest mb-4">Choose Your Package</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {tiers.map((t: any) => {
+                        const isSel = t.id === selectedTierId;
+                        const isRec = t.id === p.recommendedTier;
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            disabled={proposalSigned}
+                            onClick={() => setSelectedTierId(t.id)}
+                            className={`text-left rounded-2xl border-2 p-5 transition-all relative disabled:cursor-default ${isSel ? "border-forest-500 bg-forest-500/10" : "border-white/10 bg-black/40 hover:border-white/25"}`}
+                          >
+                            {isRec && (
+                              <span className="absolute -top-2 right-3 text-[9px] font-black uppercase tracking-widest bg-forest-500 text-black px-2 py-0.5 rounded">Recommended</span>
+                            )}
+                            <p className="font-black uppercase tracking-widest text-xs text-white/60 mb-2">{t.name}</p>
+                            <p className="text-2xl font-black text-white mb-2">${money(t.price)}</p>
+                            {t.blurb && <p className="text-white/50 text-xs leading-relaxed mb-3">{t.blurb}</p>}
+                            {Array.isArray(t.bullets) && t.bullets.length > 0 && (
+                              <ul className="space-y-1.5">
+                                {t.bullets.map((b: string, i: number) => (
+                                  <li key={i} className="flex items-start gap-2 text-xs text-white/70">
+                                    <CheckCircle2 size={13} className="text-forest-400 shrink-0 mt-0.5" /> {b}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            <div className={`mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest ${isSel ? "text-forest-400" : "text-white/30"}`}>
+                              <span className={`w-3 h-3 rounded-full border-2 ${isSel ? "border-forest-400 bg-forest-400" : "border-white/30"}`} /> {isSel ? "Selected" : "Select"}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-6 border-t border-white/10">
+                  {proposalSigned ? (
+                    <div className="inline-flex items-center gap-2 bg-forest-500/10 text-forest-400 font-black uppercase tracking-widest text-xs py-3 px-5 rounded-xl">
+                      <CheckCircle2 size={16} /> Accepted &amp; Signed{selected ? ` — ${selected.name}` : ""}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      <button
+                        onClick={handleAcceptProposal}
+                        disabled={tierSaving || !p.estimateInvoiceId || tiers.length === 0}
+                        className="bg-forest-500 hover:bg-forest-400 text-black font-black uppercase tracking-widest text-xs py-4 px-8 rounded-xl transition-transform hover:scale-105 flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        <FileSignature size={16} /> {tierSaving ? "Preparing..." : `Accept & Sign${selected ? ` — $${money(selected.price)}` : ""}`}
+                      </button>
+                      {!p.estimateInvoiceId && (
+                        <p className="text-white/40 text-xs">This proposal isn't ready to sign yet — your provider will follow up.</p>
+                      )}
+                      {signError && (
+                        <div className="bg-rose-500/20 text-rose-400 text-xs px-3 py-2 rounded-lg inline-flex items-center gap-2">
+                          <AlertCircle size={14} /> {signError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {activeTab === "dashboard" && (
             <ClientDashboard
               client={client}

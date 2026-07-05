@@ -50,6 +50,7 @@ import { Invoice } from "../types";
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
 import SignaturePad from "../components/SignaturePad";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { engagementLabel, proposalDisplayStatus } from "../lib/proposal";
 import { EmptyState } from "../components/EmptyState";
 import { Skeleton } from "../components/Skeleton";
 
@@ -109,6 +110,10 @@ export default function Invoices() {
   const [pendingDeleteInvoice, setPendingDeleteInvoice] = useState<any>(null);
   // Estimate currently open in the on-site SignaturePad ("Get Signature" -> sign in the driveway).
   const [signingEstimate, setSigningEstimate] = useState<any>(null);
+  // Living Proposal engagement, keyed by the linked estimate invoice id (from
+  // /api/proposals/engagement) — powers the "Opened 2× · not signed" badge on estimate rows.
+  const [proposalEng, setProposalEng] = useState<Record<string, any>>({});
+  const [sendingProposalId, setSendingProposalId] = useState<string | null>(null);
   const [expenses, setExpenses] = useState<
     { id: string; amount: number; vendor?: string; merchant?: string; category?: string; date: string; notes?: string; status?: string; isArchived?: boolean; }[]
   >([]);
@@ -212,6 +217,62 @@ export default function Invoices() {
       unsubscribeExp();
     };
   }, []);
+
+  // Pull Living Proposal engagement (viewed/opened telemetry) so estimate rows can show whether
+  // the customer has opened their proposal and whether they've signed. Best-effort + tenant-scoped.
+  const loadProposalEngagement = async () => {
+    try {
+      const res = await fetchApi("/api/proposals/engagement");
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json?.byInvoice) setProposalEng(json.byInvoice);
+    } catch {
+      /* engagement badges are non-critical */
+    }
+  };
+  useEffect(() => {
+    loadProposalEngagement();
+  }, []);
+
+  // Promote an estimate into a first-class shareable Living Proposal: the server persists it
+  // (good/better/best tiers derived from the estimate total) and returns a capability-token
+  // share link. We copy the link so the owner can text/email it; engagement then reports back.
+  const handleSendProposal = async (inv: any) => {
+    if (!inv?.id || sendingProposalId) return;
+    setSendingProposalId(inv.id);
+    try {
+      const res = await fetchApi("/api/proposals/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceId: inv.id,
+          customerId: inv.customerId || inv.clientId || undefined,
+          title: inv.items?.[0]?.description || `Proposal for ${inv.client || "your property"}`,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) {
+        showToast(json.error || "Couldn't create the proposal.", "error");
+        return;
+      }
+      if (json.shareUrl) {
+        try {
+          await navigator.clipboard.writeText(json.shareUrl);
+          showToast("Proposal link copied — send it to your customer.", "success");
+        } catch {
+          showToast(`Proposal ready. Share link: ${json.shareUrl}`, "success");
+        }
+      } else if (json.jwtMissing) {
+        showToast("Proposal saved, but sharing links aren't configured on this account yet.", "info");
+      } else {
+        showToast("Proposal saved.", "success");
+      }
+      loadProposalEngagement();
+    } catch (e: any) {
+      showToast(e?.message || "Network error creating proposal.", "error");
+    } finally {
+      setSendingProposalId(null);
+    }
+  };
 
   // Load the customer roster once so the new-invoice form can attach a customerId
   // (invoices.customer_id) for per-customer revenue attribution. Best-effort: if it
@@ -1219,6 +1280,9 @@ export default function Invoices() {
               const statusLc = (inv.status || "").toLowerCase();
               const isEstimate = statusLc === "draft" || statusLc === "accepted";
               const signed = !!((inv as any).data?.signature || (inv as any).signature) || statusLc === "accepted";
+              // Living Proposal engagement for this estimate (if one was sent for it).
+              const eng = proposalEng[inv.id] || null;
+              const engStatus = eng ? proposalDisplayStatus(eng, eng.signed) : null;
               return (
               <motion.div
                 layout
@@ -1256,6 +1320,18 @@ export default function Invoices() {
                       {signed && (
                         <span className="text-[10px] font-black uppercase tracking-widest text-forest-400 bg-forest-500/10 border border-forest-500/30 px-2 py-0.5 rounded inline-flex items-center gap-1">
                           <CheckCircle2 size={11} /> {((inv as any).data?.signature || (inv as any).signature) ? "Signed" : "Accepted"}
+                        </span>
+                      )}
+                      {eng && !signed && engStatus !== "signed" && (
+                        <span
+                          className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded inline-flex items-center gap-1 border ${
+                            engStatus === "viewed"
+                              ? "text-celtic-400 bg-celtic-500/10 border-celtic-500/30"
+                              : "text-zinc-400 bg-white/5 border-white/10"
+                          }`}
+                          title={eng.lastViewedAt ? `Last opened ${new Date(eng.lastViewedAt).toLocaleString()}` : "Proposal sent"}
+                        >
+                          <Eye size={11} /> {engagementLabel(eng, eng.signed)}
                         </span>
                       )}
                     </p>
@@ -1336,6 +1412,21 @@ export default function Invoices() {
                           <Loader2 size={18} className="animate-spin" aria-hidden="true" />
                         ) : (
                           <Bell size={18} aria-hidden="true" />
+                        )}
+                      </button>
+                    )}
+                    {isEstimate && !signed && (
+                      <button
+                        onClick={() => handleSendProposal(inv)}
+                        disabled={sendingProposalId === inv.id}
+                        className="p-2.5 text-celtic-400 hover:bg-celtic-500/10 rounded-md transition-all disabled:opacity-50"
+                        aria-label={`Send ${inv.client} a Living Proposal link`}
+                        title={eng ? "Resend proposal link" : "Send as Living Proposal (tiered, trackable)"}
+                      >
+                        {sendingProposalId === inv.id ? (
+                          <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Eye size={18} aria-hidden="true" />
                         )}
                       </button>
                     )}
