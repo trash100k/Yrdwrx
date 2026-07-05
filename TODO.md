@@ -443,6 +443,20 @@ These are the handful that make the deployed app actually authenticate, not lose
 
 ### SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
 
+**Final holistic QA smoke pass (2026-07-05):** gates ALL GREEN (tsc clean · 866/866 vitest · vite +
+server bundle); **41/41 routes render crash-clean** (0 error-boundary trips) in demo mode; API probes
+all honest (401/403 gates, 400-not-500 on bad input, honest 503s, mock branches return real shapes). Findings:
+- [x] **[CRITICAL] CSP connect-src omitted Supabase → prod login + all data CSP-blocked — FIXED (7c36ee9).**
+      `server.ts:1650` listed dead `*.firebaseio.com` but no Supabase; the SPA calls Supabase directly from
+      the browser. Under the shipped `VITE_REQUIRE_AUTH=true` this refused auth + data. Added `*.supabase.co`
+      + `wss://*.supabase.co`, dropped the dead firebase origins.
+- [ ] **[P2 a11y] WCAG AA contrast + invalid nested-interactive debt** — @axe-core flags many low-contrast
+      forest/zinc labels on near-black (~1–2.4:1, need 4.5:1) + 13× focusable children nested inside `<button>`.
+      Raise label/link contrast + stop nesting focusable elements in buttons (`src/index.css` tokens + card/nav).
+- [ ] **[config note] `.env.local` ships `REQUIRE_AUTH=true`/`VITE_REQUIRE_AUTH=true`** (real auth ON, not the
+      CLAUDE.md demo bypass). With the CSP fix login now works against Supabase; this is the intended go-live
+      posture. For a local mock-admin demo run, flip both flags off.
+
 ### Code-quality audit (clean/fast/smooth/secure) — 2026-07-05
 
 **13 confirmed-high / 13 total** (0 refuted; no concrete medium/low surfaced — every finding was
