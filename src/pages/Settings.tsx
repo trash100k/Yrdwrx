@@ -55,11 +55,16 @@ function BookingLinkSection({ tenantId }: { tenantId?: string }) {
   );
 }
 
-// QuickBooks Online connect + one-way sync. Reads status from the server (tokens never reach
-// the client); shows Connect / Sync actions that light up once QBO creds are configured.
+// QuickBooks Online connect + TWO-WAY sync. Reads status from the server (tokens never reach
+// the client); shows Connect / Sync actions + the last-sync summary that light up once QBO
+// creds are configured. "Sync now" runs the full two-way pass (push local + pull QBO invoices/
+// payments/items back + reconcile); "Push customers" keeps the original one-way push.
 function QuickBooksSection() {
   const { showToast } = useToast();
-  const [status, setStatus] = useState<{ configured?: boolean; connected?: boolean } | null>(null);
+  const [status, setStatus] = useState<{
+    configured?: boolean; connected?: boolean; realmId?: string | null;
+    lastSync?: any; linkCount?: number; customerLinks?: number; invoiceLinks?: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -78,37 +83,101 @@ function QuickBooksSection() {
     finally { setBusy(false); }
   };
 
-  const sync = async () => {
+  // Original one-way customers push (kept for a quick, low-risk export).
+  const pushCustomers = async () => {
     setBusy(true);
     try {
       const r = await fetchApi("/api/quickbooks/sync", { method: "POST", body: JSON.stringify({}) });
       const d = await r.json();
-      if (r.ok) showToast(`Synced ${d.synced}/${d.total} customers to QuickBooks.`, "success");
+      if (r.ok) showToast(`Pushed ${d.synced}/${d.total} customers to QuickBooks.`, "success");
       else showToast(d?.error || "QuickBooks sync unavailable.", "error");
     } catch (e: any) { showToast(e?.message || "QuickBooks sync failed.", "error"); }
     finally { setBusy(false); }
   };
 
+  // Full two-way pass: push local changes + pull QBO invoices/payments/items back + reconcile.
+  const syncNow = async () => {
+    setBusy(true);
+    try {
+      const r = await fetchApi("/api/quickbooks/sync-two-way", { method: "POST", body: JSON.stringify({}) });
+      const d = await r.json();
+      if (r.ok) {
+        const t = d?.totals || {};
+        showToast(`Two-way sync complete — ${t.pushed || 0} pushed, ${t.pulled || 0} pulled${t.conflicts ? `, ${t.conflicts} conflicts` : ""}.`, "success");
+        await load();
+      } else {
+        showToast(d?.error || "QuickBooks two-way sync unavailable.", "error");
+      }
+    } catch (e: any) { showToast(e?.message || "QuickBooks two-way sync failed.", "error"); }
+    finally { setBusy(false); }
+  };
+
   const connected = status?.connected;
   const configured = status?.configured;
+  const last = status?.lastSync;
+  const c = last?.counts || {};
+  const fmt = (iso?: string) => {
+    if (!iso) return null;
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
+  };
   return (
     <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-1">
           <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Accounting</span>
           <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">QuickBooks Online</h3>
-          <p className="text-sm text-zinc-400">Push customers + invoices to QuickBooks so books reconcile automatically.</p>
+          <p className="text-sm text-zinc-400">Two-way sync: push customers + invoices, and pull invoices, payments &amp; items back so your books reconcile automatically.</p>
         </div>
         <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${connected ? "text-forest-400 bg-forest-500/10 border-forest-500/20" : "text-zinc-400 bg-white/5 border-white/10"}`}>
-          {connected ? "Connected" : configured ? "Not connected" : "Not configured"}
+          {connected ? "Two-way connected" : configured ? "Not connected" : "Not configured"}
         </span>
       </div>
+
+      {connected && (
+        <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Last sync</span>
+            <span className="text-xs text-white/80 font-mono">{fmt(last?.at) || "Never — run a sync"}</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Customers", v: c.customers },
+              { label: "Invoices", v: c.invoices },
+              { label: "Payments", v: c.payments },
+              { label: "Items", v: c.items },
+            ].map(({ label, v }) => (
+              <div key={label} className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-forest-400">{label}</p>
+                {v ? (
+                  <p className="text-xs text-zinc-300 mt-1 leading-relaxed">
+                    {"pushed" in v && <span>{v.pushed} push · {v.pulled} pull</span>}
+                    {!("pushed" in v) && <span>{v.pulled} pulled</span>}
+                    {v.conflicts ? <span className="block text-amber-400">{v.conflicts} conflict{v.conflicts === 1 ? "" : "s"}</span> : null}
+                    {v.skipped ? <span className="block text-zinc-500">{v.skipped} skipped</span> : null}
+                  </p>
+                ) : (
+                  <p className="text-xs text-zinc-600 mt-1">—</p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-zinc-600">
+            {status?.linkCount || 0} linked record{status?.linkCount === 1 ? "" : "s"}
+            {status?.customerLinks != null ? ` (${status.customerLinks} customers, ${status.invoiceLinks} invoices)` : ""}.
+            {last?.totals?.conflicts ? " Conflicts need manual review — edited on both sides since the last sync." : ""}
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-3">
-        <button onClick={connect} disabled={busy} className="px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all">
+        <button onClick={connect} disabled={busy} className="px-6 py-3 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest rounded-xl border border-white/10 transition-all">
           {connected ? "Reconnect" : "Connect QuickBooks"}
         </button>
-        <button onClick={sync} disabled={busy || !connected} className="px-6 py-3 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white font-black text-xs uppercase tracking-widest rounded-xl border border-white/10 transition-all">
-          Sync Customers
+        <button onClick={syncNow} disabled={busy || !connected} className="px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-40 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all">
+          {busy ? "Syncing…" : "Sync Now"}
+        </button>
+        <button onClick={pushCustomers} disabled={busy || !connected} className="px-6 py-3 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white font-black text-xs uppercase tracking-widest rounded-xl border border-white/10 transition-all">
+          Push Customers
         </button>
       </div>
       {!configured && (

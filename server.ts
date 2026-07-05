@@ -36,6 +36,11 @@ import {
   METERS, isMeter, emptyRollup, applyUsage, computeOverage, projectBill, withinSpendCap,
   type Meter, type Allotments, type Rates,
 } from "./src/lib/usageLedger.js";
+// Pure, deterministic QBO entity mapping + three-way reconcile planner (no I/O). The two-way
+// sync engine below feeds live QBO reads + local rows + the stored link table into reconcile()
+// and honors the { toPush, toPull, conflicts, alreadyLinked } plan — it NEVER re-implements the
+// money-/identity-sensitive mapping or diff logic. Proven by src/lib/qboMapping*.test.ts.
+import { mapCustomerToQbo, mapInvoiceToQbo, reconcile, type Link } from "./src/lib/qboMapping.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -3238,12 +3243,15 @@ export async function createApp({ startListening = false } = {}) {
     return data || null;
   };
 
-  // Refresh the access token if expired; returns a usable access token or null.
-  const qboAccessToken = async (integ: any) => {
+  // Refresh the access token if expired; returns a usable access token or null. Pass
+  // { force:true } to refresh even when the current token looks unexpired (used when a live
+  // QBO call surprises us with a 401 mid-sync). Mutates `integ` in memory so the rest of a
+  // sync pass reuses the fresh token instead of re-refreshing. Never logs token material.
+  const qboAccessToken = async (integ: any, opts: { force?: boolean } = {}) => {
     if (!integ) return null;
     const cfg = qboConfig();
     const notExpired = integ.expires_at && new Date(integ.expires_at).getTime() > Date.now() + 60000;
-    if (notExpired && integ.access_token) return integ.access_token;
+    if (!opts.force && notExpired && integ.access_token) return integ.access_token;
     if (!integ.refresh_token || !cfg.configured) return integ.access_token || null;
     const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
     const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: integ.refresh_token });
@@ -3253,6 +3261,10 @@ export async function createApp({ startListening = false } = {}) {
     const sb = getServiceSupabase();
     const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
     if (sb) await sb.from("integrations").update({ access_token: tok.access_token, refresh_token: tok.refresh_token || integ.refresh_token, expires_at, updated_at: new Date().toISOString() }).eq("id", integ.id);
+    // Keep the in-memory record current for the remainder of this pass.
+    integ.access_token = tok.access_token;
+    integ.refresh_token = tok.refresh_token || integ.refresh_token;
+    integ.expires_at = expires_at;
     return tok.access_token;
   };
 
@@ -3260,7 +3272,17 @@ export async function createApp({ startListening = false } = {}) {
     const cfg = qboConfig();
     const tenant = await resolveTenant(req);
     const integ = tenant ? await qboGetIntegration(tenant.id) : null;
-    res.json({ configured: cfg.configured, connected: !!(integ && integ.access_token), realmId: integ?.realm_id || null });
+    const links = Array.isArray(integ?.data?.links) ? integ.data.links : [];
+    // Never leak token material — only connection + last-sync metadata reaches the client.
+    res.json({
+      configured: cfg.configured,
+      connected: !!(integ && integ.access_token),
+      realmId: integ?.realm_id || null,
+      lastSync: integ?.data?.lastSync || null,
+      linkCount: links.length,
+      customerLinks: links.filter((l: any) => l?.entity === "customer").length,
+      invoiceLinks: links.filter((l: any) => l?.entity === "invoice").length,
+    });
   });
 
   app.get("/api/quickbooks/connect", async (req: any, res) => {
@@ -3331,6 +3353,352 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       console.error("QBO sync error:", e?.message);
       res.status(500).json({ error: "QuickBooks sync failed." });
+    }
+  });
+
+  // ===========================================================================
+  // QUICKBOOKS ONLINE — TWO-WAY SYNC ENGINE
+  // Pulls Customers/Invoices/Payments/Items back from QBO, reconciles them against
+  // local rows via the pure planner in src/lib/qboMapping.ts, and idempotently applies
+  // the { toPush, toPull, conflicts, alreadyLinked } plan. The external-id LINK MAP and
+  // the last-sync summary live in the service-role-only `integrations.data` jsonb, so only
+  // the server (via the service key that bypasses RLS) ever reads/writes them — tenant-safe.
+  //
+  // Guard-path discipline (all degrade cleanly, NO destructive plan):
+  //   - not connected / no realm     -> QBO_NOT_CONNECTED (503)
+  //   - token expired / unrefreshable-> QBO_TOKEN (503)
+  //   - rate-limited (429)           -> QBO_RATE_LIMIT (429, retryable) — abort BEFORE reconcile
+  //   - a truncated/failed read      -> QBO_PULL_FAILED (502) — never reconcile a partial set,
+  //                                     which would misclassify unseen linked records as deleted.
+  // Every QBO HTTP call is bounded by fetchWithTimeout; token material is never logged; the
+  // client only ever sees a generic message + a machine code. The live Intuit round-trip is
+  // UNVERIFIED pending sandbox creds (see TODO A7) — the reconcile/mapping logic is proven by
+  // src/lib/qboMapping.fixtures.test.ts.
+  // ===========================================================================
+  const QBO_PUSH_CAP = 200; // bound writes per pass to stay under QBO throttles
+  const QBO_PULL_CAP = 500;
+  const qboEmptyEntityCount = () => ({ pushed: 0, pulled: 0, conflicts: 0, skipped: 0, errors: 0 });
+
+  // Keep only well-formed links for the two supported entities, id-stringified.
+  const qboNormalizeLinks = (raw: any): Link[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((l: any) => l && (l.entity === "customer" || l.entity === "invoice"))
+      .map((l: any) => ({ localId: String(l.localId ?? ""), qboId: String(l.qboId ?? ""), entity: l.entity, updatedAt: l.updatedAt }))
+      .filter((l: Link) => l.localId && l.qboId);
+  };
+  // Upsert a link by (entity, localId) with a fresh watermark; mutates `links` in place.
+  const qboUpsertLink = (links: Link[], localId: any, qboId: any, entity: string, watermark?: string) => {
+    const lid = String(localId), qid = String(qboId);
+    if (!lid || !qid) return;
+    const i = links.findIndex((l) => l.entity === entity && String(l.localId) === lid);
+    const next: Link = { localId: lid, qboId: qid, entity: entity as any, updatedAt: watermark };
+    if (i >= 0) links[i] = next; else links.push(next);
+  };
+
+  // Generic client-facing degrade for a two-way sync failure code (no internals leaked).
+  const qboDegrade = (code: string): { status: number; error: string } => {
+    switch (code) {
+      case "QBO_RATE_LIMIT": return { status: 429, error: "QuickBooks is rate-limiting requests. Try again in a minute." };
+      case "QBO_TOKEN": return { status: 503, error: "QuickBooks token expired. Reconnect in Settings." };
+      case "QBO_NOT_CONNECTED": return { status: 503, error: "QuickBooks is not connected. Connect it in Settings first." };
+      case "QBO_UNCONFIGURED": return { status: 503, error: "QuickBooks is not configured." };
+      case "QBO_PULL_FAILED": return { status: 502, error: "Could not read from QuickBooks right now. Try again shortly." };
+      case "QBO_NO_DB": return { status: 503, error: "Service database unavailable." };
+      default: return { status: 500, error: "QuickBooks sync failed." };
+    }
+  };
+
+  // Bounded, timed QBO SQL query (read). Classifies the transport outcome so the caller can
+  // degrade (401 -> refresh+retry, 429 -> back off). Returns records under the entity key.
+  const qboQuery = async (cfg: any, realmId: string, token: string, query: string) => {
+    const url = `${cfg.apiBase}/v3/company/${encodeURIComponent(realmId)}/query?query=${encodeURIComponent(query)}&minorversion=65`;
+    let r: any;
+    try {
+      r = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, timeoutMs: 20000 });
+    } catch { return { ok: false, status: 0, records: [] as any[], network: true }; }
+    if (r.status === 401) return { ok: false, status: 401, records: [] as any[], unauthorized: true };
+    if (r.status === 429) return { ok: false, status: 429, records: [] as any[], rateLimited: true };
+    if (!r.ok) return { ok: false, status: r.status, records: [] as any[] };
+    let body: any = {};
+    try { body = await r.json(); } catch { body = {}; }
+    const qr = body?.QueryResponse || {};
+    const key = Object.keys(qr).find((k) => Array.isArray((qr as any)[k]));
+    return { ok: true, status: 200, records: (key ? (qr as any)[key] : []) as any[] };
+  };
+
+  // Paginate a full entity read. { ok:true, records } only on a COMPLETE read; otherwise
+  // { ok:false, code, partial } — the caller MUST NOT reconcile a truncated set. One 401
+  // refresh+retry; caps total pages so a huge company can't pin a worker.
+  const qboQueryAll = async (cfg: any, realmId: string, tokenRef: { token: string }, integ: any, entityName: string) => {
+    const pageSize = 100, maxPages = 20;
+    const records: any[] = [];
+    let start = 1;
+    for (let page = 0; page < maxPages; page++) {
+      const q = `select * from ${entityName} startPosition ${start} maxResults ${pageSize}`;
+      let res = await qboQuery(cfg, realmId, tokenRef.token, q);
+      if ((res as any).unauthorized) {
+        const fresh = await qboAccessToken(integ, { force: true });
+        if (!fresh) return { ok: false, code: "QBO_TOKEN", partial: records.length > 0, records };
+        tokenRef.token = fresh;
+        res = await qboQuery(cfg, realmId, tokenRef.token, q);
+      }
+      if ((res as any).rateLimited) return { ok: false, code: "QBO_RATE_LIMIT", partial: true, records };
+      if (!res.ok) return { ok: false, code: "QBO_PULL_FAILED", partial: records.length > 0, records };
+      records.push(...res.records);
+      if (res.records.length < pageSize) break; // short page => last page
+      start += pageSize;
+    }
+    return { ok: true, records };
+  };
+
+  // Bounded, timed QBO create/update (write). QBO echoes the entity under its type key.
+  const qboWrite = async (cfg: any, realmId: string, token: string, entityName: string, payload: any) => {
+    const url = `${cfg.apiBase}/v3/company/${encodeURIComponent(realmId)}/${entityName.toLowerCase()}?minorversion=65`;
+    let r: any;
+    try {
+      r = await fetchWithTimeout(url, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload), timeoutMs: 20000 });
+    } catch { return { ok: false, status: 0, network: true }; }
+    if (r.status === 429) return { ok: false, status: 429, rateLimited: true };
+    if (!r.ok) return { ok: false, status: r.status };
+    let body: any = {};
+    try { body = await r.json(); } catch { body = {}; }
+    const rec = body?.[entityName] || (body ? body[Object.keys(body)[0]] : null) || null;
+    return { ok: true, id: rec?.Id != null ? String(rec.Id) : "", record: rec };
+  };
+
+  // ---- Local <-> planner-shape adapters (snake_case row <-> qboMapping shapes) ----
+  const qboAdaptLocalCustomer = (row: any, qboId?: string) => ({
+    id: String(row.id),
+    firstName: row.first_name, lastName: row.last_name, companyName: row.company_name,
+    email: row.email, phone: row.phone,
+    qboId: qboId || row.data?.qboId,
+    updatedAt: row.updated_at,
+  });
+  const qboAdaptLocalInvoice = (row: any, qboId?: string) => ({
+    id: String(row.id),
+    items: Array.isArray(row.items) ? row.items.map((it: any) => ({ description: it.description ?? it.name, quantity: it.quantity, unitPrice: it.rate ?? it.unitPrice, amount: it.amount })) : [],
+    amount: row.amount,
+    qboId: qboId || row.data?.qboId,
+    updatedAt: row.updated_at,
+  });
+  // QBO Customer -> local customers patch (fields we own; leaves untouched what QBO lacks).
+  const qboCustomerToLocal = (q: any) => ({
+    first_name: q.GivenName || null,
+    last_name: q.FamilyName || null,
+    company_name: q.CompanyName || (!q.GivenName && !q.FamilyName ? q.DisplayName : null) || null,
+    email: q.PrimaryEmailAddr?.Address || null,
+    phone: q.PrimaryPhone?.FreeFormNumber || null,
+  });
+  // QBO Invoice -> local invoices patch. customer_id resolved via the customer link map.
+  const qboInvoiceToLocal = (q: any, custLocalByQbo: Map<string, string>) => {
+    const items = (Array.isArray(q.Line) ? q.Line : [])
+      .filter((l: any) => l?.DetailType === "SalesItemLineDetail")
+      .map((l: any) => ({ description: l.Description || l.SalesItemLineDetail?.ItemRef?.name || "Item", quantity: l.SalesItemLineDetail?.Qty ?? 1, rate: l.SalesItemLineDetail?.UnitPrice ?? l.Amount, amount: l.Amount }));
+    const balance = Number(q.Balance);
+    const status = Number.isFinite(balance) && balance <= 0 ? "paid" : "sent";
+    const customerId = custLocalByQbo.get(String(q.CustomerRef?.value ?? "")) || null;
+    return { amount: Number(q.TotalAmt) || 0, status, items, customerId };
+  };
+
+  // The full two-way pass for a single connected tenant. Returns { ok:true, ...summary }
+  // or { ok:false, code, retryable? }. Pure-planner-driven; every side effect is guarded.
+  const qboTwoWaySync = async (tenant: any, integ: any) => {
+    const cfg = qboConfig();
+    if (!cfg.configured) return { ok: false, code: "QBO_UNCONFIGURED" } as any;
+    if (!integ || !integ.realm_id) return { ok: false, code: "QBO_NOT_CONNECTED" } as any;
+    const sb = getServiceSupabase();
+    if (!sb) return { ok: false, code: "QBO_NO_DB" } as any;
+    const token = await qboAccessToken(integ);
+    if (!token) return { ok: false, code: "QBO_TOKEN" } as any;
+    const tokenRef = { token };
+
+    // ---- PULL (guarded): a truncated/failed read aborts the pass before any writes ----
+    const reads: Record<string, any> = {};
+    for (const entity of ["Customer", "Invoice", "Payment", "Item"]) {
+      const rd = await qboQueryAll(cfg, integ.realm_id, tokenRef, integ, entity);
+      if (!rd.ok) return { ok: false, code: (rd as any).code, retryable: (rd as any).code === "QBO_RATE_LIMIT" } as any;
+      reads[entity] = rd.records;
+    }
+
+    // ---- LOAD LOCAL ----
+    const { data: custRowsRaw } = await sb.from("customers").select("*").eq("tenant_id", tenant.id).limit(1000);
+    const { data: invRowsRaw } = await sb.from("invoices").select("*").eq("tenant_id", tenant.id).limit(1000);
+    const custRows = custRowsRaw || [];
+    const invRows = invRowsRaw || [];
+    const custRowById = new Map<string, any>(custRows.map((r: any) => [String(r.id), r]));
+    const invRowById = new Map<string, any>(invRows.map((r: any) => [String(r.id), r]));
+
+    const links = qboNormalizeLinks(integ.data?.links);
+    const qboIdForLocal = (entity: string) => {
+      const m = new Map<string, string>();
+      for (const l of links) if (l.entity === entity) m.set(String(l.localId), String(l.qboId));
+      return m;
+    };
+    const localForQbo = (entity: string) => {
+      const m = new Map<string, string>();
+      for (const l of links) if (l.entity === entity) m.set(String(l.qboId), String(l.localId));
+      return m;
+    };
+
+    const localCustomers = custRows.map((r: any) => qboAdaptLocalCustomer(r, qboIdForLocal("customer").get(String(r.id))));
+    const localInvoices = invRows.map((r: any) => qboAdaptLocalInvoice(r, qboIdForLocal("invoice").get(String(r.id))));
+
+    const counts: any = { customers: qboEmptyEntityCount(), invoices: qboEmptyEntityCount(), payments: { pulled: 0 }, items: { pulled: 0 } };
+    const now = new Date().toISOString();
+
+    // ===== CUSTOMERS =====
+    const custPlan = reconcile(localCustomers, reads.Customer, links, "customer");
+    counts.customers.conflicts = custPlan.conflicts.length;
+    for (const l of custPlan.alreadyLinked) qboUpsertLink(links, l.localId, l.qboId, "customer", l.updatedAt || now);
+    for (const L of custPlan.toPush.slice(0, QBO_PUSH_CAP)) {
+      const w = await qboWrite(cfg, integ.realm_id, tokenRef.token, "Customer", mapCustomerToQbo(L));
+      if (w.ok) {
+        counts.customers.pushed++;
+        if (w.id) {
+          qboUpsertLink(links, L.id, w.id, "customer", now);
+          const row = custRowById.get(String(L.id));
+          if (row) await sb.from("customers").update({ data: { ...(row.data || {}), qboId: w.id } }).eq("id", row.id).eq("tenant_id", tenant.id);
+        }
+      } else { counts.customers.errors++; if ((w as any).rateLimited) break; }
+    }
+    for (const Q of custPlan.toPull.slice(0, QBO_PULL_CAP)) {
+      const qId = String(Q?.Id ?? "");
+      if (!qId) continue;
+      const patch = qboCustomerToLocal(Q);
+      const localId = localForQbo("customer").get(qId);
+      if (localId && custRowById.has(localId)) {
+        const row = custRowById.get(localId);
+        await sb.from("customers").update({ ...patch, data: { ...(row.data || {}), qboId: qId } }).eq("id", row.id).eq("tenant_id", tenant.id);
+        counts.customers.pulled++; qboUpsertLink(links, localId, qId, "customer", now);
+      } else {
+        const { data: ins } = await sb.from("customers").insert({ tenant_id: tenant.id, ...patch, status: "active", data: { qboId: qId, source: "quickbooks" } }).select("id").maybeSingle();
+        if (ins?.id) { counts.customers.pulled++; qboUpsertLink(links, ins.id, qId, "customer", now); }
+      }
+    }
+
+    // Refresh customer link maps AFTER customer sync — invoice CustomerRef depends on them.
+    const custQboByLocal = qboIdForLocal("customer");
+    const custLocalByQbo = localForQbo("customer");
+
+    // ===== INVOICES =====
+    const invPlan = reconcile(localInvoices, reads.Invoice, links, "invoice");
+    counts.invoices.conflicts = invPlan.conflicts.length;
+    for (const l of invPlan.alreadyLinked) qboUpsertLink(links, l.localId, l.qboId, "invoice", l.updatedAt || now);
+    for (const L of invPlan.toPush.slice(0, QBO_PUSH_CAP)) {
+      const row = invRowById.get(String(L.id));
+      const custQboId = row ? custQboByLocal.get(String(row.customer_id)) : "";
+      if (!custQboId) { counts.invoices.skipped++; continue; } // no synced customer => cannot create a QBO invoice
+      const w = await qboWrite(cfg, integ.realm_id, tokenRef.token, "Invoice", mapInvoiceToQbo(L, custQboId));
+      if (w.ok) {
+        counts.invoices.pushed++;
+        if (w.id) {
+          qboUpsertLink(links, L.id, w.id, "invoice", now);
+          if (row) await sb.from("invoices").update({ data: { ...(row.data || {}), qboId: w.id } }).eq("id", row.id).eq("tenant_id", tenant.id);
+        }
+      } else { counts.invoices.errors++; if ((w as any).rateLimited) break; }
+    }
+    for (const Q of invPlan.toPull.slice(0, QBO_PULL_CAP)) {
+      const qId = String(Q?.Id ?? "");
+      if (!qId) continue;
+      const { amount, status, items, customerId } = qboInvoiceToLocal(Q, custLocalByQbo);
+      const localId = localForQbo("invoice").get(qId);
+      if (localId && invRowById.has(localId)) {
+        const row = invRowById.get(localId);
+        const patch: any = { amount, status, items, data: { ...(row.data || {}), qboId: qId } };
+        if (customerId) patch.customer_id = customerId;
+        await sb.from("invoices").update(patch).eq("id", row.id).eq("tenant_id", tenant.id);
+        counts.invoices.pulled++; qboUpsertLink(links, localId, qId, "invoice", now);
+      } else if (customerId) {
+        // Only import a QBO invoice once its customer exists locally (FK-safe); else skip.
+        const { data: ins } = await sb.from("invoices").insert({ tenant_id: tenant.id, customer_id: customerId, amount, status, items, data: { qboId: qId, source: "quickbooks" } }).select("id").maybeSingle();
+        if (ins?.id) { counts.invoices.pulled++; qboUpsertLink(links, ins.id, qId, "invoice", now); }
+      } else {
+        counts.invoices.skipped++;
+      }
+    }
+
+    // ===== PAYMENTS (pull-only): mark a linked local invoice paid when QBO shows a payment ====
+    const invLocalByQbo = localForQbo("invoice");
+    for (const P of reads.Payment) {
+      for (const ln of (Array.isArray(P?.Line) ? P.Line : [])) {
+        for (const t of (Array.isArray(ln?.LinkedTxn) ? ln.LinkedTxn : [])) {
+          if (t?.TxnType === "Invoice" && t?.TxnId != null) {
+            const localInvId = invLocalByQbo.get(String(t.TxnId));
+            if (localInvId) { await sb.from("invoices").update({ status: "paid" }).eq("id", localInvId).eq("tenant_id", tenant.id); counts.payments.pulled++; }
+          }
+        }
+      }
+    }
+
+    // ===== ITEMS (pull-only): count for now (catalog import is a documented follow-up) =====
+    counts.items.pulled = Array.isArray(reads.Item) ? reads.Item.length : 0;
+
+    // ---- PERSIST link map + last-sync summary (service-role, tenant-safe) ----
+    const summary = {
+      at: now,
+      direction: "two-way",
+      counts,
+      totals: {
+        pushed: counts.customers.pushed + counts.invoices.pushed,
+        pulled: counts.customers.pulled + counts.invoices.pulled + counts.payments.pulled,
+        conflicts: counts.customers.conflicts + counts.invoices.conflicts,
+        links: links.length,
+      },
+    };
+    await sb.from("integrations").update({ data: { ...(integ.data || {}), links, lastSync: summary }, status: "connected", updated_at: now }).eq("id", integ.id);
+    return { ok: true, ...summary } as any;
+  };
+
+  // Full two-way "Sync now" pass for the signed-in tenant. Degrades cleanly on every guard path.
+  app.post("/api/quickbooks/sync-two-way", async (req: any, res) => {
+    const cfg = qboConfig();
+    if (!cfg.configured) return res.status(503).json({ error: "QuickBooks is not configured.", code: "QBO_UNCONFIGURED" });
+    const tenant = await resolveTenant(req);
+    if (!tenant) return res.status(401).json({ error: "Unauthorized" });
+    const integ = await qboGetIntegration(tenant.id);
+    if (!integ || !integ.realm_id) return res.status(503).json({ error: "QuickBooks is not connected. Connect it in Settings first.", code: "QBO_NOT_CONNECTED" });
+    try {
+      const r = await qboTwoWaySync(tenant, integ);
+      if (!r.ok) { const d = qboDegrade(r.code); return res.status(d.status).json({ error: d.error, code: r.code, retryable: !!r.retryable }); }
+      res.json(r);
+    } catch (e: any) {
+      console.error("QBO two-way sync error:", e?.message);
+      res.status(500).json({ error: "QuickBooks sync failed." });
+    }
+  });
+
+  // Nightly/cron two-way sync across ALL connected tenants. Guarded by a shared secret
+  // (x-qbo-sync-key === QBO_SYNC_KEY, constant-time); FAILS CLOSED when the key is unset.
+  // Intended for Cloud Scheduler. NOTE: to reach this without a user session in production it
+  // must also be added to AUTH_EXCLUDED_ROUTES in src/lib/routeAuth.ts (documented TODO).
+  app.post("/api/quickbooks/sync-nightly", async (req: any, res) => {
+    const key = process.env.QBO_SYNC_KEY;
+    if (!key) return res.status(503).json({ error: "Nightly sync is not enabled.", code: "QBO_CRON_DISABLED" });
+    const provided = String(req.headers["x-qbo-sync-key"] || "");
+    const a = Buffer.from(provided), b = Buffer.from(key);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(403).json({ error: "Forbidden." });
+    const cfg = qboConfig();
+    if (!cfg.configured) return res.status(503).json({ error: "QuickBooks is not configured.", code: "QBO_UNCONFIGURED" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Service database unavailable.", code: "QBO_NO_DB" });
+    try {
+      const { data: integs } = await sb.from("integrations").select("*").eq("provider", "quickbooks").eq("status", "connected").limit(500);
+      const results: any[] = [];
+      for (const integ of integs || []) {
+        if (!integ.realm_id) continue;
+        try {
+          const r = await qboTwoWaySync({ id: integ.tenant_id }, integ);
+          results.push({ tenantId: integ.tenant_id, ok: !!r.ok, code: r.code || null, totals: r.totals || null });
+        } catch (e: any) {
+          console.error("QBO nightly tenant error:", e?.message);
+          results.push({ tenantId: integ.tenant_id, ok: false, code: "QBO_ERROR" });
+        }
+      }
+      res.json({ ran: results.length, results });
+    } catch (e: any) {
+      console.error("QBO nightly sync error:", e?.message);
+      res.status(500).json({ error: "Nightly sync failed." });
     }
   });
 
