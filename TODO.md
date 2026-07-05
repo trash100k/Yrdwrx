@@ -213,10 +213,14 @@ Driven by an OWASP-grounded production-readiness research pass + **three indepen
   per-minute+per-day cap → 429+Retry-After. `src/lib/outboundLimiter.ts` (+9 unit, +3 e2e). (`ea10539`)
 - [x][P1/D] **Supabase client-level timeout** — 8s `AbortSignal` `global.fetch` on both clients so a
   slow Supabase can't pin Express workers under Cloud Run concurrency 80; fails closed. (`c9df08f`)
+- [x][P1/B] **Gemini global concurrency semaphore** — bounds concurrent upstream `generateContent`
+  calls (distinct-prompt flood); load-sheds past the cap with a clean 503 `AI_BUSY`. Complements
+  coalescing (identical prompts). `src/lib/semaphore.ts` (+6 tests). High default cap = passthrough
+  under normal load.
 
 **⬜ Open backlog (from the audits — prioritized; details in `PRODUCTION_READINESS.md` Fix Ledger):**
 - [ ][P0] `DEFAULT_SPEND_CAP_CENTS` — paid-tier bill-shock ceiling / denial-of-wallet kill-switch.
-- [ ][P1] Gemini **global concurrency semaphore** + fail-closed cost cap + Gemini-429 → client-429/Retry-After.
+- [ ][P1] Gemini **fail-closed cost cap** (fails open on Supabase error today) + Gemini-429 → client-429/Retry-After. _(concurrency semaphore: done.)_
 - [ ][P1] **Shared (Redis) limiter store** + **per-UID/per-tenant limits on non-AI writes** (team/invite, notifications/dispatch, stripe/*, portal/*).
 - [ ][P1] Route `dispatchNotification` sends through the spend meter (close metering bypass); fix SMS-meter TOCTOU (atomic Postgres RPC).
 - [ ][P1] **Dirty-Dozen RLS as a CI gate** + live route-inventory auth test + coverage/`npm audit`/secret-scan in CI.

@@ -52,6 +52,7 @@ import { mapCustomerToQbo, mapInvoiceToQbo, reconcile, type Link } from "./src/l
 import { encryptSecret, decryptSecret } from "./src/lib/secretCrypto.js";
 import { SingleFlight } from "./src/lib/singleFlight.js";
 import { OutboundRateLimiter } from "./src/lib/outboundLimiter.js";
+import { Semaphore, SemaphoreTimeoutError } from "./src/lib/semaphore.js";
 // Pure, deterministic document-understanding core (no I/O). Turns the loosely-parsed JSON a
 // vision/LLM extractor emits for a vendor invoice into a normalized, defensively-coerced expense
 // DRAFT for human review. The /api/documents/parse route feeds Gemini's structured output straight
@@ -731,6 +732,19 @@ const geminiFlight = new SingleFlight<any>();
 export function getGeminiCoalescedHits() { return geminiFlight.coalesced; }
 export function getGeminiInflightSize() { return geminiFlight.size; }
 
+// ==== GLOBAL CONCURRENCY CAP (Scenario B, part 2) ====
+// Coalescing (above) collapses IDENTICAL in-flight prompts to one call. A flood of 5,000
+// DISTINCT prompts still opens 5,000 concurrent upstream calls and blows the model's own
+// rate/quota. This semaphore bounds the number of CONCURRENT upstream generateContent calls;
+// callers past the cap wait up to GEMINI_ACQUIRE_TIMEOUT_MS for a slot, then are load-SHED with
+// a clean 503 (AI_BUSY) instead of piling into an unbounded queue that pins workers. The default
+// cap is high, so under normal load this is a transparent passthrough — it only bites under a
+// genuine flood. PER-INSTANCE (a fleet-wide limiter is the documented Redis follow-up).
+const GEMINI_MAX_CONCURRENT = Number(process.env.GEMINI_MAX_CONCURRENT) || 24;
+const GEMINI_ACQUIRE_TIMEOUT_MS = Number(process.env.GEMINI_ACQUIRE_TIMEOUT_MS) || 20000;
+const geminiSemaphore = new Semaphore(GEMINI_MAX_CONCURRENT);
+export function getGeminiConcurrency() { return { active: geminiSemaphore.active, queued: geminiSemaphore.queued, shed: geminiSemaphore.shed }; }
+
 const originalGenerateContent = ai.models.generateContent.bind(ai.models);
 // @ts-ignore
 ai.models.generateContent = async (request: any) => {
@@ -763,7 +777,17 @@ ai.models.generateContent = async (request: any) => {
   }
 
   return geminiFlight.run(hash, async () => {
-    const response = await originalGenerateContent(request);
+    let response: any;
+    try {
+      // Bound concurrent upstream calls; a flood past the cap is shed as a clean 503 (AI_BUSY)
+      // rather than fanning out or wedging workers.
+      response = await geminiSemaphore.run(() => originalGenerateContent(request), GEMINI_ACQUIRE_TIMEOUT_MS);
+    } catch (e) {
+      if (e instanceof SemaphoreTimeoutError) {
+        throw new AiUnavailableError("AI is at capacity — please retry in a moment.", "AI_BUSY");
+      }
+      throw e;
+    }
     if (response && response.text) {
       geminiCachePut(hash, response.text);
       saveGeminiCache();

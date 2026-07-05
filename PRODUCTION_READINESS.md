@@ -71,9 +71,13 @@ identical in-flight prompts now collapse to **one** upstream call; everyone else
 warm cache (5,000 → 1). Self-cleaning on settle (bounded memory), observable via
 `getGeminiCoalescedHits()`. 6 unit tests including the 5,000-caller collapse.
 
-**Still open (P1):** a **global concurrency semaphore** on `generateContent` (mirror the PDF
-semaphore at `server.ts:~165`); make the durable AI cost cap **fail closed**; map Gemini 429 →
-client **429 + Retry-After** instead of 500; durable/fleet-wide AI counters.
+**Also FIXED (commit (this commit)):** a **global concurrency semaphore** (`src/lib/semaphore.ts`)
+now bounds concurrent upstream `generateContent` calls (distinct-prompt flood), load-shedding past
+the cap with a clean 503 `AI_BUSY` instead of unbounded fan-out. Coalescing dedupes *identical*
+prompts; the semaphore bounds *distinct* ones. 6 unit tests.
+
+**Still open (P1):** make the durable AI cost cap **fail closed**; map Gemini 429 → client
+**429 + Retry-After** instead of 500; durable/fleet-wide AI counters.
 **How to test:** k6 spike of 5,000 concurrent identical prompts (mock mode + a rate-limited real
 key) → assert **exactly one** upstream call (log coalesced count), p95 bounded, overflow 429, token
 budget halts runaway spend. Repeat with a cold key to prove the stampede is coalesced.
@@ -215,11 +219,12 @@ Condensed from the OWASP-grounded research pass. Items already fixed are marked 
 | AI single-flight / request coalescing | §4.5 / B | `c9df08f` | `src/lib/singleFlight.test.ts` (6) |
 | Supabase client-level timeout | §7 / D | `c9df08f` | (bundle + boot; behavioral) |
 | Per-tenant outbound rate limit (email/SMS/notify) | §5 / A | `ea10539` | `outboundLimiter.test.ts` (9) + `outbound.limit.api.test.ts` (3) |
+| Gemini global concurrency semaphore (distinct-prompt flood → 503) | §4/§5 / B | (this commit) | `src/lib/semaphore.test.ts` (6) |
 
 ### ⬜ Open — prioritized backlog (mirrored into `TODO.md`)
 **P0/P1 (before scale):**
 1. `DEFAULT_SPEND_CAP_CENTS` — paid-tier bill-shock ceiling / denial-of-wallet kill-switch.
-2. Gemini **global concurrency semaphore** + fail-closed cost cap + Gemini-429 → client-429/Retry-After.
+2. Gemini **fail-closed cost cap** (currently fails open on Supabase error) + Gemini-429 → client-429/Retry-After. _(global concurrency semaphore: DONE.)_
 3. **Shared (Redis) limiter store** + **per-UID/per-tenant limits on non-AI writes** (team/invite, notifications/dispatch, stripe/*, portal/*).
 4. Route `dispatchNotification` sends through the spend meter (close the metering bypass); fix SMS-meter TOCTOU (atomic increment via Postgres RPC).
 5. **Dirty-Dozen RLS as a CI gate**; live route-inventory auth test; coverage + `npm audit`/secret-scan in CI.
