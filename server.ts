@@ -21,6 +21,8 @@ import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
 import { computeDeposit } from "./src/lib/deposit.js";
 import { validateEditInput, buildEditInstruction, MAX_REFERENCE_IMAGES } from "./src/lib/designEdit.js";
+// Pure, deterministic dedup + rating rollup for reviews ingestion (no I/O, safe to bundle).
+import { dedupePlan, rollupRatings, IngestedReview } from "./src/lib/reviewsDedup.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -4793,6 +4795,229 @@ export async function createApp({ startListening = false } = {}) {
       return res.json({ posted: false, configured: false, reason: "Connect a Google Business Profile to publish replies." });
     } catch (error: any) {
       res.status(500).json({ error: "Reply failed" });
+    }
+  });
+
+  // Pull real reviews from Google (Places API) + Yelp (Fusion) for the tenant's configured
+  // place id(s), dedupe against what we already store (keyed on source+externalId held in the
+  // reviews.data jsonb — the table has no source column), upsert new/changed rows, and return
+  // an HONEST rating rollup computed over the tenant's stored reviews. The pure dedup + rollup
+  // math lives in src/lib/reviewsDedup.ts (dedupePlan / rollupRatings); this route is only the
+  // I/O shell around it. Mock-safe: with no provider key/place id we return a small, clearly
+  // LABELED sample set (data.isSample=true) so the surface is demonstrable without fabricating
+  // real-looking reputation. All provider errors are genericized — a raw upstream body (which
+  // can carry account internals) is logged server-side, never echoed to the client.
+  app.post("/api/reviews/ingest", async (req: any, res) => {
+    try {
+      const nowISO = new Date().toISOString();
+      const sb = getServiceSupabase();
+      const tenant = await resolveTenant(req);
+
+      // Provider config: env holds the SECRET keys; the tenant's settings hold the public
+      // place/business ids (overridable per-request for connection testing).
+      const googleKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || "";
+      const yelpKey = process.env.YELP_API_KEY || "";
+      const settings = (tenant?.settings as any) || {};
+      const placeId = String(req.body?.googlePlaceId || settings.googlePlaceId || "").trim();
+      const yelpBusinessId = String(req.body?.yelpBusinessId || settings.yelpBusinessId || "").trim();
+      const googleConnected = !!(googleKey && placeId);
+      const yelpConnected = !!(yelpKey && yelpBusinessId);
+
+      const safeIso = (v: any): string => {
+        const t = Date.parse(String(v ?? ""));
+        return Number.isNaN(t) ? nowISO : new Date(t).toISOString();
+      };
+      const numOrNull = (v: any): number | null => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      // --- Google Places API (New) v1: Place Details returns up to 5 recent reviews. The
+      // review `name` (places/X/reviews/Y) is a stable per-source id; it doubles as the
+      // resource we reply to, so we stash it for /api/reviews/reply.
+      async function pullGoogle(): Promise<IngestedReview[]> {
+        const url = `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`;
+        const r = await fetchWithTimeout(url, {
+          headers: {
+            "X-Goog-Api-Key": googleKey,
+            "X-Goog-FieldMask": "reviews.name,reviews.rating,reviews.text,reviews.originalText,reviews.authorAttribution,reviews.publishTime",
+          },
+          timeoutMs: 10000,
+        });
+        if (!r.ok) {
+          const body = await r.text().catch(() => "");
+          console.error("[reviews/ingest] Google Places error", r.status, body.slice(0, 300));
+          throw new Error(`google_${r.status}`);
+        }
+        const body: any = await r.json().catch(() => ({}));
+        const list = Array.isArray(body?.reviews) ? body.reviews : [];
+        return list
+          .map((rv: any): IngestedReview => ({
+            source: "google",
+            externalId: String(rv?.name || ""),
+            rating: Number(rv?.rating),
+            text: String(rv?.text?.text || rv?.originalText?.text || ""),
+            author: String(rv?.authorAttribution?.displayName || ""),
+            createdAt: safeIso(rv?.publishTime),
+          }))
+          .filter((rv: IngestedReview) => rv.externalId);
+      }
+
+      // --- Yelp Fusion: GET /v3/businesses/{id}/reviews (up to 3 excerpts on standard tier).
+      async function pullYelp(): Promise<IngestedReview[]> {
+        const url = `https://api.yelp.com/v3/businesses/${encodeURIComponent(yelpBusinessId)}/reviews?limit=20&sort_by=newest`;
+        const r = await fetchWithTimeout(url, {
+          headers: { Authorization: `Bearer ${yelpKey}`, Accept: "application/json" },
+          timeoutMs: 10000,
+        });
+        if (!r.ok) {
+          const body = await r.text().catch(() => "");
+          console.error("[reviews/ingest] Yelp error", r.status, body.slice(0, 300));
+          throw new Error(`yelp_${r.status}`);
+        }
+        const body: any = await r.json().catch(() => ({}));
+        const list = Array.isArray(body?.reviews) ? body.reviews : [];
+        return list
+          .map((rv: any): IngestedReview => ({
+            source: "yelp",
+            externalId: String(rv?.id || ""),
+            rating: Number(rv?.rating),
+            text: String(rv?.text || ""),
+            author: String(rv?.user?.name || ""),
+            createdAt: safeIso(rv?.time_created),
+          }))
+          .filter((rv: IngestedReview) => rv.externalId);
+      }
+
+      // Clearly-labeled placeholder set for mock mode (no key/place id). Stable externalIds so
+      // a second sync is idempotent (dedupePlan sees them as updates -> zero new rows). Never
+      // dressed up as a real customer — the text says it's a sample.
+      function sampleReviews(): IngestedReview[] {
+        const day = 86400000;
+        const t = Date.parse(nowISO);
+        return [
+          { source: "google", externalId: "sample:google:1", rating: 5, text: "Sample review (demo data) - connect Google or Yelp in Settings to sync your real reviews.", author: "Sample Customer", createdAt: new Date(t - 2 * day).toISOString() },
+          { source: "google", externalId: "sample:google:2", rating: 4, text: "Sample review (demo data). Real ratings and counts populate here once a review source is connected.", author: "Sample Customer", createdAt: new Date(t - 9 * day).toISOString() },
+          { source: "yelp", externalId: "sample:yelp:1", rating: 5, text: "Sample review (demo data) from Yelp. Placeholder content, not a real customer.", author: "Sample Customer", createdAt: new Date(t - 20 * day).toISOString() },
+        ];
+      }
+
+      let googleError = false;
+      let yelpError = false;
+      let googleReviews: IngestedReview[] = [];
+      let yelpReviews: IngestedReview[] = [];
+      if (googleConnected) {
+        try { googleReviews = await pullGoogle(); } catch (e: any) { googleError = true; }
+      }
+      if (yelpConnected) {
+        try { yelpReviews = await pullYelp(); } catch (e: any) { yelpError = true; }
+      }
+
+      let incoming: IngestedReview[] = [...googleReviews, ...yelpReviews];
+      const anyConnected = googleConnected || yelpConnected;
+      // Fall back to labeled samples only when we truly have no real source configured — a
+      // connected-but-empty business (or a transient provider error) shows an honest empty
+      // state rather than fake data.
+      let usedSample = false;
+      if (incoming.length === 0 && !anyConnected) {
+        incoming = sampleReviews();
+        usedSample = true;
+      }
+
+      const isSampleRow = (rv: IngestedReview) => usedSample || String(rv.externalId).startsWith("sample:");
+      const reviewData = (rv: IngestedReview) => {
+        const d: any = {
+          source: rv.source,
+          externalId: rv.externalId,
+          platform: rv.source,
+          author: rv.author || null,
+          customerName: rv.author || null,
+          ingestedAt: nowISO,
+        };
+        if (rv.source === "google") d.googleReviewName = rv.externalId; // lets /api/reviews/reply post back
+        if (isSampleRow(rv)) d.isSample = true;
+        return d;
+      };
+
+      let inserted = 0;
+      let updated = 0;
+      let rollup;
+      const persisted = !!(sb && tenant);
+
+      if (persisted) {
+        // Existing identity refs live inside the data jsonb (no source/external_id columns).
+        const { data: existingRows } = await sb
+          .from("reviews").select("id, rating, created_at, data").eq("tenant_id", tenant.id);
+        const rows = existingRows || [];
+        const existingRefs = rows
+          .map((r: any) => ({ source: r?.data?.source, externalId: r?.data?.externalId, id: r.id }))
+          .filter((r: any) => r.source && r.externalId);
+
+        const plan = dedupePlan(existingRefs, incoming);
+
+        if (plan.toInsert.length) {
+          const toInsert = plan.toInsert.map((rv) => ({
+            tenant_id: tenant.id,
+            rating: numOrNull(rv.rating),
+            text: rv.text || null,
+            content: rv.text || null,
+            created_at: safeIso(rv.createdAt),
+            data: reviewData(rv),
+          }));
+          const { error } = await sb.from("reviews").insert(toInsert);
+          if (error) console.error("[reviews/ingest] insert failed:", error?.message);
+          else inserted = toInsert.length;
+        }
+
+        for (const u of plan.toUpdate) {
+          const rv = u.review;
+          const prior = rows.find((r: any) => r.id === u.id);
+          // Refresh identity + content, but PRESERVE owner-authored fields already in data
+          // (reply drafts, sentiment, isReplied) by merging over the prior data jsonb.
+          const patch = {
+            rating: numOrNull(rv.rating),
+            text: rv.text || null,
+            content: rv.text || null,
+            data: { ...(prior?.data || {}), ...reviewData(rv) },
+          };
+          const { error } = await sb.from("reviews").update(patch).eq("id", u.id).eq("tenant_id", tenant.id);
+          if (error) console.error("[reviews/ingest] update failed:", error?.message);
+          else updated += 1;
+        }
+
+        // Honest rollup over EVERY stored review with a rating (reflects real data, not a
+        // hardcoded score). Malformed ratings are ignored by rollupRatings.
+        const { data: allRows } = await sb.from("reviews").select("rating, created_at").eq("tenant_id", tenant.id);
+        rollup = rollupRatings((allRows || []).map((r: any) => ({ rating: Number(r.rating), createdAt: r.created_at })), nowISO);
+      } else {
+        // No tenant/service client (demo mode): can't persist — roll up the batch we pulled so
+        // the client still renders a real aggregate for the synced set.
+        rollup = rollupRatings(incoming.map((r) => ({ rating: r.rating, createdAt: r.createdAt })), nowISO);
+      }
+
+      return res.json({
+        ok: true,
+        connected: { google: googleConnected, yelp: yelpConnected },
+        errors: { google: googleError, yelp: yelpError },
+        sample: usedSample,
+        persisted,
+        ingested: incoming.length,
+        inserted,
+        updated,
+        rollup,
+        reviews: incoming.map((rv) => ({
+          source: rv.source,
+          externalId: rv.externalId,
+          rating: rv.rating,
+          text: rv.text || "",
+          author: rv.author || "",
+          createdAt: rv.createdAt,
+          isSample: isSampleRow(rv),
+        })),
+      });
+    } catch (error: any) {
+      console.error("[reviews/ingest] failed:", error?.message);
+      res.status(500).json({ error: "Review sync failed" });
     }
   });
 

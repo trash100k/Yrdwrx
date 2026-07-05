@@ -2,6 +2,7 @@ import { fetchApi } from "../lib/api";
 // @ts-nocheck
 import { useState, useEffect, useMemo } from "react";
 import { reviewsRepo, jobsRepo } from "../lib/repos";
+import { rollupRatings } from "../lib/reviewsDedup";
 import {
   handleFirestoreError,
   OperationType,
@@ -19,7 +20,8 @@ import {
   ThumbsUp,
   MoreHorizontal,
   MessageCircle,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTenant } from "../contexts/TenantContext";
@@ -62,6 +64,13 @@ export default function Reviews() {
   // the hardcoded "4 clients".
   const [recentCompletedJobs, setRecentCompletedJobs] = useState<any[]>([]);
   const [soliciting, setSoliciting] = useState(false);
+  // Reviews pulled from the last /api/reviews/ingest sync. In demo mode (no Supabase session)
+  // these won't come back through the realtime feed, so we keep them here and merge them into
+  // the displayed list; in live mode the persisted rows arrive via reviewsRepo and win.
+  const [syncedReviews, setSyncedReviews] = useState<any[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  // Connection + result summary from the last sync (connected providers, sample flag, counts).
+  const [syncStatus, setSyncStatus] = useState<any>(null);
 
   // Surface non-column Firestore-era fields (customerName, platform, source,
   // autoReplyDraft, summary, isReplied, repliedAt, priority) that now live in the
@@ -212,6 +221,73 @@ export default function Reviews() {
       }
     } finally {
       setSoliciting(false);
+    }
+  };
+
+  // Pull reviews from connected platforms (Google/Yelp) into the reviews table via the server,
+  // which dedupes on re-sync and returns an honest rating rollup. Mock-safe: with nothing
+  // connected the server returns clearly-labeled sample rows so the surface stays demonstrable.
+  const syncReviews = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetchApi("/api/reviews/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        let reason = `HTTP ${res.status}`;
+        try {
+          const errBody = await res.json();
+          reason = errBody?.error || reason;
+        } catch {
+          /* non-JSON error body */
+        }
+        showToast(`Couldn't sync reviews: ${reason}`, "error");
+        return;
+      }
+      const data = await res.json();
+      setSyncStatus(data);
+      // Adapt the returned batch to the feed's shape so it renders (source-labeled) immediately.
+      const adapted = (data.reviews || []).map((r: any) => ({
+        id: `${r.source}:${r.externalId}`,
+        externalId: r.externalId,
+        source: r.source,
+        platform: r.source,
+        customerName: r.author || "Verified Customer",
+        rating: typeof r.rating === "number" ? r.rating : Number(r.rating) || 0,
+        text: r.text || "",
+        createdAt: r.createdAt,
+        isSample: !!r.isSample,
+        data: { source: r.source, externalId: r.externalId, isSample: !!r.isSample },
+      }));
+      setSyncedReviews(adapted);
+
+      const roll = data.rollup || {};
+      if (data.sample) {
+        showToast(
+          `Synced ${data.ingested} sample review${data.ingested === 1 ? "" : "s"} (demo data). Add a Google Place ID or Yelp Business ID in Settings to pull real reviews.`,
+          "info",
+        );
+      } else if (data.ingested === 0) {
+        showToast("No reviews found on your connected platforms yet.", "info");
+      } else {
+        const parts = [];
+        if (data.inserted) parts.push(`${data.inserted} new`);
+        if (data.updated) parts.push(`${data.updated} updated`);
+        showToast(
+          `Synced ${data.ingested} review${data.ingested === 1 ? "" : "s"}${parts.length ? ` (${parts.join(", ")})` : ""}. Now ${roll.count ?? 0} total, ${roll.avg ?? 0}★ average.`,
+          "success",
+        );
+      }
+      if (data.errors?.google || data.errors?.yelp) {
+        const failed = [data.errors?.google && "Google", data.errors?.yelp && "Yelp"].filter(Boolean).join(" & ");
+        showToast(`Couldn't reach ${failed} — check the connection and try again.`, "error");
+      }
+    } catch (e: any) {
+      showToast(`Review sync failed: ${e?.message || "network error"}`, "error");
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -397,7 +473,44 @@ export default function Reviews() {
     }
   };
 
-  const filteredReviews = reviews.filter(
+  // Merge the realtime (persisted) feed with the last sync's batch. Persisted rows win — keyed
+  // on source+externalId (or id) — so live mode never double-counts a synced-then-persisted
+  // review, while demo mode (no persistence) still shows the synced rows.
+  const displayReviews = useMemo(() => {
+    const keyOf = (r: any) =>
+      r?.externalId && r?.source ? `${r.source}:${r.externalId}` : r?.id;
+    const seen = new Set<string>();
+    const out: any[] = [];
+    for (const r of reviews) {
+      const k = keyOf(r);
+      if (k) seen.add(k);
+      out.push(r);
+    }
+    for (const r of syncedReviews) {
+      const k = keyOf(r);
+      if (k && seen.has(k)) continue; // already present via the persisted feed
+      out.push(r);
+    }
+    return out;
+  }, [reviews, syncedReviews]);
+
+  // Real aggregate (avg + count) computed from actual review rows via the shared rollup math —
+  // no hardcoded score. createdAt is coerced to a string so the pure roller can parse it.
+  const aggregate = useMemo(() => {
+    const rows = displayReviews
+      .map((r: any) => ({
+        rating: typeof r.rating === "number" ? r.rating : Number(r.rating),
+        createdAt:
+          typeof r.createdAt === "string"
+            ? r.createdAt
+            : r?.createdAt?.seconds
+              ? new Date(r.createdAt.seconds * 1000).toISOString()
+              : "",
+      }));
+    return rollupRatings(rows, new Date().toISOString());
+  }, [displayReviews]);
+
+  const filteredReviews = displayReviews.filter(
     (r) =>
       activeTab === "All" ||
       (activeTab === "Pending" && !r.isReplied) ||
@@ -410,7 +523,7 @@ export default function Reviews() {
     let pos = 0,
       neg = 0,
       neu = 0;
-    for (const r of reviews) {
+    for (const r of displayReviews) {
       const s = (r.sentiment || "").toString().toLowerCase();
       if (s === "positive") pos++;
       else if (s === "negative") neg++;
@@ -422,20 +535,20 @@ export default function Reviews() {
         else neu++;
       } else neu++;
     }
-    const total = reviews.length || 0;
+    const total = displayReviews.length || 0;
     const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
     return { total, pos: pct(pos), neu: pct(neu), neg: pct(neg) };
-  }, [reviews]);
+  }, [displayReviews]);
 
   // Real-derived tags: surface the platforms/sources actually present in the feed.
   const cognitiveTags = useMemo(() => {
     const set = new Set<string>();
-    for (const r of reviews) {
+    for (const r of displayReviews) {
       const src = r.source || r.platform;
       if (src) set.add(String(src));
     }
     return Array.from(set).slice(0, 8);
-  }, [reviews]);
+  }, [displayReviews]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-10 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -533,6 +646,11 @@ export default function Reviews() {
                           typeof review.createdAt === 'object' && review.createdAt !== null && 'seconds' in review.createdAt ? (review.createdAt as any).seconds * 1000 : review.createdAt || Date.now()
                         ).toLocaleDateString()}
                       </span>
+                      {(review.isSample ?? review.data?.isSample) && (
+                        <span className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 micro-label font-black uppercase tracking-[0.2em]">
+                          Sample
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -669,6 +787,87 @@ export default function Reviews() {
         </div>
 
         <aside className="space-y-10">
+          {/* Reputation Sync — real aggregate (avg + count from rollupRatings over ingested
+              rows) plus a Sync action and connected-platform status. */}
+          <div className="bg-zinc-900 border border-white/5 molten-edge shadow-2xl rounded-2xl p-6 sm:p-10 text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-celtic-500/5 rounded-full blur-[80px] -mr-32 -mt-32 pointer-events-none" />
+            <div className="flex items-center justify-between mb-8 relative z-10">
+              <h3 className="micro-label font-black uppercase tracking-[0.3em] text-white/50 leading-none italic">
+                Reputation Sync
+              </h3>
+              <Star size={22} className="text-amber-500 fill-amber-500 shadow-glow" />
+            </div>
+
+            <div className="flex items-end gap-4 mb-2 relative z-10">
+              <span className="text-5xl sm:text-6xl font-black italic tracking-tighter leading-none text-white">
+                {aggregate.count ? aggregate.avg.toFixed(1) : "--"}
+              </span>
+              <div className="flex flex-col gap-1 pb-2">
+                <div className="flex text-amber-500 gap-0.5" aria-label={`${aggregate.avg} average stars`}>
+                  {[...Array(5)].map((_, i) => (
+                    <Star
+                      key={i}
+                      size={14}
+                      fill={i < Math.round(aggregate.avg) ? "currentColor" : "none"}
+                      aria-hidden="true"
+                    />
+                  ))}
+                </div>
+                <span className="micro-label font-black text-zinc-400 uppercase tracking-[0.2em]">
+                  {aggregate.count} review{aggregate.count === 1 ? "" : "s"}
+                  {aggregate.last30dCount ? ` • ${aggregate.last30dCount} in 30d` : ""}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={syncReviews}
+              disabled={syncing}
+              className="w-full mt-6 bg-white text-black disabled:opacity-50 disabled:cursor-not-allowed font-black uppercase tracking-[0.2em] text-[11px] py-4 rounded-xl transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 relative z-10"
+            >
+              <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+              {syncing ? "Syncing..." : "Sync Reviews"}
+            </button>
+
+            {/* Connected-platform status. Populated after the first sync; honest about mock mode. */}
+            <div className="mt-8 space-y-3 relative z-10">
+              {(["google", "yelp"] as const).map((prov) => {
+                const connected = !!syncStatus?.connected?.[prov];
+                const errored = !!syncStatus?.errors?.[prov];
+                const label = prov === "google" ? "Google" : "Yelp";
+                return (
+                  <div key={prov} className="flex items-center justify-between">
+                    <span className="micro-label font-black uppercase tracking-[0.2em] text-white/40">
+                      {label}
+                    </span>
+                    {syncStatus == null ? (
+                      <span className="micro-label font-black uppercase tracking-[0.2em] text-white/20">
+                        Not synced
+                      </span>
+                    ) : errored ? (
+                      <span className="flex items-center gap-2 micro-label font-black uppercase tracking-[0.2em] text-red-400">
+                        <AlertCircle size={12} /> Error
+                      </span>
+                    ) : connected ? (
+                      <span className="flex items-center gap-2 micro-label font-black uppercase tracking-[0.2em] text-forest-400">
+                        <CheckCircle2 size={12} /> Connected
+                      </span>
+                    ) : (
+                      <span className="micro-label font-black uppercase tracking-[0.2em] text-white/30">
+                        Not connected
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              {syncStatus?.sample && (
+                <p className="micro-label text-amber-400/80 italic leading-relaxed font-black uppercase tracking-widest border-t border-white/10 pt-4 mt-4">
+                  Showing sample data. Add a Google Place ID or Yelp Business ID in Settings to sync real reviews.
+                </p>
+              )}
+            </div>
+          </div>
+
           <div className="border border-white/5 shadow-2xl bg-black rounded-2xl p-6 sm:p-10 text-white relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-forest-500/5 rounded-full blur-[80px] -mr-32 -mt-32" />
             <div className="flex items-center justify-between mb-10 relative z-10">
