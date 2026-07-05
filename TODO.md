@@ -188,7 +188,7 @@ subagent fleet defined in `.claude/agents/*.md`. Each feature ships **gated gree
 build) and committed. Ranked by **value × readiness**.
 
 ### The 10 features (build order)
-- [ ] **1. Deposit on acceptance** (`feat-deposit-on-accept`) — chains off the shipped e-signature:
+- [x] **1. Deposit on acceptance** (`feat-deposit-on-accept`) — SHIPPED (commit 99ddbc6). chains off the shipped e-signature:
       client signs an estimate → required deposit collected via the existing `/api/portal/checkout`
       Stripe Connect flow → estimate flips accepted + optional auto-create job. Owner sets a deposit
       %/flat (per-estimate + tenant default). Idempotent, tenant-safe, mock-safe. *Highest ROI, lowest lift.*
@@ -200,7 +200,7 @@ build) and committed. Ranked by **value × readiness**.
       remote-measurement lane. Provider-pluggable adapter (Google Solar / Regrid / Nearmap) behind the
       existing `/api/property/measure` hook → lawn/bed/hardscape sqft + source + confidence; prefills the
       instant estimate. **No fake precision** when unkeyed (labeled estimate/manual). *Needs a paid key (human).*
-- [ ] **4. Geocoding layer** (`feat-geocoding`) — the single highest-leverage enabler. Geocode-on-write
+- [x] **4. Geocoding layer** (`feat-geocoding`) — SHIPPED (commit 8d99132). the single highest-leverage enabler. Geocode-on-write
       (Google Geocoding, mock-safe) caches lat/lng on customer/job; unblocks Route Optimizer, CustomerMap,
       and drive-time Scheduler at once.
 - [ ] **5. Event notifications** (`feat-notifications`) — email/SMS/web-push on invoice created/paid, new
@@ -212,10 +212,10 @@ build) and committed. Ranked by **value × readiness**.
 - [ ] **7. Reviews ingestion** (`feat-reviews-ingestion`) — pull Google/Yelp reviews into the table
       (dedup + real rating rollups) so the Reviews surface reflects actual reputation, not just outbound
       requests. Mock-safe labeled samples.
-- [ ] **8. CSV import + dedupe/merge** (`feat-csv-import-dedupe`) — header-mapped import for customers/
+- [x] **8. CSV import + dedupe/merge** (`feat-csv-import-dedupe`) — SHIPPED (commit 433daac). header-mapped import for customers/
       inventory that **updates instead of duplicating** on re-import, flags near-dupes, + merge-duplicate-
       customers (reassign children, archive loser). Lowers switching cost from Jobber/LMN. Injection-safe.
-- [ ] **9. Crew timeclock → payroll** (`feat-timeclock-payroll`) — clock-in/out tied to a job (optional
+- [x] **9. Crew timeclock → payroll** (`feat-timeclock-payroll`) — SHIPPED (commit 433daac). clock-in/out tied to a job (optional
       geofence, offline-safe) writing `jobId`/`customerId` timesheets that feed the shipped `payroll.ts`
       export; makes Job Costing real instead of estimate-fallback.
 - [ ] **10. Document understanding** (`feat-doc-understanding`) — Gemini PDF extraction: vendor invoice →
@@ -225,14 +225,12 @@ build) and committed. Ranked by **value × readiness**.
 ### Standing agent workstreams (continuous until shippable)
 - [ ] **QA smoke** (`qa-smoke-tester`) — after every wave: gates + headless route crawl + API probe;
       logs every crash/regression back here as a bug.
-- [ ] **Pentest** (`pentester`) — adversarial passes on auth/RLS/injection/SSRF/cost-abuse/token forgery;
-      findings feed `security-hardener`.
-- [ ] **Security hardening** (`security-hardener`) — layer-by-layer sweep, fixes every leak/vuln, verifies.
-- [ ] **Market pain research** (`market-pain-researcher`) — landscaper pains → feature backlog (this list).
-- [ ] **Pricing strategy** (`pricing-strategist`) — `PRICING_STRATEGY.md`: monthly base + per-seat +
-      usage-metered (SMS/AI/voice) model; implementation plan extends the AI credit wallet to a usage ledger.
+- [x] **Pentest** (`pentester`) — DONE: full adversarial pass; 2 crown-jewel breaks (SEC-1/SEC-2) + SEC-3..7, all remediated.
+- [x] **Security hardening** (`security-hardener`) — pentest + SEC-1..7 remediated (see Sprint bug log); advisors 0 lints.
+- [x] **Market pain research** (`market-pain-researcher`) — DONE → Research-fed backlog below.
+- [x] **Pricing strategy** (`pricing-strategist`) — DONE → `PRICING_STRATEGY.md` + usage-billing workstream (Feature 11).
 - [ ] **Feature ideation** (`feature-ideator`) — keeps this backlog fed with ranked, de-duped, buildable ideas.
-- [ ] **Widgets + Dashboard** (`widget-dashboard-designer`) — strengthen/replace/kill widgets (no metrics
+- [x] **Widgets + Dashboard** (`widget-dashboard-designer`) — SHIPPED (commit 433daac). strengthen/replace/kill widgets (no metrics
       theater), invent high-signal ones, redesign the Dashboard cockpit.
 
 > **Bugs found during this sprint** are appended under "Sprint bug log" below as they're discovered,
