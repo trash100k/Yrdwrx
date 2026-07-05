@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { Brain, ArrowLeft, Heart, Scale, Sparkles, Zap, Gauge, CalendarClock } from "lucide-react";
+import { Brain, ArrowLeft, Heart, Scale, Sparkles, Zap, Gauge, CalendarClock, Receipt, Users, MessageSquare, Mic, Satellite, FileText, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchApi } from "../lib/api";
+
+// Per-meter display metadata (order + icon + label + native unit), keyed by the server's meter id.
+const METER_META: Record<string, { name: string; unit: string; Icon: any }> = {
+  ai: { name: "AI Credits", unit: "credits", Icon: Sparkles },
+  sms: { name: "Text Segments", unit: "segments", Icon: MessageSquare },
+  live_min: { name: "Live-Ear Voice", unit: "min", Icon: Mic },
+  aerial: { name: "Aerial Lookups", unit: "lookups", Icon: Satellite },
+  pdf: { name: "PDF Renders", unit: "renders", Icon: FileText },
+};
 
 export default function AiUsage() {
   const [viewMode, setViewMode] = useState<"summary" | "verbatim" | "both">("both");
@@ -14,6 +23,11 @@ export default function AiUsage() {
   } | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(true);
   const [creditsError, setCreditsError] = useState(false);
+
+  // Multi-meter usage + projected month-end bill (base + per-seat + metered overage).
+  const [summary, setSummary] = useState<any | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -39,12 +53,44 @@ export default function AiUsage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetchApi("/api/usage/summary")
+      .then((res) => {
+        if (!res.ok) throw new Error("summary fetch failed");
+        return res.json();
+      })
+      .then((data) => {
+        if (active) setSummary(data);
+      })
+      .catch((err) => {
+        console.warn("Usage summary unavailable", err?.message || err);
+        if (active) setSummaryError(true);
+      })
+      .finally(() => {
+        if (active) setSummaryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const fmtNum = (n: any) =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
   const fmtDate = (d: any) => {
     if (!d) return "—";
     const parsed = new Date(d);
     return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString();
+  };
+  // Integer cents → "$1,234.56". Non-finite collapses to "$0.00".
+  const fmtCents = (c: any) => {
+    const n = typeof c === "number" && Number.isFinite(c) ? c : 0;
+    return `$${(n / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+  // Round a fractional unit for display (live minutes can be fractional) without trailing noise.
+  const fmtUnit = (n: any) => {
+    const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1);
   };
 
   const summaryCards = [
@@ -214,6 +260,104 @@ export default function AiUsage() {
                 </div>
                 <p className="text-sm font-black italic uppercase tracking-tight text-white/80">
                   Renews {fmtDate(credits?.periodEnd)}
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Multi-meter usage + projected month-end bill (base + per-seat + metered overage) */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2 pb-2 border-b border-white/5 molten-edge">
+            <Receipt size={16} className="text-forest-400" />
+            <h2 className="text-xs font-black uppercase tracking-widest text-forest-400">
+              Metered Usage &amp; Projected Bill
+            </h2>
+          </div>
+
+          {summaryLoading ? (
+            <div className="space-y-3">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="bg-white/5 border border-white/5 rounded-2xl h-16 animate-pulse" />
+              ))}
+            </div>
+          ) : summaryError || !summary ? (
+            <div className="bg-white/5 border border-white/5 rounded-3xl p-6 text-center">
+              <p className="text-xs text-white/40 font-bold uppercase tracking-widest">
+                Detailed usage is unavailable right now.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Per-meter bars */}
+              <div className="lg:col-span-2 bg-white/5 border border-white/5 rounded-3xl p-5 sm:p-6 space-y-5">
+                {(summary.meters || []).map((m: any) => {
+                  const meta = METER_META[m.meter] || { name: m.meter, unit: "units", Icon: Gauge };
+                  const allot = Number(m.allotment) || 0;
+                  const used = Number(m.used) || 0;
+                  const pct = allot > 0 ? Math.min(100, Math.round((used / allot) * 100)) : (used > 0 ? 100 : 0);
+                  const over = Number(m.over) || 0;
+                  const barColor = over > 0 ? "bg-amber-500" : pct >= 80 ? "bg-celtic-500" : "bg-forest-500";
+                  const Icon = meta.Icon;
+                  return (
+                    <div key={m.meter} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Icon size={14} className="text-white/40 shrink-0" />
+                          <span className="text-[11px] font-black uppercase tracking-widest text-white/70 truncate">{meta.name}</span>
+                        </div>
+                        <span className="text-[11px] font-bold text-white/50 tabular-nums shrink-0">
+                          {fmtUnit(used)} / {allot > 0 ? fmtUnit(allot) : "0"} {meta.unit}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                        <div className={`h-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
+                      </div>
+                      {over > 0 && (
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400">
+                          {fmtUnit(over)} {meta.unit} over &bull; {fmtCents(m.overageCents)} overage
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Projected bill */}
+              <div className="bg-white/5 border border-white/5 rounded-3xl p-5 sm:p-6 space-y-3">
+                <div className="flex items-center gap-2 text-forest-400">
+                  <CalendarClock size={16} />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Projected This Month</span>
+                </div>
+                <p className="text-4xl font-black italic tracking-tighter text-white">{fmtCents(summary.projectedTotalCents)}</p>
+                <div className="space-y-1.5 pt-2 border-t border-white/5">
+                  <div className="flex items-center justify-between text-[11px] font-bold">
+                    <span className="text-white/40 uppercase tracking-widest">Base ({summary.tier})</span>
+                    <span className="text-white/70 tabular-nums">{fmtCents(summary.baseCents)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-bold">
+                    <span className="text-white/40 uppercase tracking-widest flex items-center gap-1">
+                      <Users size={11} /> Seats ({fmtNum(summary.seats)}/{fmtNum(summary.includedSeats)} incl)
+                    </span>
+                    <span className="text-white/70 tabular-nums">{fmtCents(summary.seatsCents)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-bold">
+                    <span className="text-white/40 uppercase tracking-widest">Metered Overage</span>
+                    <span className={`tabular-nums ${Number(summary.overageCents) > 0 ? "text-amber-400" : "text-white/70"}`}>{fmtCents(summary.overageCents)}</span>
+                  </div>
+                </div>
+                {summary.spendCapCents != null ? (
+                  <div className="flex items-center gap-1.5 pt-2 border-t border-white/5 text-[10px] font-bold uppercase tracking-widest text-white/40">
+                    <Gauge size={11} /> Spend cap {fmtCents(summary.spendCapCents)}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 pt-2 border-t border-white/5 text-[10px] font-bold uppercase tracking-widest text-amber-400/70">
+                    <AlertTriangle size={11} /> No spend cap set
+                  </div>
+                )}
+                <p className="text-[10px] text-white/30 leading-relaxed">
+                  Estimate for the current period. Overage bills in arrears at period close; set a
+                  spend cap in Settings to bound it.
                 </p>
               </div>
             </div>

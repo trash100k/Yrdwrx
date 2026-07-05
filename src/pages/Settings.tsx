@@ -118,6 +118,129 @@ function QuickBooksSection() {
   );
 }
 
+// Usage billing controls — the bill-shock guardrails for the base + per-seat + metered model:
+// a hard per-tenant SPEND CAP (402 SPEND_CAP_EXCEEDED once breached) plus usage alert opt-in.
+// Reads/writes tenants.spend_cap_cents + settings.usageAlerts via /api/usage/{summary,spend-cap}.
+function UsageBillingSection() {
+  const { showToast } = useToast();
+  const [summary, setSummary] = useState<any | null>(null);
+  const [capInput, setCapInput] = useState("");
+  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const fmtCents = (c: any) => {
+    const n = typeof c === "number" && Number.isFinite(c) ? c : 0;
+    return `$${(n / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const load = async () => {
+    try {
+      const r = await fetchApi("/api/usage/summary");
+      const d = await r.json();
+      setSummary(d);
+      if (d?.spendCapCents != null) setCapInput(String(d.spendCapCents / 100));
+      if (d?.alerts && typeof d.alerts.email === "boolean") setEmailAlerts(d.alerts.email);
+    } catch { /* graceful: leave defaults */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const trimmed = capInput.trim();
+      // Blank = no cap (unlimited). Otherwise a non-negative dollar amount → integer cents.
+      let spendCapCents: number | null = null;
+      if (trimmed !== "") {
+        const dollars = parseFloat(trimmed);
+        if (!Number.isFinite(dollars) || dollars < 0) {
+          showToast("Enter a valid dollar amount, or leave blank for no cap.", "error");
+          setBusy(false);
+          return;
+        }
+        spendCapCents = Math.round(dollars * 100);
+      }
+      const r = await fetchApi("/api/usage/spend-cap", {
+        method: "POST",
+        body: JSON.stringify({ spendCapCents, alerts: { email: emailAlerts, inApp: true, thresholds: [50, 80, 100] } }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        showToast(spendCapCents === null ? "Spend cap removed." : "Billing controls saved.", "success");
+        load();
+      } else {
+        showToast(d?.error || "Could not save billing controls.", "error");
+      }
+    } catch (e: any) {
+      showToast(e?.message || "Could not save billing controls.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Billing</span>
+          <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">Usage &amp; Spend Cap</h3>
+          <p className="text-sm text-zinc-400">Set a hard monthly ceiling on metered charges (texts, AI, Live-Ear, aerial). Past it, metered actions pause until you raise the cap — no bill surprises.</p>
+        </div>
+        {summary && (
+          <div className="shrink-0 text-right">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Projected</p>
+            <p className="text-lg font-black italic text-white tabular-nums">{fmtCents(summary.projectedTotalCents)}</p>
+            {Number(summary.overageCents) > 0 && (
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400">{fmtCents(summary.overageCents)} overage</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <label className="space-y-1.5">
+          <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Monthly spend cap (USD)</span>
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3">
+            <span className="text-white/40 font-black">$</span>
+            <input
+              type="number"
+              min={0}
+              step="1"
+              inputMode="decimal"
+              value={capInput}
+              onChange={(e) => setCapInput(e.target.value)}
+              placeholder="No cap"
+              className="flex-1 bg-transparent py-3 text-white font-bold outline-none placeholder:text-white/30"
+            />
+          </div>
+          <span className="text-[10px] text-zinc-600">Leave blank for no cap (unlimited overage).</span>
+        </label>
+
+        <button
+          type="button"
+          onClick={() => setEmailAlerts((v) => !v)}
+          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 transition-all"
+        >
+          <span className="space-y-0.5">
+            <span className="block text-[11px] font-black uppercase tracking-widest text-white/70">Email usage alerts</span>
+            <span className="block text-[10px] text-zinc-500">Notify at 50 / 80 / 100% of allotment &amp; cap.</span>
+          </span>
+          {emailAlerts ? <ToggleRight className="text-forest-500 shrink-0" size={28} /> : <ToggleLeft className="text-zinc-600 shrink-0" size={28} />}
+        </button>
+      </div>
+
+      {summary?.spendCapCents == null && (
+        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-400/80">
+          <AlertTriangle size={12} /> No spend cap set — metered overage is currently uncapped.
+        </div>
+      )}
+
+      <button onClick={save} disabled={busy} className="px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all">
+        {busy ? "Saving…" : "Save Billing Controls"}
+      </button>
+    </section>
+  );
+}
+
 export default function Settings() {
   const { tenant } = useTenant();
   const { showToast } = useToast();
@@ -505,7 +628,9 @@ export default function Settings() {
       <QuickBooksSection />
 
       <StripeConnectSection />
-      
+
+      <UsageBillingSection />
+
       <IntegrationSettings />
 
       <WorkflowBuilderSection />

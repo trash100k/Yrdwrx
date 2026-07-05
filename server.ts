@@ -29,6 +29,13 @@ import { log, requestId } from "./src/lib/logger.js";
 // mutes). The dispatcher below feeds merged tenant+customer prefs to resolveNotification and
 // honors its decision — the server never re-implements that policy logic.
 import { resolveNotification } from "./src/lib/notificationRules.js";
+// Pure, deterministic metering + overage/spend-cap math for the base + per-seat + usage-metered
+// billing model (PRICING_STRATEGY.md). The server NEVER re-implements this math — it feeds the
+// live rollup + tier config in and honors the result. See supabase/migrations/0017_usage_ledger.sql.
+import {
+  METERS, isMeter, emptyRollup, applyUsage, computeOverage, projectBill, withinSpendCap,
+  type Meter, type Allotments, type Rates,
+} from "./src/lib/usageLedger.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -995,6 +1002,18 @@ export async function createApp({ startListening = false } = {}) {
             const tenantId = sub.metadata?.tenantId;
             const tier = sub.metadata?.tier || (sub.items?.data?.[0]?.price?.metadata?.tier);
             if (tenantId && tier && sub.status === "active") await setTenantTier(tenantId, tier);
+            // Persist the platform-subscription customer id (the metered-usage reporter needs it)
+            // and the billed seat count (for the projected-bill math). Best-effort; a failure here
+            // must not fail the tier apply above, so it's isolated in its own try.
+            if (tenantId && sb) {
+              try {
+                const patch: any = {};
+                if (sub.customer) patch.stripe_customer_id = sub.customer;
+                const seats = Number(sub.metadata?.seats);
+                if (Number.isFinite(seats) && seats > 0) patch.seats = Math.floor(seats);
+                if (Object.keys(patch).length) await sb.from("tenants").update(patch).eq("id", tenantId);
+              } catch (e: any) { console.warn("[BILLING] customer/seat persist failed:", e?.message); }
+            }
             break;
           }
           case 'customer.subscription.deleted': {
@@ -1454,11 +1473,47 @@ export async function createApp({ startListening = false } = {}) {
   // (it bypasses RLS). Everything no-ops safely in demo mode (REQUIRE_AUTH off).
   // ===========================================================================
   const TIER_RANK: Record<string, number> = { free: 0, pro: 1, enterprise: 2 };
-  const AI_CREDITS: Record<string, number> = {
-    free: Number(process.env.AI_CREDITS_FREE || 50),
-    pro: Number(process.env.AI_CREDITS_PRO || 1000),
-    enterprise: Number(process.env.AI_CREDITS_ENTERPRISE || 10000),
+
+  // ---- Base + per-seat + usage-metered pricing config (PRICING_STRATEGY.md §2–§4) ----
+  // Everything is env-driven so rates/allotments can be retuned WITHOUT a redeploy (Gemini/Twilio
+  // price drift is expected). Defaults reproduce the strategy doc's published numbers.
+  const numEnv = (k: string, d: number) => { const v = Number(process.env[k]); return Number.isFinite(v) && v >= 0 ? v : d; };
+
+  // Monthly bundled allotment per tier: seats + one allotment per metered resource (units).
+  // "Unlimited" PDF (Pro/Enterprise) is modelled as a large finite SOFT CAP (never Infinity) per
+  // the usageLedger contract; past it PDF meters at $0.10 as a throttle (see RATES.pdf).
+  const TIER_ALLOTMENTS: Record<string, Allotments> = {
+    free:       { seats: numEnv("TIER_FREE_SEATS", 1),        ai: numEnv("AI_CREDITS_FREE", 50),        sms: numEnv("TIER_FREE_SMS", 0),        live_min: numEnv("TIER_FREE_LIVE", 10),  aerial: numEnv("TIER_FREE_AERIAL", 0),   pdf: numEnv("TIER_FREE_PDF", 20) },
+    pro:        { seats: numEnv("TIER_PRO_SEATS", 3),         ai: numEnv("AI_CREDITS_PRO", 1000),        sms: numEnv("TIER_PRO_SMS", 250),       live_min: numEnv("TIER_PRO_LIVE", 60),   aerial: numEnv("TIER_PRO_AERIAL", 25),   pdf: numEnv("TIER_PRO_PDF", 500) },
+    enterprise: { seats: numEnv("TIER_ENT_SEATS", 8),         ai: numEnv("AI_CREDITS_ENTERPRISE", 10000), sms: numEnv("TIER_ENT_SMS", 1500),     live_min: numEnv("TIER_ENT_LIVE", 300),  aerial: numEnv("TIER_ENT_AERIAL", 150),  pdf: numEnv("TIER_ENT_PDF", 500) },
   };
+
+  // Per-unit OVERAGE rate for each meter, in integer cents (PRICING_STRATEGY.md §4).
+  const RATES: Rates = {
+    ai:       numEnv("PRICE_AI_CENTS", 4),        // $0.04 / credit
+    sms:      numEnv("PRICE_SMS_CENTS", 3),       // $0.03 / segment
+    live_min: numEnv("PRICE_LIVE_CENTS", 30),     // $0.30 / minute
+    aerial:   numEnv("PRICE_AERIAL_CENTS", 300),  // $3.00 / property lookup
+    pdf:      numEnv("PRICE_PDF_CENTS", 10),       // $0.10 / render past the soft cap
+  };
+
+  // Flat monthly base + per-extra-seat price per tier, in integer cents (for projected bill).
+  const BASE_CENTS: Record<string, number> = { free: numEnv("TIER_FREE_BASE_CENTS", 0), pro: numEnv("TIER_PRO_BASE_CENTS", 24900), enterprise: numEnv("TIER_ENT_BASE_CENTS", 64900) };
+  const SEAT_CENTS: Record<string, number> = { free: numEnv("TIER_FREE_SEAT_CENTS", 0), pro: numEnv("TIER_PRO_SEAT_CENTS", 2900), enterprise: numEnv("TIER_ENT_SEAT_CENTS", 2500) };
+
+  // Weight of a single AI call in credits: a heavy Design Studio image render costs 5, ordinary
+  // grounded text costs 1 (PRICING_STRATEGY.md §4). Applied per-route in meterAiRoute().
+  const AI_WEIGHT_IMAGE = numEnv("AI_WEIGHT_IMAGE", 5);
+
+  // Back-compat shim: the legacy AI-credit-only view (tenants.ai_credits_* + WS quota gate + GET
+  // /api/usage/credits) still reads a per-tier credit *limit*. Derive it from TIER_ALLOTMENTS.ai
+  // so there is a SINGLE source of truth for the AI allotment.
+  const AI_CREDITS: Record<string, number> = {
+    free: TIER_ALLOTMENTS.free.ai, pro: TIER_ALLOTMENTS.pro.ai, enterprise: TIER_ALLOTMENTS.enterprise.ai,
+  };
+
+  // Current billing period key (calendar month, YYYY-MM) — the reset boundary for every meter.
+  const nowPeriod = () => new Date().toISOString().slice(0, 7);
 
   let _serviceSupabase: any = null;
   function getServiceSupabase() {
@@ -1501,30 +1556,118 @@ export async function createApp({ startListening = false } = {}) {
     };
   }
 
-  // AI credit wallet: 402 INSUFFICIENT_CREDITS when the monthly allotment is exhausted;
-  // charges 1 credit per successful (2xx) AI response. Calendar-month period on the
-  // tenants row (ai_credits_used/ai_credits_period — migration 0007). Fails OPEN if the
-  // service-role client or columns aren't configured yet (so demo/partial setups still run).
-  async function meterCredits(req: any, res: any, next: any) {
-    if (!REQUIRE_AUTH) return next();
-    const sb = getServiceSupabase();
-    const tenant = await resolveTenant(req);
-    if (!sb || !tenant) return next();
-    const period = new Date().toISOString().slice(0, 7); // YYYY-MM
-    const limit = AI_CREDITS[tenant.tier || "free"] ?? AI_CREDITS.free;
-    const used = tenant.ai_credits_period === period ? (tenant.ai_credits_used || 0) : 0;
-    if (used >= limit) {
-      return res.status(402).json({ error: "INSUFFICIENT_CREDITS", limit, used, tier: tenant.tier || "free" });
-    }
-    const originalJson = res.json.bind(res);
-    res.json = (body: any) => {
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        sb.from("tenants").update({ ai_credits_used: used + 1, ai_credits_period: period }).eq("id", tenant.id).then(() => {}, () => {});
-      }
-      return originalJson(body);
-    };
-    next();
+  // ---- Generalized usage metering (base + per-seat + metered overage) ----------------------
+  // Replaces the old single-meter meterCredits() with a multi-meter ledger keyed off the pure
+  // usageLedger math. The flow for every meter (ai|sms|live_min|aerial|pdf) is:
+  //   1. loadRollup()  — read this period's per-meter usage from tenant_usage (fast rollup).
+  //   2. gateUsage()   — compute marginal overage cents via computeOverage(before→after); refuse
+  //      the op (402) if it would push a FREE tenant past its bundled allotment (no silent
+  //      auto-overage on Free) or breach the tenant's spend cap (withinSpendCap fails CLOSED).
+  //   3. writeUsage()  — append a usage_events row + increment the tenant_usage rollup (and keep
+  //      the legacy tenants.ai_credits_* columns in sync for the `ai` meter). Fire-and-forget.
+  // Everything FAILS OPEN: no auth / no service client / no tenant / a metering DB error never
+  // blocks a served request (matches the original meterCredits tolerance).
+
+  // Read the tenant's per-meter usage for a period into a complete, sanitised UsageRollup.
+  async function loadRollup(sb: any, tenantId: string, period: string): Promise<Record<Meter, number>> {
+    const roll = emptyRollup();
+    try {
+      const { data } = await sb.from("tenant_usage").select("meter,quantity").eq("tenant_id", tenantId).eq("period", period);
+      for (const r of data || []) if (isMeter(r.meter)) roll[r.meter] = Number(r.quantity) || 0;
+    } catch { /* fail-open: treat as no usage recorded yet */ }
+    return roll;
   }
+
+  // The tenant's effective spend cap in cents: explicit tenants.spend_cap_cents wins; else an
+  // optional platform-wide DEFAULT_SPEND_CAP_CENTS; else null (= unlimited, per withinSpendCap).
+  function effectiveSpendCap(tenant: any): number | null {
+    if (tenant && tenant.spend_cap_cents != null) return Number(tenant.spend_cap_cents);
+    return process.env.DEFAULT_SPEND_CAP_CENTS ? Number(process.env.DEFAULT_SPEND_CAP_CENTS) : null;
+  }
+
+  // Pure gate (no writes): may `qty` units of `meter` be consumed right now? Returns
+  // { ok:true } or { ok:false, status, body } with a 402 the caller should return verbatim.
+  async function gateUsage(tenant: any, meter: Meter, qty: number): Promise<{ ok: boolean; status?: number; body?: any }> {
+    if (!REQUIRE_AUTH) return { ok: true };
+    const sb = getServiceSupabase();
+    if (!sb || !tenant || !isMeter(meter)) return { ok: true };
+    const q = Number(qty) || 0;
+    if (q <= 0) return { ok: true };
+    const tier = tenant.tier || "free";
+    const allot = TIER_ALLOTMENTS[tier] || TIER_ALLOTMENTS.free;
+    const period = nowPeriod();
+    const current = await loadRollup(sb, tenant.id, period);
+    const beforeCents = computeOverage(current, allot, RATES).overageCents;
+    const afterCents = computeOverage(applyUsage(current, meter, q), allot, RATES).overageCents;
+    const addCents = Math.max(0, afterCents - beforeCents);
+    // No silent auto-overage on Free — the tenant must upgrade to spend past the bundled allotment.
+    if (addCents > 0 && tier === "free") {
+      return { ok: false, status: 402, body: { error: "INSUFFICIENT_CREDITS", code: "INSUFFICIENT_CREDITS", meter, tier, limit: allot[meter], allotment: allot[meter], used: current[meter] } };
+    }
+    // Hard per-tenant spend cap (bill-shock ceiling) — pauses metered ops until raised.
+    if (!withinSpendCap(beforeCents, addCents, effectiveSpendCap(tenant))) {
+      return { ok: false, status: 402, body: { error: "SPEND_CAP_EXCEEDED", code: "SPEND_CAP_EXCEEDED", meter, capCents: effectiveSpendCap(tenant), currentOverageCents: beforeCents, projectedOverageCents: afterCents } };
+    }
+    return { ok: true };
+  }
+
+  // Record consumption: append to usage_events (audit trail) + increment the tenant_usage rollup.
+  // For the `ai` meter, also keep tenants.ai_credits_* in sync so the legacy credit view + WS
+  // quota gate + GET /api/usage/credits stay accurate. Best-effort; never throws.
+  async function writeUsage(tenant: any, meter: Meter, qty: number): Promise<void> {
+    if (!REQUIRE_AUTH) return;
+    const sb = getServiceSupabase();
+    if (!sb || !tenant || !isMeter(meter)) return;
+    const q = Number(qty) || 0;
+    if (q <= 0) return;
+    const period = nowPeriod();
+    try {
+      const rate = RATES[meter] || 0;
+      await sb.from("usage_events").insert({ tenant_id: tenant.id, period, meter, quantity: q, unit_cost_cents: rate });
+      // Rollup increment (read-modify-write; best-effort like the legacy credit counter).
+      const current = await loadRollup(sb, tenant.id, period);
+      await sb.from("tenant_usage").upsert(
+        { tenant_id: tenant.id, period, meter, quantity: (current[meter] || 0) + q, updated_at: new Date().toISOString() },
+        { onConflict: "tenant_id,period,meter" },
+      );
+      if (meter === "ai") {
+        const { data: t } = await sb.from("tenants").select("ai_credits_used,ai_credits_period").eq("id", tenant.id).maybeSingle();
+        const usedNow = t?.ai_credits_period === period ? (t?.ai_credits_used || 0) : 0;
+        await sb.from("tenants").update({ ai_credits_used: usedNow + q, ai_credits_period: period }).eq("id", tenant.id);
+      }
+    } catch { /* fail-open: a metering write must never fail a served request */ }
+  }
+
+  // Count billable SEATS = tenant members whose role is not `client` (portal users are free).
+  async function countSeats(sb: any, tenant: any): Promise<number> {
+    if (!sb || !tenant) return 1;
+    try {
+      const { count } = await sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenant.id).neq("role", "client");
+      return count && count > 0 ? count : 1;
+    } catch { return 1; }
+  }
+
+  // Middleware factory to meter the AI credit meter on a route group. `weight` is a credit count
+  // or a (req)->count resolver (Design Studio image renders weigh AI_WEIGHT_IMAGE, text weighs 1).
+  // Pre-gates before the handler runs; charges only on a 2xx response. No-op in demo mode.
+  function meterAiRoute(weight: number | ((req: any) => number)) {
+    return async (req: any, res: any, next: any) => {
+      if (!REQUIRE_AUTH) return next();
+      const tenant = await resolveTenant(req);
+      if (!tenant) return next();
+      const w = typeof weight === "function" ? (Number(weight(req)) || 1) : weight;
+      const gate = await gateUsage(tenant, "ai", w);
+      if (!gate.ok) return res.status(gate.status).json(gate.body);
+      const originalJson = res.json.bind(res);
+      res.json = (body: any) => {
+        if (res.statusCode >= 200 && res.statusCode < 300) { writeUsage(tenant, "ai", w).catch(() => {}); }
+        return originalJson(body);
+      };
+      next();
+    };
+  }
+  // Back-compat alias: existing 1-credit-per-call AI metering.
+  const meterCredits = meterAiRoute(1);
 
   // Liveness + mode probe (auth-excluded). Used by SaaSAdminDashboard + deploy checks.
   app.get("/api/health", (req, res) => {
@@ -1736,6 +1879,90 @@ export async function createApp({ startListening = false } = {}) {
     res.json({ tier, used, creditsRemaining: Math.max(0, limit - used), limit, period });
   });
 
+  // Multi-meter usage summary + PROJECTED month-end bill (powers AiUsage.tsx usage bars).
+  // Reads this period's tenant_usage rollup, then delegates ALL money math to the pure
+  // usageLedger helpers (computeOverage + projectBill). Demo mode returns a zeroed enterprise
+  // snapshot so the dashboard renders without a tenant.
+  app.get("/api/usage/summary", async (req: any, res) => {
+    const buildMeters = (roll: Record<Meter, number>, allot: Allotments, overage: any) =>
+      METERS.map((m) => ({
+        meter: m,
+        used: roll[m],
+        allotment: allot[m],
+        over: overage.perMeter[m].over,
+        overageCents: overage.perMeter[m].cents,
+        rateCents: RATES[m],
+      }));
+
+    if (!REQUIRE_AUTH) {
+      const tier = "enterprise";
+      const allot = TIER_ALLOTMENTS[tier];
+      const roll = emptyRollup();
+      const overage = computeOverage(roll, allot, RATES);
+      const bill = projectBill(BASE_CENTS[tier], allot.seats, allot.seats, SEAT_CENTS[tier], 0);
+      return res.json({
+        demo: true, tier, period: nowPeriod(), seats: 1, includedSeats: allot.seats,
+        baseCents: BASE_CENTS[tier], seatCents: SEAT_CENTS[tier], seatsCents: bill.seatsCents,
+        overageCents: 0, projectedTotalCents: bill.totalCents, spendCapCents: null,
+        meters: buildMeters(roll, allot, overage),
+      });
+    }
+
+    const tenant = await resolveTenant(req);
+    const tier = tenant?.tier || "free";
+    const allot = TIER_ALLOTMENTS[tier] || TIER_ALLOTMENTS.free;
+    const period = nowPeriod();
+    const sb = getServiceSupabase();
+    const roll = sb && tenant ? await loadRollup(sb, tenant.id, period) : emptyRollup();
+    const seats = await countSeats(sb, tenant);
+    const overage = computeOverage(roll, allot, RATES);
+    const baseCents = BASE_CENTS[tier] ?? 0;
+    const seatCents = SEAT_CENTS[tier] ?? 0;
+    const bill = projectBill(baseCents, seats, allot.seats, seatCents, overage.overageCents);
+    res.json({
+      tier, period, seats, includedSeats: allot.seats,
+      baseCents, seatCents, seatsCents: bill.seatsCents,
+      overageCents: overage.overageCents, projectedTotalCents: bill.totalCents,
+      spendCapCents: tenant?.spend_cap_cents ?? null,
+      alerts: tenant?.settings?.usageAlerts || null,
+      meters: buildMeters(roll, allot, overage),
+    });
+  });
+
+  // Owner/admin control for the bill-shock ceiling + usage alert thresholds. Writes
+  // tenants.spend_cap_cents (null clears the cap) and settings.usageAlerts. Owner/admin only.
+  app.post("/api/usage/spend-cap", async (req: any, res) => {
+    try {
+      if (REQUIRE_AUTH && !req.user?.uid) return res.status(401).json({ error: "Unauthorized" });
+      const { spendCapCents, alerts } = req.body || {};
+      // null / "" clears the cap (unlimited); otherwise a non-negative integer cents value.
+      let cap: number | null = null;
+      if (spendCapCents !== null && spendCapCents !== undefined && spendCapCents !== "") {
+        const n = Number(spendCapCents);
+        if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: "spendCapCents must be a non-negative number or null" });
+        cap = Math.round(n);
+      }
+      const tenant = await resolveTenant(req);
+      if (!REQUIRE_AUTH || !tenant) return res.json({ simulated: true, spendCapCents: cap, alerts: alerts || null });
+      if (!["owner", "admin"].includes(tenant.role)) return res.status(403).json({ error: "Only an owner or admin can change billing controls." });
+      const sb = getServiceSupabase();
+      if (!sb) return res.status(503).json({ error: "Billing controls unavailable: SUPABASE_SERVICE_ROLE_KEY not configured", code: "PROVISION_UNAVAILABLE" });
+      const patch: any = { spend_cap_cents: cap };
+      if (alerts && typeof alerts === "object") {
+        const thresholds = Array.isArray(alerts.thresholds)
+          ? alerts.thresholds.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0 && n <= 100)
+          : [50, 80, 100];
+        patch.settings = { ...(tenant.settings || {}), usageAlerts: { thresholds, email: !!alerts.email, inApp: alerts.inApp !== false } };
+      }
+      const { error } = await sb.from("tenants").update(patch).eq("id", tenant.id);
+      if (error) throw error;
+      res.json({ spendCapCents: cap, alerts: patch.settings?.usageAlerts || tenant.settings?.usageAlerts || null });
+    } catch (e: any) {
+      console.error("Spend-cap update error:", e?.message || e);
+      res.status(500).json({ error: "Could not update billing controls." });
+    }
+  });
+
   // Tier gating (registered BEFORE metering so a 403 short-circuits before a credit is
   // charged). Pricing model: Design Studio + Deep Research + Promo Video are pro+ features.
   // No-op in demo mode (REQUIRE_AUTH off).
@@ -1743,8 +1970,12 @@ export async function createApp({ startListening = false } = {}) {
   app.use("/api/research/", requireTier("pro"));
   app.use("/api/marketing/", requireTier("pro"));
 
-  // Meter the heavy AI route groups on the credit wallet (no-op in demo / unconfigured).
-  app.use("/api/design/", meterCredits);
+  // Meter the heavy AI route groups on the credit meter (no-op in demo / unconfigured).
+  // Design Studio image renders (generate-mockup / place-objects / edit) are weighted heavier
+  // (AI_WEIGHT_IMAGE credits) than text calls (1) — matches PRICING_STRATEGY.md §4. The mount is
+  // "/api/design/" so we test the full URL (req.originalUrl) for the image-render sub-paths.
+  const DESIGN_IMAGE_ROUTE = /\/(generate-mockup|place-objects|edit)(\b|\/|$)/;
+  app.use("/api/design/", meterAiRoute((req: any) => (DESIGN_IMAGE_ROUTE.test(req.originalUrl || req.url || "") ? AI_WEIGHT_IMAGE : 1)));
   app.use("/api/agent/", meterCredits);
   app.use("/api/research/", meterCredits);
   app.use("/api/marketing/", meterCredits);
@@ -2780,32 +3011,115 @@ export async function createApp({ startListening = false } = {}) {
   // SaaS self-billing: subscribe a tenant to a YardWorx plan (pro/enterprise). The
   // webhook (customer.subscription.* / checkout.session.completed) writes tenant.tier,
   // making tier enforcement self-funding. Requires Stripe Price IDs in env.
+  // Per-meter Stripe metered-Price env var names (one usage-based Price each). Left unset →
+  // that meter simply isn't added as a subscription item (metered billing is opt-in per meter).
+  const STRIPE_METER_PRICE_ENV: Record<Meter, string> = {
+    ai: "STRIPE_PRICE_METER_AI", sms: "STRIPE_PRICE_METER_SMS", live_min: "STRIPE_PRICE_METER_LIVE",
+    aerial: "STRIPE_PRICE_METER_AERIAL", pdf: "STRIPE_PRICE_METER_PDF",
+  };
+
   app.post("/api/stripe/subscribe", async (req: any, res) => {
     try {
       const { tier } = req.body || {};
       if (!["pro", "enterprise"].includes(tier)) return res.status(400).json({ error: "tier must be 'pro' or 'enterprise'" });
-      if (!process.env.STRIPE_SECRET_KEY) return res.json({ error: "Stripe key missing. Subscription simulated.", simulated: true });
+
+      // Base + per-seat + metered model. Seats requested (defaults to the tier's included count);
+      // only seats ABOVE the included count become a per-seat line item quantity.
+      const includedSeats = TIER_ALLOTMENTS[tier].seats;
+      const reqSeats = Math.max(includedSeats, Math.floor(Number(req.body?.seats) || includedSeats));
+      const extraSeats = Math.max(0, reqSeats - includedSeats);
+      const seatPriceId = tier === "enterprise" ? process.env.STRIPE_PRICE_SEAT_ENTERPRISE : process.env.STRIPE_PRICE_SEAT_PRO;
+      // Which metered Prices are configured (reported via Stripe meter events; see the reporter).
+      const meteredPrices = METERS.map((m) => ({ meter: m, priceId: process.env[STRIPE_METER_PRICE_ENV[m]] })).filter((x) => !!x.priceId);
+
+      if (!process.env.STRIPE_SECRET_KEY) {
+        // Simulate the full shape so the client can preview base + seats + metered without keys.
+        return res.json({
+          simulated: true, tier, seats: reqSeats, includedSeats, extraSeats,
+          baseCents: BASE_CENTS[tier], seatCents: SEAT_CENTS[tier],
+          meteredMeters: meteredPrices.map((x) => x.meter),
+          message: "Stripe key missing. Subscription simulated (base + per-seat + metered).",
+        });
+      }
       const priceId = tier === "enterprise" ? process.env.STRIPE_PRICE_ENTERPRISE : process.env.STRIPE_PRICE_PRO;
       if (!priceId) return res.status(503).json({ error: `Stripe price for ${tier} not configured (STRIPE_PRICE_${tier.toUpperCase()})`, code: "PRICE_UNCONFIGURED" });
 
       const tenant = await resolveTenant(req);
       const tenantId = tenant?.id || req.body?.tenantId; // resolved tenant preferred; body only as demo fallback
+
+      // Build subscription line items: flat base Price, per-seat Price (quantity = extra seats),
+      // then one metered Price per configured meter. Metered items carry NO quantity — consumption
+      // is reported out-of-band via Stripe meter events (POST /api/stripe/usage/report).
+      const line_items: any[] = [{ price: priceId, quantity: 1 }];
+      if (seatPriceId && extraSeats > 0) line_items.push({ price: seatPriceId, quantity: extraSeats });
+      for (const mp of meteredPrices) line_items.push({ price: mp.priceId });
+
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
-        line_items: [{ price: priceId, quantity: 1 }],
-        metadata: { tenantId: tenantId || "", tier },
-        subscription_data: { metadata: { tenantId: tenantId || "", tier } },
+        line_items,
+        metadata: { tenantId: tenantId || "", tier, seats: String(reqSeats) },
+        subscription_data: { metadata: { tenantId: tenantId || "", tier, seats: String(reqSeats) } },
         success_url: `${BASE_URL}/admin/settings?subscribed=${tier}`,
         cancel_url: `${BASE_URL}/admin/settings?subscribe_canceled=true`,
       }, {
-        // Idempotency: repeated subscribe clicks for the same tenant+tier reuse the same session.
-        idempotencyKey: stripeIdempotencyKey("subscribe", tenantId || "", tier, priceId),
+        // Idempotency: repeated clicks for the same tenant+tier+seats reuse the same session.
+        idempotencyKey: stripeIdempotencyKey("subscribe", tenantId || "", tier, priceId, extraSeats),
       });
-      res.json({ checkoutUrl: session.url, url: session.url });
+      res.json({ checkoutUrl: session.url, url: session.url, seats: reqSeats, extraSeats });
     } catch (error: any) {
       console.error("Stripe Subscribe Error:", error?.message);
       res.status(500).json({ error: "Subscription failed" });
+    }
+  });
+
+  // Nightly/rollup USAGE REPORTER — push this period's metered consumption to Stripe as v2
+  // Billing meter events (one event per tenant+meter with a configured Price). Designed to be hit
+  // by Cloud Scheduler nightly; guarded by USAGE_REPORT_KEY (or a platform admin). Fully
+  // simulated (no writes) when Stripe keys are missing so it's safe to call in any environment.
+  app.post("/api/stripe/usage/report", async (req: any, res) => {
+    try {
+      const key = req.headers["x-usage-report-key"] || req.query?.key;
+      const isAdmin = (() => { try { return !!(req.user?.email && process.env.PLATFORM_OWNER_EMAIL && req.user.email === process.env.PLATFORM_OWNER_EMAIL); } catch { return false; } })();
+      if (process.env.USAGE_REPORT_KEY) {
+        if (key !== process.env.USAGE_REPORT_KEY && !isAdmin) return res.status(403).json({ error: "Forbidden" });
+      } else if (REQUIRE_AUTH && !isAdmin) {
+        return res.status(403).json({ error: "Set USAGE_REPORT_KEY or call as the platform owner." });
+      }
+      const period = (typeof req.body?.period === "string" && /^\d{4}-\d{2}$/.test(req.body.period)) ? req.body.period : nowPeriod();
+      const meteredMeters = METERS.filter((m) => !!process.env[STRIPE_METER_PRICE_ENV[m]]);
+      const sb = getServiceSupabase();
+      if (!sb) return res.json({ simulated: true, reason: "no service supabase", period, reported: [] });
+
+      const { data: rows } = await sb.from("tenant_usage").select("tenant_id,meter,quantity").eq("period", period);
+      const relevant = (rows || []).filter((r: any) => meteredMeters.includes(r.meter) && Number(r.quantity) > 0);
+
+      // Without Stripe keys we can't post events — return exactly what WOULD be reported.
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.json({ simulated: true, period, meteredMeters, wouldReport: relevant });
+      }
+      const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+      const reported: any[] = [];
+      for (const r of relevant) {
+        try {
+          // The platform-subscription customer id, if we've persisted it on the tenant (the
+          // subscription webhook can backfill stripe_customer_id — a documented follow-up).
+          const { data: t } = await sb.from("tenants").select("stripe_customer_id").eq("id", r.tenant_id).maybeSingle();
+          const customer = t?.stripe_customer_id;
+          if (!customer) { reported.push({ tenant_id: r.tenant_id, meter: r.meter, skipped: "no_customer" }); continue; }
+          await stripe.billing.meterEvents.create({
+            event_name: `yardworx_${r.meter}`,
+            payload: { stripe_customer_id: customer, value: String(Math.round(Number(r.quantity))) },
+          });
+          reported.push({ tenant_id: r.tenant_id, meter: r.meter, value: Math.round(Number(r.quantity)) });
+        } catch (e: any) {
+          reported.push({ tenant_id: r.tenant_id, meter: r.meter, error: e?.message || "report_failed" });
+        }
+      }
+      res.json({ period, reported });
+    } catch (error: any) {
+      console.error("Usage report error:", error?.message);
+      res.status(500).json({ error: "Usage report failed" });
     }
   });
 
@@ -4823,6 +5137,13 @@ export async function createApp({ startListening = false } = {}) {
         return res.status(400).json({ error: "invoiceId required" });
       }
 
+      // Meter the `pdf` render. PDF is INCLUDED within the tier's soft cap (20 free / 500 paid) —
+      // under the cap gateUsage charges nothing; PAST it a Free tenant is blocked (402) and a paid
+      // tenant meters $0.10/render as a throttle (PRICING_STRATEGY.md §2/§4). Gate before rendering.
+      const pdfTenant = await resolveTenant(req);
+      const pdfGate = await gateUsage(pdfTenant, "pdf", 1);
+      if (!pdfGate.ok) return res.status(pdfGate.status).json(pdfGate.body);
+
       // SECURITY: Construct HTML strictly server-side to prevent Puppeteer SSRF/XSS vectors
       const esc = (s: any) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const safeId = String(invoiceId).slice(0, 6).replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -4886,6 +5207,9 @@ export async function createApp({ startListening = false } = {}) {
       `;
 
       const pdfBuffer = await renderPdf(invoiceHtml);
+
+      // Render succeeded — record the metered pdf unit (fire-and-forget; fails open).
+      writeUsage(pdfTenant, "pdf", 1).catch(() => {});
 
       // Return the rendered PDF for direct download. (Previously this attached the PDF to a
       // Gmail draft via a Google OAuth token; that path is gone with Firebase. A direct
@@ -5931,11 +6255,19 @@ export async function createApp({ startListening = false } = {}) {
       };
 
       if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
-        // Return success for preview/development if Twilio is not configured
+        // Return success for preview/development if Twilio is not configured. A simulated send
+        // has no carrier cost, so it is NOT metered (no gate, no usage_events row).
         console.warn("[TWILIO SIMULATION] Mocking SMS send because credentials are not set.");
         await persistOutbound();
         return res.json({ success: true, simulated: true, to, message });
       }
+
+      // Meter the `sms` segment: gate on allotment/spend-cap BEFORE handing the number to Twilio
+      // (a real, billable carrier send), then record it after a successful create. One segment per
+      // send here (multi-segment long messages are a follow-up; see TODO).
+      const smsTenant = await resolveTenant(req);
+      const smsGate = await gateUsage(smsTenant, "sms", 1);
+      if (!smsGate.ok) return res.status(smsGate.status).json(smsGate.body);
 
       const twilio = require("twilio");
       const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -5946,6 +6278,7 @@ export async function createApp({ startListening = false } = {}) {
         to: to
       });
 
+      writeUsage(smsTenant, "sms", 1).catch(() => {});
       await persistOutbound();
       res.json({ success: true, sid: result.sid });
     } catch (err: any) {
@@ -6837,12 +7170,20 @@ OUTPUT JSON ONLY, shape:
       if (isMockMode) {
         return res.json({ source: "unavailable", configured: false, lawnSqft: null, message: "Automated property measurement needs a provider (MEASUREMENT_API_KEY)." });
       }
+      // This branch performs a real (AI-estimated) property lookup — meter it as an `aerial`
+      // unit. Gate on allotment/spend-cap BEFORE the lookup (Free includes 0 aerial → 402),
+      // record after a successful estimate. (Provider-key metering lands with the vendor takeoff
+      // integration above — see TODO.)
+      const aerialTenant = await resolveTenant(req);
+      const aerialGate = await gateUsage(aerialTenant, "aerial", 1);
+      if (!aerialGate.ok) return res.status(aerialGate.status).json(aerialGate.body);
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: `Estimate the typical residential lawn/maintainable area in square feet for this US address. Respond JSON {"lawnSqft": number, "confidence":"low"|"medium"}. Address: ${String(address).slice(0, 200)}`,
         config: { responseMimeType: "application/json" },
       });
       const est = parseGeminiJson(response.text) || {};
+      writeUsage(aerialTenant, "aerial", 1).catch(() => {});
       res.json({ source: "ai_estimate", configured: false, lawnSqft: est.lawnSqft || null, confidence: est.confidence || "low", note: "Rough AI estimate — connect a measurement provider for survey-grade takeoff." });
     } catch (e: any) {
       console.error("[measure/property]", e?.message);
@@ -6975,6 +7316,10 @@ OUTPUT JSON ONLY, shape:
     // Resolved during auth; makes the voice agent introduce itself as THIS tenant's
     // company instead of a hardcoded legacy brand. Falls back to the product name.
     let liveTenantName = "";
+    // Tenant object + start time captured for PER-MINUTE live_min metering on socket close
+    // (Live-Ear is the single most expensive surface — meter actual minutes, not a flat credit).
+    let liveMeterTenant: any = null;
+    let liveStartedAt = 0;
     if (REQUIRE_AUTH) {
       let authed = false;
       let overQuota = false;
@@ -6990,17 +7335,18 @@ OUTPUT JSON ONLY, shape:
               const { data: prof } = await sb.from("profiles").select("tenant_id").eq("firebase_uid", data.user.id).maybeSingle();
               const tid = prof?.tenant_id;
               if (tid) {
-                const period = new Date().toISOString().slice(0, 7);
-                const { data: t } = await sb.from("tenants").select("name,settings,tier,ai_credits_used,ai_credits_period").eq("id", tid).maybeSingle();
+                // Full tenant row so gateUsage() sees tier + spend_cap_cents (metered like HTTP).
+                const { data: t } = await sb.from("tenants").select("*").eq("id", tid).maybeSingle();
                 liveTenantName = (t?.settings?.businessName || t?.name || "").toString().slice(0, 80);
-                const limit = AI_CREDITS[t?.tier || "free"] ?? AI_CREDITS.free;
-                const used = t?.ai_credits_period === period ? (t?.ai_credits_used || 0) : 0;
-                if (used >= limit) {
+                liveMeterTenant = t || null;
+                // Gate on the `live_min` meter: can they afford at least the first minute? This
+                // 402-equivalent replaces the old flat AI-credit-per-session charge — Free is
+                // blocked past its 10 included minutes, paid tiers meter overage under the cap.
+                const gate = await gateUsage(t, "live_min", 1);
+                if (!gate.ok) {
                   overQuota = true;
-                  quotaInfo = { limit, used, tier: t?.tier || "free" };
-                } else {
-                  // Meter one credit per session (coarse, but matches the +1/request HTTP model).
-                  sb.from("tenants").update({ ai_credits_used: used + 1, ai_credits_period: period }).eq("id", tid).then(() => {}, () => {});
+                  const b = gate.body || {};
+                  quotaInfo = { limit: b.limit ?? (TIER_ALLOTMENTS[t?.tier || "free"]?.live_min ?? 0), used: b.used ?? 0, tier: t?.tier || "free" };
                 }
               }
             } catch {}
@@ -7016,15 +7362,25 @@ OUTPUT JSON ONLY, shape:
         // don't reliably surface a queued message once we close, so the code carries the intent).
         try {
           clientWs.send(JSON.stringify({ error: "quota", ...quotaInfo }));
-          clientWs.close(4003, "You've used your AI minutes for this month. Upgrade to keep going.");
+          clientWs.close(4003, "You've used your Live-Ear minutes for this month. Upgrade or raise your spend cap to keep going.");
         } catch {}
         return;
       }
     }
     liveConnections++;
+    liveStartedAt = Date.now();
     clientWs.isAlive = true;
     clientWs.on("pong", () => { clientWs.isAlive = true; });
-    clientWs.on("close", () => { liveConnections = Math.max(0, liveConnections - 1); });
+    clientWs.on("close", () => {
+      liveConnections = Math.max(0, liveConnections - 1);
+      // Meter actual voice minutes consumed (rounded up to the next whole minute, min 1) on the
+      // `live_min` meter. Fire-and-forget; writeUsage fails open. Runs for both the real and mock
+      // upstream paths (a mock session still holds the client mic open and is worth accounting).
+      if (liveMeterTenant && liveStartedAt) {
+        const minutes = Math.max(1, Math.ceil((Date.now() - liveStartedAt) / 60000));
+        writeUsage(liveMeterTenant, "live_min", minutes).catch(() => {});
+      }
+    });
 
     console.log("Live Ear Client Connected");
 
