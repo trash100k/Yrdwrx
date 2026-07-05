@@ -34,7 +34,10 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-07-05 (13-LAYER PRODUCTION AUDIT synthesized) — the 7-agent production-stack
+> _Last updated: 2026-07-05 (SPRINT COMPLETION RECONCILED — 11/13 ship-it features shipped; SEC-1..7 +
+> advisors-0 + Stripe double-billing + tenant-tier + helmet/undici deps + LiveEar mic-stop remediated;
+> 13-layer L1/L5/L7/L10/L11/L12/L13 hardening landed; see the **Sprint completion log** above). Prior:
+> 13-LAYER PRODUCTION AUDIT synthesized — the 7-agent production-stack
 > audit landed and its verified fixes are now the **"13-layer audit fix backlog"** section above
 > (73 concrete fixes: 15 P0 / 36 P1 / 22 P2, de-duped across layers → ~12 distinct P0). Headline demo→product
 > gaps: real-auth cutover + baking real-auth env into the prod build (the deployed SPA is mock-admin on a
@@ -189,6 +192,45 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > QuickBooks/payments/recurring billing as launch table-stakes (A7); AI repositioned as on-site closing;
 > added the Gemini-native build-leverage map + the beachhead._
 
+## Sprint completion log — 2026-07-05
+
+This production sprint moved YardWorx from "feature-rich demo" toward a shippable multi-tenant SaaS.
+Reconciled against the git log; each item below landed **gated green** (tsc + vitest + frontend/server bundle).
+
+**Features shipped — 11 of 13.** 1 Deposit-on-acceptance (99ddbc6), 2 Design-Studio iterative image
+editing (a690883), 4 Geocoding layer (8d99132), 5 Event notifications (946faa7), 6 Two-way QuickBooks
+(c0ca2cc), 7 Reviews ingestion (81a0c17), 8 CSV import + dedupe/merge (433daac), 9 Crew timeclock →
+payroll (433daac), 10 Document understanding (6639eb8), 11 Usage-metered billing (195de58), plus the
+widgets/Dashboard cockpit overhaul (433daac). **Not yet shipped: 3 aerial/satellite takeoff (in flight —
+needs a paid provider key), 12 AI receptionist, 13 Living Proposal.**
+
+**Security remediation — complete.** Adversarial pentest + hardening: **SEC-1** (profiles
+privilege-escalation → cross-tenant takeover; anti-escalation trigger, migrations 0013/0015) and
+**SEC-2** (16 world-open `cc_*` command-center tables holding real prospect PII dropped, migration 0014)
+— the two crown-jewel breaks — plus **SEC-3..7** (error-leak echo, DNS-rebind TOCTOU, video-download SSRF,
+open-redirect, portal-JWT-in-query). **Supabase security advisors: 0 lints.** Money/deps: durable
+`stripe_events` idempotency + idempotency keys + 200→500-on-error (kills cluster-mode invoice
+double-billing, 346c3fd); `/api/tenants/provision` client-supplied-`tier` self-grant closed (346c3fd);
+helmet+undici declared as prod deps (fixes prod boot-crash / silent SSRF-defense-off, 5d9e8fa); LiveEar
+mic/camera now stop on stop/unmount (privacy, 5d9e8fa).
+
+**13-layer production hardening delivered.** L12 (was the one MISSING layer): structured JSON logging +
+GCP Error Reporting format + request-logging middleware (4aaeef3). L13: `/healthz` + `/readyz` probes +
+graceful SIGTERM/SIGINT drain + Cloud Run startup/liveness probes (4aaeef3). L11/L10: `geminiCache` +
+`apiCacheStore` now bounded (evict-oldest LRU) + per-instance/session-affinity notes (4aaeef3). L1/L10:
+a11y foundations (focus-visible outline, skip link, reduced-motion, contrast, ≥44px tap targets,
+axe-core under DEV) + `manualChunks` bundle-split (0dfa964, f4687c3). L5/L7: reproducible image
+(Dockerfile VITE build args, `npm ci --omit=dev`, `.dockerignore`/`.gcloudignore`) + `npm run build`
+step in CI (33da2ba). Auth `getUser` round-trip confirmed already cached (346c3fd).
+
+**What remains.** Features 3/12/13; a final QA-smoke pass; the P1/P2 code-quality polish still open below
+(25MB-image re-hash, dead recharts import, `select("*")` over-fetch, dead Google Workspace Hub,
+lazy-load three/fabric in DesignStudio) + migration-parity capture; and the **human-only go-live
+switches** — flip real auth (`REQUIRE_AUTH`/`VITE_REQUIRE_AUTH` + restore `onAuthStateChanged`),
+enable Supabase PITR, set real Secret Manager values (incl. the `SUPABASE_ANON_KEY` runtime secret and
+`BASE_URL`), codify branch protection, verify the Intuit QBO sandbox round-trip, and add an aerial
+provider key.
+
 ## Ship-it fleet backlog (2026-07-05) — 10 features + standing agent workstreams
 
 Grounded in `MARKET_RESEARCH.md` (table-stakes met; the one open lane = **on-site visual
@@ -201,7 +243,7 @@ build) and committed. Ranked by **value × readiness**.
       client signs an estimate → required deposit collected via the existing `/api/portal/checkout`
       Stripe Connect flow → estimate flips accepted + optional auto-create job. Owner sets a deposit
       %/flat (per-estimate + tenant default). Idempotent, tenant-safe, mock-safe. *Highest ROI, lowest lift.*
-- [ ] **2. Design Studio iterative image editing** (`feat-design-studio-inpaint`) — THE differentiator.
+- [x] **2. Design Studio iterative image editing** (`feat-design-studio-inpaint`) — SHIPPED (a690883). THE differentiator.
       Multi-step region-aware edits (Gemini `*-flash-image`): "swap this bed, keep the rest of the yard,"
       edit stacking + undo/redo + before/after slider. Mock-safe placeholder (no white-screen), 400-not-500
       on bad input, pricing stays catalog-grounded.
@@ -212,13 +254,13 @@ build) and committed. Ranked by **value × readiness**.
 - [x] **4. Geocoding layer** (`feat-geocoding`) — SHIPPED (commit 8d99132). the single highest-leverage enabler. Geocode-on-write
       (Google Geocoding, mock-safe) caches lat/lng on customer/job; unblocks Route Optimizer, CustomerMap,
       and drive-time Scheduler at once.
-- [ ] **5. Event notifications** (`feat-notifications`) — email/SMS/web-push on invoice created/paid, new
+- [x] **5. Event notifications** (`feat-notifications`) — SHIPPED (946faa7). email/SMS/web-push on invoice created/paid, new
       message, design approved, low stock, crew arrival, via the existing senders; per-tenant/per-customer
       prefs + quiet hours + CAN-SPAM/TCPA opt-out; honest `simulated:true` when no provider.
-- [ ] **6. Two-way QuickBooks** (`feat-quickbooks-twoway`) — the accounting moat. Pull invoices/payments/
+- [x] **6. Two-way QuickBooks** (`feat-quickbooks-twoway`) — SHIPPED (c0ca2cc). the accounting moat. Pull invoices/payments/
       items back + reconcile + nightly sync on top of the shipped one-way push. Fixture-tested; live
       round-trip is a documented human Intuit-sandbox step. *Needs sandbox creds (human).*
-- [ ] **7. Reviews ingestion** (`feat-reviews-ingestion`) — pull Google/Yelp reviews into the table
+- [x] **7. Reviews ingestion** (`feat-reviews-ingestion`) — SHIPPED (81a0c17). pull Google/Yelp reviews into the table
       (dedup + real rating rollups) so the Reviews surface reflects actual reputation, not just outbound
       requests. Mock-safe labeled samples.
 - [x] **8. CSV import + dedupe/merge** (`feat-csv-import-dedupe`) — SHIPPED (commit 433daac). header-mapped import for customers/
@@ -227,7 +269,7 @@ build) and committed. Ranked by **value × readiness**.
 - [x] **9. Crew timeclock → payroll** (`feat-timeclock-payroll`) — SHIPPED (commit 433daac). clock-in/out tied to a job (optional
       geofence, offline-safe) writing `jobId`/`customerId` timesheets that feed the shipped `payroll.ts`
       export; makes Job Costing real instead of estimate-fallback.
-- [ ] **10. Document understanding** (`feat-doc-understanding`) — Gemini PDF extraction: vendor invoice →
+- [x] **10. Document understanding** (`feat-doc-understanding`) — SHIPPED (6639eb8). Gemini PDF extraction: vendor invoice →
       draft expense (feeds Job Costing); contract/permit → structured fields. `responseSchema`, mock-safe,
       400-not-500, confirm-before-commit.
 
@@ -298,15 +340,15 @@ These are the handful that make the deployed app actually authenticate, not lose
 ---
 
 #### Layer 1 — Front-end foundations `[partial]`
-- [ ] **Restore visible keyboard focus + skip link** `[P1]` S — global `*:focus-visible` outline in `index.css` @layer base (stop bare `focus:outline-none` on inputs/buttons); skip-to-content anchor as first child of Layout `<main>` → `#main-content`.
-- [ ] **Add `prefers-reduced-motion` handling** `[P1]` M — `@media (prefers-reduced-motion: reduce)` block in `src/index.css` zeroing transitions/animations (mirror `.field-mode-active`); gate Motion props behind `useReducedMotion()`. Fails WCAG 2.3.3 today.
-- [ ] **Fix contrast + min text size for sunlight legibility** `[P1]` M — raise labels to ≥12px, lift `text-zinc-500`/`text-white/40` → `zinc-400`/`white/60` to clear AA; wire the already-installed `@axe-core/react` into `main.tsx` under DEV as a standing gate. (`Layout.tsx:563,664,713`)
+- [x] **Restore visible keyboard focus + skip link** `[P1]` S — SHIPPED (0dfa964). global `*:focus-visible` outline in `index.css` @layer base (stop bare `focus:outline-none` on inputs/buttons); skip-to-content anchor as first child of Layout `<main>` → `#main-content`.
+- [x] **Add `prefers-reduced-motion` handling** `[P1]` M — SHIPPED (0dfa964). `@media (prefers-reduced-motion: reduce)` block in `src/index.css` zeroing transitions/animations (mirror `.field-mode-active`); gate Motion props behind `useReducedMotion()`. Fails WCAG 2.3.3 today.
+- [x] **Fix contrast + min text size for sunlight legibility** `[P1]` M — SHIPPED (0dfa964). raise labels to ≥12px, lift `text-zinc-500`/`text-white/40` → `zinc-400`/`white/60` to clear AA; wire the already-installed `@axe-core/react` into `main.tsx` under DEV as a standing gate. (`Layout.tsx:563,664,713`)
 - [ ] **Self-host fonts** `[P1]` M — remove the render-blocking Google Fonts `@import` (`index.css:1`), add `@font-face` woff2 + `font-display:swap`. Unblocks CSP hardening, stops the Google leak, and lets Workbox precache the brand offline. *(feeds L10 precache)*
 - [ ] **Unify brand + palette** `[P1]` M — delete the ember-orange `!important` overrides (`index.css:72`) or update CLAUDE.md to match; replace `GAELWORX`/`TerraMind` wordmarks (`Layout.tsx:568,718`) with one YardWorx identity.
-- [ ] **Image alt/lazy + 44px tap targets + route skeletons + `manualChunks`** `[P2]` M — `alt`/`loading="lazy"` on non-hero `<img>` (18/24 lack alt); header icon buttons `min h-11 w-11` on mobile; per-route Skeleton fallbacks instead of the bare `PageLoader` spinner (`App.tsx:71`); add `build.rollupOptions.output.manualChunks` in `vite.config.ts` (split react/router, charts, three/fabric, firebase/supabase).
+- [x] **Image alt/lazy + 44px tap targets + route skeletons + `manualChunks`** `[P2]` M — SHIPPED (0dfa964; route-skeletons partial). `alt`/`loading="lazy"` on non-hero `<img>` (18/24 lack alt); header icon buttons `min h-11 w-11` on mobile; per-route Skeleton fallbacks instead of the bare `PageLoader` spinner (`App.tsx:71`); add `build.rollupOptions.output.manualChunks` in `vite.config.ts` (split react/router, charts, three/fabric, firebase/supabase).
 
 #### Layer 2 — APIs & Back-End Logic `[partial]`
-- [ ] **Persist Stripe idempotency across workers/instances + add idempotency keys** `[P0]` M — replace the in-memory `processedStripeEvents` Set with a `stripe_events(id pk, processed_at)` table (`INSERT … ON CONFLICT DO NOTHING`, 0-row = duplicate short-circuit before re-applying payment); pass `{idempotencyKey}` to every `stripe.checkout.sessions.create` (`~5534`, `~5604`). Closes cross-worker/instance invoice double-credit. *(canonical; = L11 fix)*
+- [x] **Persist Stripe idempotency across workers/instances + add idempotency keys** `[P0]` M — SHIPPED (346c3fd). replace the in-memory `processedStripeEvents` Set with a `stripe_events(id pk, processed_at)` table (`INSERT … ON CONFLICT DO NOTHING`, 0-row = duplicate short-circuit before re-applying payment); pass `{idempotencyKey}` to every `stripe.checkout.sessions.create` (`~5534`, `~5604`). Closes cross-worker/instance invoice double-credit. *(canonical; = L11 fix)*
 - [ ] **Add a global Express error handler + terminal `/api` JSON 404** `[P1]` S — after all routes in `createApp`: `app.use('/api', 404 {error})` + final `(err,req,res,next)` mapping `entity.parse.failed`→400, else 500 `{error}`. Guarantees the `{error}` envelope for unknown routes / thrown-outside-try / malformed JSON instead of HTML/stack (`server.ts:5282`).
 - [ ] **Restore mock-mode contract on legacy workflow routes** `[P1]` M — `/api/workflows/{proposal:1528, invoice-chaser:2061, chemical-log:2101, payroll:2174, seasonal}` call the Gemini REST endpoint directly and 500 in mock mode; route them through shared `ai.models.generateContent` (inherits mock + cache + 503 mapping) or add an `isMockMode` guard. Also stop overloading the app's `Authorization` header for Google OAuth (header collision).
 - [ ] **Set explicit HTTP server timeouts** `[P2]` S — set `server.requestTimeout`/`headersTimeout`/`keepAliveTimeout` aligned to Cloud Run's 300s cap (`server.ts:6152`) so a wedged handler can't hold a concurrency-80 slot.
@@ -329,9 +371,9 @@ These are the handful that make the deployed app actually authenticate, not lose
 - _Baking real-auth env into the prod build + `SUPABASE_ANON_KEY` → **L5**. Flip flags + restore `onAuthStateChanged` → **L8**._
 
 #### Layer 5 — Hosting & Deployment `[partial]`
-- [ ] **Inject `VITE_` build args in the Dockerfile builder + pass from cloudbuild** `[P0]` M — add `ARG/ENV VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_REQUIRE_AUTH=true`, `VITE_GOOGLE_MAPS_PLATFORM_KEY` before `npm run build`; matching `--build-arg` in cloudbuild. **The top launch blocker** — without it the SPA ships mock-admin against `placeholder.supabase.co`. *(= L4 "build frontend with real-auth env")*
+- [x] **Inject `VITE_` build args in the Dockerfile builder + pass from cloudbuild** `[P0]` M — SHIPPED (33da2ba). add `ARG/ENV VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_REQUIRE_AUTH=true`, `VITE_GOOGLE_MAPS_PLATFORM_KEY` before `npm run build`; matching `--build-arg` in cloudbuild. **The top launch blocker** — without it the SPA ships mock-admin against `placeholder.supabase.co`. *(= L4 "build frontend with real-auth env")*
 - [ ] **Add `SUPABASE_ANON_KEY` to the Cloud Run runtime secrets** `[P0]` S — append `SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest` to `--set-secrets`; without it `verifySupabaseToken`/the auth-login proxy 503 every authed call (`server.ts:1003,1033`). *(= L4 anon-key fix)*
-- [ ] **Add a `.dockerignore` (and `.gcloudignore`)** `[P0]` S — exclude `node_modules`, `.git`, `.env*`, `dist`, `coverage`, `cypress`, `*.log`, and the root scratch scripts/dumps. Prevents secret leakage into the builder layer and stops a host `node_modules` from clobbering clean deps at `COPY . .` (`Dockerfile:17`).
+- [x] **Add a `.dockerignore` (and `.gcloudignore`)** `[P0]` S — SHIPPED (33da2ba). exclude `node_modules`, `.git`, `.env*`, `dist`, `coverage`, `cypress`, `*.log`, and the root scratch scripts/dumps. Prevents secret leakage into the builder layer and stops a host `node_modules` from clobbering clean deps at `COPY . .` (`Dockerfile:17`).
 - [ ] **Set a real `BASE_URL`** `[P0]` S — replace `BASE_URL=https://YOUR-DOMAIN` (`cloudbuild.yaml:35`) via substitution/Secret Manager; drives Stripe redirects, portal magic links, QBO callback (`server.ts:2366,2438,2582`). Ships broken/phishing-shaped links as-is. *(also L4/L7)*
 - [ ] **Drop redundant apk `nodejs`/`yarn` + migrate GCR→Artifact Registry** `[P2]` M — remove `nodejs yarn` from the runner `apk add` (base already has Node 20); repoint image refs off deprecated `gcr.io`, rename `react-example-app`→`yardworx`, add an image-scan step before deploy.
 - _Reproducible runtime install (`npm ci` from lockfile) → **L7** (there it's tagged P0)._
@@ -344,8 +386,8 @@ These are the handful that make the deployed app actually authenticate, not lose
 - _Graceful SIGTERM shutdown → **L13** (tagged P0 there)._
 
 #### Layer 7 — CI/CD & Version Control `[partial]`
-- [ ] **Add `npm run build` to CI** `[P0]` S — insert `- run: npm run build` in `ci.yml` after the test step to exercise both `vite build` and the esbuild `dist/server.cjs` entrypoint. Cheapest highest-signal fix (build breakage currently surfaces only at Cloud Build deploy).
-- [ ] **Make the prod Docker image reproducible (`npm ci` from lockfile)** `[P0]` S — `COPY package-lock.json` into the runner and use `npm ci --omit=dev` (not `npm install`) so runtime deps match what CI tested (`Dockerfile:47,50`); pin base by digest, drop `npm i -g npm@latest` and the unused `yarn`. *(= L5 reproducible-install)*
+- [x] **Add `npm run build` to CI** `[P0]` S — SHIPPED (33da2ba). insert `- run: npm run build` in `ci.yml` after the test step to exercise both `vite build` and the esbuild `dist/server.cjs` entrypoint. Cheapest highest-signal fix (build breakage currently surfaces only at Cloud Build deploy).
+- [x] **Make the prod Docker image reproducible (`npm ci` from lockfile)** `[P0]` S — SHIPPED (33da2ba). `COPY package-lock.json` into the runner and use `npm ci --omit=dev` (not `npm install`) so runtime deps match what CI tested (`Dockerfile:47,50`); pin base by digest, drop `npm i -g npm@latest` and the unused `yarn`. *(= L5 reproducible-install)*
 - [ ] **Fix the `BASE_URL` placeholder + rename `react-example-app`→`yardworx` in the deploy path** `[P0]` S — *(same underlying fix as L5 BASE_URL; also de-risks the stale-branding footgun in cloudbuild + package.json name)*.
 - [ ] **Add dependency + secret scanning gates to CI + patch current highs** `[P1]` M — `dependabot.yml` (npm weekly), `npm audit --audit-level=high` (or gitleaks/trufflehog) as a failing step, enable CodeQL; remediate the current highs now (vite `fs.deny` bypass, protobufjs DoS, form-data CRLF) via `npm audit fix` + re-lock. *(consolidates L2 + L8 scanning items)*
 - [ ] **Version-control the deploy pipeline with least-privilege auth** `[P1]` M — add `.github/workflows/deploy.yml` gated on push-to-main **and** green CI via Workload Identity Federation (no long-lived JSON key), or commit the Cloud Build trigger config (`gcloud builds triggers export`). Deploy is console-only today — not reproducible/auditable.
@@ -373,28 +415,28 @@ These are the handful that make the deployed app actually authenticate, not lose
 #### Layer 10 — Caching & CDN `[partial]`
 > The caching **logic** is correct (tenant-keyed `cacheApiResponse` w/ `private,max-age` + `Vary`; content-hashed `immutable` asset headers; opt-in Gemini disk cache) but the **delivery topology** is not — there is no CDN, so those headers are honored by nobody.
 - [ ] **Put a CDN in front of static assets** `[P1]` L — no Cloud CDN / external HTTPS LB / Firebase Hosting exists, so every JS/CSS/font/image request terminates at the single Node process (`express.static`, `server.ts:5138`) competing with API/PDF/Puppeteer/WS on 2 CPU. Add an external HTTPS LB + Cloud CDN with a serverless NEG, or move SPA/static serving to Firebase Hosting / a GCS backend-bucket + Cloud CDN and reserve Cloud Run for `/api`. Makes the existing `immutable`/`s-maxage` headers actually pay off.
-- [ ] **Bound the in-memory caches** `[P1]` S — `apiCacheStore` (`server.ts:614`) and `geminiCache` (`server.ts:553`) have **no** eviction/size cap (unlike `GEO_CACHE`/`designImageCache`/`processedStripeEvents` which self-bound); on a long-lived instance they grow toward the 1Gi OOM ceiling. Add an LRU/size cap mirroring `designImageCache`'s `while(size>MAX) delete oldest` (`server.ts:626`).
+- [x] **Bound the in-memory caches** `[P1]` S — SHIPPED (4aaeef3). `apiCacheStore` (`server.ts:614`) and `geminiCache` (`server.ts:553`) have **no** eviction/size cap (unlike `GEO_CACHE`/`designImageCache`/`processedStripeEvents` which self-bound); on a long-lived instance they grow toward the 1Gi OOM ceiling. Add an LRU/size cap mirroring `designImageCache`'s `while(size>MAX) delete oldest` (`server.ts:626`).
 - [ ] **Fix the PWA install surface** `[P1]` M — two conflicting manifests (hardcoded `public/manifest.json` "YardWorx" `#05a845` at `index.html:10` vs VitePWA-generated "TerraMind Ops OS" `#000000`), three different theme-colors, no 192/512 PNG icons, and an SVG apple-touch-icon iOS ignores → blank home-screen icon; fails Android installability. Drop the redundant manifest, add PNG icons (incl. maskable + apple-touch), unify theme-color.
 - [ ] **Move to a shared cache for multi-instance hit rates** `[P2]` L — back the API + Gemini caches with Memorystore (Redis) instead of per-process Maps so cluster workers and autoscaled instances share entries; keep the tenant-keyed hashing. *(overlaps L11 shared-cache)*
 - [ ] **Precache self-hosted fonts + add an offline fallback** `[P2]` M — after self-hosting fonts (**L1**), include them in the Workbox precache so the offline shell (incl. the Cinzel wordmark) is self-contained; add a small `navigateFallback`/data-unavailable view beyond the connectivity banner.
 
 #### L11 — Load balancing & scaling `[partial]`
 > This layer's failure modes are **per-process in-memory state that doesn't survive horizontal scale-out** (2 workers × up to 100 instances ≈ 200 independent processes). The concrete fixes live at their canonical layers:
-- [ ] **Move Stripe idempotency to a durable table** `[P0]` M — the live double-billing bug (fires at the default 2 workers). *(→ **L2**)*
+- [x] **Move Stripe idempotency to a durable table** `[P0]` M — SHIPPED (346c3fd). the live double-billing bug (fires at the default 2 workers). *(→ **L2**)*
 - [ ] **Back rate limiters with a shared store** `[P1]` M — the cost-abuse cap goes unbounded under scale-out. *(→ **L9**)*
 - [ ] **Cap + pin the fleet in `cloudbuild.yaml`** `[P1]` S — `--max-instances 10` + `--session-affinity` (helps `/api/live`, which carries an explicit ws-multiplexing scale FIXME at `server.ts:6157`). *(→ **L6**)*
 - [ ] **Persist `threatLog` + shared caches out of process** `[P2]` M — `threatLog` (per-process, capped 200) → a Supabase table so `/api/security/threats` aggregates fleet-wide and survives scale-in; move `GEO_CACHE`/`geminiCache`/`apiCacheStore` to Redis/Memorystore or accept the duplicated Google/Gemini spend. *(threatLog persistence → **L12**)*
 
 #### L12 — Error tracking & logs `[MISSING]`
 > The only fully-missing layer. Cloud Logging captures stdout, but as 117 unstructured `console.*` lines with no severity/request-id/tenant/trace correlation; no error aggregation, tracing, metrics, or alerting.
-- [ ] **Introduce structured JSON logging** `[P1]` M — add `pino` + `pino-http` (or `@google-cloud/logging-bunyan`); emit JSON with severity, trace (parsed from `X-Cloud-Trace-Context`), `tenantId`, route; replace the 117 `console.*` calls. Makes Cloud Logging severity, log-based metrics, and alerts work.
-- [ ] **Add error tracking (Sentry / Error Reporting)** `[P1]` S — `@sentry/node` init at the top of `server.ts`, `Sentry.setupExpressErrorHandler(app)` before the final handler (`server.ts:6631`), report from the process guards (`6670-6675`); tag release with `COMMIT_SHA` (already in cloudbuild) so errors group per deploy.
+- [x] **Introduce structured JSON logging** `[P1]` M — SHIPPED (4aaeef3; `src/lib/logger.ts`). add `pino` + `pino-http` (or `@google-cloud/logging-bunyan`); emit JSON with severity, trace (parsed from `X-Cloud-Trace-Context`), `tenantId`, route; replace the 117 `console.*` calls. Makes Cloud Logging severity, log-based metrics, and alerts work.
+- [x] **Add error tracking (Sentry / Error Reporting)** `[P1]` S — SHIPPED (4aaeef3; GCP Error Reporting format via logger, Sentry optional). `@sentry/node` init at the top of `server.ts`, `Sentry.setupExpressErrorHandler(app)` before the final handler (`server.ts:6631`), report from the process guards (`6670-6675`); tag release with `COMMIT_SHA` (already in cloudbuild) so errors group per deploy.
 - [ ] **Emit metrics + define alert policies** `[P2]` M — Cloud Monitoring custom metrics for AI calls (count + estimated cost per tenant) + alert policies (5xx rate, instance-count==max, `aiLimiter` 429 spikes); check the config into `monitoring/`/Terraform.
 - [ ] **Persist + alert on the threat log** `[P2]` S — write `threatLog` entries (`server.ts:869`) to Supabase + alert on new HIGH-severity rows so injection/path-traversal attempts surface without an admin polling `/api/security/threats`. *(also L11)*
 
 #### L13 — Availability & recovery `[partial]`
-- [ ] **Implement SIGTERM/SIGINT graceful shutdown** `[P0]` M — after `app.listen` (`server.ts:6152`): `server.close()`, close the WSS (drain upstream Gemini Live), await in-flight PDF renders, `sharedBrowser.close()` within a ~25s budget (< Cloud Run grace); the cluster primary forwards SIGTERM to workers and stops respawning. **Top availability fix** — every deploy + scale-in currently hard-kills live invoice PDFs and paid voice sessions (zero SIGTERM handling today).
-- [ ] **Split readiness from liveness** `[P1]` S — add `/readyz` doing a real `select 1` vs Supabase (+ a cheap Gemini/mock check) → 503 when a critical dep is down; keep `/api/health` shallow; wire a Cloud Run `startupProbe` to `/readyz` so a wedged instance is recycled, not served. `/api/health` is liveness-only today (always 200, only checks the client object exists).
+- [x] **Implement SIGTERM/SIGINT graceful shutdown** `[P0]` M — SHIPPED (4aaeef3). after `app.listen` (`server.ts:6152`): `server.close()`, close the WSS (drain upstream Gemini Live), await in-flight PDF renders, `sharedBrowser.close()` within a ~25s budget (< Cloud Run grace); the cluster primary forwards SIGTERM to workers and stops respawning. **Top availability fix** — every deploy + scale-in currently hard-kills live invoice PDFs and paid voice sessions (zero SIGTERM handling today).
+- [x] **Split readiness from liveness** `[P1]` S — SHIPPED (4aaeef3; `/healthz` + `/readyz` + Cloud Run probes). add `/readyz` doing a real `select 1` vs Supabase (+ a cheap Gemini/mock check) → 503 when a critical dep is down; keep `/api/health` shallow; wire a Cloud Run `startupProbe` to `/readyz` so a wedged instance is recycled, not served. `/api/health` is liveness-only today (always 200, only checks the client object exists).
 - [ ] **Enable Supabase PITR + a tested restore runbook** `[P1]` M — PITR (Pro add-on) or an external `pg_dump`→GCS cron; document RTO/RPO. The only safety net for a bad service-role/migration write between daily snapshots on a financial system. *(= L3 PITR)*
 - [ ] **Add circuit breakers/backoff on external deps + fix the uncaught-exception exit** `[P2]` M — wrap Gemini/Stripe with a breaker (opossum)/fail-fast after N timeouts; add jitter to the webhook retry (`server.ts:5300-5313`) + worker respawn; change the standalone `uncaughtException` path (`server.ts:6673`) to log then `process.exit(1)` so the container restarts clean instead of serving in an undefined state.
 
@@ -411,8 +453,8 @@ reproduced + verified live). Synthesized from the **clean/fast/smooth/secure rea
 De-duped against the 13-layer backlog above via `(see LN)` cross-refs.
 
 **Backend perf**
-- [ ] **Stop the per-request GoTrue round-trip in auth** `[P1]` M — `verifySupabaseToken` calls `sb.auth.getUser(token)` (an HTTP hop to Supabase Auth) before every `/api` handler → ~50–150ms + a hard GoTrue dependency at concurrency-80. Tier 1: wrap `getUser` in a size-capped 30–60s in-memory cache keyed by `sha256(token)` (per-worker; collapses repeat dashboard calls). Tier 2 (network-free): `jwt.verify(token, SUPABASE_JWT_SECRET, {algorithms:["HS256"], audience:"authenticated", issuer:`${SUPABASE_URL}/auth/v1`})` — MUST pin `algorithms` (else alg:none/confusion) + validate aud/iss; keep `getUser` as fallback when no secret/JWKS. (`server.ts:1035`) *(see L4 — same fix)*
-- [ ] **Bound the unbounded `geminiCache`** `[P1]` S — `geminiCache` is an ever-growing in-memory object → slow OOM on the min-1 instance. Convert to a size-capped LRU `Map` (`GEMINI_CACHE_MAX≈2000`) mirroring `geoCacheSet`: evict-oldest on write, LRU-touch on hit, and fix disk persistence (`JSON.stringify(Object.fromEntries(map))` on save; `new Map(Object.entries(obj))` + trim on load). Caps worst-case at ~8MB. (`server.ts:552,601`) *(see L10 "Bound the in-memory caches" — same fix; L10 item also covers `apiCacheStore`)*
+- [x] **Stop the per-request GoTrue round-trip in auth** `[P1]` M — SHIPPED (346c3fd; confirmed complete — sha256(token), 45s TTL, bounded 5000, revocation-preserving). `verifySupabaseToken` calls `sb.auth.getUser(token)` (an HTTP hop to Supabase Auth) before every `/api` handler → ~50–150ms + a hard GoTrue dependency at concurrency-80. Tier 1: wrap `getUser` in a size-capped 30–60s in-memory cache keyed by `sha256(token)` (per-worker; collapses repeat dashboard calls). Tier 2 (network-free): `jwt.verify(token, SUPABASE_JWT_SECRET, {algorithms:["HS256"], audience:"authenticated", issuer:`${SUPABASE_URL}/auth/v1`})` — MUST pin `algorithms` (else alg:none/confusion) + validate aud/iss; keep `getUser` as fallback when no secret/JWKS. (`server.ts:1035`) *(see L4 — same fix)*
+- [x] **Bound the unbounded `geminiCache`** `[P1]` S — SHIPPED (4aaeef3; cap 2000, evict-oldest). `geminiCache` is an ever-growing in-memory object → slow OOM on the min-1 instance. Convert to a size-capped LRU `Map` (`GEMINI_CACHE_MAX≈2000`) mirroring `geoCacheSet`: evict-oldest on write, LRU-touch on hit, and fix disk persistence (`JSON.stringify(Object.fromEntries(map))` on save; `new Map(Object.entries(obj))` + trim on load). Caps worst-case at ~8MB. (`server.ts:552,601`) *(see L10 "Bound the in-memory caches" — same fix; L10 item also covers `apiCacheStore`)*
 - [ ] **Stop re-hashing 25MB base64 images on every vision call** `[P2]` S — `cacheApiResponse` JSON-stringifies + SHA-256s the full image body for a ~0% hit rate, stalling the event loop on the hot path. Remove `cacheApiResponse` from `/api/design/process` (3660), `/api/inventory/process-image` (4677), `/api/expenses/ocr` (5024) **only** (keep it on `/api/crm/analyze-property` — small body, real hit rate); also extend the `geminiCache` inlineData-image bypass so the second hash is skipped too. (`server.ts:~668`, IMAGE_ROUTES)
 
 **Frontend perf**
@@ -425,15 +467,15 @@ De-duped against the 13-layer backlog above via `(see LN)` cross-refs.
 - [ ] **Drop the redundant `material_logs.inventory_item_id` FK column** `[P2]` S — `material_logs` carries two FKs to `inventory(id)` (`item_id` + `inventory_item_id`); nothing reads `inventory_item_id` and only the agent writer sets it. Ship a NEW append-only migration `0007_material_logs_drop_dup_fk.sql` with `alter table public.material_logs drop column if exists inventory_item_id;` (auto-drops its FK + idx) and delete the write at `agentActions.ts:278`. Keep `item_id` (the canonical job-costing join key). (`supabase/migrations/0006_supporting_tables.sql:22,28`; `agentActions.ts:278`)
 
 **Security**
-- [ ] **Reject client-supplied `tier` on `/api/tenants/provision`** `[P0]` S — provision reads `tier` from `req.body`, so any self-serve signup self-grants `enterprise` + 10k AI credits (and an onboarded owner can re-POST for a persistent self-upgrade). Drop `tier` from the destructure + the `safeTier` line; remove `tier` from the UPDATE payload; hardcode `tier:"free"` on the INSERT fallback. Leave the Stripe webhook `setTenantTier` + the platform-admin-gated `/api/admin/tenants/:id/tier` as the only tier writers. (`server.ts:1253,1290,1296`)
-- [ ] **Declare undici/helmet as prod deps + patch 4 npm highs** `[P0]` S — undici (`server.ts:16`) and helmet (`server.ts:18`) are phantom prod deps: the prod image builds with `npm install --omit=dev`, so today the server **crashes on boot** and the SSRF DNS-rebind Agent may be silently ignored (version mismatch vs Node 20's internal undici). Add `"undici":"^7.28.0"` + move `helmet` to `dependencies`; then `npm audit fix` the transitive highs (form-data CRLF, protobufjs DoS) + bump `vite` ≥8.0.16; add a smoke test asserting the pinned lookup rejects a private-IP resolution. (`package.json`; `server.ts:16,224`) *(see L7 dep-scan — this is the P0 boot-crash/SSRF slice of that item)*
+- [x] **Reject client-supplied `tier` on `/api/tenants/provision`** `[P0]` S — SHIPPED (346c3fd). provision reads `tier` from `req.body`, so any self-serve signup self-grants `enterprise` + 10k AI credits (and an onboarded owner can re-POST for a persistent self-upgrade). Drop `tier` from the destructure + the `safeTier` line; remove `tier` from the UPDATE payload; hardcode `tier:"free"` on the INSERT fallback. Leave the Stripe webhook `setTenantTier` + the platform-admin-gated `/api/admin/tenants/:id/tier` as the only tier writers. (`server.ts:1253,1290,1296`)
+- [x] **Declare undici/helmet as prod deps + patch 4 npm highs** `[P0]` S — SHIPPED (5d9e8fa; deps moved to `dependencies`). undici (`server.ts:16`) and helmet (`server.ts:18`) are phantom prod deps: the prod image builds with `npm install --omit=dev`, so today the server **crashes on boot** and the SSRF DNS-rebind Agent may be silently ignored (version mismatch vs Node 20's internal undici). Add `"undici":"^7.28.0"` + move `helmet` to `dependencies`; then `npm audit fix` the transitive highs (form-data CRLF, protobufjs DoS) + bump `vite` ≥8.0.16; add a smoke test asserting the pinned lookup rejects a private-IP resolution. (`package.json`; `server.ts:16,224`) *(see L7 dep-scan — this is the P0 boot-crash/SSRF slice of that item)*
 
 **Cleanliness**
 - [ ] **Remove the dead "Google Workspace Hub" feature** `[P2]` L — the Dashboard "Card E" widget advertises Calendar/Gmail auto-dispatch that can never work (no token flow exists anywhere; guarded by the dead Firebase shim's always-null `auth`). Delete the UI (`Dashboard.tsx:2544-2700`), the dead handlers (`handleConnectWorkspace`/`runSyncCalendar`/`runDispatchGmail`/`runIntegration` etc. ~595-815), the state + `cutty_workspace_active` read + `workspace:true` default-widget, and the sibling CrewSuite "Field Report" Gmail button (`CrewSuite.tsx:650-660`); drop the now-unused `auth` import. Never ship a button whose only behavior is an error toast. (`src/pages/Dashboard.tsx:595-860,2544-2700`)
 
 **Reliability**
-- [ ] **Make the Stripe webhook idempotent + 500-on-error** `[P0]` M — the handler marks the event processed (`processedStripeEvents.add`) BEFORE any DB work, swallows apply errors, and still acks 200 → double-counts payments under cluster mode and drops failed applies silently. Stamp each `payments[]` entry with `stripeId`; do the read-modify-write in an atomic SECURITY DEFINER RPC guarded by `WHERE NOT (data->'payments' @> …stripeId)` (true no-op on redelivery, closes the two-worker race); return **500** (not 200) whenever apply / `sb`-null / `setTenantTier` throws so Stripe retries; record `event.id` in a durable `stripe_events(UNIQUE)` table only after commit, replacing the in-memory Set. Fix the empty `setTenantTier` catch (server.ts:723). (`server.ts:709-758,787`) *(see L2/L11 — adds the 200→500 + atomic `@>`-guarded apply slice to the idempotency fix)*
-- [ ] **Stop the LiveEar mic/camera after stop/unmount** `[P0]` S — `LiveEar` never calls `getTracks().forEach(t=>t.stop())`, so the device keeps recording (camera/mic indicator stays lit) after the user stops — a privacy defect. Add a `streamRef`, assign it right after `getUserMedia` (covers both AV + audio-only fallback paths), and in `stopLiveEar()` stop all tracks + null the ref; also promote `videoInterval` to a ref and clear it in `stopLiveEar` instead of relying on `ws.onclose`. (`src/components/LiveEar.tsx:98-112,125-133`)
+- [x] **Make the Stripe webhook idempotent + 500-on-error** `[P0]` M — SHIPPED (346c3fd). the handler marks the event processed (`processedStripeEvents.add`) BEFORE any DB work, swallows apply errors, and still acks 200 → double-counts payments under cluster mode and drops failed applies silently. Stamp each `payments[]` entry with `stripeId`; do the read-modify-write in an atomic SECURITY DEFINER RPC guarded by `WHERE NOT (data->'payments' @> …stripeId)` (true no-op on redelivery, closes the two-worker race); return **500** (not 200) whenever apply / `sb`-null / `setTenantTier` throws so Stripe retries; record `event.id` in a durable `stripe_events(UNIQUE)` table only after commit, replacing the in-memory Set. Fix the empty `setTenantTier` catch (server.ts:723). (`server.ts:709-758,787`) *(see L2/L11 — adds the 200→500 + atomic `@>`-guarded apply slice to the idempotency fix)*
+- [x] **Stop the LiveEar mic/camera after stop/unmount** `[P0]` S — SHIPPED (5d9e8fa). `LiveEar` never calls `getTracks().forEach(t=>t.stop())`, so the device keeps recording (camera/mic indicator stays lit) after the user stops — a privacy defect. Add a `streamRef`, assign it right after `getUserMedia` (covers both AV + audio-only fallback paths), and in `stopLiveEar()` stop all tracks + null the ref; also promote `videoInterval` to a ref and clear it in `stopLiveEar` instead of relying on `ws.onclose`. (`src/components/LiveEar.tsx:98-112,125-133`)
 
 **Security — adversarial pentest (read-only pass, findings reproduced live in rolled-back txns):**
 - [x] **[SEC-1 CRITICAL] profiles privilege escalation → cross-tenant takeover — FIXED + VERIFIED.**
@@ -473,11 +515,11 @@ Model (from `PRICING_STRATEGY.md`): **Free $0 · Pro $249 (+$29/seat) · Enterpr
 $0 onboarding (undercuts LMN's $797–$1,497). Metered overage priced ≥2.5× labeled 2026 COGS:
 **SMS $0.03/seg · AI-credit $0.04 · Live-Ear $0.30/min · aerial lookup $3.00**. Personas prove
 70–91% gross margin light+heavy (aerial is the one margin compressor to watch).
-- [ ] **Usage ledger schema** — `usage_events(tenant_id, period, meter, quantity, unit_cost_cents, created_at)` + `tenant_usage` rollup + `tenants.spend_cap_cents`; keep AI-credit back-compat.
-- [ ] **Generalize `meterCredits()` → `meterUsage(meter, qty)`** (server.ts ~1027): write ledger + increment rollup, preserve 402-on-exhaustion + fail-open. `AI_CREDITS` → env-driven `TIER_ALLOTMENTS` (seats/credits/sms/live_min/aerial).
-- [ ] **Metering hooks** — AI weights (design/image=5, text=1); SMS per-segment in `/api/sms/send` (keep toll-fraud guard); Live-Ear per-minute (meter on WS close, replace flat 1-credit); aerial per-lookup; PDF nominal past soft cap.
-- [ ] **Stripe metered subscription items** — base Price + per-seat (quantity) + one metered Price/meter via Stripe meter events; extend `/api/stripe/subscribe` + webhook (seat qty; on payment_failed suspend metered ops).
-- [ ] **Usage dashboard + spend caps** — `/api/usage/summary` (multi-meter) + `AiUsage.tsx` per-meter bars + projected bill; spend-cap + 50/80/100% alerts in Settings; enforce `402 SPEND_CAP_EXCEEDED`.
+- [x] **Usage ledger schema** — SHIPPED (195de58; migration 0017). `usage_events(tenant_id, period, meter, quantity, unit_cost_cents, created_at)` + `tenant_usage` rollup + `tenants.spend_cap_cents`; keep AI-credit back-compat.
+- [x] **Generalize `meterCredits()` → `meterUsage(meter, qty)`** (server.ts ~1027): SHIPPED (195de58; `gateUsage()`/`writeUsage()` + env `TIER_ALLOTMENTS`). write ledger + increment rollup, preserve 402-on-exhaustion + fail-open. `AI_CREDITS` → env-driven `TIER_ALLOTMENTS` (seats/credits/sms/live_min/aerial).
+- [x] **Metering hooks** — SHIPPED (195de58). AI weights (design/image=5, text=1); SMS per-segment in `/api/sms/send` (keep toll-fraud guard); Live-Ear per-minute (meter on WS close, replace flat 1-credit); aerial per-lookup; PDF nominal past soft cap.
+- [x] **Stripe metered subscription items** — SHIPPED (195de58). base Price + per-seat (quantity) + one metered Price/meter via Stripe meter events; extend `/api/stripe/subscribe` + webhook (seat qty; on payment_failed suspend metered ops).
+- [x] **Usage dashboard + spend caps** — SHIPPED (195de58). `/api/usage/summary` (multi-meter) + `AiUsage.tsx` per-meter bars + projected bill; spend-cap + 50/80/100% alerts in Settings; enforce `402 SPEND_CAP_EXCEEDED`.
 - [ ] **Overage invoicing + prepaid packs** (500 credits/$20); period-close rollup → Stripe metered lines; dunning.
 - [ ] **Compliance gate (human/legal)** — A2P 10DLC brand+campaign; TCPA consent + STOP/HELP suppression before paid SMS at scale; 0 SMS included on Free.
 
