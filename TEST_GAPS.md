@@ -10,6 +10,17 @@ Dozen"). Last updated: 2026-07-05._
 > (`tsc` + `vitest` + `build`) proves the pieces compile and the pure functions are correct; it does
 > **not** prove the product works.
 
+> **Update 2026-07-05 — test-fleet Wave 1 delivered (`a73557f`):** a 10-agent white-hot pass added
+> **212 tests (now 1087 total)** closing most of the P0/P1 *type* gaps below — HTTP integration
+> (money/portal, **Stripe webhook idempotency-replay**, usage/docs/notify, proposals/measure),
+> **regression locks** for the fixed P0s, **property-based** money math (fast-check), the **fuzz
+> matrix**, **jest-axe a11y**, a **puppeteer E2E smoke** (`npm run test:e2e`), and a **concurrency +
+> PDF-soak load harness** (`npm run test:load`). Verdict: **0 P0, 0 P1, 4 P2** — the 3 real nits are
+> fixed (deposit `+Infinity` guard, 2 aria-labels), the 4th (PDF `PDF_MAX_CONCURRENT=1` backpressure)
+> is by-design. **Still open (the hard-environment ones):** full money-path E2E round-trip (needs a
+> dedicated test DB), the RLS Dirty-Dozen as a CI gate, coverage + `npm audit` in CI, visual
+> regression, chaos/failure-injection, and the device/browser matrix.
+
 ---
 
 ## ✅ What IS tested today (the baseline)
