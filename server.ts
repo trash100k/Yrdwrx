@@ -50,6 +50,7 @@ import { mapCustomerToQbo, mapInvoiceToQbo, reconcile, type Link } from "./src/l
 // before a token is USED. No key set (dev) => passthrough; legacy plaintext rows decrypt through
 // unchanged (forward-compatible). NEVER log token material. See src/lib/secretCrypto.ts.
 import { encryptSecret, decryptSecret } from "./src/lib/secretCrypto.js";
+import { SingleFlight } from "./src/lib/singleFlight.js";
 // Pure, deterministic document-understanding core (no I/O). Turns the loosely-parsed JSON a
 // vision/LLM extractor emits for a vendor invoice into a normalized, defensively-coerced expense
 // DRAFT for human review. The /api/documents/parse route feeds Gemini's structured output straight
@@ -245,6 +246,22 @@ const fetchWithTimeout = (input: any, init: any = {}) => {
   return fetch(input, {
     ...rest,
     signal: rest.signal ?? AbortSignal.timeout(timeoutMs ?? 15000),
+  });
+};
+
+// Bound EVERY Supabase call — JWT validation (auth.getUser) AND all sb.from(...) data
+// reads/writes — with a hard client-level deadline. supabase-js talks to GoTrue/PostgREST over
+// HTTP with NO default timeout, so a SLOW (not refused) Supabase would hang the request forever
+// and pin an Express worker; under Cloud Run concurrency 80 one degraded dependency takes out a
+// whole instance. Passed as `global.fetch` to createClient (auth + service clients) so the bound
+// is uniform. A timeout surfaces as an AbortError → the auth middleware's catch fails CLOSED
+// (401 in prod / 500), never open. Realtime uses WebSockets (not this fetch) so it is unaffected;
+// there are no server-side Supabase Storage uploads that would need a longer budget. Default 8s.
+const SUPABASE_TIMEOUT_MS = Number(process.env.SUPABASE_TIMEOUT_MS) || 8000;
+const supabaseFetch = (input: any, init: any = {}) => {
+  return fetch(input, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(SUPABASE_TIMEOUT_MS),
   });
 };
 
@@ -699,6 +716,20 @@ function saveGeminiCache() {
   }, 2000);
 }
 
+// ==== SINGLE-FLIGHT / REQUEST COALESCING ====
+// L11 (scaling) — Scenario B ("5,000 users ask the same question at once"): WITHOUT this,
+// N identical prompts all MISS a cold cache key simultaneously and each fires a separate
+// (paid, rate-limited) upstream Gemini call — a cache stampede / thundering herd that
+// multiplies spend and can trip the model's own quota. This map holds the in-flight origin
+// promise per request-hash so concurrent identical callers share ONE upstream call and all
+// resolve from it. It self-cleans on settle (see the `finally` below), so it is naturally
+// bounded by the number of DISTINCT in-flight prompts — no disk, no unbounded growth.
+// PER-INSTANCE like the cache above; a shared/Redis single-flight is the documented
+// fleet-wide follow-up in TODO.md (L10/L11).
+const geminiFlight = new SingleFlight<any>();
+export function getGeminiCoalescedHits() { return geminiFlight.coalesced; }
+export function getGeminiInflightSize() { return geminiFlight.size; }
+
 const originalGenerateContent = ai.models.generateContent.bind(ai.models);
 // @ts-ignore
 ai.models.generateContent = async (request: any) => {
@@ -720,15 +751,24 @@ ai.models.generateContent = async (request: any) => {
     return { text: cachedText };
   }
 
-  console.log(`[Gemini Cache MISS] ${hash.substring(0, 8)} - Calling LLM API...`);
-  const response = await originalGenerateContent(request);
-
-  if (response && response.text) {
-    geminiCachePut(hash, response.text);
-    saveGeminiCache();
+  // Single-flight: if an identical request is already in flight, ride THAT call instead of
+  // firing a second upstream request. This is the Scenario-B stampede guard — 5,000 concurrent
+  // identical prompts collapse to a single Gemini call, then everyone drains from the cache
+  // (the leader populates it before its promise settles; see src/lib/singleFlight.ts).
+  if (geminiFlight.has(hash)) {
+    console.log(`[Gemini Coalesced] ${hash.substring(0, 8)} - riding in-flight call.`);
+  } else {
+    console.log(`[Gemini Cache MISS] ${hash.substring(0, 8)} - Calling LLM API...`);
   }
 
-  return response;
+  return geminiFlight.run(hash, async () => {
+    const response = await originalGenerateContent(request);
+    if (response && response.text) {
+      geminiCachePut(hash, response.text);
+      saveGeminiCache();
+    }
+    return response;
+  });
 };
 // =================================================
 
@@ -1504,6 +1544,7 @@ export async function createApp({ startListening = false } = {}) {
     const { createClient } = require("@supabase/supabase-js");
     _sbAuthClient = createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: supabaseFetch }, // hard timeout so a slow GoTrue can't pin workers
     });
     return _sbAuthClient;
   };
@@ -1741,7 +1782,7 @@ export async function createApp({ startListening = false } = {}) {
     if (!url || !key) { _serviceSupabase = false; return null; }
     try {
       const { createClient } = require("@supabase/supabase-js");
-      _serviceSupabase = createClient(url, key, { auth: { persistSession: false } });
+      _serviceSupabase = createClient(url, key, { auth: { persistSession: false }, global: { fetch: supabaseFetch } });
       return _serviceSupabase;
     } catch (e) { _serviceSupabase = false; return null; }
   }
@@ -3168,6 +3209,18 @@ export async function createApp({ startListening = false } = {}) {
           if (!sb) return res.status(503).json({ error: "Billing not configured (service role)." });
           const { data: inv } = await sb.from("invoices").select("amount,tenant_id").eq("id", invoiceId).maybeSingle();
           if (!inv) return res.status(404).json({ error: "Invoice not found." });
+          // BOLA guard (API1) — the invoice MUST belong to the caller's own tenant. Without this,
+          // any authenticated user could pass ANOTHER tenant's invoiceId and (a) read its amount
+          // back in the response and (b) drive that foreign invoice to `paid` via the webhook
+          // (which trusts metadata.invoiceId). The caller's tenant is derived from the verified
+          // token (resolveTenant → profiles.firebase_uid), NEVER from the request body. Enforced
+          // under REQUIRE_AUTH (production); demo mode has a single mock tenant so nothing crosses.
+          if (REQUIRE_AUTH) {
+            const caller = await resolveTenant(req);
+            if (!caller?.id || inv.tenant_id !== caller.id) {
+              return res.status(403).json({ error: "Forbidden." });
+            }
+          }
           if (!inv.amount) return res.status(400).json({ error: "Invoice has no amount." });
           finalAmount = inv.amount;
           finalDescription = `Invoice ${invoiceId}`;
