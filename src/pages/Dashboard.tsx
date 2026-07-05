@@ -7,7 +7,9 @@ import React, { useState, useEffect, useMemo, Suspense, lazy } from "react";
 import QuickActionMacros from "../components/QuickActionMacros";
 import { motion, AnimatePresence } from "motion/react";
 import WidgetConfigurator from "../components/WidgetConfigurator";
-import { crewsRepo, leadsRepo, vendorsRepo, invoicesRepo, customersRepo } from "../lib/repos";
+import { crewsRepo, leadsRepo, vendorsRepo, invoicesRepo, customersRepo, jobsRepo, reviewsRepo, inventoryRepo } from "../lib/repos";
+import { OperationsCommandBand } from "../components/widgets/OpsWidgets";
+import { computeTodaySchedule } from "../lib/dashboardMetrics";
 import { supabase } from "../lib/supabase";
 import { auth } from "../lib/firebase";
 import {
@@ -206,6 +208,11 @@ export default function Dashboard() {
   const [hotLeads, setHotLeads] = useState<Lead[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  // These three feed the Operations command band. `null` = still loading (widgets
+  // skeleton), `[]` = genuinely empty (widgets show their honest empty state).
+  const [jobs, setJobs] = useState<any[] | null>(null);
+  const [reviews, setReviews] = useState<any[] | null>(null);
+  const [inventory, setInventory] = useState<any[] | null>(null);
 
   useEffect(() => {
     // RLS scopes every read to the caller's tenant — no tenantId filter needed.
@@ -216,12 +223,18 @@ export default function Dashboard() {
     const unsubLeads = leadsRepo.subscribe(rows => setHotLeads((rows || []).map(adaptRow)));
     const unsubVendors = vendorsRepo.subscribe(rows => setVendors((rows || []).map(adaptRow)));
     const unsubInvoices = invoicesRepo.subscribe(rows => setInvoices((rows || []).map(adaptRow)));
+    const unsubJobs = jobsRepo.subscribe(rows => setJobs((rows || []).map(adaptRow)));
+    const unsubReviews = reviewsRepo.subscribe(rows => setReviews((rows || []).map(adaptRow)));
+    const unsubInventory = inventoryRepo.subscribe(rows => setInventory((rows || []).map(adaptRow)));
 
     return () => {
       unsubCrews();
       unsubLeads();
       unsubVendors();
       unsubInvoices();
+      unsubJobs();
+      unsubReviews();
+      unsubInventory();
     };
   }, []);
 
@@ -263,6 +276,8 @@ export default function Dashboard() {
   const analytics = useMemo(() => computeAnalytics(invoices, crews, hotLeads), [invoices, crews, hotLeads]);
   const topServices = useMemo(() => computeTopServices(invoices), [invoices]);
   const alerts = useMemo(() => computeAlerts(invoices, hotLeads), [invoices, hotLeads]);
+  // Honest one-line ops pulse for the status strip (real crew status + today's stops).
+  const opsToday = useMemo(() => computeTodaySchedule(jobs || []), [jobs]);
 
   // "Next best step" onboarding rows — done-state comes from real data.
   const setupSteps = useMemo(
@@ -713,14 +728,10 @@ export default function Dashboard() {
               `<li><strong>${escapeHtml(c.name)}:</strong> ${escapeHtml(c.job || "Unassigned")}${c.leader ? ` ( ${escapeHtml(c.leader)} )` : ""}</li>`,
           )
           .join("\n")
-      : [
-          `<li style="color:#9ca3af;font-style:italic;">No crews on the board yet — the entries below are sample data, not real assignments.</li>`,
-          `<li><strong>Sample Crew A:</strong> Arbor Lakes HOA ( Sample Lead )</li>`,
-          `<li><strong>Sample Crew B:</strong> Sample Residence ( Sample Lead )</li>`,
-        ].join("\n");
+      : `<li style="color:#9ca3af;font-style:italic;">No crews are on the board yet — add crews in Crew Suite and they'll appear here.</li>`;
     const crewHeading = hasRealCrews
       ? "Crew Assignments"
-      : "Crew Assignments (Sample — no live crew data)";
+      : "Crew Assignments (none scheduled)";
 
     const weatherLine =
       weather?.forecast ||
@@ -1703,13 +1714,34 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Live status alert strip */}
-      <div className="flex flex-wrap items-center gap-4 text-forest-400 bg-forest-500/5 border border-forest-500/10 w-fit px-5 py-3 rounded-2xl">
-        <div className="w-2.5 h-2.5 bg-forest-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
-        <span className="text-sm font-bold">
-          All systems normal: {crews.length} working crew{crews.length === 1 ? "" : "s"} on-location in {tenant?.settings?.neighborhoodMask?.[0] || "your service area"}.
-        </span>
-      </div>
+      {/* Live ops pulse — derived from real crew status + today's schedule, no reassurance theater */}
+      {(() => {
+        const onSite = analytics.onSite;
+        const stops = opsToday.todayCount;
+        const behind = opsToday.overdueCount;
+        const parts = [
+          `${onSite} crew${onSite === 1 ? "" : "s"} on-site`,
+          `${stops} stop${stops === 1 ? "" : "s"} scheduled today`,
+        ];
+        if (behind > 0) parts.push(`${behind} job${behind === 1 ? "" : "s"} behind schedule`);
+        const attention = behind > 0;
+        return (
+          <div
+            className={`flex flex-wrap items-center gap-3 w-fit px-5 py-3 rounded-2xl border ${
+              attention
+                ? "text-ember-400 bg-ember-500/5 border-ember-500/15"
+                : "text-forest-400 bg-forest-500/5 border-forest-500/10"
+            }`}
+          >
+            <div
+              className={`w-2.5 h-2.5 rounded-full animate-pulse ${attention ? "bg-ember-500 shadow-[0_0_10px_#E85D04]" : "bg-forest-500 shadow-[0_0_10px_#05A845]"}`}
+            />
+            <span className="text-sm font-bold">
+              {parts.join(" · ")} in {tenant?.settings?.neighborhoodMask?.[0] || "your service area"}.
+            </span>
+          </div>
+        );
+      })()}
 
       {/* SETUP CHECKLIST — "next best step" card until the workspace has real data */}
       {showSetupChecklist && (
@@ -1787,6 +1819,17 @@ export default function Dashboard() {
 
         {activeTab === "cockpit" ? (
         <section className="space-y-12">
+
+          {/* PRIORITY: real-data operations command band (role-scoped) */}
+          <OperationsCommandBand
+            role={role}
+            invoices={invoices}
+            jobs={jobs}
+            crews={crews}
+            reviews={reviews}
+            inventory={inventory}
+            weather={weather}
+          />
 
           {/* ACTIVE DRAWERS DISPLAYS */}
           <AnimatePresence mode="wait">
@@ -2288,30 +2331,26 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3 pb-3 border-b border-white/10 molten-edge">
                            <TrendingUp className="text-forest-400" size={20} />
                            <h5 className="text-sm font-bold text-white uppercase tracking-wider">Top Services</h5>
-                           {topServices.length > 0 ? (
-                             <span className="ml-auto text-[10px] bg-forest-500/20 text-forest-400 px-2 py-0.5 rounded-full font-bold">LIVE</span>
-                           ) : (
-                             <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">SAMPLE</span>
-                           )}
+                           <span className="ml-auto text-[10px] bg-forest-500/20 text-forest-400 px-2 py-0.5 rounded-full font-bold">BY PAID REVENUE</span>
                         </div>
-                        <div className="space-y-3">
-                           {(topServices.length > 0
-                              ? topServices.map((s) => ({ label: s.label, value: usd0(s.value), trend: `${s.share}%` }))
-                              : [
-                                 { label: "Mowing & Edge", value: "$4,200", trend: "+12%" },
-                                 { label: "Pine Straw Mulch", value: "$2,850", trend: "+8%" },
-                                 { label: "Shrub Trimming", value: "$1,100", trend: "-2%" },
-                              ]
-                           ).map((item, i) => (
-                             <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                <span className="text-sm font-medium text-white truncate min-w-0 mr-3">{item.label}</span>
-                                <div className="text-right flex items-center gap-3 shrink-0">
-                                   <span className="text-sm font-bold text-white">{item.value}</span>
-                                   <span className={`text-[10px] font-bold ${item.trend.startsWith('-') ? 'text-red-400' : 'text-forest-400'}`}>{item.trend}</span>
-                                </div>
-                             </div>
-                           ))}
-                        </div>
+                        {topServices.length > 0 ? (
+                          <div className="space-y-3">
+                             {topServices.map((s, i) => (
+                               <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                                  <span className="text-sm font-medium text-white truncate min-w-0 mr-3">{s.label}</span>
+                                  <div className="text-right flex items-center gap-3 shrink-0">
+                                     <span className="text-sm font-bold text-white">{usd0(s.value)}</span>
+                                     <span className="text-[10px] font-bold text-forest-400 uppercase tracking-wider">{s.share}% of rev</span>
+                                  </div>
+                               </div>
+                             ))}
+                          </div>
+                        ) : (
+                          <div className="border border-dashed border-white/10 rounded-xl p-6 text-center">
+                             <p className="text-sm font-bold text-white/60">No paid invoices yet</p>
+                             <p className="text-xs text-zinc-500 mt-1">Your top revenue services will rank here once invoices are paid.</p>
+                          </div>
+                        )}
                      </div>
                    </div>
                 </div>
@@ -2711,6 +2750,17 @@ export default function Dashboard() {
       ) : (
         // DEEP INTEL / INFO FREAK VIEW (Tab 2: Analytics)
         <section className="space-y-12 animate-fadeIn">
+          {/* PRIORITY: real-data operations command band (role-scoped) */}
+          <OperationsCommandBand
+            role={role}
+            invoices={invoices}
+            jobs={jobs}
+            crews={crews}
+            reviews={reviews}
+            inventory={inventory}
+            weather={weather}
+          />
+
           {/* Main detailed high density stats — live from invoices / crews / leads */}
           <div
             id="analytics-dense-stats"

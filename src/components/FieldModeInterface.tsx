@@ -25,6 +25,7 @@ import { jobsRepo, inspectionFormsRepo, customersRepo } from "../lib/repos";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
 import JobMap from "./JobMap";
+import JobTimeClock from "./JobTimeClock";
 
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useAuditLog } from "../hooks/useAuditLog";
@@ -429,6 +430,15 @@ export default function FieldModeInterface() {
                     </button>
                   )}
                 </div>
+
+                {/* Crew time clock — clock in/out against THIS job (stamps jobId +
+                    customerId), optional geofence, live elapsed, offline-safe. Feeds
+                    Job Costing + the payroll export (Reports → Payroll). */}
+                <JobTimeClock
+                  job={activeJob}
+                  highContrast={isHighContrast}
+                  onToast={showToast}
+                />
 
                 <div className="space-y-4">
                   <div

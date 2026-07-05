@@ -68,6 +68,9 @@ import { Customer, Insight } from "../types";
 import { LeadVerificationPanel } from "../components/LeadVerificationPanel";
 import { runAutomations } from "../lib/automations";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CsvImportModal } from "../components/CsvImportModal";
+import { MergeCustomersModal } from "../components/MergeCustomersModal";
+import { CUSTOMER_FIELDS, customerMatch } from "../lib/csvImport";
 import { EmptyState } from "../components/EmptyState";
 import { Skeleton } from "../components/Skeleton";
 
@@ -956,6 +959,24 @@ export default function CRM() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
+  // New header-mapped, dedupe-aware import + merge-duplicates flows (replace the naive
+  // "create every row" upload below, which duplicated on re-import).
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const openImport = () => {
+    if (userRole !== "admin" && userRole !== "owner") {
+      showToast("Only admins or owners can import CSV data.", "error");
+      return;
+    }
+    setShowImportModal(true);
+  };
+  const openMerge = () => {
+    if (userRole !== "admin" && userRole !== "owner") {
+      showToast("Only admins or owners can merge customers.", "error");
+      return;
+    }
+    setShowMergeModal(true);
+  };
 
   const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (userRole !== "admin" && userRole !== "owner") {
@@ -1074,7 +1095,7 @@ export default function CRM() {
               <Users size={24} className="group-hover:scale-110 transition-transform" />
               <span className="font-bold text-sm">Sync Workspace</span>
             </button>
-            <button onClick={() => { if(fileInputRef.current) fileInputRef.current.click() }} className="flex flex-col items-center justify-center gap-2 p-6 bg-ember-500/10 border border-ember-500/20 rounded-[20px] text-ember-400 hover:bg-ember-500/20 transition-all group shadow-sm">
+            <button onClick={openImport} className="flex flex-col items-center justify-center gap-2 p-6 bg-ember-500/10 border border-ember-500/20 rounded-[20px] text-ember-400 hover:bg-ember-500/20 transition-all group shadow-sm">
               <Upload size={24} className="group-hover:scale-110 transition-transform" />
               <span className="font-bold text-sm">Import CSV</span>
             </button>
@@ -1310,13 +1331,20 @@ export default function CRM() {
                   </button>
                   {(userRole === "admin" || userRole === "owner") && (
                     <>
-                      <label
-                        htmlFor="csv-upload"
+                      <button
+                        onClick={openImport}
                         className="flex items-center gap-3 px-6 py-4 bg-white/5 border border-white/5 text-white rounded-xl font-bold text-sm tracking-wide hover:bg-white/10 transition-all cursor-pointer"
                       >
                         <Upload size={18} />
-                        {isImporting ? "Importing..." : "Import"}
-                      </label>
+                        Import
+                      </button>
+                      <button
+                        onClick={openMerge}
+                        className="flex items-center gap-3 px-6 py-4 bg-white/5 border border-white/5 text-white rounded-xl font-bold text-sm tracking-wide hover:bg-white/10 transition-all cursor-pointer"
+                      >
+                        <Users size={18} />
+                        Merge Dupes
+                      </button>
                       <button
                         onClick={() => {
                             // Every field routed through the CSV-safe serializer: quotes/commas
@@ -3287,6 +3315,24 @@ export default function CRM() {
         description={confirmAction?.description || ""}
         confirmText="Delete"
         danger
+      />
+
+      <CsvImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        entityLabel="customers"
+        fields={CUSTOMER_FIELDS}
+        matchConfig={customerMatch}
+        existing={customers}
+        repo={customersRepo}
+        onComplete={() => logSystemEvent("CSV_CUSTOMERS_IMPORTED", {}).catch(() => {})}
+      />
+
+      <MergeCustomersModal
+        isOpen={showMergeModal}
+        onClose={() => setShowMergeModal(false)}
+        customers={customers}
+        onMerged={() => logSystemEvent("CUSTOMERS_MERGED", {}).catch(() => {})}
       />
     </>
   );

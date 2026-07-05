@@ -9,10 +9,22 @@
 
 const FORMULA_LEAD = /^[=+\-@\t\r]/;
 
+/**
+ * Neutralize a spreadsheet formula lead (CWE-1236). A cell beginning with = + - @
+ * (or tab / carriage-return) is treated as a live formula by Excel/Sheets/LibreOffice;
+ * prefixing a single quote makes the spreadsheet render it as literal text.
+ * Shared by CSV *export* (csvCell) and CSV *import* (sanitizeImportedCell) so a value is
+ * neutralized once, consistently, whichever direction it crosses the spreadsheet boundary.
+ * Idempotent: a value already prefixed with `'` no longer matches, so it is not re-prefixed.
+ */
+export function neutralizeFormulaLead(value: unknown): string {
+  const s = value === null || value === undefined ? "" : String(value);
+  return FORMULA_LEAD.test(s) ? "'" + s : s;
+}
+
 /** Escape one CSV field: neutralize formula leads, then quote + double internal quotes. */
 export function csvCell(value: unknown): string {
-  let s = value === null || value === undefined ? "" : String(value);
-  if (FORMULA_LEAD.test(s)) s = "'" + s;
+  const s = neutralizeFormulaLead(value);
   // Always quote and escape — cheap, and avoids per-value delimiter sniffing mistakes.
   return '"' + s.replace(/"/g, '""') + '"';
 }

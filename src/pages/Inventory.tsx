@@ -53,6 +53,9 @@ import { TrendingDown } from "lucide-react";
 import { StockDepletionChart } from "../components/StockDepletionChart";
 import { useToast } from "../contexts/ToastContext";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CsvImportModal } from "../components/CsvImportModal";
+import { INVENTORY_FIELDS, inventoryMatch } from "../lib/csvImport";
+import { Upload } from "lucide-react";
 import { EmptyState } from "../components/EmptyState";
 import { Skeleton } from "../components/Skeleton";
 
@@ -68,6 +71,8 @@ export default function Inventory() {
   const { showToast } = useToast();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // Header-mapped, dedupe-aware CSV import (dedupes on SKU/barcode/name+vendor).
+  const [showImportModal, setShowImportModal] = useState(false);
   // Pending destructive action (inventory item deletion), gated behind a confirm dialog.
   const [pendingDeleteItem, setPendingDeleteItem] = useState<any>(null);
   const [logs, setLogs] = useState<
@@ -559,6 +564,13 @@ export default function Inventory() {
           >
             <Scan size={24} className="animate-pulse" />
             <span className="hidden sm:inline">Scan Item</span>
+          </button>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center justify-center gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-black text-white/60 hover:text-white border border-white/5 font-black uppercase tracking-widest text-sm rounded-2xl hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0"
+          >
+            <Upload size={24} />
+            <span className="hidden sm:inline">Import CSV</span>
           </button>
           <button
             onClick={() => setShowCalculator(!showCalculator)}
@@ -1677,6 +1689,17 @@ export default function Inventory() {
         description={`This removes "${pendingDeleteItem?.name || "this item"}" from your inventory. This can't be undone.`}
         confirmText="Delete"
         danger
+      />
+
+      <CsvImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        entityLabel="inventory items"
+        fields={INVENTORY_FIELDS}
+        matchConfig={inventoryMatch}
+        existing={items}
+        repo={inventoryRepo}
+        onComplete={() => logSystemEvent("CSV_INVENTORY_IMPORTED", {}).catch(() => {})}
       />
     </div>
   );
