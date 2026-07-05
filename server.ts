@@ -45,6 +45,11 @@ import {
 // and honors the { toPush, toPull, conflicts, alreadyLinked } plan — it NEVER re-implements the
 // money-/identity-sensitive mapping or diff logic. Proven by src/lib/qboMapping*.test.ts.
 import { mapCustomerToQbo, mapInvoiceToQbo, reconcile, type Link } from "./src/lib/qboMapping.js";
+// Application-layer secret encryption for at-rest OAuth tokens (QBO access/refresh live in the
+// service-role-only `integrations` table). encryptSecret() on every WRITE, decryptSecret() right
+// before a token is USED. No key set (dev) => passthrough; legacy plaintext rows decrypt through
+// unchanged (forward-compatible). NEVER log token material. See src/lib/secretCrypto.ts.
+import { encryptSecret, decryptSecret } from "./src/lib/secretCrypto.js";
 // Pure, deterministic document-understanding core (no I/O). Turns the loosely-parsed JSON a
 // vision/LLM extractor emits for a vendor invoice into a normalized, defensively-coerced expense
 // DRAFT for human review. The /api/documents/parse route feeds Gemini's structured output straight
@@ -3458,20 +3463,27 @@ export async function createApp({ startListening = false } = {}) {
   const qboAccessToken = async (integ: any, opts: { force?: boolean } = {}) => {
     if (!integ) return null;
     const cfg = qboConfig();
+    // Decrypt the stored tokens right before use. Rows may be encrypted at rest (Tier 2+) or
+    // legacy plaintext (decryptSecret passes those through unchanged). Never log token material.
+    const accessToken = decryptSecret(integ.access_token || "");
+    const refreshToken = decryptSecret(integ.refresh_token || "");
     const notExpired = integ.expires_at && new Date(integ.expires_at).getTime() > Date.now() + 60000;
-    if (!opts.force && notExpired && integ.access_token) return integ.access_token;
-    if (!integ.refresh_token || !cfg.configured) return integ.access_token || null;
+    if (!opts.force && notExpired && accessToken) return accessToken;
+    if (!refreshToken || !cfg.configured) return accessToken || null;
     const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
-    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: integ.refresh_token });
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken });
     const r = await fetchWithTimeout(cfg.tokenUrl, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body });
-    if (!r.ok) return integ.access_token || null;
+    if (!r.ok) return accessToken || null;
     const tok = await r.json();
     const sb = getServiceSupabase();
     const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
-    if (sb) await sb.from("integrations").update({ access_token: tok.access_token, refresh_token: tok.refresh_token || integ.refresh_token, expires_at, updated_at: new Date().toISOString() }).eq("id", integ.id);
-    // Keep the in-memory record current for the remainder of this pass.
-    integ.access_token = tok.access_token;
-    integ.refresh_token = tok.refresh_token || integ.refresh_token;
+    const newRefresh = tok.refresh_token || refreshToken;
+    // WRITE: encrypt both tokens before persisting (passthrough when no key is configured).
+    if (sb) await sb.from("integrations").update({ access_token: encryptSecret(tok.access_token), refresh_token: encryptSecret(newRefresh), expires_at, updated_at: new Date().toISOString() }).eq("id", integ.id);
+    // Keep the in-memory record current for the remainder of this pass — stored in the same
+    // encrypted-at-rest form as the DB so any further qboAccessToken() call decrypts consistently.
+    integ.access_token = encryptSecret(tok.access_token);
+    integ.refresh_token = encryptSecret(newRefresh);
     integ.expires_at = expires_at;
     return tok.access_token;
   };
@@ -3526,7 +3538,8 @@ export async function createApp({ startListening = false } = {}) {
       const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
       await sb.from("integrations").upsert({
         tenant_id: tenantId, provider: "quickbooks", realm_id: realmId ? String(realmId) : null,
-        access_token: tok.access_token, refresh_token: tok.refresh_token, expires_at, status: "connected", updated_at: new Date().toISOString(),
+        // WRITE: encrypt the freshly-exchanged tokens at rest (passthrough when no key is set).
+        access_token: encryptSecret(tok.access_token), refresh_token: encryptSecret(tok.refresh_token), expires_at, status: "connected", updated_at: new Date().toISOString(),
       }, { onConflict: "tenant_id,provider" });
       res.redirect(`${BASE_URL}/admin/settings?quickbooks=connected`);
     } catch (e: any) {
