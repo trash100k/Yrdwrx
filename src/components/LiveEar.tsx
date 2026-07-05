@@ -73,6 +73,10 @@ export default function LiveEar() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const nextStartTimeRef = useRef(0);
+  // Held so stopLiveEar can stop the mic/camera tracks + the frame interval (privacy: the
+  // device must stop recording the instant the user stops or the component unmounts).
+  const streamRef = useRef<MediaStream | null>(null);
+  const videoIntervalRef = useRef<any>(null);
 
   // --- High-risk action confirmation gate ---
   // `confirmRequest` drives the ConfirmDialog; its `resolve` is awaited inside the
@@ -108,6 +112,15 @@ export default function LiveEar() {
     try {
       if (audioCtxRef.current && audioCtxRef.current.state !== "closed")
         audioCtxRef.current.close();
+    } catch {}
+    // Stop the mic + camera tracks so the device recording indicator goes off — closing the
+    // WebSocket/AudioContext alone leaves getUserMedia tracks live and the camera/mic recording.
+    try {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    } catch {}
+    try {
+      if (videoIntervalRef.current) { clearInterval(videoIntervalRef.current); videoIntervalRef.current = null; }
     } catch {}
   };
 
@@ -147,6 +160,7 @@ let stream;
         }
       }
       
+      streamRef.current = stream;
       const source = audioCtx.createMediaStreamSource(stream);
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
@@ -183,6 +197,7 @@ let stream;
             }
           }
         }, 3000); // Send a frame every 3 seconds for environmental context
+        videoIntervalRef.current = videoInterval;
       }
 
       processor.onaudioprocess = (e) => {
