@@ -1,0 +1,50 @@
+# Controls what `gcloud builds submit` uploads as the Cloud Build context.
+# Presence of this file overrides .gitignore for upload. Keep the Dockerfile and
+# cloudbuild.yaml (Cloud Build needs them) plus all source/config the build reads.
+
+# Host deps — Docker installs its own from the lockfile; uploading node_modules is slow + risky.
+node_modules
+**/node_modules
+
+# VCS + CI
+.git
+.gitignore
+.github
+
+# Secrets / local env — never upload
+.env
+.env.*
+
+# Build outputs (rebuilt inside the image)
+dist
+server.js
+server.cjs
+
+# Test / coverage / e2e artifacts
+coverage
+cypress
+cypress/screenshots
+cypress/videos
+
+# Logs and scratch dumps
+*.log
+*.txt
+out.txt
+audit.txt
+temp.txt
+root_output.html
+
+# Root scratch / codemod scripts (see CLAUDE.md "Ignore these")
+fix-*.cjs
+fix_*.ts
+replace-*.cjs
+rebrand*.cjs
+add_nocheck.cjs
+apply_nocheck_all.cjs
+remove-nocheck.cjs
+reset-agreements.cjs
+security_gauntlet.cjs
+test*.cjs
+parse.ts
+app/applet
+workspace

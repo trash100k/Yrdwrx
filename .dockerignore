@@ -1,0 +1,55 @@
+# Keep the Docker build context small, reproducible, and secret-free.
+# NOTE: do NOT add source or config the build needs (src/, server.ts, index.html,
+# vite.config.ts, tsconfig.json, public/, firebase-*.json, firestore.rules, etc.).
+
+# Host deps — a host node_modules (possibly wrong-arch) would clobber the clean
+# `COPY --from=deps` node_modules at `COPY . .`. Docker installs its own.
+node_modules
+**/node_modules
+
+# VCS + CI
+.git
+.gitignore
+.github
+
+# Secrets / local env — never bake these into the image (.env.example included; not needed at runtime)
+.env
+.env.*
+
+# Build outputs (rebuilt in the builder stage; runner copies from builder, not the context)
+dist
+server.js
+server.cjs
+
+# Test / coverage / e2e artifacts
+coverage
+cypress
+cypress/screenshots
+cypress/videos
+
+# Logs and scratch dumps
+*.log
+*.txt
+out.txt
+audit.txt
+temp.txt
+root_output.html
+
+# Root scratch / codemod scripts (see CLAUDE.md "Ignore these") — never source of truth
+fix-*.cjs
+fix_*.ts
+replace-*.cjs
+rebrand*.cjs
+add_nocheck.cjs
+apply_nocheck_all.cjs
+remove-nocheck.cjs
+reset-agreements.cjs
+security_gauntlet.cjs
+test*.cjs
+parse.ts
+app/applet
+workspace
+
+# Docker meta
+Dockerfile
+.dockerignore

@@ -27,3 +27,8 @@ jobs:
 
       - name: Test
         run: npm run test
+
+      # Catch build breakage (vite build + esbuild server bundle) in CI, not only at Cloud Build.
+      # No VITE_* args here => builds in demo/mock mode, which is fine for verifying the build compiles.
+      - name: Build (frontend + server bundle)
+        run: npm run build

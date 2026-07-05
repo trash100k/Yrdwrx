@@ -1,11 +1,26 @@
 steps:
-# 1. Build the multi-stage Docker image
+# 1. Build the multi-stage Docker image.
+#    The VITE_* build args are inlined into the FRONTEND bundle by `vite build` (they cannot be
+#    injected at container runtime). Values come from the substitutions below. The Supabase URL +
+#    anon key are PUBLISHABLE (they ship in the client bundle) — safe as build args, not secrets.
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA', '.']
+  args:
+  - 'build'
+  - '-t'
+  - 'gcr.io/$PROJECT_ID/yardworx:$COMMIT_SHA'
+  - '--build-arg'
+  - 'VITE_SUPABASE_URL=${_VITE_SUPABASE_URL}'
+  - '--build-arg'
+  - 'VITE_SUPABASE_ANON_KEY=${_VITE_SUPABASE_ANON_KEY}'
+  - '--build-arg'
+  - 'VITE_REQUIRE_AUTH=${_VITE_REQUIRE_AUTH}'
+  - '--build-arg'
+  - 'VITE_GOOGLE_MAPS_PLATFORM_KEY=${_VITE_GOOGLE_MAPS_PLATFORM_KEY}'
+  - '.'
 
 # 2. Push the image to Container Registry
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA']
+  args: ['push', 'gcr.io/$PROJECT_ID/yardworx:$COMMIT_SHA']
 
 # 3. Deploy to Cloud Run automatically
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -13,9 +28,9 @@ steps:
   args:
   - 'run'
   - 'deploy'
-  - 'react-example-app'
+  - 'yardworx'
   - '--image'
-  - 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/yardworx:$COMMIT_SHA'
   - '--region'
   - 'us-central1'
   - '--port'
@@ -40,12 +55,30 @@ steps:
   - 'httpGet.path=/healthz,httpGet.port=3000,periodSeconds=30,timeoutSeconds=5,failureThreshold=3'
   # Non-secret runtime config. REQUIRE_AUTH=true is REQUIRED — the server now refuses to
   # boot in production without it (it will not serve an unauthenticated multi-tenant API).
+  # BASE_URL comes from the _BASE_URL substitution (used for Stripe success/return URLs);
+  # override it at deploy with your real domain.
   - '--set-env-vars'
-  - 'NODE_ENV=production,REQUIRE_AUTH=true,WEB_CONCURRENCY=2,BASE_URL=https://YOUR-DOMAIN'
+  - 'NODE_ENV=production,REQUIRE_AUTH=true,WEB_CONCURRENCY=2,BASE_URL=${_BASE_URL}'
   # Secrets pulled from Secret Manager (create these once: gcloud secrets create <NAME>).
   # Without GEMINI_API_KEY the app boots but serves canned mock AI to real customers.
   - '--set-secrets'
   - 'GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,JWT_SECRET=JWT_SECRET:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest,GOOGLE_MAPS_PLATFORM_KEY=GOOGLE_MAPS_PLATFORM_KEY:latest'
 
 images:
-- 'gcr.io/$PROJECT_ID/react-example-app:$COMMIT_SHA'
+- 'gcr.io/$PROJECT_ID/yardworx:$COMMIT_SHA'
+
+# User-defined substitutions (all must start with `_`). Override at deploy time with:
+#   gcloud builds submit --substitutions=_VITE_SUPABASE_URL=...,_VITE_SUPABASE_ANON_KEY=...,_BASE_URL=...
+# or wire them into the Cloud Build trigger. Defaults below keep the pipeline valid but MUST be
+# set for a real production deploy (empty Supabase URL/key => broken login while REQUIRE_AUTH=true).
+substitutions:
+  # Public base URL of the deployment (Stripe success/refresh/return URLs). Override with real domain.
+  _BASE_URL: 'https://app.yardworx.io'
+  # Publishable Supabase client config (inlined into the SPA). Leave blank => demo/mock-admin frontend.
+  _VITE_SUPABASE_URL: ''
+  _VITE_SUPABASE_ANON_KEY: ''
+  # Frontend auth gate. 'true' matches the server-side REQUIRE_AUTH=true above (production default).
+  _VITE_REQUIRE_AUTH: 'true'
+  # Publishable, HTTP-referrer-restricted Maps JS key for the client (optional; the app also fetches
+  # a key at runtime from /api/config/maps backed by the GOOGLE_MAPS_PLATFORM_KEY secret).
+  _VITE_GOOGLE_MAPS_PLATFORM_KEY: ''
