@@ -523,6 +523,14 @@ export default function Layout() {
 
   return (
     <>
+      {/* Skip link (a11y L1): first focusable element, visually hidden until focused.
+          Lets keyboard/screen-reader users jump past the nav straight to content. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[9999] focus:px-4 focus:py-3 focus:rounded-xl focus:bg-forest-500 focus:text-black focus:font-bold focus:shadow-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      >
+        Skip to main content
+      </a>
       <DisclaimerModal />
       <div
         className={cn(
@@ -560,7 +568,7 @@ export default function Layout() {
                       YARDWORX
                     </h1>
                     <div className="flex flex-col pt-1 border-t border-white/10 items-center">
-                      <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-sans mb-0.5">
+                      <p className="text-[11px] text-zinc-400 uppercase tracking-[0.2em] font-sans mb-0.5">
                         Powered By
                       </p>
                       <div className="font-['Cinzel_Decorative'] text-base tracking-[0.15em] uppercase leading-none font-bold drop-shadow-xl flex items-center">
@@ -661,7 +669,7 @@ export default function Layout() {
                     {tenant.tier} tier
                   </span>
                   {role && (
-                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-[0.2em] mt-1 bg-white/5 px-2 py-0.5 rounded-full">
+                    <span className="text-[11px] font-bold text-white/60 uppercase tracking-[0.2em] mt-1 bg-white/5 px-2 py-0.5 rounded-full">
                       {role}
                     </span>
                   )}
@@ -679,7 +687,11 @@ export default function Layout() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-20 lg:pt-32">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-20 lg:pt-32 focus:outline-none"
+        >
           <AnimatePresence>
             {isOffline && (
               <motion.div
@@ -710,7 +722,7 @@ export default function Layout() {
                   YARDWORX
                 </span>
                 <div className="flex items-center justify-center gap-1.5 mt-1 sm:mt-1.5 ml-2">
-                  <span className="text-[8px] sm:text-[9px] text-zinc-400 tracking-widest font-sans uppercase">
+                  <span className="text-[11px] sm:text-[12px] text-zinc-300 tracking-widest font-sans uppercase">
                     Powered By
                   </span>
                   <div className="font-['Cinzel_Decorative'] text-[10px] sm:text-xs tracking-[0.15em] uppercase leading-none font-bold drop-shadow-xl flex items-center">
@@ -735,7 +747,7 @@ export default function Layout() {
                   Search
                 </label>
                 <div
-                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-500 flex items-center justify-between"
+                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-400 flex items-center justify-between"
                 >
                   <span>Search for customers, equipment, or jobs...</span>
                   <div className="flex items-center gap-1">
@@ -762,7 +774,7 @@ export default function Layout() {
                       updateThemeSetting('visualContrast', 'outdoor-light');
                     }
                   }}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 hover:text-amber-400"
+                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 hover:text-amber-400"
                   aria-label="Toggle Field Theme"
                 >
                   {themeSettings.visualContrast === 'outdoor-light' ? <Moon size={20} /> : <Sun size={20} />}
@@ -770,7 +782,7 @@ export default function Layout() {
 
                 <button
                   onClick={() => setIsQuickCreateOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
+                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
                   aria-label="Quick Create"
                 >
                   <Plus size={20} />
@@ -778,7 +790,7 @@ export default function Layout() {
 
                 <button
                   onClick={() => setIsShortcutsOpen(true)}
-                  className="hidden sm:flex w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all"
+                  className="hidden sm:flex min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all"
                   aria-label="Keyboard shortcuts"
                   title="Keyboard shortcuts (?)"
                 >
@@ -787,7 +799,7 @@ export default function Layout() {
 
                 <button
                   onClick={() => setIsNotificationsOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
                   aria-label="Notifications"
                 >
                   <Bell size={20} />
@@ -799,7 +811,7 @@ export default function Layout() {
                 <button
                   id="brain-trigger"
                   onClick={() => setIsBrainOpen(true)}
-                  className="w-10 h-10 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
+                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
                   aria-label="Get Help"
                 >
                   <Brain size={20} />

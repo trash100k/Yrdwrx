@@ -74,6 +74,30 @@ export default defineConfig(({mode}) => {
         }
       })
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          // Split heavy libs into their own chunks (L10 bundle-size). Function form
+          // so a lib that isn't actually in the graph simply produces no chunk (no
+          // build error). Boundary-aware matches avoid react/react-router collisions
+          // and work under both npm-flat and pnpm nested node_modules layouts.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return;
+            // react + react-dom + router + scheduler must stay together to avoid
+            // cross-chunk init-order hazards.
+            if (id.includes('/react-router')) return 'react-vendor';
+            if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react-vendor';
+            // recharts pulls a family of d3-* packages + victory-vendor; keep together.
+            if (id.includes('/recharts/') || id.includes('/victory-vendor/') || /node_modules\/d3-[a-z]+\//.test(id)) return 'recharts';
+            if (id.includes('/three/')) return 'three';
+            if (id.includes('/fabric/')) return 'fabric';
+            if (id.includes('/@firebase/') || /node_modules\/firebase\//.test(id)) return 'firebase';
+            if (id.includes('/@supabase/')) return 'supabase';
+            if (/node_modules\/(motion|framer-motion|motion-dom|motion-utils)\//.test(id)) return 'motion';
+          },
+        },
+      },
+    },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GOOGLE_MAPS_PLATFORM_KEY': JSON.stringify(env.GOOGLE_MAPS_PLATFORM_KEY || ''),
