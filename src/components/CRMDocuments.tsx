@@ -3,11 +3,57 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Customer } from "../types";
 import {
   FileText, Folder, MoreVertical, Search, Upload, Download, ExternalLink,
-  Loader2, Trash2, X,
+  Loader2, Trash2, X, Sparkles, Check, AlertTriangle,
 } from "lucide-react";
-import { documentsRepo } from "../lib/repos";
+import { documentsRepo, expensesRepo, contractsRepo } from "../lib/repos";
 import { useToast } from "../contexts/ToastContext";
+import { fetchApi } from "../lib/api";
 import { ConfirmDialog } from "./ConfirmDialog";
+
+// Extraction kinds accepted by POST /api/documents/parse.
+type ExtractKind = "vendor_invoice" | "contract" | "permit";
+
+const EXTRACT_KIND_LABELS: Record<ExtractKind, string> = {
+  vendor_invoice: "Vendor Invoice",
+  contract: "Contract",
+  permit: "Permit",
+};
+
+// Best-guess default extraction kind from the folder a doc lives in.
+function defaultKindForDoc(doc: any): ExtractKind {
+  const f = (doc?.folder || "").toLowerCase();
+  if (f.includes("contract")) return "contract";
+  if (f.includes("permit")) return "permit";
+  return "vendor_invoice";
+}
+
+// Map a reviewed vendor-invoice draft (from vendorInvoiceToExpense on the server) to a Supabase
+// `expenses` row. Mirrors toExpenseRow in Invoices.tsx: amount/merchant/category/date are columns;
+// everything else nests into `data`. Nothing here re-derives money — the draft is authoritative.
+function draftToExpenseRow(draft: any, doc: any) {
+  return {
+    amount: draft?.total ?? 0,
+    merchant: draft?.vendor ?? "Unknown Vendor",
+    category: "Supplies",
+    date: draft?.date ?? null,
+    data: {
+      vendor: draft?.vendor ?? "Unknown Vendor",
+      status: "cleared",
+      source: "document_parse",
+      documentId: doc?.id ?? null,
+      lineItems: Array.isArray(draft?.items) ? draft.items : [],
+      needsReview: !!draft?.needsReview,
+      ...(draft?.jobId ? { jobId: draft.jobId } : {}),
+      ...(draft?.customerId ? { customerId: draft.customerId } : {}),
+    },
+  };
+}
+
+function money(n: any): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "$0.00";
+  return `$${v.toFixed(2)}`;
+}
 
 const FOLDERS = ["Contracts", "Estimates", "Invoices", "Media", "General"];
 
@@ -50,6 +96,14 @@ export const CRMDocuments = ({ customers }: { customers: Customer[] }) => {
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<any | null>(null);
+
+  // --- Document understanding ("Extract") state ---
+  const [extractDoc, setExtractDoc] = useState<any | null>(null);
+  const [extractKind, setExtractKind] = useState<ExtractKind>("vendor_invoice");
+  const [extractLoading, setExtractLoading] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [extractResult, setExtractResult] = useState<any | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -149,6 +203,123 @@ export const CRMDocuments = ({ customers }: { customers: Customer[] }) => {
       showToast(err?.message ? `Delete failed: ${err.message}` : "Delete failed", "error");
     } finally {
       setPendingDelete(null);
+    }
+  };
+
+  // --- Document understanding: open the Extract review modal for a doc ---
+  const openExtract = (doc: any) => {
+    setOpenMenuId(null);
+    setExtractDoc(doc);
+    setExtractKind(defaultKindForDoc(doc));
+    setExtractResult(null);
+    setExtractError(null);
+    setExtractLoading(false);
+  };
+
+  const closeExtract = () => {
+    setExtractDoc(null);
+    setExtractResult(null);
+    setExtractError(null);
+    setExtractLoading(false);
+    setSaving(false);
+  };
+
+  // Read a stored (private) document's bytes as a base64 data URL. Re-signs the storage path so a
+  // stale long-lived signed URL doesn't 403; falls back to the persisted url.
+  const loadDocBase64 = async (doc: any): Promise<{ base64: string; mimeType: string }> => {
+    let url = doc?.url || null;
+    if (doc?.storage_path) {
+      try {
+        const fresh = await documentsRepo.signedUrl(doc.storage_path, 600);
+        if (fresh) url = fresh;
+      } catch { /* fall back to the stored url */ }
+    }
+    if (!url) throw new Error("No file URL available for this document");
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("Could not read the stored file");
+    const blob = await resp.blob();
+    const mimeType = blob.type || doc?.mime || "application/pdf";
+    const base64: string = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onerror = () => reject(new Error("Could not read the stored file"));
+      r.onloadend = () => resolve(String(r.result || ""));
+      r.readAsDataURL(blob);
+    });
+    return { base64, mimeType };
+  };
+
+  // Run Gemini document understanding on the current doc. Result is shown for review — nothing is
+  // written until the user confirms below.
+  const runExtract = async (kind: ExtractKind) => {
+    if (!extractDoc) return;
+    setExtractKind(kind);
+    setExtractLoading(true);
+    setExtractError(null);
+    setExtractResult(null);
+    try {
+      const { base64, mimeType } = await loadDocBase64(extractDoc);
+      const res = await fetchApi("/api/documents/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          file: base64,
+          mimeType,
+          customerId: extractDoc?.customer_id || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || "Document parsing failed");
+      setExtractResult(body);
+    } catch (err: any) {
+      setExtractError(err?.message || "Extraction failed");
+    } finally {
+      setExtractLoading(false);
+    }
+  };
+
+  // Confirm a reviewed vendor-invoice draft → create a real expense (RLS-scoped repo).
+  const confirmExpense = async () => {
+    const draft = extractResult?.draft;
+    if (!draft) return;
+    setSaving(true);
+    try {
+      await expensesRepo.create(draftToExpenseRow(draft, extractDoc));
+      showToast(`Expense created from "${extractDoc?.name || "document"}"`, "success");
+      closeExtract();
+    } catch (err: any) {
+      showToast(err?.message ? `Could not create expense: ${err.message}` : "Could not create expense", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Confirm reviewed contract/permit fields → persist for review (RLS-scoped contracts repo).
+  const saveFields = async () => {
+    const fields = extractResult?.fields;
+    if (!fields) return;
+    setSaving(true);
+    try {
+      const parties = Array.isArray(fields.parties) ? fields.parties.filter(Boolean).join(", ") : "";
+      await contractsRepo.create({
+        name: fields.documentType
+          ? `${fields.documentType}${parties ? " — " + parties : ""}`
+          : extractDoc?.name || "Extracted Document",
+        status: "review",
+        customerId: extractDoc?.customer_id || undefined,
+        data: {
+          source: "document_parse",
+          documentId: extractDoc?.id || null,
+          kind: extractKind,
+          extracted: fields,
+        },
+      });
+      showToast("Extracted fields saved for review", "success");
+      closeExtract();
+    } catch (err: any) {
+      showToast(err?.message ? `Could not save fields: ${err.message}` : "Could not save fields", "error");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -332,6 +503,13 @@ export const CRMDocuments = ({ customers }: { customers: Customer[] }) => {
                         >
                           <ExternalLink size={14} />
                         </button>
+                        <button
+                          onClick={() => openExtract(doc)}
+                          className="w-8 h-8 rounded-full hover:bg-forest-500/10 flex items-center justify-center text-white/60 hover:text-forest-400 transition-colors"
+                          title="Extract data with AI"
+                        >
+                          <Sparkles size={14} />
+                        </button>
                         <div className="relative">
                           <button
                             onClick={() => setOpenMenuId(openMenuId === doc.id ? null : doc.id)}
@@ -349,6 +527,12 @@ export const CRMDocuments = ({ customers }: { customers: Customer[] }) => {
                                   className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-white/80 hover:bg-white/5 hover:text-white flex items-center gap-3 transition-colors"
                                 >
                                   <ExternalLink size={14} /> Open
+                                </button>
+                                <button
+                                  onClick={() => openExtract(doc)}
+                                  className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-forest-400 hover:bg-forest-500/10 flex items-center gap-3 transition-colors"
+                                >
+                                  <Sparkles size={14} /> Extract data
                                 </button>
                                 <button
                                   onClick={() => { setOpenMenuId(null); setPendingDelete(doc); }}
@@ -379,6 +563,274 @@ export const CRMDocuments = ({ customers }: { customers: Customer[] }) => {
         confirmText="Delete"
         danger
       />
+
+      {extractDoc && (
+        <ExtractModal
+          doc={extractDoc}
+          kind={extractKind}
+          setKind={setExtractKind}
+          loading={extractLoading}
+          error={extractError}
+          result={extractResult}
+          saving={saving}
+          onRun={runExtract}
+          onConfirmExpense={confirmExpense}
+          onSaveFields={saveFields}
+          onClose={closeExtract}
+        />
+      )}
+    </div>
+  );
+};
+
+// --- Extract review modal ---------------------------------------------------
+// Runs Gemini document understanding, then shows the STRUCTURED result for human review.
+// Nothing is written until the user confirms: a vendor invoice becomes a draft expense the user
+// creates; a contract/permit becomes structured fields the user saves.
+const ExtractModal = ({
+  doc, kind, setKind, loading, error, result, saving,
+  onRun, onConfirmExpense, onSaveFields, onClose,
+}: {
+  doc: any;
+  kind: ExtractKind;
+  setKind: (k: ExtractKind) => void;
+  loading: boolean;
+  error: string | null;
+  result: any | null;
+  saving: boolean;
+  onRun: (k: ExtractKind) => void;
+  onConfirmExpense: () => void;
+  onSaveFields: () => void;
+  onClose: () => void;
+}) => {
+  const draft = result?.draft;
+  const fields = result?.fields;
+  const validation = result?.validation;
+  const busy = loading || saving;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={busy ? undefined : onClose} />
+      <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto custom-scrollbar bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 p-6 border-b border-white/5 sticky top-0 bg-zinc-900 z-10">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-forest-500/15 text-forest-400 flex items-center justify-center shrink-0">
+              <Sparkles size={18} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-lg font-black uppercase tracking-widest text-white truncate">Extract data</h3>
+              <p className="text-xs text-white/50 truncate">{doc?.name}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors disabled:opacity-40"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Kind selector (hidden once a result is shown) */}
+          {!result && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Document type</p>
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(EXTRACT_KIND_LABELS) as ExtractKind[]).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setKind(k)}
+                    disabled={busy}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors border ${
+                      kind === k
+                        ? "bg-forest-500/15 text-forest-300 border-forest-500/40"
+                        : "bg-black/40 text-white/60 border-white/10 hover:border-white/25"
+                    } disabled:opacity-50`}
+                  >
+                    {EXTRACT_KIND_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Loading */}
+          {loading && (
+            <div className="flex flex-col items-center gap-3 py-10 text-white/60">
+              <Loader2 size={22} className="animate-spin text-forest-400" />
+              <p className="text-sm font-bold">Reading the document…</p>
+            </div>
+          )}
+
+          {/* Error */}
+          {!loading && error && (
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-rose-400 mt-0.5 shrink-0" />
+              <div className="text-sm text-rose-200">
+                <p className="font-bold">Extraction failed</p>
+                <p className="text-rose-300/80 text-xs mt-1">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Vendor invoice result → draft expense review */}
+          {!loading && result && kind === "vendor_invoice" && draft && (
+            <div className="space-y-4">
+              {draft.needsReview && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 flex items-start gap-2">
+                  <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
+                  <div className="text-xs text-amber-200">
+                    <span className="font-bold">Needs review.</span>{" "}
+                    {Array.isArray(validation?.errors) && validation.errors.length
+                      ? validation.errors.join("; ")
+                      : "Some fields could not be confidently extracted."}
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-black/40 border border-white/5 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Vendor</p>
+                  <p className="text-sm font-bold text-white mt-1 break-words">{draft.vendor}</p>
+                </div>
+                <div className="rounded-xl bg-black/40 border border-white/5 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Date</p>
+                  <p className="text-sm font-bold text-white mt-1">{draft.date || "—"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-black/40 border border-white/5 overflow-hidden">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-white/5 text-[10px] uppercase tracking-widest text-white/40">
+                      <th className="px-3 py-2 font-bold">Description</th>
+                      <th className="px-3 py-2 font-bold text-right">Qty</th>
+                      <th className="px-3 py-2 font-bold text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(draft.items || []).length === 0 ? (
+                      <tr><td colSpan={3} className="px-3 py-4 text-center text-xs text-white/40">No line items detected</td></tr>
+                    ) : (
+                      draft.items.map((it: any, i: number) => (
+                        <tr key={i} className="border-b border-white/5 last:border-0">
+                          <td className="px-3 py-2 text-white/80">{it.description || "—"}</td>
+                          <td className="px-3 py-2 text-right text-white/60">{it.quantity}</td>
+                          <td className="px-3 py-2 text-right text-white/80 font-mono">{money(it.amount)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-white/5">
+                      <td className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-white/40" colSpan={2}>Total</td>
+                      <td className="px-3 py-2 text-right font-black text-white font-mono">{money(draft.total)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-1">
+                <button
+                  onClick={onClose}
+                  disabled={busy}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={onConfirmExpense}
+                  disabled={busy}
+                  className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-forest-500 text-black hover:bg-forest-400 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  {saving ? "Creating…" : "Create expense"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Contract / permit result → structured field review */}
+          {!loading && result && kind !== "vendor_invoice" && fields && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                {[
+                  ["Type", fields.documentType],
+                  ["Parties", Array.isArray(fields.parties) ? fields.parties.filter(Boolean).join(", ") : fields.parties],
+                  ["Effective", fields.effectiveDate],
+                  ["Expires", fields.expirationDate],
+                  ["Value", fields.totalValue != null ? money(fields.totalValue) : null],
+                  ["Scope", fields.scopeOfWork],
+                  ["Permit #", fields.permitNumber],
+                  ["Authority", fields.issuingAuthority],
+                  ["Jurisdiction", fields.jurisdiction],
+                ]
+                  .filter(([, v]) => v != null && String(v).trim() !== "")
+                  .map(([label, v]) => (
+                    <div key={String(label)} className="flex gap-3 rounded-xl bg-black/40 border border-white/5 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 w-24 shrink-0 pt-0.5">{label}</p>
+                      <p className="text-sm text-white/85 break-words">{String(v)}</p>
+                    </div>
+                  ))}
+              </div>
+
+              {(Array.isArray(fields.keyTerms) && fields.keyTerms.length > 0) && (
+                <div className="rounded-xl bg-black/40 border border-white/5 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Key terms</p>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-white/80">
+                    {fields.keyTerms.map((t: any, i: number) => <li key={i}>{String(t)}</li>)}
+                  </ul>
+                </div>
+              )}
+              {(Array.isArray(fields.obligations) && fields.obligations.length > 0) && (
+                <div className="rounded-xl bg-black/40 border border-white/5 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Obligations</p>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-white/80">
+                    {fields.obligations.map((t: any, i: number) => <li key={i}>{String(t)}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-1">
+                <button
+                  onClick={onClose}
+                  disabled={busy}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={onSaveFields}
+                  disabled={busy}
+                  className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-forest-500 text-black hover:bg-forest-400 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  {saving ? "Saving…" : "Save fields"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Idle: prompt to run */}
+          {!loading && !error && !result && (
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => onRun(kind)}
+                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-forest-500 text-black hover:bg-forest-400 transition-colors flex items-center gap-2"
+              >
+                <Sparkles size={14} /> Run extraction
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
