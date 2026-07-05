@@ -6,7 +6,7 @@ import { useTenant } from "../contexts/TenantContext";
 import { tenantsRepo } from "../lib/repos";
 import { getCurrentUser, signOutUser } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
-import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain, Sparkles } from "lucide-react";
+import { ToggleRight, ToggleLeft, Activity, Users, Truck, Package, Palette, FileText, Map, Calendar, ReceiptText, Shield, Database, Trash2, AlertTriangle, Globe, Brain, Sparkles, PhoneCall, Clock } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { useCuttyGuide, buildDefaultTourSteps } from "../contexts/CuttyGuideContext";
 import { useRole } from "../hooks/useRole";
@@ -305,6 +305,151 @@ function UsageBillingSection() {
 
       <button onClick={save} disabled={busy} className="px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all">
         {busy ? "Saving…" : "Save Billing Controls"}
+      </button>
+    </section>
+  );
+}
+
+// AI receptionist controls — the missed-call / speed-to-lead responder. Toggles the
+// auto-reply, records the Twilio number that routes to the receptionist (for "To"->tenant
+// matching), and sets simple business hours + an after-hours greeting. Persisted to
+// tenants.settings.receptionist (read server-side by the /api/public/voice/* webhooks).
+function ReceptionistSettingsSection() {
+  const { tenant } = useTenant();
+  const { showToast } = useToast();
+  const [enabled, setEnabled] = useState(true);
+  const [autoReply, setAutoReply] = useState(true);
+  const [twilioNumber, setTwilioNumber] = useState("");
+  const [startHour, setStartHour] = useState("");
+  const [endHour, setEndHour] = useState("");
+  const [afterHoursMessage, setAfterHoursMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const r = tenant?.settings?.receptionist;
+    if (!r) return;
+    if (typeof r.enabled === "boolean") setEnabled(r.enabled);
+    if (typeof r.autoReply === "boolean") setAutoReply(r.autoReply);
+    if (r.twilioNumber) setTwilioNumber(String(r.twilioNumber));
+    if (r.businessHours?.start != null) setStartHour(String(r.businessHours.start));
+    if (r.businessHours?.end != null) setEndHour(String(r.businessHours.end));
+    if (r.afterHoursMessage) setAfterHoursMessage(String(r.afterHoursMessage));
+  }, [tenant?.id]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const businessHours =
+        startHour.trim() || endHour.trim()
+          ? { start: startHour.trim() || null, end: endHour.trim() || null }
+          : null;
+      await tenantsRepo.updateSettings({
+        receptionist: {
+          enabled,
+          autoReply,
+          twilioNumber: twilioNumber.trim() || null,
+          businessHours,
+          afterHoursMessage: afterHoursMessage.trim() || null,
+        },
+      });
+      showToast("Receptionist settings saved.", "success");
+    } catch (e: any) {
+      showToast(e?.message || "Could not save receptionist settings.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-8 space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase flex items-center gap-2">
+            <PhoneCall size={12} /> Speed-to-Lead
+          </span>
+          <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tight">AI Receptionist</h3>
+          <p className="text-sm text-zinc-400">
+            When you miss a call or a new number texts, the receptionist captures the lead, texts an
+            instant reply, and alerts you — so you win the job before a competitor calls back.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <button
+          type="button"
+          onClick={() => setEnabled((v) => !v)}
+          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 transition-all"
+        >
+          <span className="space-y-0.5">
+            <span className="block text-[11px] font-black uppercase tracking-widest text-white/70">Receptionist enabled</span>
+            <span className="block text-[10px] text-zinc-500">Capture missed calls &amp; net-new texts as leads.</span>
+          </span>
+          {enabled ? <ToggleRight className="text-forest-500 shrink-0" size={28} /> : <ToggleLeft className="text-zinc-600 shrink-0" size={28} />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAutoReply((v) => !v)}
+          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 transition-all"
+        >
+          <span className="space-y-0.5">
+            <span className="block text-[11px] font-black uppercase tracking-widest text-white/70">Instant auto-reply</span>
+            <span className="block text-[10px] text-zinc-500">Text the caller back automatically (Reply STOP honored).</span>
+          </span>
+          {autoReply ? <ToggleRight className="text-forest-500 shrink-0" size={28} /> : <ToggleLeft className="text-zinc-600 shrink-0" size={28} />}
+        </button>
+      </div>
+
+      <label className="block space-y-1.5">
+        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Twilio receptionist number</span>
+        <input
+          value={twilioNumber}
+          onChange={(e) => setTwilioNumber(e.target.value)}
+          placeholder="+1 601 555 0123"
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-bold outline-none placeholder:text-white/30"
+        />
+        <span className="text-[10px] text-zinc-600">The number your calls/texts forward to — routes them to this workspace.</span>
+      </label>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <label className="space-y-1.5">
+          <span className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5"><Clock size={11} /> Open hour</span>
+          <input
+            value={startHour}
+            onChange={(e) => setStartHour(e.target.value)}
+            placeholder="8"
+            inputMode="numeric"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-bold outline-none placeholder:text-white/30"
+          />
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5"><Clock size={11} /> Close hour</span>
+          <input
+            value={endHour}
+            onChange={(e) => setEndHour(e.target.value)}
+            placeholder="17"
+            inputMode="numeric"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-bold outline-none placeholder:text-white/30"
+          />
+        </label>
+        <label className="space-y-1.5 sm:col-span-1">
+          <span className="text-[10px] font-black uppercase tracking-widest text-white/40">After-hours reply</span>
+          <input
+            value={afterHoursMessage}
+            onChange={(e) => setAfterHoursMessage(e.target.value)}
+            placeholder="We're closed — we'll call you first thing."
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-bold outline-none placeholder:text-white/30"
+          />
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white/30">
+        <AlertTriangle size={12} className="text-amber-400/70" /> Point your Twilio number's voice &amp; messaging webhooks at this app (see docs) to go live.
+      </div>
+
+      <button onClick={save} disabled={busy} className="px-6 py-3 bg-forest-500 hover:bg-forest-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all">
+        {busy ? "Saving…" : "Save Receptionist Settings"}
       </button>
     </section>
   );
@@ -697,6 +842,8 @@ export default function Settings() {
       <QuickBooksSection />
 
       <StripeConnectSection />
+
+      <ReceptionistSettingsSection />
 
       <UsageBillingSection />
 

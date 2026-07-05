@@ -18,9 +18,10 @@
 // Live updates come from customerMessagesRepo.subscribe (re-group on every push).
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, Send, Mail, Phone, Search } from "lucide-react";
+import { MessageSquare, Send, Mail, Phone, Search, PhoneMissed, Voicemail, ChevronDown, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { customerMessagesRepo, customersRepo } from "../lib/repos";
+import { customerMessagesRepo, customersRepo, leadsRepo } from "../lib/repos";
+import { RECEPTIONIST_SOURCES } from "../lib/receptionist";
 import { fetchApi } from "../lib/api";
 import { useToast } from "../contexts/ToastContext";
 import { useTenant } from "../contexts/TenantContext";
@@ -140,6 +141,208 @@ const mergeReadMaps = (
   }
   return out;
 };
+
+// ---------------------------------------------------------------------------
+// Receptionist panel — leads the AI missed-call / speed-to-lead responder captured.
+// These live in the `leads` table (data.source ∈ RECEPTIONIST_SOURCES), separate from
+// customer_messages, so they surface here as their own queue with the captured
+// conversation transcript, urgency, and whether the auto-reply actually sent.
+// ---------------------------------------------------------------------------
+
+const RECEP_SOURCE_SET = new Set<string>(RECEPTIONIST_SOURCES as readonly string[]);
+
+const channelMeta = (source: string) => {
+  switch (source) {
+    case "voicemail":
+      return { icon: Voicemail, label: "Voicemail" };
+    case "inbound_sms":
+      return { icon: MessageSquare, label: "New text" };
+    default:
+      return { icon: PhoneMissed, label: "Missed call" };
+  }
+};
+
+const urgencyStyle = (u: string) => {
+  const s = String(u || "").toLowerCase();
+  if (s === "high") return "bg-red-500/15 border-red-500/40 text-red-300";
+  if (s === "medium") return "bg-amber-500/15 border-amber-500/40 text-amber-300";
+  return "bg-white/5 border-white/10 text-white/40";
+};
+
+function ReceptionistPanel() {
+  const [leads, setLeads] = useState<any[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const ingest = (rows: any[]) =>
+      alive &&
+      setLeads(
+        (rows || [])
+          .map(flatten)
+          .filter((l) => RECEP_SOURCE_SET.has(String((l.data || l).source || "")))
+          .sort((a, b) => ms(b.createdAt) - ms(a.createdAt)),
+      );
+    leadsRepo.list().then(ingest).catch(() => {});
+    const unsub = leadsRepo.subscribe(ingest);
+    return () => {
+      alive = false;
+      if (unsub) unsub();
+    };
+  }, []);
+
+  if (leads.length === 0) return null;
+
+  return (
+    <section className="bg-zinc-900 border border-forest-500/20 molten-edge shadow-2xl rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full px-5 py-4 flex items-center justify-between gap-3 border-b border-white/10 hover:bg-white/[0.02] transition-colors"
+      >
+        <span className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl bg-forest-500/15 border border-forest-500/30 flex items-center justify-center">
+            <PhoneMissed size={16} className="text-forest-400" />
+          </span>
+          <span className="text-left">
+            <span className="block text-sm font-black italic uppercase tracking-tight text-white">
+              Receptionist · Captured Leads
+            </span>
+            <span className="block text-[10px] font-black uppercase tracking-widest text-forest-400/80">
+              Missed calls, voicemails &amp; new texts — auto-replied &amp; logged
+            </span>
+          </span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-forest-500 text-black text-[10px] font-black leading-none">
+            {leads.length}
+          </span>
+          <ChevronDown
+            size={18}
+            className={`text-white/40 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+          />
+        </span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="divide-y divide-white/5 max-h-[46vh] overflow-y-auto">
+              {leads.map((lead) => {
+                const d = lead.data || {};
+                const source = String(d.source || "missed_call");
+                const meta = channelMeta(source);
+                const Icon = meta.icon;
+                const name = lead.name || "New caller";
+                const phone = d.phone || d.phoneLast10 || "";
+                const need = d.need || lead.matchReason || "";
+                const urgency = d.urgency || "low";
+                const transcript = Array.isArray(d.transcript) ? d.transcript : [];
+                const replied = !!d.autoReplySentAt;
+                const isOpen = expanded === lead.id;
+                return (
+                  <div key={lead.id} className="px-5 py-4">
+                    <button
+                      onClick={() => setExpanded(isOpen ? null : lead.id)}
+                      className="w-full flex items-start gap-3 text-left"
+                    >
+                      <span className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                        <Icon size={15} className="text-forest-400" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-black italic uppercase truncate text-white">
+                            {name}
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0">
+                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border ${urgencyStyle(urgency)}`}>
+                              {urgency === "high" && <Zap size={9} className="inline mb-px mr-0.5" />}
+                              {urgency}
+                            </span>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-white/30">
+                              {relTime(ms(lead.createdAt))}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-forest-400/70">
+                            {meta.label}
+                          </span>
+                          {phone && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white/40">
+                              <Phone size={10} className="text-forest-400/70" />
+                              {phone}
+                            </span>
+                          )}
+                          {need && (
+                            <span className="text-[10px] font-bold text-white/50 truncate">· {need}</span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronDown
+                        size={16}
+                        className={`text-white/30 shrink-0 mt-1 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="mt-3 ml-12 space-y-2 pb-1">
+                            {transcript.length === 0 ? (
+                              <p className="text-[11px] font-bold text-white/30 uppercase tracking-widest">
+                                No conversation captured yet — caller hung up before speaking.
+                              </p>
+                            ) : (
+                              transcript.map((t: any, i: number) => {
+                                const inbound = String(t.from || "caller") === "caller";
+                                return (
+                                  <div key={i} className={`flex flex-col ${inbound ? "items-start" : "items-end"}`}>
+                                    <div
+                                      className={`max-w-[85%] px-3 py-2 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap break-words ${
+                                        inbound
+                                          ? "bg-zinc-800 border border-white/10 text-zinc-100 rounded-tl-sm"
+                                          : "bg-forest-500/15 border border-forest-500/30 text-forest-50 rounded-tr-sm"
+                                      }`}
+                                    >
+                                      {t.text}
+                                    </div>
+                                    <span className="mt-1 text-[8px] font-black uppercase tracking-widest text-white/25">
+                                      {inbound ? "Caller" : t.simulated ? "Auto-reply (simulated)" : "Auto-reply"} · {fmtTime(ms(t.at))}
+                                    </span>
+                                  </div>
+                                );
+                              })
+                            )}
+                            <div className="pt-1 text-[9px] font-black uppercase tracking-widest text-white/25">
+                              {replied
+                                ? "Instant reply sent to the caller — now in your outbox above once they text back."
+                                : "Lead captured — no auto-reply sent (auto-reply off or caller left no number)."}
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // page
@@ -453,6 +656,8 @@ export default function Inbox() {
           </p>
         </div>
       </header>
+
+      <ReceptionistPanel />
 
       {loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-6">

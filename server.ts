@@ -48,6 +48,22 @@ import { mapCustomerToQbo, mapInvoiceToQbo, reconcile, type Link } from "./src/l
 // into these — it NEVER re-implements the money-/date-coercion or total-reconciliation logic.
 // Proven by src/lib/docExtract*.test.ts.
 import { vendorInvoiceToExpense, validateExtraction, type ParsedVendorInvoice } from "./src/lib/docExtract.js";
+// Pure AI-receptionist / speed-to-lead core (no I/O). Normalizes the caller's phone,
+// extracts {name,address,need,urgency} with a mock-safe heuristic fallback, builds the
+// instant SMS reply copy, and renders the Twilio voice TwiML. The /api/public/voice/*
+// webhooks + the receptionist turn feed these; they NEVER re-implement that logic.
+// Proven by src/lib/receptionist.test.ts.
+import {
+  RECEPTIONIST_SYSTEM_INSTRUCTION,
+  extractLeadHeuristic,
+  normalizeExtraction,
+  normalizePhone,
+  buildReceptionistReply,
+  buildInboundVoiceTwiml,
+  buildVoicemailTwiml,
+  buildAckTwiml,
+  isWithinBusinessHours,
+} from "./src/lib/receptionist.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -1170,17 +1186,151 @@ export async function createApp({ startListening = false } = {}) {
                   .then(() => dispatchNotification(matches[0].tenant_id, matches[0].id, "new_message", { channel: "sms", preview: String(Body || "").slice(0, 140) }))
                   .catch(() => {});
               }
+            } else if (!matches || matches.length === 0) {
+              // NET-NEW number → nobody in the book. This is a speed-to-lead moment: run the
+              // AI receptionist to capture the lead, auto-reply, and alert the owner. Skip bare
+              // STOP/START keywords (compliance noise, not an inquiry). Tenant is resolved from
+              // the Twilio "To" number (or RECEPTIONIST_TENANT_ID). Own-number guard holds: the
+              // only number we ever text back is the exact inbound `From`.
+              const kw = String(Body || "").trim().toUpperCase();
+              const isControl = ["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT", "START", "YES", "UNSTOP", "HELP", "INFO"].includes(kw);
+              if (!isControl && String(Body || "").trim()) {
+                const tenant = await resolveReceptionistTenant(sb, To);
+                if (tenant) {
+                  await runReceptionistTurn({ tenantId: tenant.id, phone: From, message: String(Body || ""), channel: "inbound_sms", idKey: `sms:${last10}` });
+                } else {
+                  console.warn(`[SMS inbound] net-new ${last10} but no receptionist tenant for To=${To || "?"}; dropped`);
+                }
+              }
             } else {
-              console.warn(`[SMS inbound] no unique customer for ${last10} (${matches?.length || 0} matches); dropped`);
+              console.warn(`[SMS inbound] ambiguous ${last10} (${matches.length} matches); dropped`);
             }
           })();
-          await Promise.race([persist, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000))]);
+          await Promise.race([persist, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 5000))]);
         }
       } catch (e) { /* best-effort persistence; still ack to Twilio */ }
       return xml();
     } catch (e) {
       return xml("<Response/>");
     }
+  });
+
+  // ===========================================================================
+  // TWILIO VOICE — AI missed-call receptionist (speed-to-lead). Registered BEFORE
+  // express.json + the JSON-only governance gate because Twilio posts urlencoded.
+  // All are /api/public/* (auth-excluded) and signature-verified via
+  // verifyTwilioSignature() when TWILIO_AUTH_TOKEN is set. Everything is mock-safe:
+  // with no Twilio/Gemini key the lead is still captured and the reply is simulated.
+  // ===========================================================================
+
+  // Absolute base for the callback URLs Twilio POSTs back to. Prefer an explicit
+  // BASE_URL (stable, correct behind Cloud Run's proxy) over the request host.
+  const twilioBase = (req: any) => process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
+  // Incoming call → greet, capture the missed call as a lead immediately (idempotent by
+  // CallSid), alert the owner, and gather the caller's need (voicemail fallback).
+  app.post("/api/public/voice/inbound", express.urlencoded({ extended: false }), async (req: any, res) => {
+    const respond = (t: string) => res.type("text/xml").send(t);
+    try {
+      if (!verifyTwilioSignature(req)) return res.status(403).type("text/xml").send("<Response><Reject/></Response>");
+      const { From, To, CallSid, CallerName } = req.body || {};
+      const sb = getServiceSupabase();
+      let businessName = "our team";
+      let recepCfg: any = {};
+      if (sb) {
+        const tenant = await withDeadline(resolveReceptionistTenant(sb, To), 3000, null);
+        if (tenant) {
+          businessName = tenant.name || businessName;
+          recepCfg = (tenant.settings as any)?.receptionist || {};
+          // Capture the moment they call — even if they hang up before speaking, the owner
+          // sees the missed call and the lead exists. Idempotent by CallSid; bounded.
+          await withDeadline(
+            runReceptionistTurn({ tenantId: tenant.id, phone: From, message: "", channel: "missed_call", idKey: CallSid, callerName: CallerName }),
+            4000, null,
+          ).catch(() => {});
+        }
+      }
+      const base = twilioBase(req);
+      const q = `?callSid=${encodeURIComponent(String(CallSid || ""))}`;
+      return respond(buildInboundVoiceTwiml({
+        businessName,
+        withinHours: isWithinBusinessHours(recepCfg.businessHours, new Date().toISOString()),
+        afterHoursMessage: recepCfg.afterHoursMessage,
+        gatherUrl: `${base}/api/public/voice/gather${q}`,
+        transcriptionUrl: `${base}/api/public/voice/transcription${q}`,
+        recordedUrl: `${base}/api/public/voice/recorded`,
+      }));
+    } catch (e: any) {
+      console.error("[voice/inbound]", e?.message);
+      return respond(buildAckTwiml("Thanks for calling. We'll be in touch shortly. Goodbye."));
+    }
+  });
+
+  // Speech-gather result: the caller told us their need. Run the receptionist turn
+  // (updates the same CallSid lead, extracts fields, auto-replies), then acknowledge.
+  app.post("/api/public/voice/gather", express.urlencoded({ extended: false }), async (req: any, res) => {
+    const respond = (t: string) => res.type("text/xml").send(t);
+    try {
+      if (!verifyTwilioSignature(req)) return res.status(403).type("text/xml").send("<Response><Reject/></Response>");
+      const { From, To, CallSid, SpeechResult } = req.body || {};
+      const speech = String(SpeechResult || "").trim();
+      const sb = getServiceSupabase();
+      if (!speech) {
+        // Heard nothing → route to voicemail (transcribed).
+        const base = twilioBase(req);
+        const q = `?callSid=${encodeURIComponent(String(CallSid || ""))}`;
+        return respond(buildVoicemailTwiml({
+          transcriptionUrl: `${base}/api/public/voice/transcription${q}`,
+          recordedUrl: `${base}/api/public/voice/recorded`,
+        }));
+      }
+      let ack = "Thanks. We'll text you the details shortly. Goodbye.";
+      if (sb) {
+        const tenant = await withDeadline(resolveReceptionistTenant(sb, To), 3000, null);
+        if (tenant) {
+          const r: any = await withDeadline(
+            runReceptionistTurn({ tenantId: tenant.id, phone: From, message: speech, channel: "missed_call", idKey: CallSid }),
+            6000, null,
+          );
+          if (r?.extracted?.name) ack = `Thanks ${r.extracted.name}! We've got your request and we'll text you right away. Goodbye.`;
+        }
+      }
+      return respond(buildAckTwiml(ack));
+    } catch (e: any) {
+      console.error("[voice/gather]", e?.message);
+      return respond(buildAckTwiml("Thanks. We'll be in touch shortly. Goodbye."));
+    }
+  });
+
+  // Async transcription callback (voicemail). Twilio ignores the response body here, so
+  // we just process the transcript and 204. Best-effort; bounded.
+  app.post("/api/public/voice/transcription", express.urlencoded({ extended: false }), async (req: any, res) => {
+    try {
+      if (!verifyTwilioSignature(req)) return res.sendStatus(403);
+      const { From, To, CallSid, TranscriptionText, TranscriptionStatus } = req.body || {};
+      const text = String(TranscriptionText || "").trim();
+      const sb = getServiceSupabase();
+      if (sb && text && TranscriptionStatus !== "failed") {
+        const tenant = await withDeadline(resolveReceptionistTenant(sb, To), 3000, null);
+        if (tenant) {
+          await withDeadline(
+            runReceptionistTurn({ tenantId: tenant.id, phone: From, message: text, channel: "voicemail", idKey: CallSid }),
+            6000, null,
+          ).catch(() => {});
+        }
+      }
+    } catch (e: any) {
+      console.error("[voice/transcription]", e?.message);
+    }
+    return res.sendStatus(204);
+  });
+
+  // Recording finished (fires before the async transcription) — say goodbye.
+  app.post("/api/public/voice/recorded", express.urlencoded({ extended: false }), (req: any, res) => {
+    try {
+      if (!verifyTwilioSignature(req)) return res.status(403).type("text/xml").send("<Response><Reject/></Response>");
+    } catch { /* fall through to a valid ack */ }
+    return res.type("text/xml").send(buildAckTwiml("Thanks. We got your message and we'll text you shortly. Goodbye."));
   });
 
   // Body limits: the big base64-image routes get a generous cap; everything else is 1mb.
@@ -7470,6 +7620,7 @@ field is absent, use null — never invent values. Return the key structured fie
     new_message: "owner",
     design_approved: "owner",
     low_stock: "owner",
+    missed_call: "owner", // AI receptionist captured a new lead (missed call / voicemail / net-new text)
   };
 
   // Web-push path. No VAPID keys / stored subscriptions exist yet, so this NEVER claims
@@ -7531,6 +7682,12 @@ field is absent, use null — never invent values. Return the key structured fie
         subject = `Low stock alert — ${p.count || 0} item(s)`;
         body = `${p.count || 0} inventory item(s) are below threshold${p.items ? `: ${String(p.items).slice(0, 400)}` : ""}. Reorder to avoid a job delay.`;
         break;
+      case "missed_call": {
+        const chan = p.channel === "voicemail" ? "voicemail" : p.channel === "inbound_sms" ? "new text" : "missed call";
+        subject = `New lead — ${chan}${p.name ? ` from ${p.name}` : ""}${p.urgency === "high" ? " (URGENT)" : ""}`;
+        body = `${p.name || "Someone"} just reached out via ${chan}${p.phone ? ` (${p.phone})` : ""}${p.need ? ` about ${p.need}` : ""}${p.urgency === "high" ? " — marked URGENT" : ""}. ${p.preview ? `"${String(p.preview).slice(0, 140)}" ` : ""}${brand} auto-replied and captured the lead — call them back to win the job.`;
+        break;
+      }
       default:
         body = `You have a new ${event} notification from ${brand}.`;
     }
@@ -7649,6 +7806,309 @@ field is absent, use null — never invent values. Return the key structured fie
     } catch (e: any) {
       console.error("[notifications/dispatch]", e?.message);
       res.status(500).json({ error: "Dispatch failed" });
+    }
+  });
+
+  // ===========================================================================
+  // AI RECEPTIONIST — the shared "brain" behind the missed-call/speed-to-lead flow.
+  // The public voice/SMS webhooks (above) and the authed /api/agent/receptionist test
+  // endpoint (below) all funnel through runReceptionistTurn(). It is mock-safe (no
+  // Gemini → heuristic extract; no Twilio → simulated reply), idempotent (per CallSid /
+  // per-number within a window, with once-only reply + owner-alert guards), and honest
+  // (never claims a send it didn't make). It reuses sendSmsRaw + dispatchNotification.
+  // ===========================================================================
+
+  // Bound any promise so a hung Supabase/Twilio/Gemini call never wedges a Twilio webhook
+  // (Cloud Run concurrency 80). Resolves to `fallback` on timeout OR rejection.
+  function withDeadline<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+    return Promise.race([
+      Promise.resolve(promise).catch(() => fallback),
+      new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+    ]);
+  }
+
+  // Verify a Twilio webhook signature. Mirrors the /api/public/sms/inbound policy:
+  //  - no TWILIO_AUTH_TOKEN → allow (mock/dev).
+  //  - token set + SDK present → require a valid X-Twilio-Signature.
+  //  - SDK unavailable → don't hard-fail the webhook (fall through / allow).
+  function verifyTwilioSignature(req: any): boolean {
+    if (!process.env.TWILIO_AUTH_TOKEN) return true;
+    try {
+      const twilio = require("twilio");
+      const sig = req.headers["x-twilio-signature"];
+      const url = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`) + req.originalUrl;
+      return !!twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, sig, url, req.body || {});
+    } catch (e) {
+      return true;
+    }
+  }
+
+  // Which tenant owns an inbound Twilio call/text? Multi-tenant "To"-number routing isn't
+  // fully wired, so: (1) an explicit RECEPTIONIST_TENANT_ID pin wins (beachhead / first
+  // client); else (2) match the dialed "To" number against a tenant's configured
+  // settings.receptionist.twilioNumber (last-10 digits). Returns { id, name, settings } or null.
+  async function resolveReceptionistTenant(sb: any, toRaw: any): Promise<any | null> {
+    const envId = process.env.RECEPTIONIST_TENANT_ID;
+    if (envId && UUID_RE.test(envId)) {
+      try {
+        const { data } = await sb.from("tenants").select("id,name,settings").eq("id", envId).maybeSingle();
+        if (data) return data;
+      } catch { /* fall through to number match */ }
+    }
+    const digits = String(toRaw || "").replace(/\D/g, "");
+    if (digits.length >= 10) {
+      const last10 = digits.slice(-10);
+      try {
+        const { data } = await sb
+          .from("tenants").select("id,name,settings")
+          .not("settings->receptionist->>twilioNumber", "is", null)
+          .limit(500);
+        for (const t of data || []) {
+          const n = String((t.settings as any)?.receptionist?.twilioNumber || "").replace(/\D/g, "");
+          if (n && n.slice(-10) === last10) return t;
+        }
+      } catch { /* no match */ }
+    }
+    return null;
+  }
+
+  const RECEPTIONIST_LEAD_REUSE_MS = 30 * 24 * 60 * 60 * 1000; // merge same-caller within 30 days
+  const RECEPTIONIST_OPEN_STATUSES = new Set(["", "new", "contacted", "open"]);
+
+  // Find an existing receptionist lead to update (idempotency + one-thread-per-caller):
+  //  1. exact match on data.idKey (same CallSid / same-number SMS thread), OR
+  //  2. the most-recent OPEN receptionist lead for this number within the reuse window
+  //     (so a call then a text from the same person land on one lead).
+  async function findReceptionistLead(sb: any, tenantId: string, idKey: string, last10: string): Promise<any | null> {
+    if (idKey) {
+      try {
+        const { data } = await sb.from("leads").select("*").eq("tenant_id", tenantId).eq("data->>idKey", idKey).limit(1).maybeSingle();
+        if (data) return data;
+      } catch { /* fall through */ }
+    }
+    if (last10) {
+      try {
+        const { data } = await sb.from("leads").select("*")
+          .eq("tenant_id", tenantId).eq("data->>phoneLast10", last10)
+          .order("created_at", { ascending: false }).limit(1);
+        const row = (data || [])[0];
+        if (row) {
+          const status = String(row.data?.status || "").toLowerCase();
+          const created = Date.parse(row.created_at || "") || 0;
+          if (RECEPTIONIST_OPEN_STATUSES.has(status) && Date.now() - created < RECEPTIONIST_LEAD_REUSE_MS) return row;
+        }
+      } catch { /* no match */ }
+    }
+    return null;
+  }
+
+  // Does `last10` belong to one of THIS tenant's customers? Mirrors the /api/sms/send
+  // toll-fraud guard — used to gate the authed test endpoint's real carrier send.
+  async function ownsCustomerPhone(sb: any, tenantId: string, last10: string): Promise<boolean> {
+    try {
+      const { data } = await sb.from("customers").select("phone").eq("tenant_id", tenantId).ilike("phone", `%${last10.slice(-4)}%`).limit(50);
+      for (const c of data || []) if (String(c.phone || "").replace(/\D/g, "").slice(-10) === last10) return true;
+    } catch { /* fail closed */ }
+    return false;
+  }
+
+  interface ReceptionistTurnInput {
+    tenantId: string;
+    phone: any;
+    message: string;
+    channel: "missed_call" | "voicemail" | "inbound_sms";
+    idKey?: string;
+    callerName?: string;
+    allowSend?: boolean; // false → capture + draft reply but simulate the send (toll-fraud guard)
+  }
+
+  // The one place a caller message becomes a captured lead + instant reply + owner alert.
+  async function runReceptionistTurn(input: ReceptionistTurnInput): Promise<any> {
+    const { tenantId, channel, idKey = "", callerName } = input;
+    const allowSend = input.allowSend !== false;
+    const out: any = { ok: false, simulated: true, channel, leadId: null, extracted: null, reply: null, ownerAlert: null, reason: "" };
+    try {
+      const sb = getServiceSupabase();
+      const norm = normalizePhone(input.phone);
+      if (!sb) { out.reason = "no_supabase"; return out; }
+      if (!tenantId) { out.reason = "no_tenant"; return out; }
+      if (!norm.valid) { out.reason = "invalid_phone"; return out; }
+
+      // Tenant + receptionist config.
+      let tenantName = "our team";
+      let recepCfg: any = {};
+      try {
+        const { data: t } = await sb.from("tenants").select("name,settings").eq("id", tenantId).maybeSingle();
+        tenantName = t?.name || tenantName;
+        recepCfg = (t?.settings as any)?.receptionist || {};
+      } catch { /* defaults */ }
+      // Auto-reply is ON by default; disabled only if the owner explicitly turned it off.
+      const autoReplyOn = recepCfg.enabled !== false && recepCfg.autoReply !== false;
+      const withinHours = isWithinBusinessHours(recepCfg.businessHours, new Date().toISOString());
+
+      // --- Extraction (mock-safe) --------------------------------------------
+      const msg = String(input.message || "").slice(0, 2000).trim();
+      let extracted: any;
+      let aiSimulated = true;
+      if (!msg) {
+        extracted = normalizeExtraction({}, ""); // initial capture — no stated need yet
+      } else if (isMockMode) {
+        extracted = normalizeExtraction(extractLeadHeuristic(msg), msg);
+      } else {
+        try {
+          const r = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: msg,
+            config: { systemInstruction: RECEPTIONIST_SYSTEM_INSTRUCTION, responseMimeType: "application/json" },
+          });
+          extracted = normalizeExtraction(parseGeminiJson(r.text) || {}, msg);
+          aiSimulated = false;
+        } catch (e: any) {
+          console.warn("[receptionist] extract failed; using heuristic:", e?.message);
+          extracted = normalizeExtraction(extractLeadHeuristic(msg), msg);
+        }
+      }
+      if (callerName && !extracted.name) extracted.name = String(callerName).slice(0, 120);
+      out.extracted = extracted;
+
+      // --- Find or create the lead (idempotent) ------------------------------
+      const nowISO = new Date().toISOString();
+      let lead = await findReceptionistLead(sb, tenantId, idKey, norm.last10);
+      const transcriptEntry = msg ? [{ from: "caller", text: msg, at: nowISO, channel }] : [];
+      if (!lead) {
+        const data: any = {
+          idKey: idKey || `${channel}:${norm.last10}`,
+          phone: norm.e164,
+          phoneLast10: norm.last10,
+          source: channel,
+          channel,
+          status: "NEW",
+          need: extracted.need || null,
+          urgency: extracted.urgency,
+          email: null,
+          transcript: transcriptEntry,
+          capturedBy: "ai_receptionist",
+          capturedAt: nowISO,
+        };
+        try {
+          const { data: created, error } = await sb.from("leads").insert({
+            tenant_id: tenantId,
+            name: extracted.name || "Missed call",
+            address: extracted.address || null,
+            notes: extracted.summary || msg || null,
+            match_reason: extracted.need || channel.replace("_", " "),
+            score: extracted.urgency === "high" ? 90 : extracted.urgency === "medium" ? 60 : 30,
+            data,
+          }).select("*").maybeSingle();
+          if (error) throw error;
+          lead = created;
+        } catch (e: any) {
+          console.error("[receptionist] lead insert failed:", e?.message);
+          out.reason = "lead_write_failed";
+          return out;
+        }
+      }
+      out.leadId = lead?.id || null;
+      const data: any = { ...(lead.data || {}) };
+      // Backfill/refine fields we now know (never blank out a known value).
+      if (extracted.name && (!data.name || lead.name === "Missed call")) { /* name lives on the column */ }
+      if (extracted.need && !data.need) data.need = extracted.need;
+      if (extracted.address && !data.address) data.address = extracted.address;
+      // Urgency escalates but never de-escalates.
+      const rank: any = { low: 0, medium: 1, high: 2 };
+      if (rank[extracted.urgency] > rank[data.urgency ?? "low"]) data.urgency = extracted.urgency;
+      if (transcriptEntry.length) data.transcript = [...(Array.isArray(data.transcript) ? data.transcript : []), ...transcriptEntry].slice(-50);
+
+      // --- Instant auto-reply to the caller (once) ---------------------------
+      // Own-number guard: the ONLY number we text is the exact inbound caller (norm.e164),
+      // never a body-supplied number. For the authed test path allowSend gates the real send.
+      if (msg && autoReplyOn && !data.autoReplySentAt) {
+        const replyText = buildReceptionistReply({
+          name: extracted.name, need: extracted.need, businessName: tenantName,
+          withinHours, afterHoursMessage: recepCfg.afterHoursMessage,
+        });
+        let r: any;
+        if (allowSend) {
+          r = await sendSmsRaw(norm.e164, replyText);
+        } else {
+          r = { sent: false, simulated: true, reason: "not_own_number" };
+        }
+        out.reply = { text: replyText, ...r };
+        // Record the attempt (real send OR mock) so a Twilio retry never double-texts.
+        if (r?.sent || r?.simulated) {
+          data.autoReplySentAt = nowISO;
+          data.autoReplyText = replyText;
+          // Mirror the outbound into the transcript for the Inbox.
+          data.transcript = [...(Array.isArray(data.transcript) ? data.transcript : []), { from: "business", text: replyText, at: nowISO, channel: "sms", simulated: !r?.sent }].slice(-50);
+        }
+      }
+
+      // --- Alert the owner (once) --------------------------------------------
+      if (!data.ownerAlertedAt) {
+        out.ownerAlert = await dispatchNotification(tenantId, null, "missed_call", {
+          channel, phone: norm.e164, name: extracted.name || null,
+          need: extracted.need || null, urgency: extracted.urgency,
+          preview: (extracted.summary || msg || "").slice(0, 140),
+        });
+        data.ownerAlertedAt = nowISO;
+      }
+
+      // --- Persist the merged lead -------------------------------------------
+      try {
+        const patch: any = { data };
+        if (extracted.name && (lead.name === "Missed call" || !lead.name)) patch.name = extracted.name;
+        if (extracted.address && !lead.address) patch.address = extracted.address;
+        if (extracted.need && !lead.match_reason) patch.match_reason = extracted.need;
+        await sb.from("leads").update(patch).eq("id", lead.id);
+      } catch (e: any) {
+        console.warn("[receptionist] lead update failed:", e?.message);
+      }
+
+      out.ok = true;
+      // Honest signals: aiSimulated says whether the extraction was a mock/heuristic (no live
+      // Gemini); top-level simulated is true unless a REAL caller reply actually went out over
+      // the wire. Nothing is ever claimed "sent" that wasn't.
+      out.aiSimulated = aiSimulated;
+      out.simulated = out.reply?.sent !== true;
+      return out;
+    } catch (e: any) {
+      console.error("[receptionist] turn failed:", e?.message);
+      out.reason = "receptionist_error";
+      return out;
+    }
+  }
+
+  // Authed test / manual-trigger for the receptionist: given { phone, message, channel },
+  // run a full turn as the caller's tenant. Real carrier SMS only fires to a saved customer
+  // number (toll-fraud guard); unknown numbers still capture the lead + draft a simulated
+  // reply. Errors are genericized. Rate-limited by aiLimiter (mounted on /api/agent/).
+  app.post("/api/agent/receptionist", async (req: any, res) => {
+    try {
+      const { phone, message, channel } = req.body || {};
+      const norm = normalizePhone(phone);
+      if (!norm.valid) return res.status(400).json({ error: "A valid caller phone number is required." });
+      if (!message || typeof message !== "string" || !message.trim()) return res.status(400).json({ error: "A caller message is required." });
+      const sb = getServiceSupabase();
+      const tenant = sb ? await resolveTenant(req) : null;
+      if (REQUIRE_AUTH && !tenant) return res.status(401).json({ error: "Unauthorized" });
+      const ch: any = channel === "voice" || channel === "missed_call" ? "missed_call" : channel === "voicemail" ? "voicemail" : "inbound_sms";
+      if (!tenant) {
+        // Demo mode: simulate extraction + reply only, no writes/sends.
+        const extracted = normalizeExtraction(extractLeadHeuristic(message), message);
+        return res.json({
+          ok: true, simulated: true, reason: "demo_mode_no_tenant", channel: ch, extracted,
+          reply: { text: buildReceptionistReply({ name: extracted.name, need: extracted.need, businessName: "YardWorx" }), sent: false, simulated: true },
+        });
+      }
+      const owns = await ownsCustomerPhone(sb, tenant.id, norm.last10);
+      const result = await runReceptionistTurn({
+        tenantId: tenant.id, phone: norm.e164, message, channel: ch,
+        idKey: `${ch}:${norm.last10}`, allowSend: owns,
+      });
+      return res.json(result);
+    } catch (e: any) {
+      console.error("[agent/receptionist]", e?.message);
+      return res.status(500).json({ error: "Could not process the caller message." });
     }
   });
 
