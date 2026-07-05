@@ -25,6 +25,10 @@ import { validateEditInput, buildEditInstruction, MAX_REFERENCE_IMAGES } from ".
 import { dedupePlan, rollupRatings, IngestedReview } from "./src/lib/reviewsDedup.js";
 // L12 — structured logging → Cloud Logging + Error Reporting (single-line JSON, no new dep).
 import { log, requestId } from "./src/lib/logger.js";
+// Pure, deterministic channel-resolution for event notifications (quiet hours / opt-out /
+// mutes). The dispatcher below feeds merged tenant+customer prefs to resolveNotification and
+// honors its decision — the server never re-implements that policy logic.
+import { resolveNotification } from "./src/lib/notificationRules.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -677,6 +681,11 @@ function designImageCacheSet(key: string, dataUrl: string) {
 // without limit (see the webhook handler).
 const processedStripeEvents = new Set<string>();
 
+// Low-stock notification throttle (per-tenant, per-worker). The inventory poll can be hit
+// on every dashboard refresh; without this it would email the owner on each poll. Best-effort
+// only — per-worker under cluster/autoscale, so a redelivery to another worker can still send.
+const lowStockAlertedAt = new Map<string, number>();
+
 // Deterministic Stripe idempotency key. A double-submit (user double-clicks "Pay") or an
 // internal retry of the SAME intended charge reuses the SAME Checkout Session instead of
 // minting a duplicate. Derived from the charge identity (purpose + invoice/tenant id + the
@@ -918,6 +927,10 @@ export async function createApp({ startListening = false } = {}) {
         }
       };
 
+      // Best-effort notification queued during apply, dispatched AFTER the 200 ack (below) so a
+      // notify failure can never release the claim or 500 the webhook.
+      let pendingNotify: any = null;
+
       try {
         // Map a Stripe subscription's price/metadata to a tenant tier. Throws on a real DB error
         // so it propagates to the 500-on-failure path below (Stripe retries) instead of being lost.
@@ -943,7 +956,7 @@ export async function createApp({ startListening = false } = {}) {
               // A real read/write error THROWS (caught below) so Stripe retries — never swallowed.
               const invId = md.invoiceId;
               const isDeposit = md.type === "deposit";
-              const { data: inv, error: readErr } = await sb.from("invoices").select("amount,data,status").eq("id", invId).maybeSingle();
+              const { data: inv, error: readErr } = await sb.from("invoices").select("amount,data,status,tenant_id,customer_id").eq("id", invId).maybeSingle();
               if (readErr) throw new Error("invoice read failed: " + readErr.message);
               if (inv) {
                 const paid = (Number(session.amount_total) || 0) / 100;
@@ -962,6 +975,12 @@ export async function createApp({ startListening = false } = {}) {
                 }
                 const { error: updErr } = await sb.from("invoices").update({ status, data: nextData }).eq("id", invId);
                 if (updErr) throw new Error("invoice update failed: " + updErr.message);
+                // Queue a customer receipt for AFTER the ack — a full settlement only, so a
+                // partial/deposit doesn't send a "paid" receipt. Fired below, outside this
+                // try, so it can never touch the idempotency/500 path.
+                if (!isDeposit && status === "paid") {
+                  pendingNotify = { tenantId: inv.tenant_id, customerId: inv.customer_id, event: "invoice_paid", payload: { amountPaid, total, invoiceId: invId, number: inv.data?.number || null } };
+                }
               }
             }
             // SaaS subscription checkout → set tenant tier.
@@ -1000,6 +1019,14 @@ export async function createApp({ startListening = false } = {}) {
       }
 
       res.json({ received: true });
+
+      // Fire the customer receipt AFTER acking Stripe. dispatchNotification never throws, and
+      // we .catch() defensively — the payment is already recorded; a notify miss is non-fatal.
+      if (pendingNotify) {
+        Promise.resolve()
+          .then(() => dispatchNotification(pendingNotify.tenantId, pendingNotify.customerId, pendingNotify.event, pendingNotify.payload))
+          .catch(() => {});
+      }
     } catch (err: any) {
       // Keep Stripe's documented 400 (so it retries) but don't echo the internal
       // signature/parse detail back over the wire — it stays in the server log only.
@@ -1043,12 +1070,32 @@ export async function createApp({ startListening = false } = {}) {
               .ilike("phone", `%${last10}%`)
               .limit(2);
             if (matches && matches.length === 1) {
+              const kw = String(Body || "").trim().toUpperCase();
+              const isStop = ["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"].includes(kw);
+              const isStart = ["START", "YES", "UNSTOP"].includes(kw);
+              // TCPA opt-out/opt-in: a bare STOP/START keyword flips the customer's SMS pref so
+              // the notification resolver (smsOptOut) suppresses/resumes future texts. Best-effort.
+              if (isStop || isStart) {
+                try {
+                  const { data: cRow } = await sb.from("customers").select("data").eq("id", matches[0].id).maybeSingle();
+                  const cData: any = cRow?.data || {};
+                  const notifPrefs = { ...(cData.notifPrefs || {}), smsOptOut: isStop };
+                  await sb.from("customers").update({ data: { ...cData, notifPrefs } }).eq("id", matches[0].id);
+                } catch (e) { /* best-effort opt-out */ }
+              }
               await sb.from("customer_messages").insert({
                 tenant_id: matches[0].tenant_id,
                 customer_id: matches[0].id,
                 sender: "client",
                 text: String(Body || "").slice(0, 2000),
               });
+              // Notify the owner a customer replied (skip bare STOP/START keywords — those are
+              // compliance signals, not conversation). Fire-and-forget; never blocks the TwiML ack.
+              if (!isStop && !isStart) {
+                Promise.resolve()
+                  .then(() => dispatchNotification(matches[0].tenant_id, matches[0].id, "new_message", { channel: "sms", preview: String(Body || "").slice(0, 140) }))
+                  .catch(() => {});
+              }
             } else {
               console.warn(`[SMS inbound] no unique customer for ${last10} (${matches?.length || 0} matches); dropped`);
             }
@@ -3899,6 +3946,18 @@ export async function createApp({ startListening = false } = {}) {
           unit: it.unit || "units",
           vendor: it.vendor || null,
         }));
+      // Owner low-stock alert — throttled per-tenant (6h) so a polling dashboard can't spam.
+      if (lowStockItems.length > 0) {
+        const SIX_H = 6 * 3600 * 1000;
+        const last = lowStockAlertedAt.get(tenant.id) || 0;
+        if (Date.now() - last > SIX_H) {
+          lowStockAlertedAt.set(tenant.id, Date.now());
+          const items = lowStockItems.slice(0, 8).map((i: any) => `${i.name} (${i.current}/${i.min} ${i.unit})`).join(", ");
+          Promise.resolve()
+            .then(() => dispatchNotification(tenant.id, null, "low_stock", { count: lowStockItems.length, items }))
+            .catch(() => {});
+        }
+      }
       res.json({ lowStockItems });
     } catch (error: any) {
       console.error("[inventory/check-and-alert]", error?.message);
@@ -6021,6 +6080,10 @@ export async function createApp({ startListening = false } = {}) {
       const { data: cust } = await sb.from("customers").select("tenant_id").eq("id", tok.clientId).maybeSingle();
       if (!cust) return res.status(404).json({ error: "Client not found" });
       await sb.from("customer_messages").insert({ tenant_id: cust.tenant_id, customer_id: tok.clientId, sender: "client", text });
+      // Notify the owner a customer messaged from the portal. Fire-and-forget.
+      Promise.resolve()
+        .then(() => dispatchNotification(cust.tenant_id, tok.clientId, "new_message", { channel: "portal", preview: text.slice(0, 140) }))
+        .catch(() => {});
       res.json({ success: true });
     } catch (e: any) {
       console.error("portal message error", e?.message);
@@ -6146,6 +6209,10 @@ export async function createApp({ startListening = false } = {}) {
           text: `✅ I approved the proposal${dv.summary ? `: ${dv.summary}` : ""}. Let's move forward!`,
         });
       } catch {}
+      // Notify the owner the design proposal was approved. Fire-and-forget.
+      Promise.resolve()
+        .then(() => dispatchNotification(dv.tenant_id, tok.clientId, "design_approved", { summary: dv.summary || null }))
+        .catch(() => {});
       res.json({ success: true });
     } catch (e: any) {
       console.error("portal approve error", e?.message);
@@ -6488,6 +6555,209 @@ export async function createApp({ startListening = false } = {}) {
     const data = await resp.json().catch(() => ({}));
     return { sent: true, id: data?.id || null };
   }
+
+  // ===========================================================================
+  // EVENT NOTIFICATION DISPATCHER — the wiring behind feat-notifications. Loads
+  // per-tenant defaults (tenants.settings.notificationPrefs) + per-customer opt-outs
+  // (customers.data.notifPrefs), asks the PURE resolveNotification() which channels may
+  // fire (quiet hours / opt-out / mutes), then sends via the existing email/SMS senders +
+  // a web-push stub. Mock-safe: honest per-channel { sent, simulated, reason }; top-level
+  // simulated:true whenever NOTHING was actually delivered. This helper NEVER throws — it is
+  // called fire-and-forget from event sites (incl. the Stripe webhook, so it can never affect
+  // idempotency or the ack).
+  // ===========================================================================
+
+  // Who each event notifies. "customer" -> the customer's own email/phone (the SMS
+  // own-customer-phone guard holds by construction — the number comes from the tenant-scoped
+  // customer row). "owner" -> the tenant's ops contact (owner email/phone in settings).
+  const NOTIF_AUDIENCE: Record<string, "customer" | "owner"> = {
+    invoice_created: "customer",
+    invoice_paid: "customer",
+    crew_arrival: "customer",
+    new_message: "owner",
+    design_approved: "owner",
+    low_stock: "owner",
+  };
+
+  // Web-push path. No VAPID keys / stored subscriptions exist yet, so this NEVER claims
+  // delivery — it reports simulated:true so the caller stays honest (mirrors mock-mode AI).
+  async function sendWebPush(_recipientId: string | null, _title: string, _body: string) {
+    return { sent: false, simulated: true, reason: "web_push_not_configured" };
+  }
+
+  // Raw SMS send (mock-safe). The CALLER must have resolved `to` from a tenant-scoped customer
+  // row (the own-customer-phone guard) or the tenant's own owner phone — this helper does not
+  // re-verify ownership. Never claims "sent" on a Twilio error.
+  async function sendSmsRaw(to: string, message: string) {
+    const digits = String(to || "").replace(/\D/g, "");
+    if (digits.length < 10 || digits.length > 15) return { sent: false, simulated: false, reason: "invalid_phone" };
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
+      return { sent: false, simulated: true, reason: "twilio_not_configured" };
+    }
+    try {
+      const twilio = require("twilio");
+      const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+      const result = await client.messages.create({ body: message, from: process.env.TWILIO_PHONE_NUMBER, to });
+      return { sent: true, sid: result.sid };
+    } catch (e: any) {
+      return { sent: false, simulated: false, reason: e?.message || "twilio_error" };
+    }
+  }
+
+  const money = (n: any) => (typeof n === "number" && Number.isFinite(n) ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "$0");
+
+  // Per-event copy. Returns { subject, html, text, sms }. CAN-SPAM: email carries an
+  // unsubscribe/how-to-stop footer. TCPA: customer SMS carries a "Reply STOP" notice.
+  function buildNotifContent(event: string, payload: any, tenantName: string, audience: string) {
+    const p = payload || {};
+    const brand = tenantName || "YardWorx";
+    let subject = `${brand} notification`;
+    let body = "";
+    switch (event) {
+      case "invoice_created":
+        subject = `New invoice from ${brand}`;
+        body = `${brand} sent you a new invoice${p.number ? ` #${p.number}` : ""}${p.amount != null ? ` for ${money(p.amount)}` : ""}. You can review and pay it from your client portal.`;
+        break;
+      case "invoice_paid":
+        subject = `Payment received — thank you`;
+        body = `Thanks! ${brand} received your payment${p.amountPaid != null ? ` of ${money(p.amountPaid)}` : ""}${p.total != null ? ` toward a ${money(p.total)} invoice` : ""}. A receipt is in your portal.`;
+        break;
+      case "crew_arrival":
+        subject = `Your crew is on the way`;
+        body = `${brand}: your crew is on the way${p.eta ? ` — ETA ${p.eta}` : ""}.${p.note ? ` ${String(p.note).slice(0, 120)}` : ""}`;
+        break;
+      case "new_message":
+        subject = `New message from ${p.customerName || "a customer"}`;
+        body = `${p.customerName || "A customer"} sent you a message${p.preview ? `: "${String(p.preview).slice(0, 140)}"` : "."}`;
+        break;
+      case "design_approved":
+        subject = `Design proposal approved`;
+        body = `${p.customerName || "A customer"} approved the design proposal${p.summary ? `: ${String(p.summary).slice(0, 160)}` : ""}. Time to schedule the work.`;
+        break;
+      case "low_stock":
+        subject = `Low stock alert — ${p.count || 0} item(s)`;
+        body = `${p.count || 0} inventory item(s) are below threshold${p.items ? `: ${String(p.items).slice(0, 400)}` : ""}. Reorder to avoid a job delay.`;
+        break;
+      default:
+        body = `You have a new ${event} notification from ${brand}.`;
+    }
+    const emailFooter = audience === "customer"
+      ? `\n\n— ${brand}\nYou're receiving this because you're a customer of ${brand}. To stop these notifications, reply to this email or contact ${brand}.`
+      : `\n\n— ${brand} operations alert`;
+    const smsFooter = audience === "customer" ? " Reply STOP to opt out." : "";
+    const text = body + emailFooter;
+    const html = `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">`
+      + `<p>${body.replace(/</g, "&lt;")}</p>`
+      + `<hr style="border:none;border-top:1px solid #e5e5e5;margin:16px 0"/>`
+      + `<p style="font-size:12px;color:#888">${emailFooter.trim().replace(/\n/g, "<br/>").replace(/</g, "&lt;")}</p></div>`;
+    const sms = (body.length > 300 ? body.slice(0, 297) + "…" : body) + smsFooter;
+    return { subject, html, text, sms };
+  }
+
+  async function dispatchNotification(tenantId: string | null, customerId: string | null, event: string, payload: any = {}) {
+    const nowISO = new Date().toISOString();
+    const out: any = { event, simulated: true, channels: [], suppressed: [], reason: "", results: [] };
+    try {
+      if (!NOTIF_AUDIENCE[event]) { out.reason = "unknown_event"; return out; }
+      const sb = getServiceSupabase();
+      if (!sb || !tenantId) { out.reason = "no_supabase_or_tenant"; return out; }
+
+      const { data: tenant } = await sb.from("tenants").select("name,settings").eq("id", tenantId).maybeSingle();
+      const tprefs: any = (tenant?.settings as any)?.notificationPrefs || {};
+      const tenantName = tenant?.name || "YardWorx";
+      const audience = NOTIF_AUDIENCE[event];
+
+      // Load the customer (tenant-scoped) for contact + per-customer opt-outs + name.
+      let customer: any = null;
+      if (customerId) {
+        const { data: c } = await sb
+          .from("customers")
+          .select("first_name,last_name,company_name,email,phone,data")
+          .eq("id", customerId).eq("tenant_id", tenantId).maybeSingle();
+        customer = c || null;
+      }
+      const customerName = customer
+        ? (customer.company_name || [customer.first_name, customer.last_name].filter(Boolean).join(" ") || "A customer")
+        : "A customer";
+
+      let recipientEmail: string | null;
+      let recipientPhone: string | null;
+      let prefs: any;
+      if (audience === "owner") {
+        // Owner alerts key off the tenant's own contact + tenant defaults ONLY — a customer's
+        // opt-out must never suppress the owner's own ops alert.
+        recipientEmail = tprefs.ownerEmail || (tenant?.settings as any)?.ownerEmail || null;
+        recipientPhone = tprefs.ownerPhone || null;
+        prefs = { channels: tprefs.channels || {}, quietHours: tprefs.quietHours || null, eventMutes: Array.isArray(tprefs.eventMutes) ? tprefs.eventMutes : [] };
+      } else {
+        recipientEmail = customer?.email || null;
+        recipientPhone = customer?.phone || null; // tenant-scoped own-customer number => guard holds
+        const cp: any = customer?.data?.notifPrefs || {};
+        prefs = {
+          channels: { ...(tprefs.channels || {}), ...(cp.channels || {}) },
+          quietHours: tprefs.quietHours || null,
+          smsOptOut: !!cp.smsOptOut,
+          emailOptOut: !!cp.emailOptOut,
+          eventMutes: Array.isArray(cp.eventMutes) ? cp.eventMutes : (Array.isArray(tprefs.eventMutes) ? tprefs.eventMutes : []),
+        };
+      }
+
+      const decision = resolveNotification(event as any, prefs, nowISO);
+      out.channels = decision.channels;
+      out.suppressed = decision.suppressed;
+      out.reason = decision.reason;
+
+      const content = buildNotifContent(event, { ...payload, customerName: payload?.customerName || customerName }, tenantName, audience);
+      let anySent = false;
+      for (const ch of decision.channels) {
+        if (ch === "email") {
+          if (!recipientEmail) { out.results.push({ channel: "email", sent: false, simulated: false, reason: "no_email_on_file" }); continue; }
+          try {
+            const r = await sendEmail({ to: recipientEmail, subject: content.subject, html: content.html, text: content.text });
+            out.results.push({ channel: "email", ...r });
+            if (r?.sent) anySent = true;
+          } catch (e: any) {
+            out.results.push({ channel: "email", sent: false, simulated: false, reason: e?.message || "email_error" });
+          }
+        } else if (ch === "sms") {
+          if (!recipientPhone) { out.results.push({ channel: "sms", sent: false, simulated: false, reason: "no_phone_on_file" }); continue; }
+          const r = await sendSmsRaw(recipientPhone, content.sms);
+          out.results.push({ channel: "sms", ...r });
+          if (r?.sent) anySent = true;
+        } else if (ch === "push") {
+          const r = await sendWebPush(customerId, content.subject, content.text);
+          out.results.push({ channel: "push", ...r });
+          if (r?.sent) anySent = true;
+        }
+      }
+      out.simulated = !anySent; // nothing actually delivered => honestly simulated/suppressed
+      return out;
+    } catch (e: any) {
+      // Bulletproof: callers (esp. the Stripe webhook) rely on this never throwing.
+      out.simulated = true;
+      out.error = e?.message || "dispatch_error";
+      return out;
+    }
+  }
+
+  // Manual / client-originated trigger. Client-side CRUD (e.g. creating an invoice, tapping
+  // "On my way") has no server insert to hook, so the SPA calls this after the action. Authed +
+  // tenant-scoped; dispatchNotification re-checks that the customer belongs to the tenant.
+  app.post("/api/notifications/dispatch", async (req: any, res) => {
+    try {
+      const { event, customerId, payload } = req.body || {};
+      if (!event || !NOTIF_AUDIENCE[event]) return res.status(400).json({ error: "Unknown notification event" });
+      const sb = getServiceSupabase();
+      const tenant = sb ? await resolveTenant(req) : null;
+      if (REQUIRE_AUTH && !tenant) return res.status(401).json({ error: "Unauthorized" });
+      if (!tenant) return res.json({ simulated: true, reason: "demo_mode_no_tenant", channels: [], suppressed: [], results: [] });
+      const result = await dispatchNotification(tenant.id, customerId ? String(customerId) : null, event, payload || {});
+      res.json(result);
+    } catch (e: any) {
+      console.error("[notifications/dispatch]", e?.message);
+      res.status(500).json({ error: "Dispatch failed" });
+    }
+  });
 
   app.post("/api/email/send", async (req: any, res) => {
     try {

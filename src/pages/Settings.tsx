@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { ServicePricingCatalog } from "../components/ServicePricingCatalog";
 import { StripeConnectSection } from "../components/StripeConnectSection";
 import { IntegrationSettings } from "../components/IntegrationSettings";
+import { NotificationPrefs } from "../components/NotificationPrefs";
 import { WorkflowBuilderSection } from "../components/WorkflowBuilderSection";
 import { TeamManagement } from "../components/TeamManagement";
 import { Link } from "react-router-dom";
@@ -496,6 +497,8 @@ export default function Settings() {
           ))}
         </div>
       </section>
+
+      <NotificationPrefs />
 
       <BookingLinkSection tenantId={tenant?.id} />
 
