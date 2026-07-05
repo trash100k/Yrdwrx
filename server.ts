@@ -1688,6 +1688,22 @@ export async function createApp({ startListening = false } = {}) {
     message: { error: "Daily AI generation limit reached (100). Please try again tomorrow." },
   });
 
+  // Per-USER limiter for sensitive non-AI writes that trigger real side effects (outbound email
+  // invites, etc.). The IP-keyed globalLimiter is proxy-shared behind Cloud Run and trivially
+  // IP-rotatable; this caps by VERIFIED Firebase UID so an authenticated user can't loop a
+  // side-effecting write past the cap. Applied per-route (not globally) — currently on
+  // /api/team/invite, which both security audits flagged as an authenticated email-bomb amplifier
+  // (owner-gated, but no per-UID cap). Env-tunable; falls back to IP when there is no user.
+  const writeLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    limit: Number(process.env.WRITE_LIMIT_PER_HOUR) || 60,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    validate: { trustProxy: false, xForwardedForHeader: false, forwardedHeader: false },
+    keyGenerator: (req) => (req as any).user?.uid || ipKeyGenerator((req as any).ip),
+    message: { error: "Too many write requests. Please slow down and try again shortly." },
+  });
+
   app.use("/api/", globalLimiter);
   app.use("/api/agent/", aiLimiter);
   app.use("/api/knowledge/", aiLimiter);
@@ -7893,7 +7909,7 @@ field is absent, use null — never invent values. Return the key structured fie
     });
   });
 
-  app.post("/api/team/invite", async (req: any, res: any) => {
+  app.post("/api/team/invite", writeLimiter, async (req: any, res: any) => {
     if (REQUIRE_AUTH && !req.user?.uid) return res.status(401).json({ error: "Unauthorized" });
     const sb = getServiceSupabase();
     if (!sb) return res.status(503).json({ error: "Invites unavailable (SUPABASE_SERVICE_ROLE_KEY not set)", code: "PROVISION_UNAVAILABLE" });

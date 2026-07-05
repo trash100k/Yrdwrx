@@ -216,12 +216,14 @@ Driven by an OWASP-grounded production-readiness research pass + **three indepen
 - [x][P1/B] **Gemini global concurrency semaphore** — bounds concurrent upstream `generateContent`
   calls (distinct-prompt flood); load-sheds past the cap with a clean 503 `AI_BUSY`. Complements
   coalescing (identical prompts). `src/lib/semaphore.ts` (+6 tests). High default cap = passthrough
-  under normal load.
+  under normal load. (`4654a72`)
+- [x][P1/C] **Per-UID write limiter on `/api/team/invite`** — the authenticated email-bomb amplifier
+  both audits flagged (owner-gated but only IP-capped). Now capped by verified UID (`WRITE_LIMIT_PER_HOUR`=60/hr).
 
 **⬜ Open backlog (from the audits — prioritized; details in `PRODUCTION_READINESS.md` Fix Ledger):**
 - [ ][P0] `DEFAULT_SPEND_CAP_CENTS` — paid-tier bill-shock ceiling / denial-of-wallet kill-switch.
 - [ ][P1] Gemini **fail-closed cost cap** (fails open on Supabase error today) + Gemini-429 → client-429/Retry-After. _(concurrency semaphore: done.)_
-- [ ][P1] **Shared (Redis) limiter store** + **per-UID/per-tenant limits on non-AI writes** (team/invite, notifications/dispatch, stripe/*, portal/*).
+- [ ][P1] **Shared (Redis) limiter store** + **per-UID/per-tenant limits on the remaining non-AI writes** (notifications/dispatch, stripe/*, portal/*). _(team/invite: done; notifications/dispatch has the outbound throttle.)_
 - [ ][P1] Route `dispatchNotification` sends through the spend meter (close metering bypass); fix SMS-meter TOCTOU (atomic Postgres RPC).
 - [ ][P1] **Dirty-Dozen RLS as a CI gate** + live route-inventory auth test + coverage/`npm audit`/secret-scan in CI.
 - [ ][P1] Full **money-path E2E** round-trip (seeded test DB) + **k6** spike/soak run.
