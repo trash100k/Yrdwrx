@@ -241,6 +241,85 @@ build) and committed. Ranked by **value × readiness**.
 <!-- SPRINT BUG LOG (2026-07-05) — appended by qa-smoke/pentester/build agents; cleared when fixed.
 (none yet) -->
 
+## Research-fed backlog (2026-07-05) — from the pricing/market-pain/ideation fleet
+
+Three research agents ran this sprint. Full pricing design of record: **`PRICING_STRATEGY.md`**.
+Items below are de-duped against the 10-feature ship-it list; `[dup]` marks where two agents
+converged (build once). Sources are cited in each agent's output / `MARKET_RESEARCH.md`.
+
+### Pricing model — base + per-seat + usage-metered (owner-requested) → build workstream `feat-usage-billing`
+Model (from `PRICING_STRATEGY.md`): **Free $0 · Pro $249 (+$29/seat) · Enterprise $649 (+$25/seat)**,
+$0 onboarding (undercuts LMN's $797–$1,497). Metered overage priced ≥2.5× labeled 2026 COGS:
+**SMS $0.03/seg · AI-credit $0.04 · Live-Ear $0.30/min · aerial lookup $3.00**. Personas prove
+70–91% gross margin light+heavy (aerial is the one margin compressor to watch).
+- [ ] **Usage ledger schema** — `usage_events(tenant_id, period, meter, quantity, unit_cost_cents, created_at)` + `tenant_usage` rollup + `tenants.spend_cap_cents`; keep AI-credit back-compat.
+- [ ] **Generalize `meterCredits()` → `meterUsage(meter, qty)`** (server.ts ~1027): write ledger + increment rollup, preserve 402-on-exhaustion + fail-open. `AI_CREDITS` → env-driven `TIER_ALLOTMENTS` (seats/credits/sms/live_min/aerial).
+- [ ] **Metering hooks** — AI weights (design/image=5, text=1); SMS per-segment in `/api/sms/send` (keep toll-fraud guard); Live-Ear per-minute (meter on WS close, replace flat 1-credit); aerial per-lookup; PDF nominal past soft cap.
+- [ ] **Stripe metered subscription items** — base Price + per-seat (quantity) + one metered Price/meter via Stripe meter events; extend `/api/stripe/subscribe` + webhook (seat qty; on payment_failed suspend metered ops).
+- [ ] **Usage dashboard + spend caps** — `/api/usage/summary` (multi-meter) + `AiUsage.tsx` per-meter bars + projected bill; spend-cap + 50/80/100% alerts in Settings; enforce `402 SPEND_CAP_EXCEEDED`.
+- [ ] **Overage invoicing + prepaid packs** (500 credits/$20); period-close rollup → Stripe metered lines; dunning.
+- [ ] **Compliance gate (human/legal)** — A2P 10DLC brand+campaign; TCPA consent + STOP/HELP suppression before paid SMS at scale; 0 SMS included on Free.
+
+### Market-pain features (verified 2025–26 landscaper pains → feature)
+- [ ] **AI missed-call / after-hours receptionist + speed-to-lead** (`feat-ai-receptionist`) — HIGH value.
+      Inbound call/SMS → AI answers, captures name/address/need, books or creates a lead, texts instant
+      reply, alerts owner. Pain: owner in field misses calls; homeowners hire first responder (Invoca ~27%
+      of home-services calls unanswered; MIT 78% buy from first responder). NEW (only outbound simulate-call
+      exists). Reuse Twilio + Live API + agent executor + Inbox. Add `/api/voice/inbound` + `/api/agent/receptionist`.
+- [ ] **Homeowner point-of-sale financing at the close** (`feat-homeowner-financing`) `[dup: ideator #4]` — HIGH.
+      Monthly-payment financing (Wisetack/Hearth/Sunbit) inline on estimate/portal for $5k–$50k design-build;
+      chains off e-sign + deposit. Reuse `/api/portal/checkout`. *Needs a paid vendor key (human).*
+- [ ] **Bilingual (EN/ES) crew field mode + customer-comms translation** (`feat-bilingual-crew`) — MED-HIGH.
+      Workforce is majority Spanish-speaking, incumbents English-first. Extends `/api/translate` + useTranslate
+      into Field Mode/Closeout/checklists + two-way SMS translation.
+- [ ] **Sales-tax on estimates/invoices (jurisdiction-aware)** (`feat-sales-tax`) `[dup: ideator #12]` — MED.
+      Landscaping taxability is a 50-state patchwork (maintenance vs capital-improvement flips within a state).
+      Stripe Tax / per-jurisdiction table + taxable flag on catalog items; honest fallback to manual `taxRate`.
+      *Legal review before GTM copy.*
+- [ ] **Customer-facing photo-proof / service verification** (`feat-service-proof`) `[dup: ideator #5]` — MED.
+      Surface completion photos + AI snapshot check to the customer on job completion. Revive the built-but-
+      unwired `/api/job/snapshot-check` (server.ts:4499) via portal + Closeout capture.
+- [ ] **Prepaid / annual maintenance packages** (`feat-prepaid-packages`) `[dup: ideator #7]` — MED.
+      Sell prepaid annual programs (winter cash-flow smoothing); maintenance ≈ 44% of market revenue.
+      Extends `/api/stripe/recurring/checkout` + Contracts.tsx.
+- [ ] **No-fee onboarding + migration wizard** (`feat-onboarding-wizard`) — MED. Cutty-guided setup + import
+      that undercuts incumbents' $800–1,500 onboarding wall (GTM weapon). Builds on Cutty + the CSV-import item.
+- [ ] **Heat-safety crew check-in + heat-index alert** (`feat-heat-safety`) — LOW-MED, niche. OSHA heat NPRM
+      (not final) + 6 state rules. Heat-index warning on the schedule + crew check-in log.
+- [ ] **Electric-equipment / CARB compliance flag + badge** (`feat-electric-compliance`) — LOW, niche.
+      CA bans *sale* of new gas SORE; HOAs require electric-only. Track equipment fuel type + an "electric crew"
+      bid badge. Frame as sale-restriction, not use-ban.
+- [ ] **Shared-lead escape / first-party lead engine** — MED (from grandchild research). Angi/HomeAdvisor/
+      Thumbtack are widely resented (shared 3–8 ways, non-refundable). Lean into owned booking + reviews + GBP
+      as the anti-marketplace pitch; already partially served by `/book` + reviews loop.
+
+### Product-ideation features (ranked; reuse-referenced)
+- [ ] **Living Proposal + engagement tracking** (`feat-proposal-tracking`) — TOP PICK. Promote the tiered
+      Design vision into a shareable Proposal object (good/better/best + before/after + e-sign + deposit) at a
+      capability-token URL, and **log open/view events** back to the owner ("viewed 2×, unsigned") → auto follow-up.
+      Makes the whole "close in the driveway" lane measurable (nothing tracks whether the customer opened the quote).
+      Reuse `/api/portal/*` + e-sign + `automations.ts` + notifications.
+- [ ] **Estimate/proposal win-rate analytics** (`feat-sales-analytics`) — TOP PICK, highest readiness (pure
+      aggregate, no key/AI). Sales tab in Reports: quote→win conversion, close rate by tier/service, avg deal,
+      stale-estimate list. The metric the design-build beachhead optimizes on.
+- [ ] **Deterministic materials & measurement calculator** (`feat-materials-calc`) — TOP PICK. Gemini
+      code-execution → mulch cu-yd, sod sqft, paver/plant counts, dosing → deterministic math prefilling estimate
+      line items + inventory draws + compliance log. Keeps numbers deterministic (the trust point).
+- [ ] **AI job-quality verification at closeout** (`feat-quality-verify`) `[= feat-service-proof]` — revive
+      `/api/job/snapshot-check`; departure photo → AI confirms scope match → unlocks review request + gallery.
+- [ ] **"Similar past jobs" pricing assist** (`feat-similar-jobs`) — on a new estimate, surface the tenant's 3
+      most-similar completed jobs w/ real charged+cost. v1 = one structured Gemini call (mock-safe); embeddings later.
+- [ ] **Client-portal upsell: tip + request-more-work + add-ons** (`feat-portal-upsell`) — tip line at checkout,
+      "request a quote" → CRM lead, services menu. Small lift on the secured portal.
+- [ ] **AI review-reply drafting + post-back** (`feat-review-replies`) — pairs with reviews-ingestion; auto-draft
+      on-brand replies to Google reviews, one-tap post-back.
+- [ ] **Owner "next best action" queue (clickable)** (`feat-action-queue`) — merge churn + stale estimates +
+      overdue AR + unsigned proposals + low stock into one do-list; supersede/absorb AlertsWidget.
+- [ ] **On-site "walk the yard" measurement** (`feat-onsite-measure`) — ground photos + reference object → bed/
+      lawn sqft (the on-site opposite of aerial takeoff). Label as estimate (accuracy unproven).
+
+<!-- SPRINT BUG LOG continues above. -->
+
 ## App audit remediation backlog (2026-06-29) — from `APP_AUDIT.md`
 
 Derived from the section-by-section deep dive. **Full per-section detail (purpose/works/missing/
