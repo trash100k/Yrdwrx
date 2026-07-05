@@ -218,6 +218,16 @@ export default function ClientPortal() {
       }
       setSignedAtById((prev) => ({ ...prev, [est.id]: json.signedAt || new Date().toISOString() }));
       setSigningEstimate(null);
+      // Deposit on acceptance: if a deposit is due, take the client straight to Stripe Checkout.
+      if (json.depositRequired && json.depositCheckoutUrl) {
+        window.location.href = json.depositCheckoutUrl;
+        return;
+      }
+      if (json.depositRequired && json.depositSimulated) {
+        setSignError(
+          `Signed! A ${json.depositAmount ? `$${Number(json.depositAmount).toLocaleString()} ` : ""}deposit is due — online payments aren't configured for this account, so the deposit is simulated.`,
+        );
+      }
       await refreshPortalData();
     } catch (e: any) {
       setSignError(e?.message || "Network error while signing. Please try again.");

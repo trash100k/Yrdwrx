@@ -466,6 +466,7 @@ export default function Settings() {
           {([
             { key: "laborRate", label: "Labor Rate ($/hour)", type: "number", placeholder: "35", hint: "Job Costing & Customer Intelligence" },
             { key: "ratePerSqft", label: "Mowing Rate ($/sq ft)", type: "number", placeholder: "0.02", hint: "Instant Estimate" },
+            { key: "defaultDepositPct", label: "Deposit on Accept (%)", type: "number", placeholder: "0", hint: "Estimates collect this deposit at e-sign" },
             { key: "zone", label: "USDA Hardiness Zone (1–13)", type: "number", placeholder: "7", hint: "Design Studio plant matching" },
             { key: "ownerEmail", label: "Owner Email (for digests)", type: "email", placeholder: "owner@company.com", hint: "Owner Digest 'email me'" },
             { key: "googleReviewUrl", label: "Google Review Link", type: "url", placeholder: "https://g.page/r/...review", hint: "Included in review-request messages" },

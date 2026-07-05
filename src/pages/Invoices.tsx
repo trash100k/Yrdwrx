@@ -124,6 +124,8 @@ export default function Invoices() {
   const [taxRate, setTaxRate] = useState<number>(Number((tenant?.settings as any)?.taxRate) || 0);
   const [discount, setDiscount] = useState<number>(0);
   const [dueDays, setDueDays] = useState<number>(Number((tenant?.settings as any)?.invoiceNetDays) || 30);
+  // Deposit % required on an estimate (defaults from the tenant's Business Defaults).
+  const [depositPct, setDepositPct] = useState<number>(Number((tenant?.settings as any)?.defaultDepositPct) || 0);
   // Record-payment (deposits / partial payments) modal state.
   const [paymentInvoice, setPaymentInvoice] = useState<any>(null);
   const [payAmount, setPayAmount] = useState<string>("");
@@ -232,6 +234,7 @@ export default function Invoices() {
       setTaxRate(Number((tenant?.settings as any)?.taxRate) || 0);
       setDiscount(0);
       setDueDays(Number((tenant?.settings as any)?.invoiceNetDays) || 30);
+      setDepositPct(Number((tenant?.settings as any)?.defaultDepositPct) || 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAIModal]);
@@ -918,6 +921,9 @@ export default function Invoices() {
       discount: discountAmt,
       taxRate: Number(taxRate) || 0,
       taxAmount,
+      // Deposit-on-acceptance: stamp the required deposit % on estimates so the client is asked
+      // to pay it the moment they e-sign (server reads data.depositPct in /api/portal/estimate/sign).
+      ...(mode === "estimate" && Number(depositPct) > 0 ? { depositPct: Number(depositPct) } : {}),
     };
     // Resolve the linked customer id so the invoice attributes revenue
     // to a customer (invoices.customer_id). Prefer the explicit selector,
@@ -1834,6 +1840,13 @@ export default function Invoices() {
                               <div className="flex items-center gap-2">
                                 <input type="number" value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)} className="w-16 bg-zinc-900 border border-white/10 rounded-lg p-1.5 text-right text-white text-sm focus:outline-none focus:border-forest-500" />
                                 <span className="font-mono text-white w-24 text-right">{money(tax)}</span>
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center text-sm text-zinc-400">
+                              <span>Deposit on accept (%)</span>
+                              <div className="flex items-center gap-2">
+                                <input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))} className="w-16 bg-zinc-900 border border-white/10 rounded-lg p-1.5 text-right text-white text-sm focus:outline-none focus:border-forest-500" />
+                                <span className="font-mono text-white w-24 text-right">{depositPct > 0 ? money(total * (depositPct / 100)) : "—"}</span>
                               </div>
                             </div>
                             <div className="flex justify-between items-center text-sm text-zinc-400">

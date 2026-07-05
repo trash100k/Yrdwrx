@@ -17,6 +17,7 @@ import helmet from "helmet";
 import { validateSafeUrl } from "./src/lib/securityUtils.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
+import { computeDeposit } from "./src/lib/deposit.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -577,27 +578,36 @@ export async function createApp({ startListening = false } = {}) {
       switch (event.type) {
         case 'checkout.session.completed': {
           const session = event.data.object;
-          if (session.metadata && session.metadata.invoiceId) {
+          const md = session.metadata || {};
+          if (md.invoiceId && sb) {
             // Apply the payment to the invoice ledger (system of record). The portal
             // supports SMALLER partial payments, so we must accumulate data.amountPaid and
             // only mark fully "paid" when the balance is settled — blindly setting "paid"
             // would write off the remainder and let the client be charged again later.
             // We read the invoice first so the data jsonb is merged (a column write replaces
             // it wholesale, which would otherwise erase number/tax/contractId).
+            // A `type:"deposit"` session credits the ledger too, but keeps the estimate
+            // "accepted" (a deposit is a partial payment, not a converted invoice).
             try {
-              if (sb) {
-                const invId = session.metadata.invoiceId;
-                const { data: inv } = await sb.from("invoices").select("amount,data").eq("id", invId).maybeSingle();
-                if (inv) {
-                  const paid = (Number(session.amount_total) || 0) / 100;
-                  const prevPaid = Number(inv.data?.amountPaid) || 0;
-                  const amountPaid = Math.round((prevPaid + paid) * 100) / 100;
-                  const total = Number(inv.amount) || 0;
-                  const status = amountPaid >= total - 0.005 ? "paid" : "partial";
-                  const payments = Array.isArray(inv.data?.payments) ? inv.data.payments : [];
-                  payments.push({ amount: paid, date: new Date().toISOString().slice(0, 10), method: "card", source: "stripe" });
-                  await sb.from("invoices").update({ status, data: { ...(inv.data || {}), amountPaid, payments } }).eq("id", invId);
+              const invId = md.invoiceId;
+              const isDeposit = md.type === "deposit";
+              const { data: inv } = await sb.from("invoices").select("amount,data,status").eq("id", invId).maybeSingle();
+              if (inv) {
+                const paid = (Number(session.amount_total) || 0) / 100;
+                const prevPaid = Number(inv.data?.amountPaid) || 0;
+                const amountPaid = Math.round((prevPaid + paid) * 100) / 100;
+                const total = Number(inv.amount) || 0;
+                const payments = Array.isArray(inv.data?.payments) ? inv.data.payments : [];
+                payments.push({ amount: paid, date: new Date().toISOString().slice(0, 10), method: "card", source: "stripe", ...(isDeposit ? { note: "deposit" } : {}) });
+                const nextData: any = { ...(inv.data || {}), amountPaid, payments };
+                let status: string;
+                if (isDeposit) {
+                  nextData.deposit = { ...(inv.data?.deposit || {}), status: "paid", paidAt: new Date().toISOString(), amount: paid };
+                  status = inv.status || "accepted";
+                } else {
+                  status = amountPaid >= total - 0.005 ? "paid" : "partial";
                 }
+                await sb.from("invoices").update({ status, data: nextData }).eq("id", invId);
               }
             } catch (e) { console.warn("Supabase invoice payment apply failed:", (e as any)?.message); }
           }
@@ -5182,6 +5192,36 @@ export async function createApp({ startListening = false } = {}) {
 
   // Client pays one of THEIR invoices. Token-scoped: the invoice must belong to the token's
   // client; amount + connected account come from Supabase, never the client.
+  // Shared builder for a Stripe Checkout that charges an invoice on the tenant's connected
+  // account (card + ACH) and takes the platform application fee. Used by the balance-payment
+  // path AND the deposit-on-acceptance flow so both stay identical + tenant-safe. `inv` must
+  // carry { id, tenant_id }.
+  const createInvoiceCheckout = async (
+    sb: any, inv: any, chargeDollars: number, productName: string,
+    extraMetadata: Record<string, string>, successUrl?: string, cancelUrl?: string,
+  ) => {
+    let connectedAccount: string | null = null;
+    if (inv.tenant_id) {
+      const { data: t } = await sb.from("tenants").select("stripe_account_id").eq("id", inv.tenant_id).maybeSingle();
+      connectedAccount = t?.stripe_account_id || null;
+    }
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    const unitAmount = Math.round(chargeDollars * 100);
+    const sessionOptions: any = {
+      payment_method_types: ["card", "us_bank_account"],
+      metadata: { invoiceId: inv.id, ...extraMetadata },
+      line_items: [{ price_data: { currency: "usd", product_data: { name: productName }, unit_amount: unitAmount }, quantity: 1 }],
+      mode: "payment",
+      success_url: successUrl || `${BASE_URL}?success=true`,
+      cancel_url: cancelUrl || `${BASE_URL}?canceled=true`,
+    };
+    if (connectedAccount && PLATFORM_FEE_PCT > 0) {
+      sessionOptions.payment_intent_data = { application_fee_amount: Math.round(unitAmount * PLATFORM_FEE_PCT) };
+    }
+    const requestOptions = connectedAccount ? { stripeAccount: connectedAccount } : {};
+    return stripe.checkout.sessions.create(sessionOptions, requestOptions);
+  };
+
   app.post("/api/portal/checkout", strictLimiter, async (req: any, res: any) => {
     const tok = verifyPortalToken(req);
     if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
@@ -5308,20 +5348,85 @@ export async function createApp({ startListening = false } = {}) {
         acceptedTier: acceptedTier ? String(acceptedTier).slice(0, 80) : null,
         via: "portal",
       };
-      const data = { ...(inv.data || {}), signature, acceptedAt: signature.signedAt };
+      const data: any = { ...(inv.data || {}), signature, acceptedAt: signature.signedAt };
+
+      // Deposit on acceptance: if the estimate requires an upfront deposit, record it and open a
+      // Stripe Checkout on the tenant's connected account (same builder as the balance payment).
+      // The client pays it immediately after signing; the webhook marks it paid + credits the
+      // invoice ledger while keeping the estimate "accepted".
+      const dep = computeDeposit(Number(inv.amount) || 0, { depositAmount: inv.data?.depositAmount, depositPct: inv.data?.depositPct });
+      let depositCheckoutUrl: string | null = null;
+      let depositSimulated = false;
+      if (dep.required) {
+        data.deposit = { required: true, amount: dep.amount, pct: dep.pct, status: "pending" };
+        if (process.env.STRIPE_SECRET_KEY) {
+          try {
+            const session = await createInvoiceCheckout(
+              sb, { id: invoiceId, tenant_id: inv.tenant_id }, dep.amount,
+              `Deposit — Estimate ${String(invoiceId).slice(0, 6)}`, { type: "deposit" },
+              req.body?.successUrl, req.body?.cancelUrl,
+            );
+            depositCheckoutUrl = session?.url || null;
+            data.deposit.checkoutSessionId = session?.id || null;
+          } catch (e: any) {
+            console.error("deposit checkout error", e?.message);
+          }
+        } else {
+          depositSimulated = true;
+        }
+      }
+
       await sb.from("invoices").update({ status: "accepted", data }).eq("id", invoiceId);
       try {
         await sb.from("customer_messages").insert({
           tenant_id: inv.tenant_id,
           customer_id: tok.clientId,
           sender: "client",
-          text: `✍️ ${name} signed and accepted the estimate${signature.acceptedTier ? ` (${signature.acceptedTier})` : ""}. Ready to schedule!`,
+          text: `✍️ ${name} signed and accepted the estimate${signature.acceptedTier ? ` (${signature.acceptedTier})` : ""}.${dep.required ? ` A ${dep.pct}% deposit ($${dep.amount.toLocaleString()}) is due.` : " Ready to schedule!"}`,
         });
       } catch {}
-      res.json({ success: true, status: "accepted", signedAt: signature.signedAt });
+      res.json({
+        success: true, status: "accepted", signedAt: signature.signedAt,
+        depositRequired: dep.required, depositAmount: dep.amount,
+        depositCheckoutUrl, depositSimulated,
+      });
     } catch (e: any) {
       console.error("portal estimate sign error", e?.message);
       res.status(500).json({ error: "Failed to record signature" });
+    }
+  });
+
+  // (Re)open a deposit checkout for an already-signed estimate whose deposit is still pending
+  // (e.g. the client closed the Stripe tab). Token-scoped + idempotent — a paid deposit 409s so
+  // it can never be charged twice.
+  app.post("/api/portal/estimate/deposit", strictLimiter, async (req: any, res: any) => {
+    const tok = verifyPortalToken(req);
+    if (!tok) return res.status(401).json({ error: "Invalid or expired portal link" });
+    const sb = getServiceSupabase();
+    if (!sb) return res.status(503).json({ error: "Portal unavailable" });
+    const { invoiceId, successUrl, cancelUrl } = req.body || {};
+    if (!invoiceId) return res.status(400).json({ error: "invoiceId required" });
+    try {
+      const { data: inv } = await sb
+        .from("invoices").select("id,customer_id,tenant_id,status,data,amount").eq("id", invoiceId).maybeSingle();
+      if (!inv) return res.status(404).json({ error: "Estimate not found" });
+      if (inv.customer_id !== tok.clientId) return res.status(403).json({ error: "Not your estimate" });
+      if (inv.data?.deposit?.status === "paid") return res.status(409).json({ error: "Deposit already paid." });
+      const dep = computeDeposit(Number(inv.amount) || 0, { depositAmount: inv.data?.depositAmount, depositPct: inv.data?.depositPct });
+      if (!dep.required) return res.status(400).json({ error: "No deposit is due on this estimate." });
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.json({ simulated: true, simulatedUrl: successUrl || `${BASE_URL}?success=mock`, depositAmount: dep.amount });
+      }
+      const session = await createInvoiceCheckout(
+        sb, { id: invoiceId, tenant_id: inv.tenant_id }, dep.amount,
+        `Deposit — Estimate ${String(invoiceId).slice(0, 6)}`, { type: "deposit" }, successUrl, cancelUrl,
+      );
+      const data = { ...(inv.data || {}), deposit: { ...(inv.data?.deposit || {}), required: true, amount: dep.amount, pct: dep.pct, status: "pending", checkoutSessionId: session?.id || null } };
+      await sb.from("invoices").update({ data }).eq("id", invoiceId);
+      res.json({ checkoutUrl: session.url, url: session.url, depositAmount: dep.amount });
+    } catch (e: any) {
+      console.error("portal deposit error", e?.message);
+      res.status(500).json({ error: "Could not start the deposit payment" });
     }
   });
 
