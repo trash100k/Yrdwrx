@@ -248,12 +248,12 @@ build) and committed. Ranked by **value × readiness**.
       (`private.guard_profile_privileged_columns`) blocking role/tenant_id/is_platform_admin/firebase_uid
       changes unless service_role or platform admin. Applied to the live DB; the exploit now raises 42501
       (verified in a rolled-back sim).
-- [ ] **[SEC-2 HIGH] `cc_*` tables world-readable/writable via the public anon key (live prospect PII).**
-      **NOT YardWorx's tables** — 16 `cc_*` tables (cc_leads/cc_deals/cc_voice_calls/cc_agents/…), zero
-      references in this codebase, no `tenant_id`, `USING/WITH CHECK (true)` for role `public`. They belong
-      to a *separate "command center" app* sharing this Supabase project. **SURFACED to the owner** — not
-      altering another app's tables/data unilaterally. Owner decision needed: drop them, move them to their
-      own project, or add `tenant_id` + tenant-scoped policies + revoke anon.
+- [x] **[SEC-2 HIGH] `cc_*` tables world-readable/writable via the public anon key — RESOLVED (owner-authorized).**
+      16 abandoned "command center" `cc_*` tables (not YardWorx — zero code refs, no `tenant_id`, no FK from
+      any YardWorx table) were world-open via the public anon key and held real prospect PII. The owner
+      authorized removal; migration **0014_drop_command_center_tables.sql** dropped all 16 (~76 rows) CASCADE.
+      Migration **0015_guard_fn_search_path.sql** also pins the SEC-1 trigger fn's search_path. **Supabase
+      security advisors now return 0 lints** (was 5 rls-always-true + 1 mutable-search-path).
 - [ ] **[SEC-3 MED] Raw exception messages echoed to clients** (server.ts 5539, 2256, 4988 [also blind-SSRF
       oracle], 4463/4461, 4002, 644). Return generic strings; keep `e.message` in `console.error`. → security-hardener.
 - [ ] **[SEC-4 MED] DNS-rebind TOCTOU in `validateSafeUrl`** (securityUtils.ts:47-83) — pin the validated IP
