@@ -518,6 +518,52 @@ De-duped against the 13-layer backlog above via `(see LN)` cross-refs.
 - [ ] CRM.tsx customer-create doesn't geocode-on-write (customers get coords lazily via CustomerMap backfill) — mirror the Scheduler change.
 - [ ] `/api/public/lead-intake` writes addresses to `leads` un-geocoded (leads.lat/lng columns unconfirmed — schema check if leads need mapping).
 
+## Encryption & secrets hardening (2026-07-05) — the security frontier
+
+Grounded in the live DB: **RLS is enabled on 100% of public tables**; `pgcrypto` + `supabase_vault`
+are installed; **`integrations.access_token`/`refresh_token` are stored PLAINTEXT** (the one real
+encryption hole — a DB read hands over live QBO tokens). Baseline already in place: at-rest AES-256
+(Supabase/GCP-managed DB + backups), TLS/HSTS/wss in transit, passwords hashed by Supabase Auth,
+tenant RLS + anti-escalation trigger (advisors 0), Stripe/QBO/portal integrity checks.
+
+> **Hash vs encrypt (do NOT "hashify" everything):** HASH one-way/compare-only things (passwords —
+> Supabase does it; API keys/webhook secrets you *issue* → store hash, compare). ENCRYPT reversible
+> things you must reuse (the QBO OAuth tokens). Hashing the tokens would break the integration.
+
+### P0 — Encrypt stored third-party secrets (code)
+- [ ] **`src/lib/secretCrypto.ts`** — tiered envelope, one interface: (dev) no key = passthrough (tests/
+      demo unaffected); (staging) `SECRET_ENCRYPTION_KEY` (32-byte base64 from Secret Manager) =
+      AES-256-GCM; (prod) `KMS_KEY_NAME` = Cloud KMS envelope (see P2). Zero new deps (node crypto).
+- [ ] Wire `integrations.access_token`/`refresh_token` through `encryptSecret` on write / `decryptSecret`
+      on read (QBO connect/callback/refresh + two-way sync). Forward-compatible (legacy plaintext rows
+      still decrypt as passthrough). One-time re-encrypt pass once a key is set. `0018` migration.
+- [ ] `.env.example`: `SECRET_ENCRYPTION_KEY`, `KMS_KEY_NAME`.
+
+### P1 — RLS depth (beyond enablement)
+- [ ] **Dirty-Dozen cross-tenant RLS verification** (from `security_spec.md`) run as a live SQL simulation
+      (tenant A vs B + simulated JWTs) via the Supabase MCP; then codify as a CI gate so drift is caught per-PR.
+- [ ] **Column-level lockdown** on `profiles` (`0018`): `REVOKE UPDATE (role, tenant_id, is_platform_admin,
+      firebase_uid) FROM authenticated, anon` — grant-layer belt behind the trigger.
+- [ ] Enumerate every table's policies; confirm tenant-scoped + deny-by-default (no stray `USING(true)`);
+      the intentional service-role-only tables (`stripe_events`, `integrations`, usage ledger) stay policy-less.
+
+### P1 — Secrets management + rotation (infra; `cloudbuild --set-secrets` already wired)
+- [ ] Move `JWT_SECRET`, service-role key, Stripe/Twilio/QBO client secrets into **Google Secret Manager**;
+      grant the Cloud Run SA `secretmanager.secretAccessor`; **mount as files, not env vars**; set rotation.
+
+### P2 — Most-secure tier + depth
+- [ ] **Cloud KMS envelope encryption** for stored tenant secrets: KEK in KMS (HSM tier, never leaves KMS),
+      **per-tenant DEK** wrapped by the KEK, store ciphertext + wrapped-DEK; every unwrap audited/revocable.
+      Short-TTL in-memory DEK cache to amortize the KMS call. (`@google-cloud/kms` dep + `KMS_KEY_NAME`.)
+- [ ] **Workload Identity** so Cloud Run authenticates to KMS/Secret Manager/Supabase with NO stored
+      credentials (identity = credential; solves the secret-to-get-secrets bootstrap).
+- [ ] **Field-level PII / Vault** (scoped, not blanket) via `supabase_vault`/`pgcrypto` for the most
+      sensitive columns only (signature images now; SSN/bank if ever added) — blanket column crypto kills queries.
+- [ ] **Append-only audit trail** (`audit_logs`): log platform-admin cross-tenant reads, token decryptions,
+      exports — plugs into the shipped L12 structured logging; breach forensics + SOC2 readiness.
+- [ ] **MFA (TOTP)** via Supabase Auth for owner/admin (client already has `BiometricGuard`); key rotation
+      for `JWT_SECRET` + the encryption key; CMEK + private egress (later, not day-one).
+
 ## Research-fed backlog (2026-07-05) — from the pricing/market-pain/ideation fleet
 
 Three research agents ran this sprint. Full pricing design of record: **`PRICING_STRATEGY.md`**.
