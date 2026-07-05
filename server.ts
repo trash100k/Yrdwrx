@@ -1647,7 +1647,11 @@ export async function createApp({ startListening = false } = {}) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        connectSrc: ["'self'", "ws://localhost:*", "http://localhost:*", "https://*.googleapis.com", "wss://*.googleapis.com", "https://*.stripe.com", "https://maps.googleapis.com", "https://*.firebaseio.com", "wss://*.firebaseio.com", "https://*.run.app", "wss://*.run.app"],
+        // Supabase is the live backend (auth + REST repos + realtime) and is called DIRECTLY from
+        // the browser, so it MUST be in connect-src or prod (VITE_REQUIRE_AUTH=true) login + all data
+        // loading are CSP-refused. fonts.googleapis is under style/font-src. Dropped the dead
+        // *.firebaseio.com (Firestore realtime DB is unused; Firebase Storage rides *.googleapis.com).
+        connectSrc: ["'self'", "ws://localhost:*", "http://localhost:*", "https://*.supabase.co", "wss://*.supabase.co", "https://*.googleapis.com", "wss://*.googleapis.com", "https://*.stripe.com", "https://maps.googleapis.com", "https://*.run.app", "wss://*.run.app"],
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://maps.googleapis.com", "https://js.stripe.com"], // Vite needs eval for dev, Stripe/Maps need external scripts
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
