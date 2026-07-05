@@ -51,6 +51,7 @@ import { playVoice } from "../lib/playVoice";
 import { burnAiVizBadge } from "../lib/aiVizBadge";
 import { resolveZone } from "../lib/plantIntelligence";
 import SuggestedPalette from "../components/design/SuggestedPalette";
+import IterativeEditPanel from "../components/design/IterativeEditPanel";
 import {
   historyInit,
   historyPush,
@@ -279,7 +280,7 @@ export default function DesignStudio() {
   const [isGeneratingTiers, setIsGeneratingTiers] = useState(false);
 const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "best">("standard");
   const [activeView, setActiveView] = useState<"studio" | "database">("studio");
-  const [activeTab, setActiveTab] = useState<"scribble" | "compare" | "preview3d">("scribble");
+  const [activeTab, setActiveTab] = useState<"scribble" | "iterate" | "compare" | "preview3d">("scribble");
 
   useEffect(() => {
     if (hookTranscript) {
@@ -935,6 +936,17 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
     }
   };
 
+  // Hand the current iterative-edit render into the proposal pipeline (Save to Quote /
+  // proposal PDF / Send read `mockupImage`), and record it in the render history so the
+  // main-flow Undo/Redo and slider pick it up too.
+  const commitIterated = ({ image: img, composite }: { image: string; composite: string }) => {
+    if (!img) return;
+    setMockupImage(img);
+    setLastComposite(composite || img);
+    setHistory((h) => historyPush(h, { image: img, composite: composite || img, ts: Date.now() }));
+    setActiveTab("compare");
+  };
+
   // Apply a zone-grounded palette: fill empty marked spots with the picks (in order) and
   // merge the priced items into the materials list so the estimate reflects the design.
   const applyPalette = (palette: any) => {
@@ -1260,6 +1272,15 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                   >
                     ✏️ Tracing & Scribbles
                   </button>
+                  <button
+                    onClick={() => setActiveTab("iterate")}
+                    title="Describe changes and stack them — a real conversation with the photo"
+                    className={`py-2 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
+                      activeTab === "iterate" ? "bg-white text-black shadow-md scale-[1.02]" : "text-white/40 hover:text-white"
+                    }`}
+                  >
+                    🎨 Iterative Edit
+                  </button>
                   {mockupImage && (
                     <button
                       onClick={() => setActiveTab("compare")}
@@ -1306,6 +1327,16 @@ const [activeTier, setActiveTier] = useState<"standard" | "good" | "better" | "b
                   ) : activeTab === "preview3d" && result ? (
                     <div className="absolute inset-0 p-1">
                       <Design3D result={result} image={image} />
+                    </div>
+                  ) : activeTab === "iterate" ? (
+                    <div className="absolute inset-0 p-1 sm:p-2">
+                      <IterativeEditPanel
+                        initialImage={image}
+                        zone={designZone}
+                        aspectRatioLabel={imageAspectRatio ? nearestAspect(imageAspectRatio) : undefined}
+                        composite={compositeRegions}
+                        onCommit={commitIterated}
+                      />
                     </div>
                   ) : activeTab === "compare" && mockupImage ? (
                     <BeforeAfterSlider beforeImage={image} afterImage={mockupImage} imageAspectRatio={imageAspectRatio} />

@@ -20,6 +20,7 @@ import { validateSafeUrl, isPrivateIP } from "./src/lib/securityUtils.js";
 import { isExcludedApiPath, requiresAuth } from "./src/lib/routeAuth.js";
 import { resolveZone } from "./src/lib/plantIntelligence.js";
 import { computeDeposit } from "./src/lib/deposit.js";
+import { validateEditInput, buildEditInstruction, MAX_REFERENCE_IMAGES } from "./src/lib/designEdit.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -603,6 +604,31 @@ ai.models.generateContent = async (request: any) => {
 
   return response;
 };
+// =================================================
+
+// ==== DESIGN IMAGE-RENDER SHA CACHE ====
+// The text `geminiCache` above stores only `.text` and deliberately BYPASSES IMAGE
+// requests (a text-cache HIT would blank the render). Iterative design edits are a pure
+// function of their inputs (the caller's own uploaded image + prompt + refs), so an
+// identical request can be served from a small in-memory SHA-256 cache instead of paying
+// for the model again — e.g. the client's judge-retry loop or a re-issued "Variation".
+// In-memory + FIFO-capped (renders are large base64 blobs; we never spill them to disk).
+// The key is derived ONLY from inputs the caller supplied, so there is no cross-tenant
+// bleed — the cached value is a transform of that caller's own image, nothing tenant-scoped.
+const designImageCache = new Map<string, string>();
+const DESIGN_IMAGE_CACHE_MAX = 40;
+function designImageCacheGet(key: string): string | null {
+  return designImageCache.get(key) || null;
+}
+function designImageCacheSet(key: string, dataUrl: string) {
+  if (designImageCache.has(key)) designImageCache.delete(key);
+  designImageCache.set(key, dataUrl);
+  while (designImageCache.size > DESIGN_IMAGE_CACHE_MAX) {
+    const oldest = designImageCache.keys().next().value;
+    if (oldest === undefined) break;
+    designImageCache.delete(oldest);
+  }
+}
 // =================================================
 
 // Stripe webhook idempotency (per-worker; a shared store is a scale follow-up). Guards
@@ -3942,6 +3968,114 @@ export async function createApp({ startListening = false } = {}) {
     } catch (e: any) {
       console.error("[design/place-objects]", e?.message);
       return handleAiError(res, e, "Object placement failed");
+    }
+  });
+
+  // ===========================================================================
+  // ITERATIVE IMAGE EDIT — the "have a conversation with the photo" engine and the
+  // on-site-selling differentiator. Each call takes the CURRENT result as the base image
+  // + a plain-language instruction (+ optional marked regions + optional product/reference
+  // photos) and returns the next edited image. The client feeds the previous COMPOSITED
+  // result back as `image`, so the rest of the yard stays stable and edits stack. Parts
+  // order: reference images FIRST, the base photo LAST (its aspect ratio wins), text LAST.
+  // Validation is shared with the client via ./src/lib/designEdit (bad input -> 400, never
+  // 500); mock mode echoes the base photo (labeled) so the flow never white-screens; the
+  // render is SHA-cached so a judge-retry / re-issued Variation doesn't re-bill the model.
+  // Pricing is untouched here — this route only edits pixels; quotes stay catalog-grounded.
+  // ===========================================================================
+  app.post("/api/design/edit", aiLimiter, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const v = validateEditInput(body);
+      if (!v.ok) {
+        return res.status(v.status).json({ error: v.error });
+      }
+
+      const { image, instruction, regions, referenceImages, aspectRatio, zone } = body;
+      const regs: any[] = Array.isArray(regions) ? regions : [];
+
+      const base64Data = image.includes(",") ? image.split(",")[1] : image;
+      const mimeType = image.includes(";") ? image.split(";")[0].split(":")[1] : "image/jpeg";
+
+      // Gather up to MAX_REFERENCE_IMAGES reference/product photos: the top-level
+      // referenceImages array first, then any per-region refImage. Deduped, capped.
+      const refs: string[] = [];
+      const pushRef = (r: any) => {
+        if (typeof r === "string" && r && !refs.includes(r) && refs.length < MAX_REFERENCE_IMAGES) refs.push(r);
+      };
+      if (Array.isArray(referenceImages)) referenceImages.forEach(pushRef);
+      for (const rg of regs) pushRef(rg?.refImage);
+
+      // Mock mode (no GEMINI_API_KEY): the image model isn't reachable, so echo the base
+      // photo back as a labeled placeholder. The before/after slider + edit stack stay
+      // usable in dev/tests/demos; the client shows an honest "needs a key" banner. Never
+      // a 500 / white screen.
+      if (isMockMode) {
+        return res.json({ imageUrl: image, mock: true });
+      }
+
+      const instructionText = buildEditInstruction({ instruction, regions: regs, zone });
+
+      // SHA-256 render cache keyed ONLY on inputs the caller supplied (image bytes +
+      // prompt + refs + AR). Same inputs -> same render, no re-bill; no tenant data mixed
+      // in, so no cross-tenant bleed.
+      const cacheKey = crypto
+        .createHash("sha256")
+        .update(
+          [
+            "gemini-2.5-flash-image",
+            instructionText,
+            crypto.createHash("sha256").update(base64Data).digest("hex"),
+            typeof aspectRatio === "string" ? aspectRatio : "",
+            refs.map((r) => crypto.createHash("sha256").update(r).digest("hex")).join(","),
+          ].join("|"),
+        )
+        .digest("hex");
+      const hit = designImageCacheGet(cacheKey);
+      if (hit) {
+        return res.json({ imageUrl: hit, cached: true });
+      }
+
+      // References FIRST, yard photo LAST (last image wins the output aspect ratio),
+      // instruction text LAST.
+      const parts: any[] = [];
+      for (const ref of refs) {
+        const rData = ref.includes(",") ? ref.split(",")[1] : ref;
+        const rMime = ref.includes(";") ? ref.split(";")[0].split(":")[1] : "image/jpeg";
+        parts.push({ inlineData: { mimeType: rMime, data: rData } });
+      }
+      parts.push({ inlineData: { mimeType, data: base64Data } }); // base LAST
+      parts.push({ text: instructionText }); // text LAST
+
+      const config: any = { responseModalities: ["IMAGE", "TEXT"] };
+      if (aspectRatio && typeof aspectRatio === "string") {
+        config.imageConfig = { aspectRatio };
+      }
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: [{ role: "user", parts }],
+        config,
+      });
+
+      let generatedImageUrl: string | null = null;
+      const outParts = response.candidates?.[0]?.content?.parts || [];
+      for (const part of outParts) {
+        if (part.inlineData?.data) {
+          const mType = part.inlineData.mimeType || "image/png";
+          generatedImageUrl = `data:${mType};base64,${part.inlineData.data}`;
+          break;
+        }
+      }
+
+      if (!generatedImageUrl) {
+        return res.status(502).json({ error: "The model did not return an image. Try rephrasing the change." });
+      }
+      designImageCacheSet(cacheKey, generatedImageUrl);
+      res.json({ imageUrl: generatedImageUrl, cached: false });
+    } catch (e: any) {
+      console.error("[design/edit]", e?.message);
+      return handleAiError(res, e, "Image edit failed");
     }
   });
 
