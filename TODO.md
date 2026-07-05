@@ -34,7 +34,11 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-07-05 (SPRINT COMPLETION RECONCILED — 11/13 ship-it features shipped; SEC-1..7 +
+> _Last updated: 2026-07-05 (PRODUCTION-READINESS HARDENING PASS — OWASP-grounded + 3 code audits →
+> `PRODUCTION_READINESS.md`; fixed the confirmed `/api/stripe/checkout` BOLA, AI single-flight
+> coalescing, per-tenant outbound rate limit, and Supabase client timeout (c9df08f, ea10539); open
+> abuse/scale backlog logged in **Production-readiness hardening pass** section above). Prior:
+> SPRINT COMPLETION RECONCILED — 11/13 ship-it features shipped; SEC-1..7 +
 > advisors-0 + Stripe double-billing + tenant-tier + helmet/undici deps + LiveEar mic-stop remediated;
 > 13-layer L1/L5/L7/L10/L11/L12/L13 hardening landed; see the **Sprint completion log** above). Prior:
 > 13-LAYER PRODUCTION AUDIT synthesized — the 7-agent production-stack
@@ -191,6 +195,37 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > Prior (2026-06-27): re-prioritized from the deep US market study (`MARKET_RESEARCH.md`) —
 > QuickBooks/payments/recurring billing as launch table-stakes (A7); AI repositioned as on-site closing;
 > added the Gemini-native build-leverage map + the beachhead._
+
+## Production-readiness hardening pass (2026-07-05) — abuse / scale / BOLA
+
+Driven by an OWASP-grounded production-readiness research pass + **three independent code audits**
+(abuse/scale, IDOR/BOLA sweep, resilience). Full reference + `file:line` evidence + how-to-test:
+**`PRODUCTION_READINESS.md`**. Answers "1000 tenants × 1000 emails", "5000 identical AI questions",
+"attacker with Postman + F12", and "dependency down".
+
+**✅ Fixed + gated green + pushed (branch + main):**
+- [x][P0] **`/api/stripe/checkout` cross-tenant BOLA** (API1) — invoice was loaded by body `invoiceId`
+  with no caller-tenant check → foreign-amount disclosure + could flip another tenant's invoice to
+  paid via the webhook. Now `resolveTenant`-scoped → 403 on mismatch. `tests/stripe.checkout.bola.api.test.ts`. (`c9df08f`)
+- [x][P0/B] **AI single-flight / request coalescing** — 5,000 identical prompts no longer stampede a
+  cold cache key; they collapse to ONE upstream Gemini call. `src/lib/singleFlight.ts` (+6 tests). (`c9df08f`)
+- [x][P0/A] **Per-tenant outbound rate limit** (email/SMS/notifications) — memory-safe fixed-window
+  per-minute+per-day cap → 429+Retry-After. `src/lib/outboundLimiter.ts` (+9 unit, +3 e2e). (`ea10539`)
+- [x][P1/D] **Supabase client-level timeout** — 8s `AbortSignal` `global.fetch` on both clients so a
+  slow Supabase can't pin Express workers under Cloud Run concurrency 80; fails closed. (`c9df08f`)
+
+**⬜ Open backlog (from the audits — prioritized; details in `PRODUCTION_READINESS.md` Fix Ledger):**
+- [ ][P0] `DEFAULT_SPEND_CAP_CENTS` — paid-tier bill-shock ceiling / denial-of-wallet kill-switch.
+- [ ][P1] Gemini **global concurrency semaphore** + fail-closed cost cap + Gemini-429 → client-429/Retry-After.
+- [ ][P1] **Shared (Redis) limiter store** + **per-UID/per-tenant limits on non-AI writes** (team/invite, notifications/dispatch, stripe/*, portal/*).
+- [ ][P1] Route `dispatchNotification` sends through the spend meter (close metering bypass); fix SMS-meter TOCTOU (atomic Postgres RPC).
+- [ ][P1] **Dirty-Dozen RLS as a CI gate** + live route-inventory auth test + coverage/`npm audit`/secret-scan in CI.
+- [ ][P1] Full **money-path E2E** round-trip (seeded test DB) + **k6** spike/soak run.
+- [ ][P2] WS `/api/live`: `maxPayload` + per-IP/per-tenant conn cap + pre-upgrade throttle.
+- [ ][P2] Per-tenant **sender isolation** (Resend subdomain / Twilio subaccount) + outbound **queue with controlled drain**.
+- [ ][P2] **Circuit breaker + backoff-with-jitter** on external deps.
+- [ ][P2] **CAN-SPAM/TCPA** send-time enforcement (suppression, unsubscribe, quiet hours, A2P reg) + SPF/DKIM/DMARC + bounce/complaint suppression.
+- [ ][P2] Dedicated **RLS-policy review** (PostgREST is the real anon-key+token blast radius).
 
 ## Sprint completion log — 2026-07-05
 
