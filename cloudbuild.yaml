@@ -29,6 +29,15 @@ steps:
   - '80'
   - '--min-instances'
   - '1' # Keep one instance warm for immediate responses
+  # L13 — Cloud Run health probes hitting the unauthenticated /healthz liveness route (root
+  # path, so it bypasses the /api auth + rate-limiter by construction). STARTUP probe gives the
+  # cluster primary + first worker time to boot before traffic is routed (up to ~5s + 12*5s);
+  # LIVENESS probe restarts an instance whose event loop has wedged. httpGet.port must match the
+  # container port (3000). Readiness is served separately at /readyz (config + Supabase check).
+  - '--startup-probe'
+  - 'httpGet.path=/healthz,httpGet.port=3000,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=3,failureThreshold=12'
+  - '--liveness-probe'
+  - 'httpGet.path=/healthz,httpGet.port=3000,periodSeconds=30,timeoutSeconds=5,failureThreshold=3'
   # Non-secret runtime config. REQUIRE_AUTH=true is REQUIRED — the server now refuses to
   # boot in production without it (it will not serve an unauthenticated multi-tenant API).
   - '--set-env-vars'

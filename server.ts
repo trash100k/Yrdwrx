@@ -23,6 +23,8 @@ import { computeDeposit } from "./src/lib/deposit.js";
 import { validateEditInput, buildEditInstruction, MAX_REFERENCE_IMAGES } from "./src/lib/designEdit.js";
 // Pure, deterministic dedup + rating rollup for reviews ingestion (no I/O, safe to bundle).
 import { dedupePlan, rollupRatings, IngestedReview } from "./src/lib/reviewsDedup.js";
+// L12 — structured logging → Cloud Logging + Error Reporting (single-line JSON, no new dep).
+import { log, requestId } from "./src/lib/logger.js";
 
 // Load .env.local first (the conventional, gitignored local override) so its values win,
 // then .env for any base defaults. dotenv.config() does not override already-set vars, so
@@ -260,6 +262,9 @@ function geoStubCoord(address: any) {
   return { lat: r5(31.4 + a * 2.0), lng: r5(-89.9 + b * 2.3) };
 }
 // Bounded cache: normalized address -> resolved coords (or null for keyed no-result).
+// L11 (scaling): PER-INSTANCE — geocode results aren't shared across Cloud Run instances (each
+// re-bills an address once), but the map is FIFO-capped at GEO_CACHE_MAX so it can't grow
+// without limit and OOM the container.
 const GEO_CACHE = new Map<string, any>();
 const GEO_CACHE_MAX = 5000;
 function geoCacheSet(key: string, val: any) {
@@ -552,14 +557,40 @@ function getMockText(request: any): string {
 // can also EROFS-fail in the hot path. Default: in-memory only (fast, safe). Set
 // GEMINI_CACHE_FILE=/some/writable/path to persist locally.
 const CACHE_FILE = process.env.GEMINI_CACHE_FILE || "";
-let geminiCache: Record<string, string> = {};
+// L11 (scaling) — PER-INSTANCE cache; each Cloud Run instance/worker keeps its own copy, so a
+// hit rate is best-effort across the fleet (not shared). BOUNDED so a long-lived instance with
+// many distinct prompts can't grow the map without limit and OOM a 1Gi container: when it
+// exceeds GEMINI_CACHE_MAX we drop the oldest insertion-order keys (a shared/Redis cache is the
+// documented scale follow-up in TODO.md L10/L11).
+let geminiCache = new Map<string, string>();
+const GEMINI_CACHE_MAX = Number(process.env.GEMINI_CACHE_MAX) || 2000;
+function geminiCachePut(hash: string, text: string) {
+  // Refresh insertion order on re-write so a hot key isn't the next thing evicted.
+  if (geminiCache.has(hash)) geminiCache.delete(hash);
+  geminiCache.set(hash, text);
+  // Map iterates in insertion order — evict the oldest key(s) until we're back under the cap.
+  while (geminiCache.size > GEMINI_CACHE_MAX) {
+    const oldest = geminiCache.keys().next().value;
+    if (oldest === undefined) break;
+    geminiCache.delete(oldest);
+  }
+}
 
 if (CACHE_FILE && fs.existsSync(CACHE_FILE)) {
   try {
-    geminiCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
-    console.log(`[Cache Loaded] Loaded ${Object.keys(geminiCache).length} cached Gemini responses.`);
+    // The cache persists as a plain JSON object; rehydrate it into the Map via Object.entries
+    // (a Map does NOT survive JSON.stringify on its own — that's the round-trip the save path
+    // below fixes with Object.fromEntries). Trim to the cap in case the on-disk file is stale
+    // and larger than GEMINI_CACHE_MAX.
+    geminiCache = new Map<string, string>(Object.entries(JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"))));
+    while (geminiCache.size > GEMINI_CACHE_MAX) {
+      const oldest = geminiCache.keys().next().value;
+      if (oldest === undefined) break;
+      geminiCache.delete(oldest);
+    }
+    log.info("gemini cache loaded", { entries: geminiCache.size });
   } catch (err) {
-    console.error("Failed to read gemini cache:", err);
+    log.error("Failed to read gemini cache", err, { file: CACHE_FILE });
   }
 }
 
@@ -570,8 +601,10 @@ function saveGeminiCache() {
   if (_cacheWriteTimer) return;
   _cacheWriteTimer = setTimeout(() => {
     _cacheWriteTimer = null;
-    fs.writeFile(CACHE_FILE, JSON.stringify(geminiCache), (err) => {
-      if (err) console.error("Failed to write gemini cache:", err);
+    // A Map serializes to "{}" via JSON.stringify — flatten to a plain object first so the
+    // entries actually persist (and the load path above can rehydrate them).
+    fs.writeFile(CACHE_FILE, JSON.stringify(Object.fromEntries(geminiCache)), (err) => {
+      if (err) log.error("Failed to write gemini cache", err, { file: CACHE_FILE });
     });
   }, 2000);
 }
@@ -591,16 +624,17 @@ ai.models.generateContent = async (request: any) => {
   const requestString = JSON.stringify(request);
   const hash = crypto.createHash("sha256").update(requestString).digest("hex");
 
-  if (geminiCache[hash]) {
+  const cachedText = geminiCache.get(hash);
+  if (cachedText !== undefined) {
     console.log(`[Gemini Cache HIT] ${hash.substring(0, 8)} - Saving compute costs.`);
-    return { text: geminiCache[hash] };
+    return { text: cachedText };
   }
 
   console.log(`[Gemini Cache MISS] ${hash.substring(0, 8)} - Calling LLM API...`);
   const response = await originalGenerateContent(request);
 
   if (response && response.text) {
-    geminiCache[hash] = response.text;
+    geminiCachePut(hash, response.text);
     saveGeminiCache();
   }
 
@@ -615,6 +649,8 @@ ai.models.generateContent = async (request: any) => {
 // identical request can be served from a small in-memory SHA-256 cache instead of paying
 // for the model again — e.g. the client's judge-retry loop or a re-issued "Variation".
 // In-memory + FIFO-capped (renders are large base64 blobs; we never spill them to disk).
+// L11 (scaling): PER-INSTANCE and hard-capped at DESIGN_IMAGE_CACHE_MAX — bounded so these large
+// base64 blobs can't accumulate and OOM a 1Gi container (not shared across Cloud Run instances).
 // The key is derived ONLY from inputs the caller supplied, so there is no cross-tenant
 // bleed — the cached value is a transform of that caller's own image, nothing tenant-scoped.
 const designImageCache = new Map<string, string>();
@@ -633,12 +669,32 @@ function designImageCacheSet(key: string, dataUrl: string) {
 }
 // =================================================
 
-// Stripe webhook idempotency (per-worker; a shared store is a scale follow-up). Guards
-// against duplicate deliveries double-applying invoice-paid / tier changes.
+// Stripe webhook idempotency. L11 (scaling): PER-INSTANCE — under Cloud Run autoscale a
+// redelivery can land on a DIFFERENT instance whose Set doesn't have the id, so this is a
+// best-effort double-apply guard, not a global exactly-once (a shared store / DB idempotency
+// key is the documented scale follow-up). BOUNDED: cleared past 5000 ids so it can't grow
+// without limit (see the webhook handler).
 const processedStripeEvents = new Set<string>();
 
 // ==== In-Memory API Cache Middlewares ====
+// L11 (scaling): PER-INSTANCE tenant-scoped response cache (approximate hit rate across the
+// fleet). BOUNDED via API_CACHE_MAX + lazy expired-entry eviction so a long-lived instance
+// serving many distinct tenants/URLs can't grow this Map without limit and OOM the container.
 const apiCacheStore = new Map<string, { expires: number; data: any }>();
+const API_CACHE_MAX = Number(process.env.API_CACHE_MAX) || 1000;
+function apiCacheSet(key: string, value: { expires: number; data: any }) {
+  if (apiCacheStore.size >= API_CACHE_MAX) {
+    const now = Date.now();
+    // First sweep expired entries (cheap, keeps memory honest); if still at the cap, evict the
+    // oldest insertion-order key so the Map stays bounded regardless of TTLs.
+    for (const [k, v] of apiCacheStore) { if (v.expires <= now) apiCacheStore.delete(k); }
+    if (apiCacheStore.size >= API_CACHE_MAX) {
+      const oldest = apiCacheStore.keys().next().value;
+      if (oldest !== undefined) apiCacheStore.delete(oldest);
+    }
+  }
+  apiCacheStore.set(key, value);
+}
 
 function cacheApiResponse(durationSeconds: number) {
   return (req: any, res: any, next: any) => {
@@ -673,7 +729,7 @@ function cacheApiResponse(durationSeconds: number) {
     const originalJson = res.json.bind(res);
     res.json = (body: any) => {
       if (res.statusCode >= 200 && res.statusCode < 300) {
-        apiCacheStore.set(key, {
+        apiCacheSet(key, {
           expires: Date.now() + durationSeconds * 1000,
           data: body,
         });
@@ -692,6 +748,90 @@ export async function createApp({ startListening = false } = {}) {
   app.set('trust proxy', 1);
   // Honor the platform-injected port (Cloud Run sets $PORT); fall back to 3000 locally.
   const PORT = Number(process.env.PORT) || 3000;
+
+  // ===========================================================================
+  // L13 — HEALTH / READINESS PROBES  (registered FIRST, before body parsers, the
+  // threat scanner, auth, and rate-limiters). They live at the ROOT (not under /api/),
+  // so requiresAuth()/isExcludedApiPath() already treat them as auth-excluded and the
+  // "/api/" globalLimiter never sees them — no routeAuth change needed. The request-logging
+  // middleware below also skips them so the probe traffic stays out of the logs.
+  // ===========================================================================
+
+  // Liveness: the process is up and the event loop can answer. ALWAYS 200 while alive, no auth,
+  // no external dependency — Cloud Run's liveness/startup probe hits this (see cloudbuild.yaml
+  // + the Dockerfile HEALTHCHECK). A failing dependency must NOT fail liveness (that would
+  // restart-loop a healthy container); dependency health is reported by /readyz instead.
+  app.get("/healthz", (_req, res) => {
+    res.status(200).json({ status: "ok", pid: process.pid, uptime: Math.round(process.uptime()) });
+  });
+
+  // Readiness: 200 only when this instance can actually serve traffic (critical config present
+  // and, when configured, Supabase reachable); 503 otherwise so a load balancer / rollout stops
+  // sending it traffic. In demo mode (REQUIRE_AUTH off) there are no external hard-deps, so
+  // readiness == liveness. Reads process.env directly to avoid coupling to the closures defined
+  // later in createApp.
+  app.get("/readyz", async (_req, res) => {
+    const requireAuth = process.env.REQUIRE_AUTH === "true";
+    const supaUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supaAnon = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    const supaService = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const checks: Record<string, boolean> = {
+      supabaseConfigured: !!(supaUrl && (supaAnon || supaService)),
+      // When auth is enforced, the server MUST be able to verify tokens (anon key) and sign
+      // portal magic links (JWT_SECRET), or it can't safely serve — treat those as critical.
+      authVerifiable: !requireAuth || !!(supaUrl && supaAnon),
+      jwtSecret: !requireAuth || !!process.env.JWT_SECRET,
+    };
+    if (!requireAuth) {
+      return res.status(200).json({ status: "ready", mode: "demo", checks });
+    }
+    const configOk = Object.values(checks).every(Boolean);
+    // Best-effort, timeout-bounded reachability probe. A definitive failure downgrades to 503;
+    // a transient blip that times out is reported but doesn't flap readiness harder than the
+    // config gate. getServiceSupabase is a hoisted function declaration, safe to call here.
+    let supabaseReachable: boolean | null = null;
+    if (configOk) {
+      try {
+        const sb = getServiceSupabase();
+        if (sb) {
+          await Promise.race([
+            sb.from("tenants").select("id").limit(1),
+            new Promise((_, rej) => setTimeout(() => rej(new Error("readyz supabase timeout")), 2000)),
+          ]);
+          supabaseReachable = true;
+        }
+      } catch {
+        supabaseReachable = false;
+      }
+    }
+    const ready = configOk && supabaseReachable !== false;
+    res.status(ready ? 200 : 503).json({
+      status: ready ? "ready" : "not_ready",
+      checks: { ...checks, supabaseReachable },
+    });
+  });
+
+  // L12 — lightweight structured request logging. Registered before the webhooks so it wraps
+  // EVERY request (including Stripe/Twilio), emitting one JSON line on finish with method, path,
+  // status, ms + a per-request correlation id (also echoed as x-request-id). It never reads the
+  // body, so the raw-body Stripe webhook is unaffected. Health/readiness probes are hot and
+  // low-signal, so they're skipped. 5xx responses log at WARNING; per-route throws still emit a
+  // full ERROR (with stack) via the catch-all handler at the bottom of createApp.
+  app.use((req: any, res: any, next: any) => {
+    const p = req.path || req.url || "";
+    if (p === "/healthz" || p === "/readyz" || p === "/api/health") return next();
+    const id = req.id || requestId();
+    req.id = id;
+    try { res.setHeader("x-request-id", id); } catch { /* headers may already be sent on abort */ }
+    const startNs = process.hrtime.bigint();
+    res.on("finish", () => {
+      const ms = Math.round(Number(process.hrtime.bigint() - startNs) / 1e5) / 10;
+      const fields = { requestId: id, method: req.method, path: p, status: res.statusCode, ms };
+      if (res.statusCode >= 500) log.warn("request", fields);
+      else log.info("request", fields);
+    });
+    next();
+  });
 
   // Stripe Webhook needs raw body
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
@@ -865,6 +1005,11 @@ export async function createApp({ startListening = false } = {}) {
   app.use(express.json({ limit: "1mb" }));
 
   // --- IN-MEMORY THREAT LOG (For Founder Dashboard) ---
+  // L11 (scaling): PER-INSTANCE and PER-WORKER — each Cloud Run instance/cluster worker keeps
+  // its own list, so the founder dashboard sees only the threats THIS instance blocked (a
+  // partial, approximate view across the fleet). BOUNDED to the most recent 200 entries below so
+  // it can't grow without limit. Persisting/aggregating threats to a shared store (so the view is
+  // fleet-wide and survives restarts) is a documented follow-up (TODO.md L12).
   const threatLog: Array<{ id: string, timestamp: string, ip: string, type: string, target: string, status: string }> = [];
   
   const logThreat = (ip: string, type: string, target: string) => {
@@ -1011,6 +1156,35 @@ export async function createApp({ startListening = false } = {}) {
     return _sbAuthClient;
   };
 
+  // P1 (auth round-trip) — sb.auth.getUser(token) is a network hop to Supabase GoTrue on EVERY
+  // authenticated /api request (~50-150ms, multiplied by concurrency 80). Cache ONLY SUCCESSFUL
+  // validations for a short TTL keyed by sha256(token): repeated calls with the same still-valid
+  // token skip the round-trip; after AUTH_CACHE_TTL_MS we re-validate via getUser, so a ban /
+  // delete / signout is honored within that window. We deliberately do NOT switch to pure local
+  // JWT verification — that would skip revocation entirely; the short-TTL cache is the safe win.
+  // PER-WORKER (each cluster worker / Cloud Run instance keeps its own) and BOUNDED at
+  // AUTH_CACHE_MAX with expired-sweep + oldest-first eviction so it can't grow without limit.
+  const AUTH_CACHE_TTL_MS = Number(process.env.AUTH_CACHE_TTL_MS) || 45000;
+  const AUTH_CACHE_MAX = Number(process.env.AUTH_CACHE_MAX) || 5000;
+  const authCache = new Map<string, { uid: string; email?: string; exp: number }>();
+  const authCacheGet = (tokenHash: string) => {
+    const hit = authCache.get(tokenHash);
+    if (!hit) return null;
+    if (hit.exp <= Date.now()) { authCache.delete(tokenHash); return null; }
+    return hit;
+  };
+  const authCacheSet = (tokenHash: string, uid: string, email?: string) => {
+    if (authCache.size >= AUTH_CACHE_MAX) {
+      const now = Date.now();
+      for (const [k, v] of authCache) { if (v.exp <= now) authCache.delete(k); } // cheap sweep
+      if (authCache.size >= AUTH_CACHE_MAX) {
+        const oldest = authCache.keys().next().value; // Map iterates insertion order
+        if (oldest !== undefined) authCache.delete(oldest);
+      }
+    }
+    authCache.set(tokenHash, { uid, email, exp: Date.now() + AUTH_CACHE_TTL_MS });
+  };
+
   const verifySupabaseToken = async (req: any, res: any, next: any) => {
     // This middleware is mounted at "/api/", so Express strips that prefix from req.path
     // (req.path === "/design/process"). Use the FULL path for route matching, otherwise the
@@ -1029,6 +1203,13 @@ export async function createApp({ startListening = false } = {}) {
     }
     try {
         const token = String(tokenHeader).split('Bearer ')[1];
+        // Short-TTL success cache: a cache hit skips the Supabase GoTrue round-trip entirely.
+        const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+        const cached = authCacheGet(tokenHash);
+        if (cached) {
+          req.user = { uid: cached.uid, sub: cached.uid, email: cached.email };
+          return next();
+        }
         const sb = getSbAuthClient();
         if (!sb) {
           if (!REQUIRE_AUTH) return next();
@@ -1039,11 +1220,13 @@ export async function createApp({ startListening = false } = {}) {
           if (!REQUIRE_AUTH) return next();
           return res.status(401).json({ error: "Unauthorized: Invalid token" });
         }
+        // Cache ONLY this successful validation (never failures) for AUTH_CACHE_TTL_MS.
+        authCacheSet(tokenHash, data.user.id, data.user.email);
         // Normalize to the shape downstream handlers expect (uid for rate-limiting, etc.).
         req.user = { uid: data.user.id, sub: data.user.id, email: data.user.email };
         next();
     } catch (e) {
-        console.error("Supabase auth middleware error:", e);
+        log.error("Supabase auth middleware error", e, { requestId: req?.id, path: fullPath });
         if (!REQUIRE_AUTH) return next(); // demo/dev: don't hard-fail on token verify
         return res.status(401).json({ error: "Unauthorized: Invalid token" });
     }
@@ -1051,6 +1234,11 @@ export async function createApp({ startListening = false } = {}) {
 
   app.use("/api/", verifySupabaseToken);
 
+  // L11 (scaling): express-rate-limit's default MemoryStore is PER-INSTANCE and PER-WORKER, and
+  // its keys reset each window (bounded — it can't grow without limit). Under Cloud Run autoscale
+  // the EFFECTIVE limit a caller sees is roughly (limit × instances × WEB_CONCURRENCY), so these
+  // caps are approximate, not global. A distributed store (Redis / rate-limit-redis) for a true
+  // fleet-wide limit is a documented INFRA follow-up (TODO.md L9/L11).
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 1000,
@@ -6381,6 +6569,11 @@ OUTPUT JSON ONLY, shape:
   // WebSocket Server for Live Ear
   // FIXME(Management): Implement clustering/Redis process pooling for concurrent websocket voice loads at scale.
   // Native node WS is sufficient for UI preview but crashes under heavy client multiplexing.
+  // L11 (scaling): /api/live REQUIRES SESSION AFFINITY. Each socket is a long-lived, stateful
+  // bridge to a paid Gemini Live session held IN THIS PROCESS; liveConnections/LIVE_CAP are
+  // per-instance, per-worker counters. Cloud Run must be configured with session affinity
+  // (--session-affinity) AND the client should hold ONE connection, or reconnects can land on a
+  // different instance/worker with no session and the cap is only approximate fleet-wide.
   const wss = new WebSocketServer({ server, path: "/api/live" });
   let liveConnections = 0;
   const LIVE_CAP = Number(process.env.LIVE_MAX_CONNECTIONS) || 50;
@@ -6844,17 +7037,54 @@ OUTPUT JSON ONLY, shape:
         try { session.close(); } catch {}
       });
     } catch (error) {
-      console.error("Gemini Live Connection Error:", error);
+      log.error("Gemini Live connection failed", error, { requestId: (req as any)?.id });
       sessionClosed = true;
       try { clientWs.close(1011, "Live session unavailable"); } catch {}
     }
   });
 
+  // ===========================================================================
+  // L13 — GRACEFUL SHUTDOWN. Cloud Run sends SIGTERM ~10s before it SIGKILLs an instance
+  // (deploy, scale-in, health failure). We stop accepting new connections, drain in-flight
+  // HTTP requests, close the Live Ear WebSockets (releasing their paid upstream Gemini
+  // sessions) + the WS server, tear down any Supabase realtime channels, and exit — with a
+  // hard timeout fallback so a stuck socket can never hold the instance past the grace window.
+  // In cluster mode each worker runs this; the PRIMARY forwards the signal (see below).
+  // ===========================================================================
+  let shuttingDown = false;
+  const gracefulShutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("shutdown: draining", { signal, pid: process.pid });
+    const forceMs = Number(process.env.SHUTDOWN_TIMEOUT_MS) || 10000;
+    const forceTimer = setTimeout(() => {
+      log.warn("shutdown: force-exit after timeout", { signal, timeoutMs: forceMs });
+      process.exit(0);
+    }, forceMs);
+    if (forceTimer.unref) forceTimer.unref();
+    // Stop the heartbeat and close the Live Ear sockets so their upstream Gemini sessions release.
+    try { clearInterval(liveHeartbeat); } catch { /* not started */ }
+    try { wss.clients.forEach((c: any) => { try { c.close(1001, "Server shutting down"); } catch {} }); } catch {}
+    try { wss.close(); } catch {}
+    // Best-effort: tear down any Supabase realtime channels held by the service client.
+    try { const sb = getServiceSupabase(); sb?.removeAllChannels?.(); sb?.realtime?.disconnect?.(); } catch {}
+    // Stop accepting new HTTP connections; exit once in-flight requests drain.
+    server.close(() => {
+      log.info("shutdown: drained, exiting", { signal, pid: process.pid });
+      clearTimeout(forceTimer);
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
   // Final error handler — registered last so it catches anything the per-route try/catch
   // missed. Express 5 forwards rejected async route handlers here automatically, so an
   // unexpected throw returns a sanitized 500 instead of hanging the request or leaking internals.
-  app.use((err: any, _req: any, res: any, _next: any) => {
-    console.error("[express error]", err?.message || err);
+  app.use((err: any, req: any, res: any, _next: any) => {
+    // Server-side only: full error + stack goes to Error Reporting (log.error → stderr). The
+    // client still gets a generic 500 with no internal detail.
+    log.error("Unhandled request error", err, { requestId: req?.id, method: req?.method, path: req?.path });
     if (res.headersSent) return;
     res.status(500).json({ error: "Internal server error" });
   });
@@ -6879,9 +7109,30 @@ if (process.env.VITEST) {
     cluster.fork();
   }
 
+  // L13 — graceful shutdown at the CLUSTER PRIMARY. Cloud Run delivers SIGTERM to PID 1 (the
+  // primary), not directly to the workers, so we FORWARD it so each worker runs its own
+  // gracefulShutdown() drain (see createApp). Suppress the auto-respawn while shutting down, and
+  // exit the primary once the last worker is gone (or after a hard timeout fallback).
+  let primaryShuttingDown = false;
+  const shutdownPrimary = (signal: string) => {
+    if (primaryShuttingDown) return;
+    primaryShuttingDown = true;
+    log.info("primary shutdown: forwarding signal to workers", { signal, pid: process.pid });
+    for (const w of Object.values(cluster.workers || {})) { try { (w as any)?.kill(signal); } catch {} }
+    const t = setTimeout(() => process.exit(0), Number(process.env.SHUTDOWN_TIMEOUT_MS) || 10000);
+    if (t.unref) t.unref();
+  };
+  process.on("SIGTERM", () => shutdownPrimary("SIGTERM"));
+  process.on("SIGINT", () => shutdownPrimary("SIGINT"));
+
   // Self-healing: if a worker crashes, restart it (with a small backoff to avoid a tight
-  // respawn loop if a worker dies immediately on boot).
+  // respawn loop if a worker dies immediately on boot). During a graceful shutdown we do NOT
+  // respawn, and once the last worker exits the primary exits too.
   cluster.on("exit", (worker, code, signal) => {
+    if (primaryShuttingDown) {
+      if (Object.keys(cluster.workers || {}).length === 0) process.exit(0);
+      return;
+    }
     console.log(`Worker ${worker.process.pid} died (code=${code}, signal=${signal}). Respawning in 1s...`);
     setTimeout(() => cluster.fork(), 1000);
   });
@@ -6893,8 +7144,8 @@ if (process.env.VITEST) {
 // take down a worker without a log line. In cluster mode the primary respawns; standalone
 // we log and keep serving (Express per-route try/catch handles the common cases).
 process.on("unhandledRejection", (reason: any) => {
-  console.error("[unhandledRejection]", reason?.message || reason);
+  log.error("unhandledRejection", reason, { pid: process.pid });
 });
 process.on("uncaughtException", (err: any) => {
-  console.error("[uncaughtException]", err?.message || err);
+  log.error("uncaughtException", err, { pid: process.pid });
 });

@@ -53,4 +53,12 @@ RUN npm install --omit=dev
 USER appuser
 
 EXPOSE 3000
+
+# L13 — container health check hitting the unauthenticated liveness route. Uses node (already
+# the runtime — no curl/wget dependency) to GET /healthz and exit non-zero on any non-200.
+# Note: Cloud Run ignores Docker HEALTHCHECK and uses its own probes (see cloudbuild.yaml);
+# this keeps `docker run` / other orchestrators (Compose, Swarm, K8s) able to detect health.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+
 CMD ["npm", "run", "start"]
