@@ -346,9 +346,9 @@ export default function AiUsage() {
                     <span className={`tabular-nums ${Number(summary.overageCents) > 0 ? "text-amber-400" : "text-white/70"}`}>{fmtCents(summary.overageCents)}</span>
                   </div>
                 </div>
-                {summary.spendCapCents != null ? (
+                {summary.effectiveSpendCapCents != null ? (
                   <div className="flex items-center gap-1.5 pt-2 border-t border-white/5 text-[10px] font-bold uppercase tracking-widest text-white/40">
-                    <Gauge size={11} /> Spend cap {fmtCents(summary.spendCapCents)}
+                    <Gauge size={11} /> Spend cap {fmtCents(summary.effectiveSpendCapCents)}
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5 pt-2 border-t border-white/5 text-[10px] font-bold uppercase tracking-widest text-amber-400/70">

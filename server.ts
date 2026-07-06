@@ -38,7 +38,8 @@ import { resolveNotification } from "./src/lib/notificationRules.js";
 // live rollup + tier config in and honors the result. See supabase/migrations/0017_usage_ledger.sql.
 import {
   METERS, isMeter, emptyRollup, applyUsage, computeOverage, projectBill, withinSpendCap,
-  type Meter, type Allotments, type Rates,
+  resolveSpendCapCents, evaluateGate,
+  type Meter, type Allotments, type Rates, type GateInput, type GateResult,
 } from "./src/lib/usageLedger.js";
 // Pure, deterministic QBO entity mapping + three-way reconcile planner (no I/O). The two-way
 // sync engine below feeds live QBO reads + local rows + the stored link table into reconcile()
@@ -53,6 +54,7 @@ import { encryptSecret, decryptSecret } from "./src/lib/secretCrypto.js";
 import { SingleFlight } from "./src/lib/singleFlight.js";
 import { OutboundRateLimiter } from "./src/lib/outboundLimiter.js";
 import { Semaphore, SemaphoreTimeoutError } from "./src/lib/semaphore.js";
+import { classifyRateLimit } from "./src/lib/aiErrors.js";
 // Pure, deterministic document-understanding core (no I/O). Turns the loosely-parsed JSON a
 // vision/LLM extractor emits for a vendor invoice into a normalized, defensively-coerced expense
 // DRAFT for human review. The /api/documents/parse route feeds Gemini's structured output straight
@@ -102,6 +104,15 @@ function aiUnavailable(res: any, message: string, code = "AI_UNAVAILABLE") {
 function handleAiError(res: any, e: any, context = "AI request failed") {
   if (e instanceof AiUnavailableError) {
     return res.status(503).json({ error: e.message, code: e.code });
+  }
+  // An upstream Gemini rate-limit (HTTP 429 / RESOURCE_EXHAUSTED / quota) is transient — return an
+  // honest 429 + Retry-After so the client backs off, not an opaque 500 that looks like our bug.
+  const rl = classifyRateLimit(e);
+  if (rl.isRateLimited) {
+    const retryAfterSec = rl.retryAfterSec ?? (Number(process.env.AI_RETRY_AFTER_DEFAULT_SEC) || 30);
+    res.set("Retry-After", String(retryAfterSec));
+    console.warn(context + " [rate-limited upstream]:", e?.status ?? "", e?.message || e);
+    return res.status(429).json({ error: "AI is rate-limited upstream — please retry shortly.", code: "AI_RATE_LIMITED", retryAfterSec });
   }
   console.error(context + ":", e?.message || e);
   // Return the generic context only — the raw upstream message (may carry Gemini/Supabase
@@ -1878,16 +1889,54 @@ export async function createApp({ startListening = false } = {}) {
     return roll;
   }
 
-  // The tenant's effective spend cap in cents: explicit tenants.spend_cap_cents wins; else an
-  // optional platform-wide DEFAULT_SPEND_CAP_CENTS; else null (= unlimited, per withinSpendCap).
+  // Effective spend cap in cents (ceiling on billable OVERAGE past the bundled allotment):
+  // explicit tenants.spend_cap_cents wins (incl. a high "unlimited" value or 0 = pause all
+  // overage); else a GENEROUS platform default for PAID tiers so a runaway loop cannot bill
+  // unlimited overage. Env-tunable (DEFAULT_SPEND_CAP_CENTS), fail-safe $5,000 code fallback.
+  // Free returns null (it already hard-402s on any overage upstream). Pure math in usageLedger.
   function effectiveSpendCap(tenant: any): number | null {
-    if (tenant && tenant.spend_cap_cents != null) return Number(tenant.spend_cap_cents);
-    return process.env.DEFAULT_SPEND_CAP_CENTS ? Number(process.env.DEFAULT_SPEND_CAP_CENTS) : null;
+    return resolveSpendCapCents(tenant?.spend_cap_cents, tenant?.tier, numEnv("DEFAULT_SPEND_CAP_CENTS", 500000));
   }
 
-  // Pure gate (no writes): may `qty` units of `meter` be consumed right now? Returns
-  // { ok:true } or { ok:false, status, body } with a 402 the caller should return verbatim.
-  async function gateUsage(tenant: any, meter: Meter, qty: number): Promise<{ ok: boolean; status?: number; body?: any }> {
+  // ---- Fail-closed metering plumbing (Spec 2) ----------------------------------------------
+  // supabase-js returns a read error as a VALUE (never throws), so loadRollup's catch almost never
+  // fires and the spend cap was silently disabled on a read blip. loadRollupSafe surfaces { ok }.
+  async function loadRollupSafe(sb: any, tenantId: string, period: string): Promise<{ roll: Record<Meter, number>; ok: boolean }> {
+    const roll = emptyRollup();
+    try {
+      const { data, error } = await sb.from("tenant_usage").select("meter,quantity").eq("tenant_id", tenantId).eq("period", period);
+      if (error) return { roll, ok: false };
+      for (const r of data || []) if (isMeter(r.meter)) roll[r.meter] = Number(r.quantity) || 0;
+      return { roll, ok: true };
+    } catch { return { roll, ok: false }; }
+  }
+  // Bounded (LRU) per-instance last-known-good rollup cache — lets the spend gate enforce against
+  // stale-but-real usage during a Supabase read blip instead of failing closed on ordinary AI.
+  const _LKG_MAX_KEYS = Number(process.env.METERING_LKG_MAX_KEYS) || 5000;
+  const _usageLkg = new Map<string, Record<Meter, number>>();
+  function _lkgKey(tenantId: string, period: string) { return tenantId + ":" + period; }
+  function rememberRollup(tenantId: string, period: string, roll: Record<Meter, number>) {
+    const key = _lkgKey(tenantId, period);
+    _usageLkg.delete(key);
+    _usageLkg.set(key, { ...roll });
+    while (_usageLkg.size > _LKG_MAX_KEYS) { const oldest = _usageLkg.keys().next().value; if (oldest === undefined) break; _usageLkg.delete(oldest); }
+  }
+  function lastKnownRollup(tenantId: string, period: string): Record<Meter, number> | null {
+    return _usageLkg.get(_lkgKey(tenantId, period)) ?? null;
+  }
+  // Send a gate refusal, attaching Retry-After when the gate is a transient 503.
+  function sendGate(res: any, gate: { status?: number; body?: any; retryAfterSec?: number }) {
+    if (gate.retryAfterSec) res.set("Retry-After", String(gate.retryAfterSec));
+    return res.status(gate.status).json(gate.body);
+  }
+
+  // Spend gate (no writes): may `qty` units of `meter` be consumed right now? Returns { ok:true }
+  // or { ok:false, status, body, retryAfterSec? }. The DECISION is the pure evaluateGate(); this
+  // wrapper owns only I/O + fail-open/closed posture. The spend-cap arm fails CLOSED (transient 503
+  // AI_METERING_UNAVAILABLE) ONLY when a cap exists, the op incurs overage, the DB read failed, AND
+  // there is no last-known-good baseline — so a Supabase blip never blocks ordinary within-allotment
+  // AI, and uncapped tenants are never blocked.
+  async function gateUsage(tenant: any, meter: Meter, qty: number): Promise<{ ok: boolean; status?: number; body?: any; retryAfterSec?: number }> {
     if (!REQUIRE_AUTH) return { ok: true };
     const sb = getServiceSupabase();
     if (!sb || !tenant || !isMeter(meter)) return { ok: true };
@@ -1896,18 +1945,31 @@ export async function createApp({ startListening = false } = {}) {
     const tier = tenant.tier || "free";
     const allot = TIER_ALLOTMENTS[tier] || TIER_ALLOTMENTS.free;
     const period = nowPeriod();
-    const current = await loadRollup(sb, tenant.id, period);
-    const beforeCents = computeOverage(current, allot, RATES).overageCents;
-    const afterCents = computeOverage(applyUsage(current, meter, q), allot, RATES).overageCents;
-    const addCents = Math.max(0, afterCents - beforeCents);
-    // No silent auto-overage on Free — the tenant must upgrade to spend past the bundled allotment.
-    if (addCents > 0 && tier === "free") {
-      return { ok: false, status: 402, body: { error: "INSUFFICIENT_CREDITS", code: "INSUFFICIENT_CREDITS", meter, tier, limit: allot[meter], allotment: allot[meter], used: current[meter] } };
+    const capCents = effectiveSpendCap(tenant);
+
+    const read = await loadRollupSafe(sb, tenant.id, period);
+    let current = read.roll;
+    let haveBaseline = true;
+    if (read.ok) {
+      rememberRollup(tenant.id, period, current);
+    } else {
+      const lkg = lastKnownRollup(tenant.id, period);
+      if (lkg) { current = lkg; } else { current = emptyRollup(); haveBaseline = false; }
     }
-    // Hard per-tenant spend cap (bill-shock ceiling) — pauses metered ops until raised.
-    if (!withinSpendCap(beforeCents, addCents, effectiveSpendCap(tenant))) {
-      return { ok: false, status: 402, body: { error: "SPEND_CAP_EXCEEDED", code: "SPEND_CAP_EXCEEDED", meter, capCents: effectiveSpendCap(tenant), currentOverageCents: beforeCents, projectedOverageCents: afterCents } };
+
+    const d = evaluateGate({ tier, meter, qty: q, current, allot, rates: RATES, capCents, readOk: read.ok, haveBaseline });
+    if (!d.ok) {
+      if (d.status === "insufficient_credits") {
+        return { ok: false, status: 402, body: { error: "INSUFFICIENT_CREDITS", code: "INSUFFICIENT_CREDITS", meter, tier, limit: allot[meter], allotment: allot[meter], used: current[meter] } };
+      }
+      if (d.status === "spend_cap") {
+        return { ok: false, status: 402, body: { error: "SPEND_CAP_EXCEEDED", code: "SPEND_CAP_EXCEEDED", meter, capCents, currentOverageCents: d.beforeCents, projectedOverageCents: d.beforeCents + d.addCents } };
+      }
+      return { ok: false, status: 503, body: { error: "Cost control is temporarily unavailable — please retry shortly.", code: "AI_METERING_UNAVAILABLE", meter }, retryAfterSec: Number(process.env.AI_METERING_RETRY_SEC) || 15 };
     }
+    // On a read blip that we allowed, optimistically advance the last-known baseline so a burst
+    // of overage ops during the outage still accumulates toward the cap.
+    if (!read.ok) rememberRollup(tenant.id, period, applyUsage(current, meter, q));
     return { ok: true };
   }
 
@@ -1924,12 +1986,19 @@ export async function createApp({ startListening = false } = {}) {
     try {
       const rate = RATES[meter] || 0;
       await sb.from("usage_events").insert({ tenant_id: tenant.id, period, meter, quantity: q, unit_cost_cents: rate });
-      // Rollup increment (read-modify-write; best-effort like the legacy credit counter).
-      const current = await loadRollup(sb, tenant.id, period);
-      await sb.from("tenant_usage").upsert(
-        { tenant_id: tenant.id, period, meter, quantity: (current[meter] || 0) + q, updated_at: new Date().toISOString() },
-        { onConflict: "tenant_id,period,meter" },
-      );
+      // Rollup increment — ATOMIC via increment_tenant_usage() RPC (migration 0019). The prior
+      // read-modify-write lost concurrent increments (TOCTOU) so tenant_usage under-counted and a
+      // tenant could silently blow past allotment / spend cap. Fallback keeps counting on a pre-0019 DB.
+      const { error: rollupErr } = await sb.rpc("increment_tenant_usage", {
+        p_tenant: tenant.id, p_period: period, p_meter: meter, p_qty: q,
+      });
+      if (rollupErr) {
+        const current = await loadRollup(sb, tenant.id, period);
+        await sb.from("tenant_usage").upsert(
+          { tenant_id: tenant.id, period, meter, quantity: (current[meter] || 0) + q, updated_at: new Date().toISOString() },
+          { onConflict: "tenant_id,period,meter" },
+        );
+      }
       if (meter === "ai") {
         const { data: t } = await sb.from("tenants").select("ai_credits_used,ai_credits_period").eq("id", tenant.id).maybeSingle();
         const usedNow = t?.ai_credits_period === period ? (t?.ai_credits_used || 0) : 0;
@@ -1982,7 +2051,7 @@ export async function createApp({ startListening = false } = {}) {
       if (!tenant) return next();
       const w = typeof weight === "function" ? (Number(weight(req)) || 1) : weight;
       const gate = await gateUsage(tenant, "ai", w);
-      if (!gate.ok) return res.status(gate.status).json(gate.body);
+      if (!gate.ok) return sendGate(res, gate);
       const originalJson = res.json.bind(res);
       res.json = (body: any) => {
         if (res.statusCode >= 200 && res.statusCode < 300) { writeUsage(tenant, "ai", w).catch(() => {}); }
@@ -2248,7 +2317,8 @@ export async function createApp({ startListening = false } = {}) {
       tier, period, seats, includedSeats: allot.seats,
       baseCents, seatCents, seatsCents: bill.seatsCents,
       overageCents: overage.overageCents, projectedTotalCents: bill.totalCents,
-      spendCapCents: tenant?.spend_cap_cents ?? null,
+      spendCapCents: tenant?.spend_cap_cents ?? null,          // RAW per-tenant cap — drives the editable Settings input + save round-trip
+      effectiveSpendCapCents: effectiveSpendCap(tenant),        // default-inclusive — drives the gauge + hint display
       alerts: tenant?.settings?.usageAlerts || null,
       meters: buildMeters(roll, allot, overage),
     });
@@ -5850,7 +5920,7 @@ export async function createApp({ startListening = false } = {}) {
       // tenant meters $0.10/render as a throttle (PRICING_STRATEGY.md §2/§4). Gate before rendering.
       const pdfTenant = await resolveTenant(req);
       const pdfGate = await gateUsage(pdfTenant, "pdf", 1);
-      if (!pdfGate.ok) return res.status(pdfGate.status).json(pdfGate.body);
+      if (!pdfGate.ok) return sendGate(res, pdfGate);
 
       // SECURITY: Construct HTML strictly server-side to prevent Puppeteer SSRF/XSS vectors
       const esc = (s: any) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -7119,7 +7189,7 @@ field is absent, use null — never invent values. Return the key structured fie
       // number's carrier reputation / A2P standing) before the spend meter and the billable send.
       if (!gateOutbound(res, smsTenant)) return;
       const smsGate = await gateUsage(smsTenant, "sms", 1);
-      if (!smsGate.ok) return res.status(smsGate.status).json(smsGate.body);
+      if (!smsGate.ok) return sendGate(res, smsGate);
 
       const twilio = require("twilio");
       const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -8161,10 +8231,14 @@ field is absent, use null — never invent values. Return the key structured fie
       const sb = getServiceSupabase();
       if (!sb || !tenantId) { out.reason = "no_supabase_or_tenant"; return out; }
 
-      const { data: tenant } = await sb.from("tenants").select("name,settings").eq("id", tenantId).maybeSingle();
+      const { data: tenant } = await sb.from("tenants").select("id,name,settings,tier,spend_cap_cents").eq("id", tenantId).maybeSingle();
       const tprefs: any = (tenant?.settings as any)?.notificationPrefs || {};
       const tenantName = tenant?.name || "YardWorx";
       const audience = NOTIF_AUDIENCE[event];
+      // Meter notification SMS through the spend gate too (this path previously bypassed the meter,
+      // so a tenant could fan out unmetered SMS via /api/notifications/dispatch). Email/push stay
+      // un-metered (email is not a meter; push is free). Free tier (0 SMS allotment) → suppressed.
+      const meterTenant = { id: tenantId, tier: (tenant as any)?.tier || "free", spend_cap_cents: (tenant as any)?.spend_cap_cents ?? null };
 
       // Load the customer (tenant-scoped) for contact + per-customer opt-outs + name.
       let customer: any = null;
@@ -8220,9 +8294,15 @@ field is absent, use null — never invent values. Return the key structured fie
           }
         } else if (ch === "sms") {
           if (!recipientPhone) { out.results.push({ channel: "sms", sent: false, simulated: false, reason: "no_phone_on_file" }); continue; }
+          const smsGate = await gateUsage(meterTenant, "sms", 1);
+          if (!smsGate.ok) {
+            out.results.push({ channel: "sms", sent: false, simulated: false, reason: smsGate.body?.code || smsGate.body?.error || "sms_metered_out" });
+            out.suppressed.push("sms");
+            continue;
+          }
           const r = await sendSmsRaw(recipientPhone, content.sms);
           out.results.push({ channel: "sms", ...r });
-          if (r?.sent) anySent = true;
+          if (r?.sent) { anySent = true; writeUsage(meterTenant, "sms", 1).catch(() => {}); }
         } else if (ch === "push") {
           const r = await sendWebPush(customerId, content.subject, content.text);
           out.results.push({ channel: "push", ...r });
@@ -8662,7 +8742,7 @@ OUTPUT JSON ONLY, shape:
       // fallback does no billable work, so it isn't charged.
       const aerialTenant = await resolveTenant(req);
       const aerialGate = await gateUsage(aerialTenant, "aerial", 1);
-      if (!aerialGate.ok) return res.status(aerialGate.status).json(aerialGate.body);
+      if (!aerialGate.ok) return sendGate(res, aerialGate);
 
       // Reuse geocoded coords if present (point providers need real, non-stub lat/lng).
       const geo = await geocodeResolve(address).catch(() => null);

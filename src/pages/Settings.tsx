@@ -297,7 +297,7 @@ function UsageBillingSection() {
         </button>
       </div>
 
-      {summary?.spendCapCents == null && (
+      {summary?.effectiveSpendCapCents == null && (
         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-400/80">
           <AlertTriangle size={12} /> No spend cap set — metered overage is currently uncapped.
         </div>

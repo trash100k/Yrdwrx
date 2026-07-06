@@ -58,7 +58,7 @@ steps:
   # BASE_URL comes from the _BASE_URL substitution (used for Stripe success/return URLs);
   # override it at deploy with your real domain.
   - '--set-env-vars'
-  - 'NODE_ENV=production,REQUIRE_AUTH=true,WEB_CONCURRENCY=2,BASE_URL=${_BASE_URL}'
+  - 'NODE_ENV=production,REQUIRE_AUTH=true,WEB_CONCURRENCY=2,DEFAULT_SPEND_CAP_CENTS=500000,BASE_URL=${_BASE_URL}'
   # Secrets pulled from Secret Manager (create these once: gcloud secrets create <NAME>).
   # Without GEMINI_API_KEY the app boots but serves canned mock AI to real customers.
   - '--set-secrets'
