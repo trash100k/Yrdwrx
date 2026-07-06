@@ -32,17 +32,25 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
     }
   }
   private handleGlobalRejection(event: PromiseRejectionEvent) {
-    this.setState({ hasError: true, error: event.reason instanceof Error ? event.reason : new Error(String(event.reason)) });
+    // An unhandled promise rejection (a failed fetch, an aborted request, a noisy third-party SDK)
+    // must NOT blank the entire cockpit. Log it and move on — real React RENDER crashes are still
+    // caught by getDerivedStateFromError/componentDidCatch, which is the only thing that should
+    // ever show the fatal screen. (Previously this force-set hasError on every rejection.)
     try {
-      logSystemEvent("UNHANDLED_PROMISE_REJECTION", { error: String(event.reason) });
+      logSystemEvent("UNHANDLED_PROMISE_REJECTION", { error: String(event?.reason) });
     } catch(e) {
       // Ignore
     }
   }
   private handleGlobalError(event: ErrorEvent) {
-    this.setState({ hasError: true, error: event.error || new Error(event.message) });
+    // Browsers surface a lot of NON-fatal noise as a global `error` event: the "ResizeObserver loop
+    // limit exceeded" warning (recharts ResponsiveContainer triggers it) and cross-origin
+    // "Script error." events from browser extensions (where event.error is null). Blanking the app
+    // on those was the bug. Drop the benign ones; log a real Error but do NOT force the crash screen.
+    const msg = String(event?.message || "");
+    if (/ResizeObserver loop/i.test(msg) || !event?.error) return;
     try {
-      logSystemEvent("WINDOW_ERROR", { error: event.message });
+      logSystemEvent("WINDOW_ERROR", { error: msg });
     } catch(e) {
       // Ignore
     }

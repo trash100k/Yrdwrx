@@ -1,7 +1,7 @@
 import { fetchApi } from "../lib/api";
 import { compressImage } from "../lib/imageUtils";
 // @ts-nocheck
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import {
   handleFirestoreError,
   OperationType,
@@ -42,7 +42,9 @@ import {
   Maximize2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import BarcodeScanner from "../components/BarcodeScanner";
+// Lazy-loaded so the ~375 KB html5-qrcode dependency is code-split into its own on-demand chunk
+// instead of bloating the Inventory route for every visit — the scanner only mounts in live mode.
+const BarcodeScanner = React.lazy(() => import("../components/BarcodeScanner"));
 import { useTenant } from "../contexts/TenantContext";
 import { useAuditLog } from "../hooks/useAuditLog";
 import { InventoryItem } from "../types";
@@ -1503,10 +1505,12 @@ export default function Inventory() {
                     ) : scanningMode === "live" ? (
                       <div className="space-y-6">
                         <div className="rounded-2xl overflow-hidden border border-white/5 shadow-inner">
-                          <BarcodeScanner
-                            onScanSuccess={onBarcodeScan}
-                            onScanError={(err) => console.debug(err)}
-                          />
+                          <Suspense fallback={<div className="p-8 text-center micro-label font-black text-white/20 uppercase tracking-[0.4em]">Loading scanner…</div>}>
+                            <BarcodeScanner
+                              onScanSuccess={onBarcodeScan}
+                              onScanError={(err) => console.debug(err)}
+                            />
+                          </Suspense>
                         </div>
                         <div className="text-center">
                           <p className="micro-label font-black text-white/20 uppercase tracking-[0.4em]">

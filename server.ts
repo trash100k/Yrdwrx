@@ -5882,7 +5882,9 @@ export async function createApp({ startListening = false } = {}) {
          }
          // Streaming a generated MP4 — give it a long budget (the abort covers the whole
          // body stream, not just headers; the 15s default would truncate large videos).
-         const videoRes = await fetchWithTimeout(uri, {
+         // fetchSafeExternal (not fetchWithTimeout) so the connection is pinned to the vetted
+         // public IP at connect time — DNS-rebind parity with the other validateSafeUrl sinks.
+         const videoRes = await fetchSafeExternal(uri, {
            headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY! },
            timeoutMs: 180000,
            redirect: 'error',
