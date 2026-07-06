@@ -1132,52 +1132,89 @@ export async function createApp({ startListening = false } = {}) {
           if (error) throw new Error("setTenantTier failed: " + error.message);
         };
 
+        // Apply a SETTLED Stripe payment to the invoice ledger. Shared by checkout.session.completed
+        // (when payment_status==='paid', i.e. card) and checkout.session.async_payment_succeeded
+        // (ACH that later cleared). amountPaid is CLAMPED to the invoice total so concurrent partial
+        // checkouts can never collect more than billed (F3). Returns a pendingNotify on full
+        // settlement, or null. Throws on a real DB error so Stripe retries.
+        const creditInvoice = async (session: any, isDeposit: boolean) => {
+          const invId = session?.metadata?.invoiceId;
+          if (!invId || !sb) return null;
+          const { data: inv, error: readErr } = await sb.from("invoices").select("amount,data,status,tenant_id,customer_id").eq("id", invId).maybeSingle();
+          if (readErr) throw new Error("invoice read failed: " + readErr.message);
+          if (!inv) return null;
+          const paid = (Number(session.amount_total) || 0) / 100;
+          const total = Number(inv.amount) || 0;
+          const prevPaid = Number(inv.data?.amountPaid) || 0;
+          const amountPaid = Math.min(Math.round((prevPaid + paid) * 100) / 100, total); // clamp to total
+          const payments = Array.isArray(inv.data?.payments) ? inv.data.payments : [];
+          payments.push({ amount: paid, date: new Date().toISOString().slice(0, 10), method: "card", source: "stripe", ...(isDeposit ? { note: "deposit" } : {}) });
+          const nextData: any = { ...(inv.data || {}), amountPaid, payments };
+          delete nextData.pendingPayment; // a settled payment clears any ACH-pending marker
+          let status: string;
+          if (isDeposit) {
+            nextData.deposit = { ...(inv.data?.deposit || {}), status: "paid", paidAt: new Date().toISOString(), amount: paid };
+            status = inv.status || "accepted";
+          } else {
+            status = amountPaid >= total - 0.005 ? "paid" : "partial";
+          }
+          const { error: updErr } = await sb.from("invoices").update({ status, data: nextData }).eq("id", invId);
+          if (updErr) throw new Error("invoice update failed: " + updErr.message);
+          if (!isDeposit && status === "paid") {
+            return { tenantId: inv.tenant_id, customerId: inv.customer_id, event: "invoice_paid", payload: { amountPaid, total, invoiceId: invId, number: inv.data?.number || null } };
+          }
+          return null;
+        };
+        // Record an unsettled (ACH pending) or failed payment on the invoice WITHOUT crediting it.
+        const markPendingPayment = async (session: any, state: string) => {
+          const invId = session?.metadata?.invoiceId;
+          if (!invId || !sb) return;
+          const { data: inv, error: readErr } = await sb.from("invoices").select("data").eq("id", invId).maybeSingle();
+          if (readErr) throw new Error("invoice read failed: " + readErr.message);
+          if (!inv) return;
+          const nextData: any = { ...(inv.data || {}), pendingPayment: { sessionId: session.id, amount: (Number(session.amount_total) || 0) / 100, state, at: new Date().toISOString() } };
+          const { error: updErr } = await sb.from("invoices").update({ data: nextData }).eq("id", invId);
+          if (updErr) throw new Error("invoice update failed: " + updErr.message);
+        };
+
         switch (event.type) {
           case 'checkout.session.completed': {
             const session = event.data.object;
             const md = session.metadata || {};
             if (md.invoiceId && sb) {
-              // Apply the payment to the invoice ledger (system of record). The portal
-              // supports SMALLER partial payments, so we must accumulate data.amountPaid and
-              // only mark fully "paid" when the balance is settled — blindly setting "paid"
-              // would write off the remainder and let the client be charged again later.
-              // We read the invoice first so the data jsonb is merged (a column write replaces
-              // it wholesale, which would otherwise erase number/tax/contractId).
-              // A `type:"deposit"` session credits the ledger too, but keeps the estimate
-              // "accepted" (a deposit is a partial payment, not a converted invoice).
-              // A real read/write error THROWS (caught below) so Stripe retries — never swallowed.
-              const invId = md.invoiceId;
+              // Only credit the invoice when the funds have actually SETTLED. A card checkout
+              // completes with payment_status==='paid'; an ACH (us_bank_account) checkout completes
+              // 'unpaid'/'processing' and settles days later (and can bounce). Crediting on
+              // completion alone marked ACH invoices "paid" with no money in hand and sent a receipt
+              // (F1). For an unsettled session we record a pending marker and wait for
+              // async_payment_succeeded; on async_payment_failed we clear it. The credit math
+              // (partial accumulation, clamp-to-total, deposit handling) lives in creditInvoice().
               const isDeposit = md.type === "deposit";
-              const { data: inv, error: readErr } = await sb.from("invoices").select("amount,data,status,tenant_id,customer_id").eq("id", invId).maybeSingle();
-              if (readErr) throw new Error("invoice read failed: " + readErr.message);
-              if (inv) {
-                const paid = (Number(session.amount_total) || 0) / 100;
-                const prevPaid = Number(inv.data?.amountPaid) || 0;
-                const amountPaid = Math.round((prevPaid + paid) * 100) / 100;
-                const total = Number(inv.amount) || 0;
-                const payments = Array.isArray(inv.data?.payments) ? inv.data.payments : [];
-                payments.push({ amount: paid, date: new Date().toISOString().slice(0, 10), method: "card", source: "stripe", ...(isDeposit ? { note: "deposit" } : {}) });
-                const nextData: any = { ...(inv.data || {}), amountPaid, payments };
-                let status: string;
-                if (isDeposit) {
-                  nextData.deposit = { ...(inv.data?.deposit || {}), status: "paid", paidAt: new Date().toISOString(), amount: paid };
-                  status = inv.status || "accepted";
-                } else {
-                  status = amountPaid >= total - 0.005 ? "paid" : "partial";
-                }
-                const { error: updErr } = await sb.from("invoices").update({ status, data: nextData }).eq("id", invId);
-                if (updErr) throw new Error("invoice update failed: " + updErr.message);
-                // Queue a customer receipt for AFTER the ack — a full settlement only, so a
-                // partial/deposit doesn't send a "paid" receipt. Fired below, outside this
-                // try, so it can never touch the idempotency/500 path.
-                if (!isDeposit && status === "paid") {
-                  pendingNotify = { tenantId: inv.tenant_id, customerId: inv.customer_id, event: "invoice_paid", payload: { amountPaid, total, invoiceId: invId, number: inv.data?.number || null } };
-                }
+              if (session.payment_status === "paid") {
+                pendingNotify = (await creditInvoice(session, isDeposit)) || pendingNotify;
+              } else {
+                await markPendingPayment(session, session.payment_status || "unpaid");
               }
             }
             // SaaS subscription checkout → set tenant tier.
             if (session.mode === "subscription" && session.metadata?.tenantId && session.metadata?.tier) {
               await setTenantTier(session.metadata.tenantId, session.metadata.tier);
+            }
+            break;
+          }
+          case 'checkout.session.async_payment_succeeded': {
+            // ACH (or other delayed method) that cleared after the session completed — NOW credit it.
+            const session = event.data.object;
+            if (session.metadata?.invoiceId && sb) {
+              pendingNotify = (await creditInvoice(session, session.metadata?.type === "deposit")) || pendingNotify;
+            }
+            break;
+          }
+          case 'checkout.session.async_payment_failed': {
+            // ACH debit bounced / was declined — flag the invoice, do NOT credit.
+            const session = event.data.object;
+            if (session.metadata?.invoiceId && sb) {
+              await markPendingPayment(session, "failed");
             }
             break;
           }
@@ -3315,6 +3352,13 @@ export async function createApp({ startListening = false } = {}) {
       // Tenant comes from the verified token, NOT req.body (was tenant-unsafe). In demo
       // mode (no service-role / REQUIRE_AUTH off) we still create the account but can't persist.
       const tenant = await resolveTenant(req);
+      // BFLA guard (API5) — connecting billing overwrites tenants.stripe_account_id (below), which
+      // reroutes ALL of the tenant's future payouts. An employee/foreman must not be able to create
+      // a fresh un-onboarded account and break tenant-wide collection. Gate to owner/admin, matching
+      // the sibling /api/usage/spend-cap route.
+      if (REQUIRE_AUTH && (!tenant || !['owner', 'admin'].includes(tenant.role))) {
+        return res.status(403).json({ error: 'Only an owner or admin can connect billing.' });
+      }
       const sb = getServiceSupabase();
       const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
@@ -3373,7 +3417,7 @@ export async function createApp({ startListening = false } = {}) {
         try {
           const sb = getServiceSupabase();
           if (!sb) return res.status(503).json({ error: "Billing not configured (service role)." });
-          const { data: inv } = await sb.from("invoices").select("amount,tenant_id").eq("id", invoiceId).maybeSingle();
+          const { data: inv } = await sb.from("invoices").select("amount,tenant_id,amountPaid").eq("id", invoiceId).maybeSingle();
           if (!inv) return res.status(404).json({ error: "Invoice not found." });
           // BOLA guard (API1) — the invoice MUST belong to the caller's own tenant. Without this,
           // any authenticated user could pass ANOTHER tenant's invoiceId and (a) read its amount
@@ -3388,7 +3432,11 @@ export async function createApp({ startListening = false } = {}) {
             }
           }
           if (!inv.amount) return res.status(400).json({ error: "Invoice has no amount." });
-          finalAmount = inv.amount;
+          // Charge the OUTSTANDING balance, not the full total — after a deposit/partial payment the
+          // customer must not be re-charged the whole invoice. Mirrors the balance-aware portal path.
+          const outstanding = Math.max(0, Math.round((Number(inv.amount) - (Number((inv as any).amountPaid) || 0)) * 100) / 100);
+          if (outstanding <= 0) return res.status(409).json({ error: "Invoice is already paid in full.", code: "ALREADY_SETTLED" });
+          finalAmount = outstanding;
           finalDescription = `Invoice ${invoiceId}`;
           if (inv.tenant_id) {
             const { data: t } = await sb.from("tenants").select("stripe_account_id").eq("id", inv.tenant_id).maybeSingle();

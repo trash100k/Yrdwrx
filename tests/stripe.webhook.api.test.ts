@@ -187,7 +187,7 @@ describe('Stripe money path (webhook idempotency + billing shapes)', () => {
       const payload = JSON.stringify({
         id: 'evt_dup_once',
         type: 'checkout.session.completed',
-        data: { object: { id: 'cs_dup', amount_total: 10000, metadata: { invoiceId: 'inv_dup' } } },
+        data: { object: { id: 'cs_dup', amount_total: 10000, payment_status: 'paid', metadata: { invoiceId: 'inv_dup' } } },
       });
       const sig = sign(payload);
 
@@ -219,7 +219,7 @@ describe('Stripe money path (webhook idempotency + billing shapes)', () => {
       const payload = JSON.stringify({
         id: 'evt_preclaimed',
         type: 'checkout.session.completed',
-        data: { object: { id: 'cs_pre', amount_total: 10000, metadata: { invoiceId: 'inv_pre' } } },
+        data: { object: { id: 'cs_pre', amount_total: 10000, payment_status: 'paid', metadata: { invoiceId: 'inv_pre' } } },
       });
 
       const res = await post(payload, sign(payload));
@@ -242,6 +242,54 @@ describe('Stripe money path (webhook idempotency + billing shapes)', () => {
       expect(res.body?.received).toBe(true);
       expect(db.tenantUpdateCount).toBe(1);
       expect(db.tenants.get('t9')?.tier).toBe('pro');
+    });
+
+    // F1 — an ACH checkout completes UNSETTLED (payment_status !== 'paid'). It must NOT credit the
+    // invoice or mark it paid; it records a pending marker and waits for async_payment_succeeded.
+    it('does NOT credit an ACH checkout that completed unsettled (payment_status=unpaid)', async () => {
+      db.invoices.set('inv_ach', { amount: 500, data: {}, status: 'sent', tenant_id: 't1', customer_id: 'c1' });
+      const payload = JSON.stringify({
+        id: 'evt_ach_pending',
+        type: 'checkout.session.completed',
+        data: { object: { id: 'cs_ach', amount_total: 50000, payment_status: 'unpaid', metadata: { invoiceId: 'inv_ach' } } },
+      });
+      const res = await post(payload, sign(payload));
+      expect(res.status).toBe(200);
+      const inv = db.invoices.get('inv_ach');
+      expect(inv.status).toBe('sent'); // NOT flipped to paid
+      expect(inv.data.amountPaid).toBeUndefined(); // no credit
+      expect(inv.data.pendingPayment).toBeTruthy(); // pending marker recorded
+    });
+
+    // F1 — when the ACH debit later clears, async_payment_succeeded credits the invoice.
+    it('credits the invoice when async_payment_succeeded arrives (ACH cleared)', async () => {
+      db.invoices.set('inv_ach2', { amount: 500, data: { pendingPayment: { sessionId: 'cs_ach2' } }, status: 'sent', tenant_id: 't1', customer_id: 'c1' });
+      const payload = JSON.stringify({
+        id: 'evt_ach_ok',
+        type: 'checkout.session.async_payment_succeeded',
+        data: { object: { id: 'cs_ach2', amount_total: 50000, payment_status: 'paid', metadata: { invoiceId: 'inv_ach2' } } },
+      });
+      const res = await post(payload, sign(payload));
+      expect(res.status).toBe(200);
+      const inv = db.invoices.get('inv_ach2');
+      expect(inv.status).toBe('paid');
+      expect(inv.data.amountPaid).toBe(500);
+      expect(inv.data.pendingPayment).toBeUndefined(); // marker cleared
+    });
+
+    // F3 — webhook amountPaid must be CLAMPED to the invoice total (never collect more than billed).
+    it('clamps accumulated amountPaid to the invoice total', async () => {
+      db.invoices.set('inv_clamp', { amount: 100, data: { amountPaid: 60 }, status: 'partial', tenant_id: 't1', customer_id: 'c1' });
+      const payload = JSON.stringify({
+        id: 'evt_clamp',
+        type: 'checkout.session.completed',
+        data: { object: { id: 'cs_clamp', amount_total: 7000, payment_status: 'paid', metadata: { invoiceId: 'inv_clamp' } } },
+      });
+      const res = await post(payload, sign(payload));
+      expect(res.status).toBe(200);
+      const inv = db.invoices.get('inv_clamp');
+      expect(inv.data.amountPaid).toBe(100); // 60 + 70 = 130 clamped to 100
+      expect(inv.status).toBe('paid');
     });
   });
 
