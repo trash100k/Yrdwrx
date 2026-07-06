@@ -199,3 +199,73 @@ export function withinSpendCap(
   const add = sanitizeAmount(addCents);
   return current + add <= cap;
 }
+
+/**
+ * Resolve a tenant's EFFECTIVE spend cap (ceiling on billable OVERAGE cents) from its explicit
+ * per-tenant cap, tier, and the platform paid-tier default. Backs server.ts effectiveSpendCap();
+ * pure so it is unit-tested (caller resolves the env default).
+ *  - explicit per-tenant cap ALWAYS wins (incl. a huge "unlimited" value or 0 = pause). Non-finite
+ *    explicit cap is ignored (falls through), matching gateUsage's fail-closed posture.
+ *  - FREE tier => null (Free hard-402s on any overage upstream; a default would be a dead no-op).
+ *  - PAID tier, no explicit cap => defaultPaidCapCents. A null/negative/non-finite default => null
+ *    (no platform default), preserving the historical unset-env behavior.
+ */
+export function resolveSpendCapCents(
+  explicitCapCents: number | null | undefined,
+  tier: string | null | undefined,
+  defaultPaidCapCents: number | null | undefined,
+): number | null {
+  if (explicitCapCents != null) {
+    const n = Number(explicitCapCents);
+    if (Number.isFinite(n)) return n;
+  }
+  if ((tier || 'free') === 'free') return null;
+  if (defaultPaidCapCents == null) return null;
+  const d = Number(defaultPaidCapCents);
+  return Number.isFinite(d) && d >= 0 ? d : null;
+}
+
+export type GateStatus = 'ok' | 'insufficient_credits' | 'spend_cap' | 'metering_unavailable';
+
+export interface GateInput {
+  tier: string; meter: Meter; qty: number;
+  current: Record<Meter, number>;
+  allot: Allotments; rates: Rates;
+  capCents: number | null;
+  readOk: boolean;
+  haveBaseline: boolean;
+}
+export interface GateResult { ok: boolean; status: GateStatus; addCents: number; beforeCents: number; }
+
+/**
+ * Pure spend-gate decision shared by every metered route (ai|sms|live_min|aerial|pdf).
+ * Fail-CLOSED contract:
+ *  - Free-tier "no auto-overage" is checked FIRST, independent of DB health / caps.
+ *  - The SPEND CAP is the only decision depending on accumulated spend. When readOk===false:
+ *      no cap => ALLOW; cap + real baseline => enforce against stale-but-real usage;
+ *      cap + NO baseline (cold instance mid-outage) => fail CLOSED only for overage ops (addCents>0).
+ *    Within-allotment ops (addCents===0) always pass, so a blip never nukes ordinary AI.
+ */
+export function evaluateGate(inp: GateInput): GateResult {
+  const q = sanitizeAmount(inp.qty);
+  const beforeCents = computeOverage(inp.current, inp.allot, inp.rates).overageCents;
+  const afterCents = computeOverage(applyUsage(inp.current, inp.meter, q), inp.allot, inp.rates).overageCents;
+  const addCents = Math.max(0, afterCents - beforeCents);
+  const base = { addCents, beforeCents };
+
+  if (addCents > 0 && inp.tier === 'free') {
+    return { ok: false, status: 'insufficient_credits', ...base };
+  }
+  if (!inp.readOk) {
+    if (inp.capCents === null || inp.capCents === undefined) {
+      return { ok: true, status: 'ok', ...base };
+    }
+    if (!inp.haveBaseline && addCents > 0) {
+      return { ok: false, status: 'metering_unavailable', ...base };
+    }
+  }
+  if (!withinSpendCap(beforeCents, addCents, inp.capCents)) {
+    return { ok: false, status: 'spend_cap', ...base };
+  }
+  return { ok: true, status: 'ok', ...base };
+}

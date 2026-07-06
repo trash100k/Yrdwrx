@@ -7,6 +7,8 @@ import {
   computeOverage,
   projectBill,
   withinSpendCap,
+  resolveSpendCapCents,
+  evaluateGate,
   type Allotments,
   type Rates,
   type Meter,
@@ -332,5 +334,95 @@ describe('withinSpendCap', () => {
 
   it('treats undefined cap like null (defensive)', () => {
     expect(withinSpendCap(9_999_999, 1, undefined as unknown as number | null)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSpendCapCents — the denial-of-wallet ceiling resolver (Spec 1)
+// ---------------------------------------------------------------------------
+describe('resolveSpendCapCents', () => {
+  const DEF = 500000; // $5,000 platform default (paid tiers)
+  it('returns an explicit per-tenant cap for paid tiers (overrides the default)', () => {
+    expect(resolveSpendCapCents(1000, 'pro', DEF)).toBe(1000);
+    expect(resolveSpendCapCents(2_000_000, 'enterprise', DEF)).toBe(2_000_000);
+  });
+  it('honors an explicit 0 cap (pause all overage)', () => {
+    expect(resolveSpendCapCents(0, 'pro', DEF)).toBe(0);
+  });
+  it('honors an explicit cap even on Free', () => {
+    expect(resolveSpendCapCents(500, 'free', DEF)).toBe(500);
+  });
+  it('returns null for Free with no explicit cap', () => {
+    expect(resolveSpendCapCents(null, 'free', DEF)).toBeNull();
+    expect(resolveSpendCapCents(undefined, undefined, DEF)).toBeNull();
+  });
+  it('falls back to the platform default for paid tiers with no explicit cap', () => {
+    expect(resolveSpendCapCents(null, 'pro', DEF)).toBe(DEF);
+    expect(resolveSpendCapCents(undefined, 'enterprise', DEF)).toBe(DEF);
+  });
+  it('returns null when there is no platform default', () => {
+    expect(resolveSpendCapCents(null, 'pro', null)).toBeNull();
+    expect(resolveSpendCapCents(null, 'enterprise', undefined)).toBeNull();
+  });
+  it('ignores a non-finite explicit cap and falls through to the default', () => {
+    expect(resolveSpendCapCents(NaN, 'pro', DEF)).toBe(DEF);
+    expect(resolveSpendCapCents(Infinity as unknown as number, 'pro', DEF)).toBe(DEF);
+  });
+  it('treats a negative / non-finite default as no default (null)', () => {
+    expect(resolveSpendCapCents(null, 'pro', -5)).toBeNull();
+    expect(resolveSpendCapCents(null, 'pro', NaN)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// evaluateGate — pure spend-gate decision, incl. the fail-closed-on-blip logic (Spec 2)
+// ---------------------------------------------------------------------------
+describe('evaluateGate', () => {
+  const FREE_ALLOT: Allotments = { seats: 1, ai: 0, sms: 0, live_min: 0, aerial: 0, pdf: 0 };
+  const roll = (ai: number) => ({ ...emptyRollup(), ai });
+  const base = { meter: 'ai' as Meter, rates: RATES, allot: PRO_ALLOT };
+
+  it('readOk=true, overage under the cap → ok', () => {
+    const d = evaluateGate({ ...base, tier: 'pro', qty: 10, current: roll(1000), capCents: 100, readOk: true, haveBaseline: true });
+    expect(d.ok).toBe(true);
+    expect(d.addCents).toBe(40); // 10 units * 4c
+  });
+  it('readOk=true, overage over the cap → spend_cap', () => {
+    const d = evaluateGate({ ...base, tier: 'pro', qty: 10, current: roll(1000), capCents: 30, readOk: true, haveBaseline: true });
+    expect(d.ok).toBe(false);
+    expect(d.status).toBe('spend_cap');
+  });
+  it('free tier at allotment incurring overage → insufficient_credits (checked first)', () => {
+    const d = evaluateGate({ ...base, allot: FREE_ALLOT, tier: 'free', qty: 1, current: roll(0), capCents: null, readOk: true, haveBaseline: true });
+    expect(d.ok).toBe(false);
+    expect(d.status).toBe('insufficient_credits');
+  });
+  it('readOk=false + no cap → ok (regression lock: uncapped tenants never blocked by a blip)', () => {
+    const d = evaluateGate({ ...base, tier: 'pro', qty: 10, current: roll(1000), capCents: null, readOk: false, haveBaseline: false });
+    expect(d.ok).toBe(true);
+  });
+  it('readOk=false + cap + real baseline at/over cap → spend_cap (enforce against stale-but-real)', () => {
+    const d = evaluateGate({ ...base, tier: 'pro', qty: 10, current: roll(1010), capCents: 30, readOk: false, haveBaseline: true });
+    expect(d.ok).toBe(false);
+    expect(d.status).toBe('spend_cap');
+  });
+  it('readOk=false + cap + baseline within allotment → ok (a blip never nukes ordinary AI)', () => {
+    const d = evaluateGate({ ...base, tier: 'pro', qty: 10, current: roll(100), capCents: 30, readOk: false, haveBaseline: true });
+    expect(d.ok).toBe(true);
+    expect(d.addCents).toBe(0);
+  });
+  it('readOk=false + cap + NO baseline + overage → metering_unavailable (fail closed)', () => {
+    const d = evaluateGate({ ...base, tier: 'pro', qty: 10, current: roll(1000), capCents: 30, readOk: false, haveBaseline: false });
+    expect(d.ok).toBe(false);
+    expect(d.status).toBe('metering_unavailable');
+  });
+  it('readOk=false + cap + NO baseline + within allotment → ok (anti-outage bound)', () => {
+    const d = evaluateGate({ ...base, tier: 'pro', qty: 10, current: roll(100), capCents: 30, readOk: false, haveBaseline: false });
+    expect(d.ok).toBe(true);
+  });
+  it('readOk=false + free over allotment → insufficient_credits (free check precedes blip logic)', () => {
+    const d = evaluateGate({ ...base, allot: FREE_ALLOT, tier: 'free', qty: 1, current: roll(5), capCents: 30, readOk: false, haveBaseline: false });
+    expect(d.ok).toBe(false);
+    expect(d.status).toBe('insufficient_credits');
   });
 });
