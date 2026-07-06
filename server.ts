@@ -55,6 +55,8 @@ import { SingleFlight } from "./src/lib/singleFlight.js";
 import { OutboundRateLimiter } from "./src/lib/outboundLimiter.js";
 import { Semaphore, SemaphoreTimeoutError } from "./src/lib/semaphore.js";
 import { classifyRateLimit } from "./src/lib/aiErrors.js";
+import { LiveLimiter, liveLimiterConfigFromEnv } from "./src/lib/wsLimits.js";
+import { CircuitBreaker, CircuitOpenError, backoffDelay, sleep as cbSleep } from "./src/lib/circuitBreaker.js";
 // Pure, deterministic document-understanding core (no I/O). Turns the loosely-parsed JSON a
 // vision/LLM extractor emits for a vendor invoice into a normalized, defensively-coerced expense
 // DRAFT for human review. The /api/documents/parse route feeds Gemini's structured output straight
@@ -354,6 +356,10 @@ function geoCacheSet(key: string, val: any) {
 // Resolve an address to { lat, lng, formatted?, stub }. No key -> deterministic stub
 // (stub:true). With a key -> Google (cached). Returns null only when a KEYED lookup
 // yields no result (we never fabricate precision for a real key). Never throws.
+// Circuit breaker for the Google geocoding upstream. Geocoding is already best-effort (a failure
+// degrades to null), so an open circuit just makes that identical degradation INSTANT instead of an
+// 8s timeout per call while Google is down — no behavior change on the happy path.
+const geocodeBreaker = new CircuitBreaker({ failureRateThreshold: 0.5, volumeThreshold: 8, cooldownMs: 20000 });
 async function geocodeResolve(address: any): Promise<any | null> {
   const key = geoNormalize(address);
   if (!key) return null;
@@ -366,8 +372,11 @@ async function geocodeResolve(address: any): Promise<any | null> {
   }
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(String(address))}&key=${mapsKey}`;
-    const r = await fetchWithTimeout(url, { timeoutMs: 8000 });
-    if (!r.ok) throw new Error("geocode upstream " + r.status);
+    const r = await geocodeBreaker.run(async () => {
+      const resp = await fetchWithTimeout(url, { timeoutMs: 8000 });
+      if (!resp.ok) throw new Error("geocode upstream " + resp.status);
+      return resp;
+    });
     const d: any = await r.json();
     const first = d?.results?.[0];
     const loc = first?.geometry?.location;
@@ -756,6 +765,23 @@ const GEMINI_ACQUIRE_TIMEOUT_MS = Number(process.env.GEMINI_ACQUIRE_TIMEOUT_MS) 
 const geminiSemaphore = new Semaphore(GEMINI_MAX_CONCURRENT);
 export function getGeminiConcurrency() { return { active: geminiSemaphore.active, queued: geminiSemaphore.queued, shed: geminiSemaphore.shed }; }
 
+// Circuit breaker around the Gemini ORIGIN call (placed INSIDE the semaphore below, so cache hits,
+// coalesced riders, and load-shed never reach it — it only observes real upstream outcomes). When
+// Gemini is broadly failing it opens and fast-fails as a clean 503 (AI_BUSY) instead of piling more
+// doomed calls onto a struggling dependency. A client 4xx (≠429, i.e. our own bad prompt) is
+// classified as NOT origin distress so our mistakes can't trip it. See src/lib/circuitBreaker.ts.
+const geminiBreaker = new CircuitBreaker({
+  failureRateThreshold: Number(process.env.GEMINI_CB_RATE) || 0.5,
+  volumeThreshold: Number(process.env.GEMINI_CB_VOLUME) || 10,
+  cooldownMs: Number(process.env.GEMINI_CB_COOLDOWN_MS) || 15000,
+});
+const isOriginDistress = (e: any): boolean => {
+  const s = Number(e?.status ?? e?.code ?? e?.statusCode ?? e?.response?.status);
+  // A 4xx that isn't a 429 is a caller/prompt error, not the upstream failing — don't trip on it.
+  if (Number.isFinite(s) && s >= 400 && s < 500 && s !== 429) return false;
+  return true;
+};
+
 const originalGenerateContent = ai.models.generateContent.bind(ai.models);
 // @ts-ignore
 ai.models.generateContent = async (request: any) => {
@@ -791,10 +817,14 @@ ai.models.generateContent = async (request: any) => {
     let response: any;
     try {
       // Bound concurrent upstream calls; a flood past the cap is shed as a clean 503 (AI_BUSY)
-      // rather than fanning out or wedging workers.
-      response = await geminiSemaphore.run(() => originalGenerateContent(request), GEMINI_ACQUIRE_TIMEOUT_MS);
+      // rather than fanning out or wedging workers. Inside that, the circuit breaker fast-fails
+      // when Gemini is broadly down so we stop hammering a struggling dependency.
+      response = await geminiSemaphore.run(
+        () => geminiBreaker.run(() => originalGenerateContent(request), { isFailure: isOriginDistress }),
+        GEMINI_ACQUIRE_TIMEOUT_MS,
+      );
     } catch (e) {
-      if (e instanceof SemaphoreTimeoutError) {
+      if (e instanceof SemaphoreTimeoutError || e instanceof CircuitOpenError) {
         throw new AiUnavailableError("AI is at capacity — please retry in a moment.", "AI_BUSY");
       }
       throw e;
@@ -7116,6 +7146,11 @@ field is absent, use null — never invent values. Return the key structured fie
         } catch (e: any) {
           lastErr = e?.message || "fetch failed";
         }
+        // Backoff-with-jitter between retries so a flaky endpoint isn't hammered instantly (and so
+        // many tenants' webhooks to the same recovering host don't retry in lockstep).
+        if (attempt < maxAttempts) {
+          await cbSleep(backoffDelay(attempt - 1, { baseMs: 250, maxMs: 4000, jitter: "full" }));
+        }
       }
       // Do NOT echo lastErr to the client: the connect-time detail (ECONNREFUSED vs timeout vs
       // an internal service's HTTP status) is a blind-SSRF oracle. Keep it in the server log.
@@ -8904,7 +8939,32 @@ OUTPUT JSON ONLY, shape:
   // per-instance, per-worker counters. Cloud Run must be configured with session affinity
   // (--session-affinity) AND the client should hold ONE connection, or reconnects can land on a
   // different instance/worker with no session and the cap is only approximate fleet-wide.
-  const wss = new WebSocketServer({ server, path: "/api/live" });
+  // Connection limits (src/lib/wsLimits.ts): a pre-upgrade attempt throttle + per-IP + per-tenant
+  // concurrent caps, so a bogus-token flood is refused at the handshake before the post-upgrade
+  // Supabase getUser (stops auth-call amplification) and no single IP/tenant can monopolize slots.
+  const liveLimiter = new LiveLimiter(liveLimiterConfigFromEnv());
+  const LIVE_MAX_PAYLOAD = Number(process.env.LIVE_MAX_PAYLOAD_BYTES) || 1_048_576;
+  // Stable per-client key. Behind Cloud Run (trust proxy = 1) the real client is the LAST
+  // X-Forwarded-For entry; normalize via ipKeyGenerator so an IPv6 /64 can't rotate past the cap.
+  const liveClientKey = (req: any): string => {
+    const xff = String(req?.headers?.["x-forwarded-for"] || "");
+    const last = xff.split(",").map((s: string) => s.trim()).filter(Boolean).pop();
+    const ip = last || req?.socket?.remoteAddress || "";
+    try { return ipKeyGenerator(ip); } catch { return ip || "unknown"; }
+  };
+  const wss = new WebSocketServer({
+    server,
+    path: "/api/live",
+    maxPayload: LIVE_MAX_PAYLOAD, // an oversized frame auto-closes with 1009 before buffering (OOM guard)
+    verifyClient: (info: any, done: any) => {
+      // Pre-upgrade attempt throttle — refuse a bogus-token connection flood at the handshake,
+      // BEFORE the post-upgrade Supabase getUser, so it can't amplify into unbounded auth calls.
+      if (!liveLimiter.allowAttempt(liveClientKey(info.req))) {
+        return done(false, 429, "Too many connection attempts");
+      }
+      return done(true);
+    },
+  });
   let liveConnections = 0;
   const LIVE_CAP = Number(process.env.LIVE_MAX_CONNECTIONS) || 50;
 
@@ -8919,6 +8979,7 @@ OUTPUT JSON ONLY, shape:
       ws.isAlive = false;
       try { ws.ping(); } catch {}
     });
+    liveLimiter.pruneAttempts(); // bound the attempt-window map on a long-lived instance
   }, LIVE_HEARTBEAT_MS);
   if (liveHeartbeat.unref) liveHeartbeat.unref();
   wss.on("close", () => clearInterval(liveHeartbeat));
@@ -8930,6 +8991,13 @@ OUTPUT JSON ONLY, shape:
       try { clientWs.close(1013, "Live capacity reached"); } catch {}
       return;
     }
+    // Per-IP concurrent-connection cap (one network can't monopolize the per-worker slots).
+    const ipKey = liveClientKey(req);
+    if (!liveLimiter.reserveIp(ipKey)) {
+      try { clientWs.close(1013, "Too many Live connections from your network"); } catch {}
+      return;
+    }
+    clientWs.on("close", () => liveLimiter.releaseIp(ipKey));
     // Auth + quota gate — enforced in production (REQUIRE_AUTH); demo mode bypasses to match the
     // rest of the app. The browser WebSocket API can't set headers, so the Supabase access token
     // arrives as ?token= on the URL. We verify it, then enforce the tenant's monthly AI wallet
@@ -8988,6 +9056,15 @@ OUTPUT JSON ONLY, shape:
         } catch {}
         return;
       }
+    }
+    // Per-tenant concurrent-session cap — one account can't hold every Live slot on a worker.
+    if (REQUIRE_AUTH && liveMeterTenant?.id) {
+      const tenantKey = String(liveMeterTenant.id);
+      if (!liveLimiter.reserveTenant(tenantKey)) {
+        try { clientWs.close(1013, "Too many simultaneous Live sessions for your account"); } catch {}
+        return;
+      }
+      clientWs.on("close", () => liveLimiter.releaseTenant(tenantKey));
     }
     liveConnections++;
     liveStartedAt = Date.now();
