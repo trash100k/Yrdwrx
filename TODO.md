@@ -34,7 +34,11 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > in the right Part, (3) keep file/line refs accurate, (4) bump `_Last updated_`. It's linked from
 > `CLAUDE.md` so it's discoverable. **Don't start a parallel list.**
 >
-> _Last updated: 2026-07-05 (PRODUCTION-READINESS HARDENING PASS — OWASP-grounded + 3 code audits →
+> _Last updated: 2026-07-06 (RED/BLUE-TEAM REMEDIATION WAVE — ultracode 3-workflow fan-out → verified
+> build order; shipped Batches 1/3/4/5 + frontend sludge + migration 0019 across 7 commits, all gated
+> green on branch+main; see **Red-team / blue-team remediation wave** section. Remaining: Batch 6 CI/tests,
+> F10/F14/F9/F7, blue-team detection layer). Prior:
+> PRODUCTION-READINESS HARDENING PASS — OWASP-grounded + 3 code audits →
 > `PRODUCTION_READINESS.md`; fixed the confirmed `/api/stripe/checkout` BOLA, AI single-flight
 > coalescing, per-tenant outbound rate limit, and Supabase client timeout (c9df08f, ea10539); open
 > abuse/scale backlog logged in **Production-readiness hardening pass** section above). Prior:
@@ -195,6 +199,41 @@ already exists** — see the [appendices](#appendix-a--feature-inventory) for th
 > Prior (2026-06-27): re-prioritized from the deep US market study (`MARKET_RESEARCH.md`) —
 > QuickBooks/payments/recurring billing as launch table-stakes (A7); AI repositioned as on-site closing;
 > added the Gemini-native build-leverage map + the beachhead._
+
+## Red-team / blue-team remediation wave (2026-07-06) — ultracode multi-agent
+
+Three parallel read-only workflows (🔴 red-team: 10 lanes booting the real server + firing exploits/
+load/crawls; 🔵 blue-team: 8 detect/deceive/respond control designs; 🛠️ backlog: 8 verified fix specs +
+14 audit findings) → a single verified build order (`scratchpad/backlog_plan.md`). Implemented serially,
+each batch gated green (tsc + vitest + build) and pushed to branch + main:
+
+**✅ Shipped this wave:**
+- [x] **Batch 1 — pure libs** (`35d9667`, `de6907b`): `aiErrors` (classifyRateLimit), `usageLedger`
+  exports (resolveSpendCapCents, evaluateGate), `circuitBreaker` (+backoff/jitter), `wsLimits`. +50 tests.
+- [x] **Migration 0019** — atomic `increment_tenant_usage` RPC (applied + verified live: 100→100,
+  0.5 frac, advisors clean).
+- [x] **Batch 3 — billing** (`74145e5`): DEFAULT_SPEND_CAP_CENTS ($5k paid default, env-tunable) +
+  fail-closed metering on a Supabase read blip (evaluateGate + last-known-good cache) + atomic usage
+  write + Gemini 429→client 429+Retry-After.
+- [x] **Batch 5 — resilience** (`7275668`): WS /api/live maxPayload + per-IP/per-tenant caps +
+  pre-upgrade attempt throttle; circuit breaker around Gemini origin (inside the semaphore) + geocode;
+  webhook retry backoff-with-jitter.
+- [x] **Batch 4 — Stripe money/security** (`e7c21eb`): F1 ACH payment_status gate + async_payment_*
+  handlers, F3 amountPaid clamp-to-total, F6 /api/stripe/connect owner/admin BFLA gate, F4 balance-aware
+  checkout. +3 webhook tests.
+- [x] **Frontend sludge** (`c61ee88`): F11 stop global window error/rejection listeners blanking the
+  app, F12 code-split BarcodeScanner (Inventory chunk 425 KB→56 KB), F13 pin video-download (DNS-rebind).
+
+**⬜ Remaining (next iteration):**
+- [ ] **Batch 6 — CI/tests**: Spec 4 route-inventory auth test, Spec 5 Dirty-Dozen RLS test (skipIf no
+  creds), Spec 8 CI depth (coverage-v8 threshold + npm audit + gitleaks).
+- [ ] **F10** route-level error boundary; **F14** Settings a11y labels + unskip the axe gate; **F9**
+  geocode/backfill; **F7** PDF-queue DoS backpressure; **F2** nightly-reporter delta (migration 0020,
+  dormant — before enabling metered Stripe billing).
+- [ ] **Blue-team layer** (from the 🔵 workflow): honeytokens, decoy endpoints + cross-tenant canary
+  tripwires, honeypot form fields, anomaly-detection engine, adaptive auto-block, durable tamper-evident
+  audit log, alerting/SIEM, break-glass kill switches. (Synth file failed on session-limit; per-agent
+  designs are in the workflow journal `wf_574a37cc-d4f`.)
 
 ## Production-readiness hardening pass (2026-07-05) — abuse / scale / BOLA
 
