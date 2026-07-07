@@ -22,7 +22,7 @@ export const KeyboardShortcutsModal = ({ isOpen, onClose }: { isOpen: boolean; o
   // These mirror the real handlers wired in Layout.tsx (handleGlobalShortcuts +
   // the g-chord navigation). Keep this list in sync with that effect.
   const shortcuts = [
-    { key: "Cmd / Ctrl + K", label: "Open command palette / search" },
+    { key: "Cmd / Ctrl + K or /", label: "Open command palette / search" },
     { key: "Cmd / Ctrl + B", label: "Toggle Cutty AI assistant" },
     { key: "?", label: "Show keyboard shortcuts" },
     { key: "G then D", label: "Go to Dashboard" },
