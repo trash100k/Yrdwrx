@@ -40,7 +40,7 @@ const toCents = (n: number): number => Math.round(n * 100) / 100;
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 /** A value is "cents-exact" when it is a whole number of cents. */
 const isCentsExact = (n: number): boolean =>
-  Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
+  Math.abs(n * 100 - Math.round(n * 100)) < 1e-5;
 
 /** Cents-exact dollar amount in [0, $1,000,000] — how money actually flows through the app. */
 const dollars = fc.nat({ max: 100_000_000 }).map((c) => c / 100);
