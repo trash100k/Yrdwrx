@@ -20,9 +20,26 @@ export function isPrivateIP(ip: string): boolean {
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
 
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
+  // Unspecified address (SSRF bypass vector)
+  if (ip === '::' || ip === '0.0.0.0') return true;
+
+  // IPv4-mapped IPv6 (::ffff:127.0.0.1 or ::ffff:7f00:1) — unwrap and re-check.
+  if (ip.toLowerCase().startsWith('::ffff:')) {
+    const tail = ip.slice(7);
+    if (tail.includes('.')) {
+      return isPrivateIP(tail);
+    }
+    // Handle hex-encoded IPv4-mapped IPv6
+    const hexParts = tail.split(':');
+    if (hexParts.length === 2) {
+      const h1 = parseInt(hexParts[0], 16);
+      const h2 = parseInt(hexParts[1], 16);
+      if (!isNaN(h1) && !isNaN(h2)) {
+        const v4 = `${(h1 >> 8) & 0xff}.${h1 & 0xff}.${(h2 >> 8) & 0xff}.${h2 & 0xff}`;
+        return isPrivateIP(v4);
+      }
+    }
+  }
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
