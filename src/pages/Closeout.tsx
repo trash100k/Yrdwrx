@@ -226,7 +226,8 @@ export default function Closeout() {
 
   // --- STATE C: Execute ----------------------------------------------------
   const doAll = async () => {
-    const chosen = actions.filter((a) => selected[a.id]);
+    // SECURITY: Ensure high-risk actions (e.g. invoices) are only executed if explicitly confirmed.
+    const chosen = actions.filter((a) => selected[a.id] && (a.risk !== "high" || confirmed[a.id]));
     if (!chosen.length) return;
     // Refuse money-adjacent actions when no job is picked — never guess who
     // to bill or which job to close.
