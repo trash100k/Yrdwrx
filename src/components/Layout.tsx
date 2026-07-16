@@ -72,6 +72,7 @@ import { NotificationsCenter } from "./NotificationsCenter";
 import { UserProfileMenu } from "./UserProfileMenu";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { QuickCreateMenu } from "./QuickCreateMenu";
+import { Tooltip } from "./Tooltip";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -788,14 +789,15 @@ export default function Layout() {
                   <Plus size={20} />
                 </button>
 
-                <button
-                  onClick={() => setIsShortcutsOpen(true)}
-                  className="hidden sm:flex min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all"
-                  aria-label="Keyboard shortcuts"
-                  title="Keyboard shortcuts (?)"
-                >
-                  <span className="text-base font-black leading-none">?</span>
-                </button>
+                <Tooltip content="Keyboard Shortcuts" position="bottom">
+                  <button
+                    onClick={() => setIsShortcutsOpen(true)}
+                    className="hidden sm:flex min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
+                    aria-label="Keyboard shortcuts"
+                  >
+                    <span className="text-base font-black leading-none">?</span>
+                  </button>
+                </Tooltip>
 
                 <button
                   onClick={() => setIsNotificationsOpen(true)}
