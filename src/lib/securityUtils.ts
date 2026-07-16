@@ -11,6 +11,26 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
+  const low = ip.toLowerCase();
+
+  // IPv6 loopback / link-local / unique-local / unspecified.
+  if (ip === '::1' || ip === '::' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+    return true;
+  }
+
+  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
+  const dottedMapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (dottedMapped) return isPrivateIP(dottedMapped[1]);
+
+  // Hex-encoded IPv4-mapped IPv6 (::ffff:7f00:1) — parse the tail and re-check.
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const a = parseInt(hexMapped[1], 16);
+    const b = parseInt(hexMapped[2], 16);
+    const ipv4 = `${(a >> 8) & 0xff}.${a & 0xff}.${(b >> 8) & 0xff}.${b & 0xff}`;
+    return isPrivateIP(ipv4);
+  }
+
   const parts = ip.split('.').map(Number);
 
   // IPv4 Private Ranges:
@@ -20,10 +40,6 @@ export function isPrivateIP(ip: string): boolean {
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
 
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
-
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
   if (parts[0] === 192 && parts[1] === 168) return true;
@@ -31,12 +47,6 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
-
-  // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
-    return true;
-  }
 
   return false;
 }
