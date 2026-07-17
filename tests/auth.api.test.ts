@@ -59,4 +59,22 @@ describe('API auth enforcement (REQUIRE_AUTH=true)', () => {
     const res = await request(app).get('/api/health');
     expect(res.status).not.toBe(401);
   });
+
+  it('blocks URL-encoded path traversal sequences (e.g. %2e%2e%2f) with 403', async () => {
+    const res = await request(app).get('/api/public/lead-intake/%2e%2e%2f%2e%2e%2fetc/passwd');
+    expect(res.status).toBe(403);
+    expect(res.body?.error || '').toMatch(/blocked for security/i);
+  });
+
+  it('blocks URL-encoded restricted file extensions (e.g. %2eenv) with 403', async () => {
+    const res = await request(app).get('/api/public/lead-intake/config%2eenv');
+    expect(res.status).toBe(403);
+    expect(res.body?.error || '').toMatch(/blocked for security/i);
+  });
+
+  it('rejects malformed URL-encoded sequences with 400', async () => {
+    const res = await request(app).get('/api/public/lead-intake/%99');
+    expect(res.status).toBe(400);
+    expect(res.body?.error || '').toMatch(/malformed uri/i);
+  });
 });

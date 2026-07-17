@@ -1,3 +1,8 @@
+## 2026-07-17 - WAF Bypass via URL-Encoded Payloads
+**Vulnerability:** WAF / Injection Detection Bypass via URL-encoded characters in `req.url` (e.g. `%2e%2e%2f` for `../` and `%2eenv` for `.env`).
+**Learning:** The WAF/middleware analyzed raw `req.url` against blacklist patterns directly without prior decoding. This allowed attackers to bypass path traversal, restricted extensions, and sql/xss injection checks by sending URL-encoded payloads.
+**Prevention:** Always decode URI-encoded characters using `decodeURIComponent` (with safe try-catch handlers to catch malformed URIs) before matching URLs against security blocklists or pattern matchers.
+
 ## 2025-06-19 - SSRF Protection in Onboarding Scrape
 **Vulnerability:** Server-Side Request Forgery (SSRF) via user-provided URLs in the website scraping endpoint.
 **Learning:** The application was fetching arbitrary user-provided URLs without validation, allowing potential access to internal network resources or cloud metadata services. Simple hostname blacklisting is insufficient as it can be bypassed via DNS entries pointing to local IPs or redirect chains.
