@@ -235,6 +235,15 @@ export default function Closeout() {
       showToast("Pick the job first — I won't bill or close anything without one.", "info");
       return;
     }
+    // SECURITY: Enforce confirmation of high-risk items (e.g., invoices)
+    // to prevent unauthorized or accidental billing.
+    const unconfirmedHighRisk = chosen.find(
+      (a) => a.type === "invoice" && a.risk === "high" && !confirmed[a.id]
+    );
+    if (unconfirmedHighRisk) {
+      showToast("Please confirm high-risk invoice actions before executing.", "error");
+      return;
+    }
     setExecuting(true);
     const results: any[] = [];
     for (const action of chosen) {
