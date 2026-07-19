@@ -1536,7 +1536,12 @@ export async function createApp({ startListening = false } = {}) {
   app.use((req, res, next) => {
     if (req.url.startsWith('/api/playground/')) return next();
     
-    const url = req.url.toLowerCase();
+    let url: string;
+    try {
+      url = decodeURIComponent(req.url).toLowerCase();
+    } catch {
+      return res.status(400).json({ error: "Malformed request URI." });
+    }
     
     // 1. Block Malicious File Extensions (e.g., binaries, scripts, sensitive configs)
     const blockedExtensions = [
@@ -1557,6 +1562,7 @@ export async function createApp({ startListening = false } = {}) {
     //    Content patterns are specific enough not to fire on normal landscaping notes.
     const contentPatterns = ["drop table", "union select", " or 1=1", "waitfor delay", "db.collection.find(", "<script", "javascript:"];
     const pathPatterns = ["../", "..\\", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
+    const bodyPathPatterns = ["../../", "..\\..", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
     // Path/command patterns are URL-only (a note saying "walk ../ back" shouldn't 403).
     if (pathPatterns.some((p) => url.includes(p)) || contentPatterns.some((p) => url.includes(p))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
@@ -1570,7 +1576,18 @@ export async function createApp({ startListening = false } = {}) {
       if (Array.isArray(v)) { for (const x of v) collect(x, budget); return; }
       if (typeof v === "object") { for (const k in v) collect(v[k], budget); }
     })(req.body, { n: 400 });
-    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)))) {
+    const isTranslateRoute = req.path === "/api/translate" || req.originalUrl.includes("/api/translate");
+    if (
+      leaves.some((s) => {
+        if (contentPatterns.some((p) => s.includes(p))) return true;
+        if (isTranslateRoute) {
+          if (s.includes("evaluate filter") || bodyPathPatterns.some((p) => s.includes(p))) {
+            return true;
+          }
+        }
+        return false;
+      })
+    ) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       console.warn(`[SECURITY] Potential injection detected from IP ${req.ip} on ${req.url}`);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
