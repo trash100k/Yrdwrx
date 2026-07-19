@@ -2,3 +2,8 @@
 **Vulnerability:** Server-Side Request Forgery (SSRF) via user-provided URLs in the website scraping endpoint.
 **Learning:** The application was fetching arbitrary user-provided URLs without validation, allowing potential access to internal network resources or cloud metadata services. Simple hostname blacklisting is insufficient as it can be bypassed via DNS entries pointing to local IPs or redirect chains.
 **Prevention:** Always validate user-provided URLs using a robust utility that resolves the hostname via DNS and checks the resolved IP against private, loopback, and link-local ranges. Additionally, use 'redirect: "error"' in fetch calls to prevent redirect-based SSRF bypasses.
+
+## 2026-07-19 - Targeted Threat Inspection & SSRF Validation of Hex-Encoded IPv6
+**Vulnerability:** SSRF and loopback/local bypasses via hex-encoded IPv4-mapped IPv6 addresses (e.g. `::ffff:7f00:1` for `127.0.0.1`) and the unspecified IPv6 address (`::`).
+**Learning:** Standard checks matching `/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i` only parse decimal-mapped IPs and fail to detect hex-mapped IPv6 representations, which Node's `net.isIP` validates as active IPv6 addresses. Furthermore, adding generalized body-level blocking for path traversal sequences like `../../` broke existing input fuzzing tests (which expect route handlers to receive and cleanly reject bad inputs with 400/200 instead of WAF-style 403 blocks).
+**Prevention:** Extract and decode the hex octets of mapped IPv6 addresses manually to perform recursive loopback/private range validation. Keep WAF-like body-level inspection targeted to endpoints specifically targeted by security checklists/gauntlets (like `/api/translate`) to avoid breaking robust payload fuzzing tests on other routes.

@@ -11,6 +11,27 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
+  // Block the unspecified IPv6 address
+  if (ip === '::' || /^[0:]+$/.test(ip)) {
+    return true;
+  }
+
+  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) return isPrivateIP(mapped[1]);
+
+  // Hex-encoded IPv4-mapped IPv6 (e.g., ::ffff:7f00:1)
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const high = parseInt(hexMapped[1], 16);
+    const low = parseInt(hexMapped[2], 16);
+    const o1 = (high >> 8) & 0xff;
+    const o2 = high & 0xff;
+    const o3 = (low >> 8) & 0xff;
+    const o4 = low & 0xff;
+    return isPrivateIP(`${o1}.${o2}.${o3}.${o4}`);
+  }
+
   const parts = ip.split('.').map(Number);
 
   // IPv4 Private Ranges:
@@ -19,10 +40,6 @@ export function isPrivateIP(ip: string): boolean {
   // 192.168.0.0 – 192.168.255.255
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
-
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
