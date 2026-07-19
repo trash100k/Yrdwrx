@@ -1,3 +1,7 @@
 ## 2025-05-15 - [Keyboard Navigation Optimization & Safety]
 **Learning:** When implementing keyboard navigation with the modulo operator (e.g., `setSelectedIndex((prev + 1) % list.length)`), always verify the list is not empty to avoid setting state to `NaN`. Additionally, memoizing filtered lists with `useMemo` is critical when those lists are dependencies for global event listener `useEffect` hooks, as it prevents unnecessary listener churn and improves performance.
 **Action:** Always include a length check before modulo operations in navigation logic and use `useMemo` for any derived data used in hook dependency arrays.
+
+## 2026-07-19 - [Enhancing Icon-Only Header Buttons with Tooltips & Keyboard Focus States]
+**Learning:** When implementing tooltips on persistent header icon-only buttons, standardizing their positioning (e.g., `position="bottom"` to prevent overlapping standard browser UI) and removing pre-existing native `title` attributes is crucial to avoid visual clutter and "double tooltips" in modern browsers. Furthermore, integrating visible high-contrast focus rings (`focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none`) is essential for a11y, letting keyboard navigators easily locate their current focus inside the global layout header.
+**Action:** Always strip native `title` attributes when adding custom tooltips to buttons, use `position="bottom"` for header items, and include dedicated focus-visible indicator ring styles.
