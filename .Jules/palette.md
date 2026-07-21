@@ -1,3 +1,7 @@
 ## 2025-05-15 - [Keyboard Navigation Optimization & Safety]
 **Learning:** When implementing keyboard navigation with the modulo operator (e.g., `setSelectedIndex((prev + 1) % list.length)`), always verify the list is not empty to avoid setting state to `NaN`. Additionally, memoizing filtered lists with `useMemo` is critical when those lists are dependencies for global event listener `useEffect` hooks, as it prevents unnecessary listener churn and improves performance.
 **Action:** Always include a length check before modulo operations in navigation logic and use `useMemo` for any derived data used in hook dependency arrays.
+
+## 2026-07-21 - [Semantic Triggers & Accessible Custom Tooltips]
+**Learning:** Clickable UI containers (such as search boxes and profile icons) should use native `<button type="button">` elements with explicit accessibility attributes and high-contrast `focus-visible` styles to ensure proper keyboard navigation. When wrapping interactive elements in custom tooltips, any native `title` attribute must be stripped to prevent dual tooltip rendering (native + custom), and the `<label>` elements must never be nested inside `<button>` elements to maintain valid HTML markup.
+**Action:** Refactor custom clickable containers to `<button type="button">` and apply `focus-visible:ring-2 focus-visible:ring-forest-500` rings; remove native `title` when adding a custom `Tooltip` wrapper and ensure labels are siblings, not children, of buttons.
