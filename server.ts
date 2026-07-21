@@ -1536,7 +1536,13 @@ export async function createApp({ startListening = false } = {}) {
   app.use((req, res, next) => {
     if (req.url.startsWith('/api/playground/')) return next();
     
-    const url = req.url.toLowerCase();
+    let decodedUrl: string;
+    try {
+      decodedUrl = decodeURIComponent(req.url);
+    } catch (e) {
+      return res.status(400).json({ error: "Malformed URL encoding." });
+    }
+    const url = decodedUrl.toLowerCase();
     
     // 1. Block Malicious File Extensions (e.g., binaries, scripts, sensitive configs)
     const blockedExtensions = [
