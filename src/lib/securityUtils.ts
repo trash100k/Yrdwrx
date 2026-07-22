@@ -11,18 +11,36 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
-  const parts = ip.split('.').map(Number);
+  const low = ip.toLowerCase();
 
-  // IPv4 Private Ranges:
-  // 10.0.0.0 – 10.255.255.255
-  // 172.16.0.0 – 172.31.255.255
-  // 192.168.0.0 – 192.168.255.255
-  // 127.0.0.0 – 127.255.255.255 (Loopback)
-  // 169.254.0.0 – 169.254.255.255 (Link-local)
+  // IPv6 loopback / link-local / unique-local / unspecified.
+  // Unspecified IPv6 address (:: or all 0s, e.g. ::0, 0::0, 0:0:0:0:0:0:0:0) should be blocked.
+  const cleanHex = low.replace(/:/g, '');
+  if (cleanHex === '' || /^0+$/.test(cleanHex)) {
+    return true;
+  }
+
+  if (low === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+    return true;
+  }
 
   // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return isPrivateIP(mapped[1]);
+
+  // Hex-encoded tail IPv4-mapped IPv6 (::ffff:7f00:1 or ::ffff:7f00:0001)
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const highVal = parseInt(hexMapped[1], 16);
+    const lowVal = parseInt(hexMapped[2], 16);
+    const o1 = (highVal >> 8) & 0xff;
+    const o2 = highVal & 0xff;
+    const o3 = (lowVal >> 8) & 0xff;
+    const o4 = lowVal & 0xff;
+    return isPrivateIP(`${o1}.${o2}.${o3}.${o4}`);
+  }
+
+  const parts = ip.split('.').map(Number);
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -31,12 +49,6 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
-
-  // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
-    return true;
-  }
 
   return false;
 }
