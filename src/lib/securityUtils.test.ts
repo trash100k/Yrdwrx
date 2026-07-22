@@ -71,10 +71,24 @@ describe('securityUtils', () => {
       expect(isPrivateIP('fe80::1')).toBe(true);
     });
 
+    it('should identify unspecified IPv6 addresses (SSRF protection)', () => {
+      expect(isPrivateIP('::')).toBe(true);
+      expect(isPrivateIP('0:0:0:0:0:0:0:0')).toBe(true);
+      expect(isPrivateIP('::0')).toBe(true);
+      expect(isPrivateIP('0::0')).toBe(true);
+    });
+
+    it('should identify hex-encoded tail IPv4-mapped IPv6 addresses (SSRF protection)', () => {
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true); // 127.0.0.1
+      expect(isPrivateIP('::ffff:a00:1')).toBe(true); // 10.0.0.1
+      expect(isPrivateIP('::ffff:c0a8:101')).toBe(true); // 192.168.1.1
+    });
+
     it('should return false for public IP addresses', () => {
       expect(isPrivateIP('8.8.8.8')).toBe(false);
       expect(isPrivateIP('1.1.1.1')).toBe(false);
       expect(isPrivateIP('208.67.222.222')).toBe(false);
+      expect(isPrivateIP('2001:4860:4860::8888')).toBe(false);
     });
 
     it('should return false for non-IP strings', () => {
@@ -94,6 +108,15 @@ describe('securityUtils', () => {
       expect(await validateSafeUrl('http://192.168.1.100/admin')).toBe(false);
       expect(await validateSafeUrl('http://10.0.0.1')).toBe(false);
       expect(await validateSafeUrl('http://169.254.169.254/latest/meta-data')).toBe(false);
+    });
+
+    it('should block URLs targeting unspecified address', async () => {
+      expect(await validateSafeUrl('http://[::]')).toBe(false);
+      expect(await validateSafeUrl('http://[0:0:0:0:0:0:0:0]')).toBe(false);
+    });
+
+    it('should block URLs targeting hex-encoded mapped private IPv4 addresses', async () => {
+      expect(await validateSafeUrl('http://[::ffff:7f00:1]')).toBe(false);
     });
 
     it('should block non-http/https protocols', async () => {
