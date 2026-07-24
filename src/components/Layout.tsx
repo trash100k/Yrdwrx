@@ -735,27 +735,22 @@ export default function Layout() {
             </Link>
 
             <div className="flex-1 max-w-2xl hidden lg:flex justify-start mr-auto lg:pr-12">
-              <div 
-                className="relative group w-full cursor-pointer"
+              <button
+                type="button"
+                aria-label="Open search command palette"
+                className="relative group w-full text-left bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-400 flex items-center justify-between pl-16 pr-8 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 cursor-pointer"
                 onClick={() => setIsCommandPaletteOpen(true)}
               >
                 <Search
                   size={22}
                   className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 group-hover:text-forest-500 transition-colors pointer-events-none"
                 />
-                <label htmlFor="system-search" className="sr-only">
-                  Search
-                </label>
-                <div
-                  className="w-full pl-16 pr-8 py-4 bg-white/5 border border-white/5 rounded-2xl text-lg font-bold hover:bg-white/10 hover:border-forest-500/30 transition-all text-zinc-400 flex items-center justify-between"
-                >
-                  <span>Search for customers, equipment, or jobs...</span>
-                  <div className="flex items-center gap-1">
-                    <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">⌘</kbd>
-                    <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">K</kbd>
-                  </div>
-                </div>
-              </div>
+                <span>Search for customers, equipment, or jobs...</span>
+                <span className="flex items-center gap-1">
+                  <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">⌘</kbd>
+                  <kbd className="bg-black/50 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">K</kbd>
+                </span>
+              </button>
             </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
@@ -817,20 +812,22 @@ export default function Layout() {
                   <Brain size={20} />
                 </button>
 
-                <div 
-                  className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors"
+                <button
+                  type="button"
+                  aria-label="User profile menu"
+                  className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 text-left bg-transparent border-0"
                   onClick={() => setIsUserMenuOpen(true)}
                 >
-                  <div className="text-right">
-                    <p className="text-[12px] font-bold text-zinc-400 uppercase tracking-wide leading-none mb-1">
+                  <span className="text-right block">
+                    <span className="text-[12px] font-bold text-zinc-400 uppercase tracking-wide leading-none mb-1 block">
                       Logged in as
-                    </p>
-                    <p className="text-[14px] font-bold text-white">Supervisor</p>
-                  </div>
-                  <div className="w-10 h-10 rounded-full bg-forest-500/20 border border-forest-500/30 flex items-center justify-center text-forest-400">
+                    </span>
+                    <span className="text-[14px] font-bold text-white block">Supervisor</span>
+                  </span>
+                  <span className="w-10 h-10 rounded-full bg-forest-500/20 border border-forest-500/30 flex items-center justify-center text-forest-400 shrink-0">
                     <User size={18} />
-                  </div>
-                </div>
+                  </span>
+                </button>
               </div>
             </div>
           </header>
