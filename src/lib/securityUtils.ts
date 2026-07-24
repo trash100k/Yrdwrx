@@ -20,9 +20,28 @@ export function isPrivateIP(ip: string): boolean {
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
 
+  const low = ip.toLowerCase();
+
+  // Explicitly block unspecified IPv6 address (::) to prevent loopback bypasses.
+  if (low.replace(/[:0]/g, '') === '') return true;
+
   // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return isPrivateIP(mapped[1]);
+
+  // Hex-encoded IPv4-mapped IPv6 (e.g., ::ffff:7f00:1) — parse to decimal and re-check.
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const h1 = hexMapped[1].padStart(4, '0');
+    const h2 = hexMapped[2].padStart(4, '0');
+    const octets = [
+      parseInt(h1.slice(0, 2), 16),
+      parseInt(h1.slice(2, 4), 16),
+      parseInt(h2.slice(0, 2), 16),
+      parseInt(h2.slice(2, 4), 16)
+    ];
+    return isPrivateIP(octets.join('.'));
+  }
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -33,7 +52,6 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
   // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
   if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
     return true;
   }
