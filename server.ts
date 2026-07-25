@@ -1536,7 +1536,12 @@ export async function createApp({ startListening = false } = {}) {
   app.use((req, res, next) => {
     if (req.url.startsWith('/api/playground/')) return next();
     
-    const url = req.url.toLowerCase();
+    let decodedUrl: string;
+    try {
+      decodedUrl = decodeURIComponent(req.url).toLowerCase();
+    } catch (e) {
+      return res.status(400).json({ error: "Bad Request: Malformed URI sequence" });
+    }
     
     // 1. Block Malicious File Extensions (e.g., binaries, scripts, sensitive configs)
     const blockedExtensions = [
@@ -1546,7 +1551,7 @@ export async function createApp({ startListening = false } = {}) {
       ".env", ".ini", ".cfg", ".conf", // Sensitive Configs
       ".so", ".msi", ".jar", ".war", ".ear", // OS & Java Binaries
     ];
-    if (blockedExtensions.some(ext => url.includes(ext))) {
+    if (blockedExtensions.some(ext => decodedUrl.includes(ext))) {
       logThreat(req.ip || '', "Restricted Binary/File Requested", req.url);
       return res.status(403).json({ error: "This request was blocked for security reasons (restricted file type)." });
     }
@@ -1558,10 +1563,20 @@ export async function createApp({ startListening = false } = {}) {
     const contentPatterns = ["drop table", "union select", " or 1=1", "waitfor delay", "db.collection.find(", "<script", "javascript:"];
     const pathPatterns = ["../", "..\\", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
     // Path/command patterns are URL-only (a note saying "walk ../ back" shouldn't 403).
-    if (pathPatterns.some((p) => url.includes(p)) || contentPatterns.some((p) => url.includes(p))) {
+    if (pathPatterns.some((p) => decodedUrl.includes(p)) || contentPatterns.some((p) => decodedUrl.includes(p))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
     }
+
+    // Strict body pattern checks specifically on the /api/translate route
+    if (decodedUrl.startsWith('/api/translate')) {
+      const bodyStr = JSON.stringify(req.body || {}).toLowerCase();
+      if (bodyStr.includes('evaluate filter') || bodyStr.includes('../../')) {
+        logThreat(req.ip || "", "Translate Pattern Blocked", req.url);
+        return res.status(403).json({ error: "This request was blocked for security reasons." });
+      }
+    }
+
     // Scan only short string leaves (injection payloads are short; base64 images are huge).
     const leaves: string[] = [];
     (function collect(v: any, budget: { n: number }) {
