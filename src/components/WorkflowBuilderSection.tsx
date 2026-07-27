@@ -265,10 +265,14 @@ export function WorkflowBuilderSection() {
 
                     <div className="grid md:grid-cols-[1fr_auto_1fr] items-center gap-4 bg-white/5 p-4 rounded-xl border border-white/5">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5">
+                        <label
+                          htmlFor={`workflow-trigger-${workflow.id}`}
+                          className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5"
+                        >
                           <div className="w-1.5 h-1.5 rounded-full bg-celtic-500"></div> Trigger (IF)
                         </label>
                         <select
+                          id={`workflow-trigger-${workflow.id}`}
                           value={workflow.trigger}
                           onChange={(e) => handleUpdateWorkflow(workflow.id, "trigger", e.target.value)}
                           className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-celtic-500 transition-colors appearance-none"
@@ -282,10 +286,14 @@ export function WorkflowBuilderSection() {
                       <ArrowRight className="hidden md:block text-white/20 mt-4 shrink-0" size={20} />
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5">
+                        <label
+                          htmlFor={`workflow-action-${workflow.id}`}
+                          className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5"
+                        >
                           <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> Action (THEN)
                         </label>
                         <select
+                          id={`workflow-action-${workflow.id}`}
                           value={workflow.action}
                           onChange={(e) => handleUpdateWorkflow(workflow.id, "action", e.target.value)}
                           className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 transition-colors appearance-none"

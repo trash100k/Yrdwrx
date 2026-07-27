@@ -153,10 +153,12 @@ export function TeamManagement() {
             />
           </div>
           <div className="w-full sm:w-48 space-y-2">
-            <label className="text-xs font-bold text-white/50 uppercase tracking-widest">Access Role</label>
+            <label htmlFor="access-role-select" className="text-xs font-bold text-white/50 uppercase tracking-widest">Access Role</label>
             <select
+              id="access-role-select"
               value={role}
               onChange={(e) => setRole(e.target.value)}
+              aria-label="Access Role"
               className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-celtic-500 transition-colors"
             >
               <option value="employee">Employee</option>
@@ -249,6 +251,7 @@ export function TeamManagement() {
                         type="button"
                         onClick={() => setPendingRemove(member)}
                         title="Remove member"
+                        aria-label="Remove member"
                         className="w-9 h-9 rounded-xl bg-white/5 hover:bg-rose-500/10 text-zinc-400 hover:text-rose-500 border border-white/10 hover:border-rose-500/20 flex items-center justify-center transition-all"
                       >
                         <Trash2 size={16} />
