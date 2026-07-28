@@ -1284,15 +1284,8 @@ export async function createApp({ startListening = false } = {}) {
     const xml = (s = "<Response></Response>") => res.type("text/xml").send(s);
     try {
       const { From, To, Body } = req.body || {};
-      if (process.env.TWILIO_AUTH_TOKEN) {
-        try {
-          const twilio = require("twilio");
-          const sig = req.headers["x-twilio-signature"];
-          const url = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`) + req.originalUrl;
-          if (!twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, sig, url, req.body || {})) {
-            return res.status(403).type("text/xml").send("<Response/>");
-          }
-        } catch (e) { /* twilio sdk unavailable — fall through */ }
+      if (!verifyTwilioSignature(req)) {
+        return res.status(403).type("text/xml").send("<Response/>");
       }
       // Persist the inbound reply into Supabase customer_messages (what the CRM + client
       // portal actually read). customer_messages.customer_id is NOT NULL, so we resolve the
@@ -8452,10 +8445,16 @@ field is absent, use null — never invent values. Return the key structured fie
     try {
       const twilio = require("twilio");
       const sig = req.headers["x-twilio-signature"];
-      const url = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`) + req.originalUrl;
+      if (!sig) return false;
+      const protocol = req.protocol || "http";
+      const host = (typeof req.get === "function" && req.get("host")) || "localhost";
+      const hasValidBaseUrl = process.env.BASE_URL && (process.env.BASE_URL.startsWith("http://") || process.env.BASE_URL.startsWith("https://"));
+      const baseUrl = hasValidBaseUrl ? process.env.BASE_URL : `${protocol}://${host}`;
+      const url = baseUrl + (req.originalUrl || req.url || "");
       return !!twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, sig, url, req.body || {});
     } catch (e) {
-      return true;
+      console.error("[verifyTwilioSignature Error]", e);
+      return false;
     }
   }
 
