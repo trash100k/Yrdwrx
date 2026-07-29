@@ -69,6 +69,8 @@ describe('securityUtils', () => {
       expect(isPrivateIP('0.0.0.0')).toBe(true);
       expect(isPrivateIP('::1')).toBe(true);
       expect(isPrivateIP('fe80::1')).toBe(true);
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true);
+      expect(isPrivateIP('::')).toBe(true);
     });
 
     it('should return false for public IP addresses', () => {

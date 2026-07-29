@@ -24,6 +24,18 @@ export function isPrivateIP(ip: string): boolean {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return isPrivateIP(mapped[1]);
 
+  // Hex-encoded IPv4-mapped IPv6 (e.g., ::ffff:7f00:1)
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const high = parseInt(hexMapped[1], 16);
+    const low = parseInt(hexMapped[2], 16);
+    const ip4 = `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+    return isPrivateIP(ip4);
+  }
+
+  // Explicitly block unspecified address :: and other forms
+  if (ip === '::' || ip === '0:0:0:0:0:0:0:0') return true;
+
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
   if (parts[0] === 192 && parts[1] === 168) return true;
