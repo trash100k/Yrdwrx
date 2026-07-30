@@ -68,7 +68,14 @@ describe('securityUtils', () => {
       expect(isPrivateIP('169.254.1.1')).toBe(true);
       expect(isPrivateIP('0.0.0.0')).toBe(true);
       expect(isPrivateIP('::1')).toBe(true);
+      expect(isPrivateIP('::')).toBe(true);
       expect(isPrivateIP('fe80::1')).toBe(true);
+    });
+
+    it('should identify hex-encoded IPv4-mapped IPv6 addresses as private when the mapped address is private', () => {
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true); // ::ffff:127.0.0.1
+      expect(isPrivateIP('::ffff:a00:1')).toBe(true); // ::ffff:10.0.0.1
+      expect(isPrivateIP('::ffff:808:808')).toBe(false); // ::ffff:8.8.8.8
     });
 
     it('should return false for public IP addresses', () => {
