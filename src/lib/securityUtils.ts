@@ -24,6 +24,18 @@ export function isPrivateIP(ip: string): boolean {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return isPrivateIP(mapped[1]);
 
+  // Hex-encoded IPv4-mapped IPv6 (e.g., ::ffff:7f00:1) — parse to decimal components and check.
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const h1 = parseInt(hexMapped[1], 16);
+    const h2 = parseInt(hexMapped[2], 16);
+    const p1 = (h1 >> 8) & 0xff;
+    const p2 = h1 & 0xff;
+    const p3 = (h2 >> 8) & 0xff;
+    const p4 = h2 & 0xff;
+    return isPrivateIP(`${p1}.${p2}.${p3}.${p4}`);
+  }
+
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
   if (parts[0] === 192 && parts[1] === 168) return true;
@@ -32,9 +44,9 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
-  // IPv6 loopback / link-local / unique-local.
+  // IPv6 loopback / link-local / unique-local / unspecified address.
   const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  if (low === '::1' || low === '::' || low === '0:0:0:0:0:0:0:0' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
     return true;
   }
 
@@ -53,7 +65,8 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    // Strip brackets from IPv6 hostnames (e.g. [::1] -> ::1) to cleanly extract the IP address
+    const hostname = url.hostname.replace(/^\[|\]$/g, '');
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
