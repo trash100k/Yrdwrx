@@ -15,12 +15,13 @@ export function Toggle({ checked, onChange, label, disabled = false, className =
       <div className="relative">
         <input
           type="checkbox"
-          className="sr-only"
+          className="sr-only peer"
           checked={checked}
           onChange={(e) => !disabled && onChange(e.target.checked)}
           disabled={disabled}
+          aria-label={label}
         />
-        <div className={`block w-10 h-6 rounded-full transition-colors ${checked ? "bg-forest-500" : "bg-white/10 border border-white/10"}`}></div>
+        <div className={`block w-10 h-6 rounded-full transition-colors ${checked ? "bg-forest-500" : "bg-white/10 border border-white/10"} peer-focus-visible:ring-2 peer-focus-visible:ring-forest-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-black`}></div>
         <motion.div
           className="absolute left-1 top-1 bg-white w-4 h-4 rounded-full"
           animate={{ x: checked ? 16 : 0 }}

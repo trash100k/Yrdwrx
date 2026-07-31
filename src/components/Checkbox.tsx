@@ -27,7 +27,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
             className="peer sr-only"
             {...props}
           />
-          <div className={`w-5 h-5 rounded border transition-all flex items-center justify-center ${checked ? 'bg-forest-500 border-forest-500 text-white' : 'border-white/20 bg-black/40'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer peer-hover:border-white/40'}`}>
+          <div className={`w-5 h-5 rounded border transition-all flex items-center justify-center ${checked ? 'bg-forest-500 border-forest-500 text-white' : 'border-white/20 bg-black/40'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer peer-hover:border-white/40'} peer-focus-visible:ring-2 peer-focus-visible:ring-forest-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-black`}>
             <AnimatePresence>
               {checked && (
                 <motion.div
