@@ -42,7 +42,7 @@ export function RadioGroup({ options, value, onChange, name, className = "", dis
                 disabled={disabled}
                 className="sr-only peer"
               />
-              <div className={`w-5 h-5 rounded-full border transition-all flex items-center justify-center ${isSelected ? 'border-forest-500' : 'border-white/20 bg-black/40'} ${disabled ? '' : 'group-hover:border-white/40'}`}>
+              <div className={`w-5 h-5 rounded-full border transition-all flex items-center justify-center ${isSelected ? 'border-forest-500' : 'border-white/20 bg-black/40'} ${disabled ? '' : 'group-hover:border-white/40'} peer-focus-visible:ring-2 peer-focus-visible:ring-forest-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-black`}>
                 <motion.div
                   initial={false}
                   animate={{ scale: isSelected ? 1 : 0, opacity: isSelected ? 1 : 0 }}
