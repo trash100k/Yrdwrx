@@ -11,6 +11,30 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
+  const low = ip.toLowerCase();
+
+  // IPv4-mapped IPv6 (e.g. ::ffff:169.254.169.254 or ::ffff:7f00:1 / ::ffff:7f00:0001)
+  if (low.startsWith('::ffff:')) {
+    const tail = low.slice(7);
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(tail)) {
+      return isPrivateIP(tail);
+    }
+    const tailParts = tail.split(':');
+    if (tailParts.length === 2) {
+      const b1 = tailParts[0] || '0';
+      const b2 = tailParts[1] || '0';
+      const val1 = parseInt(b1, 16);
+      const val2 = parseInt(b2, 16);
+      if (!isNaN(val1) && !isNaN(val2)) {
+        const o1 = (val1 >> 8) & 255;
+        const o2 = val1 & 255;
+        const o3 = (val2 >> 8) & 255;
+        const o4 = val2 & 255;
+        return isPrivateIP(`${o1}.${o2}.${o3}.${o4}`);
+      }
+    }
+  }
+
   const parts = ip.split('.').map(Number);
 
   // IPv4 Private Ranges:
@@ -19,22 +43,23 @@ export function isPrivateIP(ip: string): boolean {
   // 192.168.0.0 – 192.168.255.255
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
+  if (parts.length >= 4) {
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
+    if (parts[0] === 0) return true; // 0.0.0.0/8
+  }
 
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
+  // IPv6 loopback / unspecified address check
+  if (/^[0:]*1$/.test(low) || /^[0:]+$/.test(low)) {
+    return true;
+  }
 
-  if (parts[0] === 10) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 127) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
-  if (parts[0] === 0) return true; // 0.0.0.0/8
-
-  // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  // IPv6 link-local / unique-local
+  if (/^fe[89ab]/i.test(low) || /^f[cd]/i.test(low)) {
     return true;
   }
 
@@ -53,7 +78,8 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    // Strip enclosing brackets from IPv6 hostnames (e.g. [::1] -> ::1) to allow direct IP classification
+    const hostname = url.hostname.replace(/^\[|\]$/g, '');
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
