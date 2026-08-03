@@ -71,6 +71,19 @@ describe('securityUtils', () => {
       expect(isPrivateIP('fe80::1')).toBe(true);
     });
 
+    it('should identify hex-encoded IPv4-mapped IPv6 addresses', () => {
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true); // 127.0.0.1
+      expect(isPrivateIP('::ffff:0a00:1')).toBe(true); // 10.0.0.1
+      expect(isPrivateIP('::ffff:c0a8:101')).toBe(true); // 192.168.1.1
+    });
+
+    it('should block unspecified IPv6 and alternative loopback formats', () => {
+      expect(isPrivateIP('::')).toBe(true);
+      expect(isPrivateIP('0:0:0:0:0:0:0:0')).toBe(true);
+      expect(isPrivateIP('0:0:0:0:0:0:0:1')).toBe(true);
+      expect(isPrivateIP('::0001')).toBe(true);
+    });
+
     it('should return false for public IP addresses', () => {
       expect(isPrivateIP('8.8.8.8')).toBe(false);
       expect(isPrivateIP('1.1.1.1')).toBe(false);
@@ -114,6 +127,12 @@ describe('securityUtils', () => {
 
     it('should block hostnames that fail to resolve (mocked DNS ENOTFOUND)', async () => {
       expect(await validateSafeUrl('http://this-host-does-not-exist.invalid')).toBe(false);
+    });
+
+    it('should block bracketed IPv6 loopback, mapped-hex, and unspecified addresses', async () => {
+      expect(await validateSafeUrl('http://[::1]')).toBe(false);
+      expect(await validateSafeUrl('http://[::ffff:7f00:1]')).toBe(false);
+      expect(await validateSafeUrl('http://[::]')).toBe(false);
     });
 
     it('should reject malformed URLs', async () => {
