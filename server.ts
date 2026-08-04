@@ -1534,9 +1534,16 @@ export async function createApp({ startListening = false } = {}) {
 
   // Enterprise Governance, Data Lineage & Pentesting Protection Middleware
   app.use((req, res, next) => {
-    if (req.url.startsWith('/api/playground/')) return next();
+    let decodedUrl: string;
+    try {
+      decodedUrl = decodeURIComponent(req.url);
+    } catch (e) {
+      return res.status(400).json({ error: "Malformed URI sequence" });
+    }
+
+    if (decodedUrl.startsWith('/api/playground/')) return next();
     
-    const url = req.url.toLowerCase();
+    const url = decodedUrl.toLowerCase();
     
     // 1. Block Malicious File Extensions (e.g., binaries, scripts, sensitive configs)
     const blockedExtensions = [
