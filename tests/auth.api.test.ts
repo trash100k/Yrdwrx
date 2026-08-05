@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 
 // Contract: server.ts exports `createApp(): Promise<Express>` which returns the fully
 // configured app WITHOUT calling listen(). REQUIRE_AUTH is read at app-construction time
@@ -11,9 +12,11 @@ import request from 'supertest';
 
 describe('API auth enforcement (REQUIRE_AUTH=true)', () => {
   let app: any;
+  const JWT_SECRET = 'test-jwt-secret-for-sentinel-checks';
 
   beforeAll(async () => {
     process.env.REQUIRE_AUTH = 'true';
+    process.env.JWT_SECRET = JWT_SECRET;
     // Import AFTER setting the env so createApp picks it up.
     const { createApp } = await import('../server');
     app = await createApp();
@@ -58,5 +61,32 @@ describe('API auth enforcement (REQUIRE_AUTH=true)', () => {
   it('does NOT 401 the health probe (excluded)', async () => {
     const res = await request(app).get('/api/health');
     expect(res.status).not.toBe(401);
+  });
+
+  it('validates a magic-link token signed with HS256', async () => {
+    const token = jwt.sign({ clientId: 'c1', tenantId: 't1', email: 'c1@test.com', scope: 'portal' }, JWT_SECRET, { algorithm: 'HS256' });
+    const res = await request(app)
+      .post('/api/auth/magic-link/validate')
+      .send({ token });
+    expect(res.status).toBe(200);
+    expect(res.body.valid).toBe(true);
+    expect(res.body.clientId).toBe('c1');
+  });
+
+  it('rejects a magic-link token signed with HS384 due to restricted algorithm', async () => {
+    const token = jwt.sign({ clientId: 'c1', tenantId: 't1', email: 'c1@test.com', scope: 'portal' }, JWT_SECRET, { algorithm: 'HS384' });
+    const res = await request(app)
+      .post('/api/auth/magic-link/validate')
+      .send({ token });
+    expect(res.status).toBe(401);
+    expect(res.body.valid).toBe(false);
+  });
+
+  it('rejects a portal call with token signed with HS384 due to restricted algorithm', async () => {
+    const token = jwt.sign({ clientId: 'c1', tenantId: 't1', email: 'c1@test.com', scope: 'portal' }, JWT_SECRET, { algorithm: 'HS384' });
+    const res = await request(app)
+      .get('/api/portal/data')
+      .set('x-portal-token', token);
+    expect(res.status).toBe(401);
   });
 });
