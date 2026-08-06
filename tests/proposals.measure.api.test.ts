@@ -268,7 +268,7 @@ describe('proposals + portal-proposal + measure/geocode (mock mode)', () => {
 
       // The minted share token is a portal capability pinned to THIS customer + proposal.
       expect(typeof res.body?.token).toBe('string');
-      const decoded: any = jwt.verify(res.body.token, JWT_SECRET);
+      const decoded: any = jwt.verify(res.body.token, JWT_SECRET, { algorithms: ['HS256'] });
       expect(decoded.scope).toBe('portal');
       expect(decoded.clientId).toBe(CLIENT);
       expect(decoded.proposalId).toBe('dv-created-1');
