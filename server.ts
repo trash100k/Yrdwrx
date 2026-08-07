@@ -7338,7 +7338,8 @@ field is absent, use null — never invent values. Return the key structured fie
       if (!token) return res.status(400).json({ error: "Token required" });
       if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
 
-      const decoded: any = jwt.verify(token, JWT_SECRET);
+      // ✅ GOOD: Explicitly restrict accepted algorithms to prevent algorithm confusion/bypass
+      const decoded: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       res.json({ valid: true, clientId: decoded.clientId, tenantId: decoded.tenantId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
@@ -7358,7 +7359,8 @@ field is absent, use null — never invent values. Return the key structured fie
     const token = req.headers["x-portal-token"] || auth;
     if (!token || !JWT_SECRET) return null;
     try {
-      const d: any = jwt.verify(token, JWT_SECRET);
+      // ✅ GOOD: Explicitly restrict accepted algorithms to prevent algorithm confusion/bypass
+      const d: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       if (d.scope !== "portal" || !d.clientId) return null;
       return d;
     } catch {
