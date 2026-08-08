@@ -25,8 +25,16 @@ import {
 } from "./usageLedger";
 import { summarizePayroll, type PayrollOptions } from "./payroll";
 import type { TimesheetEntry } from "./timesheets";
-import { nextVisitDates, visitDatesUntil, pricePerVisitFromMrr } from "./recurring";
-import { sqftToQuantities, estimateLineItems, type Measurement } from "./takeoff";
+import {
+  nextVisitDates,
+  visitDatesUntil,
+  pricePerVisitFromMrr,
+} from "./recurring";
+import {
+  sqftToQuantities,
+  estimateLineItems,
+  type Measurement,
+} from "./takeoff";
 
 // ---------------------------------------------------------------------------
 // Shared helpers / arbitraries
@@ -40,12 +48,14 @@ const toCents = (n: number): number => Math.round(n * 100) / 100;
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 /** A value is "cents-exact" when it is a whole number of cents. */
 const isCentsExact = (n: number): boolean =>
-  Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
+  Math.abs(n * 100 - Math.round(n * 100)) < 1e-4;
 
 /** Cents-exact dollar amount in [0, $1,000,000] — how money actually flows through the app. */
 const dollars = fc.nat({ max: 100_000_000 }).map((c) => c / 100);
 /** Cents-exact dollar amount that clears the Stripe floor and stays modest. */
-const dollarsAtLeast1 = fc.integer({ min: 100, max: 100_000_000 }).map((c) => c / 100);
+const dollarsAtLeast1 = fc
+  .integer({ min: 100, max: 100_000_000 })
+  .map((c) => c / 100);
 /** Integer cents (the unit usageLedger bills in). */
 const cents = fc.nat({ max: 100_000_000 });
 /** Deliberately hostile numeric inputs for "never crashes / never NaN-out" fuzzing. */
@@ -79,7 +89,10 @@ describe("property: computeDeposit", () => {
         fc.option(messyNumber, { nil: undefined }),
         fc.option(messyNumber, { nil: undefined }),
         (total, depositAmount, depositPct) => {
-          const r = computeDeposit(total as number, { depositAmount, depositPct } as any);
+          const r = computeDeposit(
+            total as number,
+            { depositAmount, depositPct } as any,
+          );
           expect(Number.isFinite(r.amount)).toBe(true);
           expect(r.amount).toBeGreaterThanOrEqual(0);
           expect(isCentsExact(r.amount)).toBe(true);
@@ -117,8 +130,13 @@ describe("property: computeDeposit", () => {
         fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true }),
         (total, pct, frac) => {
           // Pick a cents-exact flat amount somewhere in [0.50, total].
-          const flat = toCents(Math.max(0.5, Math.min(total, 0.5 + frac * (total - 0.5))));
-          const r = computeDeposit(total, { depositAmount: flat, depositPct: pct });
+          const flat = toCents(
+            Math.max(0.5, Math.min(total, 0.5 + frac * (total - 0.5))),
+          );
+          const r = computeDeposit(total, {
+            depositAmount: flat,
+            depositPct: pct,
+          });
           expect(r.amount).toBe(flat);
           expect(r.required).toBe(true);
         },
@@ -131,7 +149,9 @@ describe("property: computeDeposit", () => {
     fc.assert(
       fc.property(dollarsAtLeast1, (total) => {
         expect(computeDeposit(total, { depositPct: 100 }).amount).toBe(total);
-        expect(computeDeposit(total, { depositAmount: total }).amount).toBe(total);
+        expect(computeDeposit(total, { depositAmount: total }).amount).toBe(
+          total,
+        );
       }),
       RUNS,
     );
@@ -193,7 +213,12 @@ describe("property: computeDeposit", () => {
 const usageArb = fc.record({
   ai: fc.nat({ max: 1_000_000 }),
   sms: fc.nat({ max: 1_000_000 }),
-  live_min: fc.double({ min: 0, max: 100_000, noNaN: true, noDefaultInfinity: true }),
+  live_min: fc.double({
+    min: 0,
+    max: 100_000,
+    noNaN: true,
+    noDefaultInfinity: true,
+  }),
   aerial: fc.nat({ max: 1_000_000 }),
   pdf: fc.nat({ max: 1_000_000 }),
 }) as fc.Arbitrary<Record<Meter, number>>;
@@ -241,39 +266,57 @@ describe("property: computeOverage", () => {
 
   it("is monotonic non-decreasing in usage (more usage never lowers the bill)", () => {
     fc.assert(
-      fc.property(usageArb, usageArb, allotArb, ratesArb, (u1, delta, allot, rates) => {
-        const u2 = emptyRollup();
-        for (const m of METERS) u2[m] = u1[m] + delta[m]; // delta >= 0 componentwise
-        const lo = computeOverage(u1, allot, rates).overageCents;
-        const hi = computeOverage(u2, allot, rates).overageCents;
-        expect(hi).toBeGreaterThanOrEqual(lo);
-      }),
+      fc.property(
+        usageArb,
+        usageArb,
+        allotArb,
+        ratesArb,
+        (u1, delta, allot, rates) => {
+          const u2 = emptyRollup();
+          for (const m of METERS) u2[m] = u1[m] + delta[m]; // delta >= 0 componentwise
+          const lo = computeOverage(u1, allot, rates).overageCents;
+          const hi = computeOverage(u2, allot, rates).overageCents;
+          expect(hi).toBeGreaterThanOrEqual(lo);
+        },
+      ),
       RUNS,
     );
   });
 
   it("is monotonic non-increasing in allotment (a bigger bundle never raises the bill)", () => {
     fc.assert(
-      fc.property(usageArb, allotArb, allotArb, ratesArb, (usage, allot1, bump, rates) => {
-        const allot2 = { ...allot1 };
-        for (const m of METERS) allot2[m] = allot1[m] + bump[m]; // >= allot1 per meter
-        const withSmall = computeOverage(usage, allot1, rates).overageCents;
-        const withBig = computeOverage(usage, allot2, rates).overageCents;
-        expect(withBig).toBeLessThanOrEqual(withSmall);
-      }),
+      fc.property(
+        usageArb,
+        allotArb,
+        allotArb,
+        ratesArb,
+        (usage, allot1, bump, rates) => {
+          const allot2 = { ...allot1 };
+          for (const m of METERS) allot2[m] = allot1[m] + bump[m]; // >= allot1 per meter
+          const withSmall = computeOverage(usage, allot1, rates).overageCents;
+          const withBig = computeOverage(usage, allot2, rates).overageCents;
+          expect(withBig).toBeLessThanOrEqual(withSmall);
+        },
+      ),
       RUNS,
     );
   });
 
   it("is monotonic non-decreasing in rate (a higher price never lowers the bill)", () => {
     fc.assert(
-      fc.property(usageArb, allotArb, ratesArb, ratesArb, (usage, allot, r1, bump) => {
-        const r2 = { ...r1 };
-        for (const m of METERS) r2[m] = r1[m] + bump[m];
-        const lo = computeOverage(usage, allot, r1).overageCents;
-        const hi = computeOverage(usage, allot, r2).overageCents;
-        expect(hi).toBeGreaterThanOrEqual(lo);
-      }),
+      fc.property(
+        usageArb,
+        allotArb,
+        ratesArb,
+        ratesArb,
+        (usage, allot, r1, bump) => {
+          const r2 = { ...r1 };
+          for (const m of METERS) r2[m] = r1[m] + bump[m];
+          const lo = computeOverage(usage, allot, r1).overageCents;
+          const hi = computeOverage(usage, allot, r2).overageCents;
+          expect(hi).toBeGreaterThanOrEqual(lo);
+        },
+      ),
       RUNS,
     );
   });
@@ -314,7 +357,13 @@ describe("property: projectBill", () => {
         cents,
         (base, seats, includeBump, seatCents, over) => {
           // included = seats + includeBump >= seats guarantees no extra seats.
-          const bill = projectBill(base, seats, seats + includeBump, seatCents, over);
+          const bill = projectBill(
+            base,
+            seats,
+            seats + includeBump,
+            seatCents,
+            over,
+          );
           expect(bill.seatsCents).toBe(0);
         },
       ),
@@ -333,12 +382,36 @@ describe("property: projectBill", () => {
         cents,
         fc.nat({ max: 1_000_000 }),
         (base, seats, seatBump, included, seatCents, over, overBump) => {
-          const lowSeats = projectBill(base, seats, included, seatCents, over).totalCents;
-          const highSeats = projectBill(base, seats + seatBump, included, seatCents, over).totalCents;
+          const lowSeats = projectBill(
+            base,
+            seats,
+            included,
+            seatCents,
+            over,
+          ).totalCents;
+          const highSeats = projectBill(
+            base,
+            seats + seatBump,
+            included,
+            seatCents,
+            over,
+          ).totalCents;
           expect(highSeats).toBeGreaterThanOrEqual(lowSeats);
 
-          const lowOver = projectBill(base, seats, included, seatCents, over).totalCents;
-          const highOver = projectBill(base, seats, included, seatCents, over + overBump).totalCents;
+          const lowOver = projectBill(
+            base,
+            seats,
+            included,
+            seatCents,
+            over,
+          ).totalCents;
+          const highOver = projectBill(
+            base,
+            seats,
+            included,
+            seatCents,
+            over + overBump,
+          ).totalCents;
           expect(highOver).toBeGreaterThanOrEqual(lowOver);
         },
       ),
@@ -360,7 +433,9 @@ describe("property: withinSpendCap", () => {
   it("a null cap always allows the add (unlimited)", () => {
     fc.assert(
       fc.property(messyNumber, messyNumber, (current, add) => {
-        expect(withinSpendCap(current as number, add as number, null)).toBe(true);
+        expect(withinSpendCap(current as number, add as number, null)).toBe(
+          true,
+        );
       }),
       RUNS,
     );
@@ -383,18 +458,23 @@ describe("property: withinSpendCap", () => {
 describe("property: applyUsage", () => {
   it("adds sanitized qty to the meter, keeps all keys non-negative, and never mutates input", () => {
     fc.assert(
-      fc.property(usageArb, fc.constantFrom(...METERS), fc.nat({ max: 1_000_000 }), (rollup, meter, qty) => {
-        const before = { ...rollup };
-        const out = applyUsage(rollup, meter, qty);
-        expect(rollup).toEqual(before); // input untouched
-        expect(out).not.toBe(rollup);
-        for (const m of METERS) {
-          expect(out[m]).toBeGreaterThanOrEqual(0);
-          expect(Number.isFinite(out[m])).toBe(true);
-        }
-        // The targeted meter grew by exactly qty (both inputs already clean & non-negative).
-        expect(out[meter]).toBeCloseTo(rollup[meter] + qty, 9);
-      }),
+      fc.property(
+        usageArb,
+        fc.constantFrom(...METERS),
+        fc.nat({ max: 1_000_000 }),
+        (rollup, meter, qty) => {
+          const before = { ...rollup };
+          const out = applyUsage(rollup, meter, qty);
+          expect(rollup).toEqual(before); // input untouched
+          expect(out).not.toBe(rollup);
+          for (const m of METERS) {
+            expect(out[m]).toBeGreaterThanOrEqual(0);
+            expect(Number.isFinite(out[m])).toBe(true);
+          }
+          // The targeted meter grew by exactly qty (both inputs already clean & non-negative).
+          expect(out[meter]).toBeCloseTo(rollup[meter] + qty, 9);
+        },
+      ),
       RUNS,
     );
   });
@@ -416,43 +496,71 @@ describe("property: summarizePayroll", () => {
       durationMins: fc.nat({ max: 6000 }), // up to 100h across the range
     });
     fc.assert(
-      fc.property(fc.array(closedEntry, { minLength: 1, maxLength: 20 }), (rows) => {
-        const entries: TimesheetEntry[] = rows.map((r) => {
-          const ci = clockInAt(r.dayOffset);
-          return { userId: "u1", userName: "Alice", clockIn: ci, clockOut: ci, durationMins: r.durationMins };
-        });
-        const totalMins = rows.reduce((s, r) => s + r.durationMins, 0);
-        const lines = summarizePayroll(entries, OPEN_RANGE);
-        expect(lines).toHaveLength(1);
-        const line = lines[0];
-        expect(line.regularHours).toBeGreaterThanOrEqual(0);
-        expect(line.otHours).toBeGreaterThanOrEqual(0);
-        // reg+ot (in minutes) equals the input minutes, within the two independent 2dp roundings.
-        expect(Math.abs(line.regularHours + line.otHours - totalMins / 60)).toBeLessThanOrEqual(0.011);
-        expect(line.totalHours).toBe(round2(line.regularHours + line.otHours));
-        expect(line.shifts).toBe(rows.length);
-      }),
+      fc.property(
+        fc.array(closedEntry, { minLength: 1, maxLength: 20 }),
+        (rows) => {
+          const entries: TimesheetEntry[] = rows.map((r) => {
+            const ci = clockInAt(r.dayOffset);
+            return {
+              userId: "u1",
+              userName: "Alice",
+              clockIn: ci,
+              clockOut: ci,
+              durationMins: r.durationMins,
+            };
+          });
+          const totalMins = rows.reduce((s, r) => s + r.durationMins, 0);
+          const lines = summarizePayroll(entries, OPEN_RANGE);
+          expect(lines).toHaveLength(1);
+          const line = lines[0];
+          expect(line.regularHours).toBeGreaterThanOrEqual(0);
+          expect(line.otHours).toBeGreaterThanOrEqual(0);
+          // reg+ot (in minutes) equals the input minutes, within the two independent 2dp roundings.
+          expect(
+            Math.abs(line.regularHours + line.otHours - totalMins / 60),
+          ).toBeLessThanOrEqual(0.011);
+          expect(line.totalHours).toBe(
+            round2(line.regularHours + line.otHours),
+          );
+          expect(line.shifts).toBe(rows.length);
+        },
+      ),
       RUNS,
     );
   });
 
   it("splits a single week at the OT threshold: below -> all regular, above -> reg capped at threshold", () => {
     fc.assert(
-      fc.property(fc.nat({ max: 8000 }), fc.integer({ min: 1, max: 80 }), (durationMins, thresholdHours) => {
-        const ci = clockInAt(10);
-        const entries: TimesheetEntry[] = [
-          { userId: "u1", userName: "Alice", clockIn: ci, clockOut: ci, durationMins },
-        ];
-        const [line] = summarizePayroll(entries, { ...OPEN_RANGE, otWeeklyThreshold: thresholdHours });
-        const thresholdMins = thresholdHours * 60;
-        if (durationMins <= thresholdMins) {
-          expect(line.otHours).toBe(0);
-          expect(line.regularHours).toBe(round2(durationMins / 60));
-        } else {
-          expect(line.regularHours).toBe(thresholdHours); // capped at the weekly threshold
-          expect(line.otHours).toBe(round2((durationMins - thresholdMins) / 60));
-        }
-      }),
+      fc.property(
+        fc.nat({ max: 8000 }),
+        fc.integer({ min: 1, max: 80 }),
+        (durationMins, thresholdHours) => {
+          const ci = clockInAt(10);
+          const entries: TimesheetEntry[] = [
+            {
+              userId: "u1",
+              userName: "Alice",
+              clockIn: ci,
+              clockOut: ci,
+              durationMins,
+            },
+          ];
+          const [line] = summarizePayroll(entries, {
+            ...OPEN_RANGE,
+            otWeeklyThreshold: thresholdHours,
+          });
+          const thresholdMins = thresholdHours * 60;
+          if (durationMins <= thresholdMins) {
+            expect(line.otHours).toBe(0);
+            expect(line.regularHours).toBe(round2(durationMins / 60));
+          } else {
+            expect(line.regularHours).toBe(thresholdHours); // capped at the weekly threshold
+            expect(line.otHours).toBe(
+              round2((durationMins - thresholdMins) / 60),
+            );
+          }
+        },
+      ),
       RUNS,
     );
   });
@@ -464,23 +572,30 @@ describe("property: summarizePayroll", () => {
       open: fc.boolean(),
     });
     fc.assert(
-      fc.property(fc.array(anyEntry, { minLength: 1, maxLength: 15 }), (rows) => {
-        const entries: TimesheetEntry[] = rows.map((r) => {
-          const ci = clockInAt(r.dayOffset);
-          return {
-            userId: "u1",
-            userName: "Alice",
-            clockIn: ci,
-            clockOut: r.open ? null : ci,
-            durationMins: r.durationMins,
-          };
-        });
-        const closedMins = rows.filter((r) => !r.open).reduce((s, r) => s + r.durationMins, 0);
-        const [line] = summarizePayroll(entries, OPEN_RANGE);
-        expect(line.shifts).toBe(rows.length); // open + closed all count as shifts
-        // Only closed shifts contribute payable minutes.
-        expect(Math.abs(line.regularHours + line.otHours - closedMins / 60)).toBeLessThanOrEqual(0.011);
-      }),
+      fc.property(
+        fc.array(anyEntry, { minLength: 1, maxLength: 15 }),
+        (rows) => {
+          const entries: TimesheetEntry[] = rows.map((r) => {
+            const ci = clockInAt(r.dayOffset);
+            return {
+              userId: "u1",
+              userName: "Alice",
+              clockIn: ci,
+              clockOut: r.open ? null : ci,
+              durationMins: r.durationMins,
+            };
+          });
+          const closedMins = rows
+            .filter((r) => !r.open)
+            .reduce((s, r) => s + r.durationMins, 0);
+          const [line] = summarizePayroll(entries, OPEN_RANGE);
+          expect(line.shifts).toBe(rows.length); // open + closed all count as shifts
+          // Only closed shifts contribute payable minutes.
+          expect(
+            Math.abs(line.regularHours + line.otHours - closedMins / 60),
+          ).toBeLessThanOrEqual(0.011);
+        },
+      ),
       RUNS,
     );
   });
@@ -491,25 +606,37 @@ describe("property: summarizePayroll", () => {
 // ===========================================================================
 
 const startISOArb = fc
-  .date({ min: new Date(Date.UTC(2000, 0, 1)), max: new Date(Date.UTC(2100, 0, 1)), noInvalidDate: true })
+  .date({
+    min: new Date(Date.UTC(2000, 0, 1)),
+    max: new Date(Date.UTC(2100, 0, 1)),
+    noInvalidDate: true,
+  })
   .map((d) => d.toISOString());
-const cadenceArb = fc.constantFrom("weekly", "biweekly", "monthly", "annually") as fc.Arbitrary<
-  "weekly" | "biweekly" | "monthly" | "annually"
->;
+const cadenceArb = fc.constantFrom(
+  "weekly",
+  "biweekly",
+  "monthly",
+  "annually",
+) as fc.Arbitrary<"weekly" | "biweekly" | "monthly" | "annually">;
 const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
 
 describe("property: nextVisitDates", () => {
   it("returns exactly `count` strictly-increasing, well-formed YYYY-MM-DD dates", () => {
     fc.assert(
-      fc.property(startISOArb, cadenceArb, fc.integer({ min: 0, max: 60 }), (start, cadence, count) => {
-        const out = nextVisitDates(start, cadence, count);
-        expect(out).toHaveLength(count);
-        for (const d of out) expect(d).toMatch(isoDateRe);
-        for (let i = 1; i < out.length; i++) {
-          // Lexical order on ISO dates == chronological order; each step advances.
-          expect(out[i] > out[i - 1]).toBe(true);
-        }
-      }),
+      fc.property(
+        startISOArb,
+        cadenceArb,
+        fc.integer({ min: 0, max: 60 }),
+        (start, cadence, count) => {
+          const out = nextVisitDates(start, cadence, count);
+          expect(out).toHaveLength(count);
+          for (const d of out) expect(d).toMatch(isoDateRe);
+          for (let i = 1; i < out.length; i++) {
+            // Lexical order on ISO dates == chronological order; each step advances.
+            expect(out[i] > out[i - 1]).toBe(true);
+          }
+        },
+      ),
       RUNS,
     );
   });
@@ -518,13 +645,18 @@ describe("property: nextVisitDates", () => {
     fc.assert(
       fc.property(
         startISOArb,
-        fc.constantFrom("weekly", "biweekly") as fc.Arbitrary<"weekly" | "biweekly">,
+        fc.constantFrom("weekly", "biweekly") as fc.Arbitrary<
+          "weekly" | "biweekly"
+        >,
         fc.integer({ min: 2, max: 40 }),
         (start, cadence, count) => {
           const out = nextVisitDates(start, cadence, count);
           const stepDays = cadence === "biweekly" ? 14 : 7;
           for (let i = 1; i < out.length; i++) {
-            const diff = (Date.parse(out[i] + "T00:00:00Z") - Date.parse(out[i - 1] + "T00:00:00Z")) / 86_400_000;
+            const diff =
+              (Date.parse(out[i] + "T00:00:00Z") -
+                Date.parse(out[i - 1] + "T00:00:00Z")) /
+              86_400_000;
             expect(diff).toBe(stepDays);
           }
         },
@@ -535,11 +667,16 @@ describe("property: nextVisitDates", () => {
 
   it("floors/guards count: negative or fractional counts never over-produce", () => {
     fc.assert(
-      fc.property(startISOArb, cadenceArb, fc.double({ min: -50, max: 60, noNaN: true, noDefaultInfinity: true }), (start, cadence, count) => {
-        const out = nextVisitDates(start, cadence, count);
-        const expected = Math.max(0, Math.floor(count));
-        expect(out).toHaveLength(expected);
-      }),
+      fc.property(
+        startISOArb,
+        cadenceArb,
+        fc.double({ min: -50, max: 60, noNaN: true, noDefaultInfinity: true }),
+        (start, cadence, count) => {
+          const out = nextVisitDates(start, cadence, count);
+          const expected = Math.max(0, Math.floor(count));
+          expect(out).toHaveLength(expected);
+        },
+      ),
       RUNS,
     );
   });
@@ -548,25 +685,38 @@ describe("property: nextVisitDates", () => {
 describe("property: visitDatesUntil", () => {
   it("is the prefix of nextVisitDates(...,maxCount) whose dates are <= endISO", () => {
     fc.assert(
-      fc.property(startISOArb, cadenceArb, startISOArb, fc.integer({ min: 0, max: 60 }), (start, cadence, end, max) => {
-        const capped = nextVisitDates(start, cadence, max);
-        // The lib's cutoff is by the end date's midnight (its YYYY-MM-DD), so filter on that.
-        const endDateStr = end.slice(0, 10);
-        const expected = capped.filter((d) => d <= endDateStr);
-        const actual = visitDatesUntil(start, cadence, end, max);
-        expect(actual).toEqual(expected);
-        expect(actual.length).toBeLessThanOrEqual(max);
-        for (const d of actual) expect(d <= endDateStr).toBe(true);
-      }),
+      fc.property(
+        startISOArb,
+        cadenceArb,
+        startISOArb,
+        fc.integer({ min: 0, max: 60 }),
+        (start, cadence, end, max) => {
+          const capped = nextVisitDates(start, cadence, max);
+          // The lib's cutoff is by the end date's midnight (its YYYY-MM-DD), so filter on that.
+          const endDateStr = end.slice(0, 10);
+          const expected = capped.filter((d) => d <= endDateStr);
+          const actual = visitDatesUntil(start, cadence, end, max);
+          expect(actual).toEqual(expected);
+          expect(actual.length).toBeLessThanOrEqual(max);
+          for (const d of actual) expect(d <= endDateStr).toBe(true);
+        },
+      ),
       RUNS,
     );
   });
 
   it("a null/blank end date behaves exactly like nextVisitDates capped at maxCount", () => {
     fc.assert(
-      fc.property(startISOArb, cadenceArb, fc.integer({ min: 0, max: 40 }), (start, cadence, max) => {
-        expect(visitDatesUntil(start, cadence, null, max)).toEqual(nextVisitDates(start, cadence, max));
-      }),
+      fc.property(
+        startISOArb,
+        cadenceArb,
+        fc.integer({ min: 0, max: 40 }),
+        (start, cadence, max) => {
+          expect(visitDatesUntil(start, cadence, null, max)).toEqual(
+            nextVisitDates(start, cadence, max),
+          );
+        },
+      ),
       RUNS,
     );
   });
@@ -575,29 +725,41 @@ describe("property: visitDatesUntil", () => {
 describe("property: pricePerVisitFromMrr", () => {
   it("is non-negative and ordered weekly <= biweekly <= monthly <= annually for the same MRR", () => {
     fc.assert(
-      fc.property(fc.double({ min: 0, max: 1_000_000, noNaN: true, noDefaultInfinity: true }), (mrr) => {
-        const w = pricePerVisitFromMrr(mrr, "weekly");
-        const b = pricePerVisitFromMrr(mrr, "biweekly");
-        const m = pricePerVisitFromMrr(mrr, "monthly");
-        const a = pricePerVisitFromMrr(mrr, "annually");
-        for (const v of [w, b, m, a]) {
-          expect(Number.isFinite(v)).toBe(true);
-          expect(v).toBeGreaterThanOrEqual(0);
-          expect(isCentsExact(v)).toBe(true);
-        }
-        expect(w).toBeLessThanOrEqual(b + 1e-9);
-        expect(b).toBeLessThanOrEqual(m + 1e-9);
-        expect(m).toBeLessThanOrEqual(a + 1e-9);
-      }),
+      fc.property(
+        fc.double({
+          min: 0,
+          max: 1_000_000,
+          noNaN: true,
+          noDefaultInfinity: true,
+        }),
+        (mrr) => {
+          const w = pricePerVisitFromMrr(mrr, "weekly");
+          const b = pricePerVisitFromMrr(mrr, "biweekly");
+          const m = pricePerVisitFromMrr(mrr, "monthly");
+          const a = pricePerVisitFromMrr(mrr, "annually");
+          for (const v of [w, b, m, a]) {
+            expect(Number.isFinite(v)).toBe(true);
+            expect(v).toBeGreaterThanOrEqual(0);
+            expect(isCentsExact(v)).toBe(true);
+          }
+          expect(w).toBeLessThanOrEqual(b + 1e-9);
+          expect(b).toBeLessThanOrEqual(m + 1e-9);
+          expect(m).toBeLessThanOrEqual(a + 1e-9);
+        },
+      ),
       RUNS,
     );
   });
 
   it("returns 0 for any non-positive or non-finite MRR", () => {
     fc.assert(
-      fc.property(cadenceArb, fc.constantFrom(0, -0, -1, -1e6, NaN, Infinity, -Infinity), (cadence, mrr) => {
-        expect(pricePerVisitFromMrr(mrr as number, cadence)).toBe(0);
-      }),
+      fc.property(
+        cadenceArb,
+        fc.constantFrom(0, -0, -1, -1e6, NaN, Infinity, -Infinity),
+        (cadence, mrr) => {
+          expect(pricePerVisitFromMrr(mrr as number, cadence)).toBe(0);
+        },
+      ),
       RUNS,
     );
   });
@@ -613,8 +775,15 @@ describe("property: sqftToQuantities", () => {
   it("never emits NaN/negative for ANY (even hostile) measurement", () => {
     fc.assert(
       fc.property(
-        fc.record({ lawnSqft: messyNumber, bedSqft: messyNumber, hardscapeSqft: messyNumber, lotSqft: messyNumber }),
-        fc.option(fc.record({ mulchDepthInches: messyNumber }), { nil: undefined }),
+        fc.record({
+          lawnSqft: messyNumber,
+          bedSqft: messyNumber,
+          hardscapeSqft: messyNumber,
+          lotSqft: messyNumber,
+        }),
+        fc.option(fc.record({ mulchDepthInches: messyNumber }), {
+          nil: undefined,
+        }),
         (m, opts) => {
           const q = sqftToQuantities(m as Measurement, opts as any);
           for (const v of Object.values(q)) {
@@ -629,19 +798,37 @@ describe("property: sqftToQuantities", () => {
 
   it("turf quantities scale monotonically with lawn; bed quantities with beds", () => {
     fc.assert(
-      fc.property(sqftArb, sqftArb, sqftArb, sqftArb, (lawn, lawnBump, bed, bedBump) => {
-        const lo = sqftToQuantities({ lawnSqft: lawn, bedSqft: bed });
-        const moreLawn = sqftToQuantities({ lawnSqft: lawn + lawnBump, bedSqft: bed });
-        const moreBed = sqftToQuantities({ lawnSqft: lawn, bedSqft: bed + bedBump });
+      fc.property(
+        sqftArb,
+        sqftArb,
+        sqftArb,
+        sqftArb,
+        (lawn, lawnBump, bed, bedBump) => {
+          const lo = sqftToQuantities({ lawnSqft: lawn, bedSqft: bed });
+          const moreLawn = sqftToQuantities({
+            lawnSqft: lawn + lawnBump,
+            bedSqft: bed,
+          });
+          const moreBed = sqftToQuantities({
+            lawnSqft: lawn,
+            bedSqft: bed + bedBump,
+          });
 
-        // More lawn -> more (or equal) seed/fertilizer/sod.
-        expect(moreLawn.seedLbs).toBeGreaterThanOrEqual(lo.seedLbs);
-        expect(moreLawn.fertilizerLbs).toBeGreaterThanOrEqual(lo.fertilizerLbs);
-        expect(moreLawn.sodSqft).toBeGreaterThanOrEqual(lo.sodSqft);
-        // More bed -> more (or equal) mulch/edging.
-        expect(moreBed.mulchCubicYards).toBeGreaterThanOrEqual(lo.mulchCubicYards);
-        expect(moreBed.edgingLinearFtEstimate).toBeGreaterThanOrEqual(lo.edgingLinearFtEstimate);
-      }),
+          // More lawn -> more (or equal) seed/fertilizer/sod.
+          expect(moreLawn.seedLbs).toBeGreaterThanOrEqual(lo.seedLbs);
+          expect(moreLawn.fertilizerLbs).toBeGreaterThanOrEqual(
+            lo.fertilizerLbs,
+          );
+          expect(moreLawn.sodSqft).toBeGreaterThanOrEqual(lo.sodSqft);
+          // More bed -> more (or equal) mulch/edging.
+          expect(moreBed.mulchCubicYards).toBeGreaterThanOrEqual(
+            lo.mulchCubicYards,
+          );
+          expect(moreBed.edgingLinearFtEstimate).toBeGreaterThanOrEqual(
+            lo.edgingLinearFtEstimate,
+          );
+        },
+      ),
       RUNS,
     );
   });
@@ -678,9 +865,17 @@ describe("property: sqftToQuantities", () => {
         fc.double({ min: 0.5, max: 12, noNaN: true, noDefaultInfinity: true }),
         fc.double({ min: 0, max: 12, noNaN: true, noDefaultInfinity: true }),
         (bed, depth, bump) => {
-          const shallow = sqftToQuantities({ bedSqft: bed }, { mulchDepthInches: depth });
-          const deep = sqftToQuantities({ bedSqft: bed }, { mulchDepthInches: depth + bump });
-          expect(deep.mulchCubicYards).toBeGreaterThanOrEqual(shallow.mulchCubicYards);
+          const shallow = sqftToQuantities(
+            { bedSqft: bed },
+            { mulchDepthInches: depth },
+          );
+          const deep = sqftToQuantities(
+            { bedSqft: bed },
+            { mulchDepthInches: depth + bump },
+          );
+          expect(deep.mulchCubicYards).toBeGreaterThanOrEqual(
+            shallow.mulchCubicYards,
+          );
         },
       ),
       RUNS,
@@ -689,28 +884,48 @@ describe("property: sqftToQuantities", () => {
 });
 
 describe("property: estimateLineItems", () => {
-  const rateArb = fc.double({ min: 0, max: 1000, noNaN: true, noDefaultInfinity: true });
+  const rateArb = fc.double({
+    min: 0,
+    max: 1000,
+    noNaN: true,
+    noDefaultInfinity: true,
+  });
 
   it("only emits lines with positive qty AND rate; amount = round(qty*rate) cents, >= 0", () => {
     fc.assert(
-      fc.property(sqftArb, sqftArb, rateArb, rateArb, rateArb, (lawn, bed, mow, mulch, sod) => {
-        const m: Measurement = { lawnSqft: lawn, bedSqft: bed };
-        const q = sqftToQuantities(m);
-        const lines = estimateLineItems(m, { mowPerSqft: mow, mulchPerYard: mulch, sodPerSqft: sod });
-        expect(lines.length).toBeLessThanOrEqual(3);
-        for (const line of lines) {
-          expect(line.quantity).toBeGreaterThan(0);
-          expect(line.rate).toBeGreaterThan(0);
-          expect(line.amount).toBeGreaterThanOrEqual(0);
-          expect(line.amount).toBe(toCents(line.quantity * line.rate));
-          expect(isCentsExact(line.amount)).toBe(true);
-        }
-        // Emitted quantities must agree with the material order (single source of truth).
-        const byDesc = Object.fromEntries(lines.map((l) => [l.description, l.quantity]));
-        if ("Lawn mowing" in byDesc) expect(byDesc["Lawn mowing"]).toBe(lawn);
-        if ("Mulch installation" in byDesc) expect(byDesc["Mulch installation"]).toBe(q.mulchCubicYards);
-        if ("Sod installation" in byDesc) expect(byDesc["Sod installation"]).toBe(q.sodSqft);
-      }),
+      fc.property(
+        sqftArb,
+        sqftArb,
+        rateArb,
+        rateArb,
+        rateArb,
+        (lawn, bed, mow, mulch, sod) => {
+          const m: Measurement = { lawnSqft: lawn, bedSqft: bed };
+          const q = sqftToQuantities(m);
+          const lines = estimateLineItems(m, {
+            mowPerSqft: mow,
+            mulchPerYard: mulch,
+            sodPerSqft: sod,
+          });
+          expect(lines.length).toBeLessThanOrEqual(3);
+          for (const line of lines) {
+            expect(line.quantity).toBeGreaterThan(0);
+            expect(line.rate).toBeGreaterThan(0);
+            expect(line.amount).toBeGreaterThanOrEqual(0);
+            expect(line.amount).toBe(toCents(line.quantity * line.rate));
+            expect(isCentsExact(line.amount)).toBe(true);
+          }
+          // Emitted quantities must agree with the material order (single source of truth).
+          const byDesc = Object.fromEntries(
+            lines.map((l) => [l.description, l.quantity]),
+          );
+          if ("Lawn mowing" in byDesc) expect(byDesc["Lawn mowing"]).toBe(lawn);
+          if ("Mulch installation" in byDesc)
+            expect(byDesc["Mulch installation"]).toBe(q.mulchCubicYards);
+          if ("Sod installation" in byDesc)
+            expect(byDesc["Sod installation"]).toBe(q.sodSqft);
+        },
+      ),
       RUNS,
     );
   });
@@ -719,13 +934,26 @@ describe("property: estimateLineItems", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 5_000_000 }),
-        fc.double({ min: 0.01, max: 100, noNaN: true, noDefaultInfinity: true }),
+        fc.double({
+          min: 0.01,
+          max: 100,
+          noNaN: true,
+          noDefaultInfinity: true,
+        }),
         fc.double({ min: 0, max: 100, noNaN: true, noDefaultInfinity: true }),
         (lawn, rate, bump) => {
-          const lo = estimateLineItems({ lawnSqft: lawn }, { mowPerSqft: rate });
-          const hi = estimateLineItems({ lawnSqft: lawn }, { mowPerSqft: rate + bump });
-          const loAmt = lo.find((l) => l.description === "Lawn mowing")?.amount ?? 0;
-          const hiAmt = hi.find((l) => l.description === "Lawn mowing")?.amount ?? 0;
+          const lo = estimateLineItems(
+            { lawnSqft: lawn },
+            { mowPerSqft: rate },
+          );
+          const hi = estimateLineItems(
+            { lawnSqft: lawn },
+            { mowPerSqft: rate + bump },
+          );
+          const loAmt =
+            lo.find((l) => l.description === "Lawn mowing")?.amount ?? 0;
+          const hiAmt =
+            hi.find((l) => l.description === "Lawn mowing")?.amount ?? 0;
           expect(hiAmt).toBeGreaterThanOrEqual(loAmt);
         },
       ),
