@@ -1827,7 +1827,7 @@ delivers (the real "demo vs sellable" gap), plus the one confirmed silent data-c
 - [ ] AR-aging: extract Invoices' inline bucketing to the tested `payments.ts` and test it.
 - [ ] Unit-test `agentActions.executeAgentAction`, JobCosting rollup, churn scorer, `timesheets.ts`.
 - [ ] Expansion pick: **Reviews reputation loop** (ingest + post) and **card-on-file auto-charge**.
-- [ ] `isPrivateIP` IPv4-mapped-IPv6 SSRF edge; `/api/inventory/forecast` drops the inventory array.
+- [x] `isPrivateIP` IPv4-mapped-IPv6 SSRF edge; [ ] `/api/inventory/forecast` drops the inventory array.
 
 ## Testing tier — extract + cover the money/decision logic (2026-06-30) — DONE
 

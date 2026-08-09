@@ -11,7 +11,9 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
-  const parts = ip.split('.').map(Number);
+  // Unspecified address '::' (and its variant forms) can be used to reach loopback services on some systems.
+  const cleanUnspecified = ip.replace(/[:0]/g, '');
+  if (cleanUnspecified === '') return true;
 
   // IPv4 Private Ranges:
   // 10.0.0.0 – 10.255.255.255
@@ -23,6 +25,20 @@ export function isPrivateIP(ip: string): boolean {
   // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return isPrivateIP(mapped[1]);
+
+  // Hex-encoded IPv4-mapped IPv6 (::ffff:7f00:1 or ::ffff:7f00:0001)
+  const mappedHex = /^::ffff:([0-9a-fA-F]{1,4}):([0-9a-fA-F]{1,4})$/i.exec(ip);
+  if (mappedHex) {
+    const hex1 = parseInt(mappedHex[1], 16);
+    const hex2 = parseInt(mappedHex[2], 16);
+    const o1 = (hex1 >> 8) & 0xff;
+    const o2 = hex1 & 0xff;
+    const o3 = (hex2 >> 8) & 0xff;
+    const o4 = hex2 & 0xff;
+    return isPrivateIP(`${o1}.${o2}.${o3}.${o4}`);
+  }
+
+  const parts = ip.split('.').map(Number);
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -53,7 +69,12 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    let hostname = url.hostname;
+
+    // Strip enclosing brackets if they are present (e.g., "[::1]" -> "::1")
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
