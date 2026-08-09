@@ -71,10 +71,29 @@ describe('securityUtils', () => {
       expect(isPrivateIP('fe80::1')).toBe(true);
     });
 
+    it('should identify unspecified IPv6 addresses', () => {
+      expect(isPrivateIP('::')).toBe(true);
+      expect(isPrivateIP('0:0:0:0:0:0:0:0')).toBe(true);
+      expect(isPrivateIP('::0')).toBe(true);
+    });
+
+    it('should identify hex-encoded IPv4-mapped IPv6 private/loopback addresses', () => {
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true); // 127.0.0.1
+      expect(isPrivateIP('::ffff:7f00:0001')).toBe(true); // 127.0.0.1
+      expect(isPrivateIP('::FFFF:0A00:0001')).toBe(true); // 10.0.0.1
+      expect(isPrivateIP('::ffff:a00:1')).toBe(true); // 10.0.0.1
+    });
+
+    it('should return false for public hex-encoded IPv4-mapped IPv6 addresses', () => {
+      expect(isPrivateIP('::ffff:0808:0808')).toBe(false); // 8.8.8.8
+      expect(isPrivateIP('::ffff:0101:0101')).toBe(false); // 1.1.1.1
+    });
+
     it('should return false for public IP addresses', () => {
       expect(isPrivateIP('8.8.8.8')).toBe(false);
       expect(isPrivateIP('1.1.1.1')).toBe(false);
       expect(isPrivateIP('208.67.222.222')).toBe(false);
+      expect(isPrivateIP('2001:4860:4860::8888')).toBe(false);
     });
 
     it('should return false for non-IP strings', () => {
@@ -87,6 +106,7 @@ describe('securityUtils', () => {
     it('should allow safe public URLs (mocked DNS -> public IPs)', async () => {
       expect(await validateSafeUrl('https://www.google.com')).toBe(true);
       expect(await validateSafeUrl('http://example.com/page')).toBe(true);
+      expect(await validateSafeUrl('https://[2001:4860:4860::8888]/')).toBe(true);
     });
 
     it('should block URLs with private IP hostnames', async () => {
@@ -94,6 +114,9 @@ describe('securityUtils', () => {
       expect(await validateSafeUrl('http://192.168.1.100/admin')).toBe(false);
       expect(await validateSafeUrl('http://10.0.0.1')).toBe(false);
       expect(await validateSafeUrl('http://169.254.169.254/latest/meta-data')).toBe(false);
+      expect(await validateSafeUrl('http://[::1]')).toBe(false);
+      expect(await validateSafeUrl('http://[::]')).toBe(false);
+      expect(await validateSafeUrl('http://[::ffff:7f00:1]')).toBe(false);
     });
 
     it('should block non-http/https protocols', async () => {
