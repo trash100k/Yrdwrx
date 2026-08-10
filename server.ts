@@ -7324,7 +7324,7 @@ field is absent, use null — never invent values. Return the key structured fie
         tenantId = req.body?.tenantId || null;
       }
 
-      const token = jwt.sign({ clientId, tenantId, email, scope: "portal" }, JWT_SECRET, { expiresIn: "7d" });
+      const token = jwt.sign({ clientId, tenantId, email, scope: "portal" }, JWT_SECRET, { algorithm: "HS256", expiresIn: "7d" });
       const magicLink = req.protocol + "://" + req.get("host") + "/portal/auth/" + token;
       res.json({ success: true, token, magicLink });
     } catch (err: any) {
@@ -7338,7 +7338,7 @@ field is absent, use null — never invent values. Return the key structured fie
       if (!token) return res.status(400).json({ error: "Token required" });
       if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
 
-      const decoded: any = jwt.verify(token, JWT_SECRET);
+      const decoded: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       res.json({ valid: true, clientId: decoded.clientId, tenantId: decoded.tenantId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
@@ -7358,7 +7358,7 @@ field is absent, use null — never invent values. Return the key structured fie
     const token = req.headers["x-portal-token"] || auth;
     if (!token || !JWT_SECRET) return null;
     try {
-      const d: any = jwt.verify(token, JWT_SECRET);
+      const d: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       if (d.scope !== "portal" || !d.clientId) return null;
       return d;
     } catch {
@@ -7974,7 +7974,7 @@ field is absent, use null — never invent values. Return the key structured fie
       // customer, so the SHIPPED sign/deposit/checkout endpoints accept it unchanged.
       let token: string | null = null, shareUrl: string | null = null;
       if (JWT_SECRET) {
-        token = jwt.sign({ scope: "portal", clientId: customerId, tenantId, proposalId, kind: "proposal" }, JWT_SECRET, { expiresIn: "30d" });
+        token = jwt.sign({ scope: "portal", clientId: customerId, tenantId, proposalId, kind: "proposal" }, JWT_SECRET, { algorithm: "HS256", expiresIn: "30d" });
         shareUrl = req.protocol + "://" + req.get("host") + "/portal/auth/" + token;
       }
       res.json({ success: true, proposalId, token, shareUrl, jwtMissing: !JWT_SECRET, tiers });
