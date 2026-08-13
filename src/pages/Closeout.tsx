@@ -235,6 +235,11 @@ export default function Closeout() {
       showToast("Pick the job first — I won't bill or close anything without one.", "info");
       return;
     }
+    // Enforce high-risk confirm gate before executing any action (security/safety control)
+    if (chosen.some((a) => a.type === "invoice" && a.risk === "high" && !confirmed[a.id])) {
+      showToast("Please confirm the invoice before proceeding.", "error");
+      return;
+    }
     setExecuting(true);
     const results: any[] = [];
     for (const action of chosen) {
