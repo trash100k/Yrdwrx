@@ -17,6 +17,9 @@ const RESOLUTIONS: Record<string, string | string[]> = {
   // Multi-record host: one public, one link-local metadata IP. validateSafeUrl must reject the
   // WHOLE name (a rebind / split-horizon answer that mixes a good and a bad address must fail).
   'mixed-rebind.example': ['93.184.216.34', '169.254.169.254'],
+    'public-ipv6.example': '2001:4860:4860::8888', // public IPv6
+    'unspecified-ipv6.example': '::', // unspecified -> private/blocked
+    'mapped-private-ipv6.example': '::ffff:7f00:1', // loopback in hex -> private
 };
 
 function makeMockLookup() {
@@ -69,12 +72,21 @@ describe('securityUtils', () => {
       expect(isPrivateIP('0.0.0.0')).toBe(true);
       expect(isPrivateIP('::1')).toBe(true);
       expect(isPrivateIP('fe80::1')).toBe(true);
+      expect(isPrivateIP('::')).toBe(true); // Unspecified address
+    });
+
+    it('should identify hex-encoded IPv4-mapped IPv6 private addresses', () => {
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true); // 127.0.0.1
+      expect(isPrivateIP('::ffff:0a00:0001')).toBe(true); // 10.0.0.1
+      expect(isPrivateIP('::ffff:c0a8:0101')).toBe(true); // 192.168.1.1
     });
 
     it('should return false for public IP addresses', () => {
       expect(isPrivateIP('8.8.8.8')).toBe(false);
       expect(isPrivateIP('1.1.1.1')).toBe(false);
       expect(isPrivateIP('208.67.222.222')).toBe(false);
+      expect(isPrivateIP('2001:4860:4860::8888')).toBe(false); // Public IPv6
+      expect(isPrivateIP('::ffff:0808:0808')).toBe(false); // 8.8.8.8 in hex-mapped IPv6
     });
 
     it('should return false for non-IP strings', () => {
@@ -94,6 +106,13 @@ describe('securityUtils', () => {
       expect(await validateSafeUrl('http://192.168.1.100/admin')).toBe(false);
       expect(await validateSafeUrl('http://10.0.0.1')).toBe(false);
       expect(await validateSafeUrl('http://169.254.169.254/latest/meta-data')).toBe(false);
+      expect(await validateSafeUrl('http://[::1]')).toBe(false); // Bracketed loopback
+      expect(await validateSafeUrl('http://[::]')).toBe(false);  // Bracketed unspecified
+      expect(await validateSafeUrl('http://[::ffff:7f00:1]')).toBe(false); // Bracketed hex-mapped private
+    });
+
+    it('should allow URLs with public IPv6 hostnames', async () => {
+      expect(await validateSafeUrl('http://[2001:4860:4860::8888]')).toBe(true);
     });
 
     it('should block non-http/https protocols', async () => {
