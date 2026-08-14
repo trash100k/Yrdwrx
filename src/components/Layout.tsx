@@ -167,6 +167,7 @@ const GrassSwordIcon = ({ className, size = 24 }: { className?: string; size?: n
 import { syncService } from "../services/syncService";
 import { getCurrentUser } from "../lib/supabase";
 import DisclaimerModal from "./DisclaimerModal";
+import { Tooltip } from "./Tooltip";
 
 export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -766,56 +767,59 @@ export default function Layout() {
 
               <div className="flex items-center gap-2 sm:gap-4 border-l border-white/10 pl-4 sm:pl-6">
                 
-                <button
-                  onClick={() => {
-                    if (themeSettings.visualContrast === 'outdoor-light') {
-                      updateThemeSetting('visualContrast', 'classic-obsidian');
-                    } else {
-                      updateThemeSetting('visualContrast', 'outdoor-light');
-                    }
-                  }}
-                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 hover:text-amber-400"
-                  aria-label="Toggle Field Theme"
-                >
-                  {themeSettings.visualContrast === 'outdoor-light' ? <Moon size={20} /> : <Sun size={20} />}
-                </button>
+                <Tooltip position="bottom" content="Toggle Field Theme">
+                  <button
+                    onClick={() => updateThemeSetting('visualContrast', themeSettings.visualContrast === 'outdoor-light' ? 'classic-obsidian' : 'outdoor-light')}
+                    className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 hover:text-amber-400 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+                    aria-label="Toggle Field Theme"
+                  >
+                    {themeSettings.visualContrast === 'outdoor-light' ? <Moon size={20} /> : <Sun size={20} />}
+                  </button>
+                </Tooltip>
 
-                <button
-                  onClick={() => setIsQuickCreateOpen(true)}
-                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
-                  aria-label="Quick Create"
-                >
-                  <Plus size={20} />
-                </button>
+                <Tooltip position="bottom" content="Quick Create">
+                  <button
+                    onClick={() => setIsQuickCreateOpen(true)}
+                    className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+                    aria-label="Quick Create"
+                  >
+                    <Plus size={20} />
+                  </button>
+                </Tooltip>
 
-                <button
-                  onClick={() => setIsShortcutsOpen(true)}
-                  className="hidden sm:flex min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all"
-                  aria-label="Keyboard shortcuts"
-                  title="Keyboard shortcuts (?)"
-                >
-                  <span className="text-base font-black leading-none">?</span>
-                </button>
+                <Tooltip position="bottom" content="Keyboard Shortcuts">
+                  <button
+                    onClick={() => setIsShortcutsOpen(true)}
+                    className="hidden sm:flex min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 items-center justify-center transition-all focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+                    aria-label="Keyboard shortcuts"
+                  >
+                    <span className="text-base font-black leading-none">?</span>
+                  </button>
+                </Tooltip>
 
-                <button
-                  onClick={() => setIsNotificationsOpen(true)}
-                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
-                  aria-label="Notifications"
-                >
-                  <Bell size={20} />
-                  {unreadNotifications > 0 && (
-                    <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
-                  )}
-                </button>
+                <Tooltip position="bottom" content="Notifications">
+                  <button
+                    onClick={() => setIsNotificationsOpen(true)}
+                    className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+                    aria-label="Notifications"
+                  >
+                    <Bell size={20} />
+                    {unreadNotifications > 0 && (
+                      <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-black" />
+                    )}
+                  </button>
+                </Tooltip>
 
-                <button
-                  id="brain-trigger"
-                  onClick={() => setIsBrainOpen(true)}
-                  className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative"
-                  aria-label="Get Help"
-                >
-                  <Brain size={20} />
-                </button>
+                <Tooltip position="bottom" content="Get Help">
+                  <button
+                    id="brain-trigger"
+                    onClick={() => setIsBrainOpen(true)}
+                    className="min-w-11 min-h-11 w-11 h-11 lg:w-12 lg:h-12 bg-white/5 border border-white/10 rounded-xl text-zinc-300 hover:text-white flex items-center justify-center transition-all relative focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+                    aria-label="Get Help"
+                  >
+                    <Brain size={20} />
+                  </button>
+                </Tooltip>
 
                 <div 
                   className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors"
