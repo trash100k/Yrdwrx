@@ -11,6 +11,18 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
+  // Explicitly block unspecified address '::'
+  if (ip === '::') return true;
+
+  // Hex-encoded IPv4-mapped IPv6 (e.g., '::ffff:7f00:1' or '::ffff:7f00:0001')
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const h1 = parseInt(hexMapped[1], 16);
+    const h2 = parseInt(hexMapped[2], 16);
+    const ip4 = `${(h1 >> 8) & 0xff}.${h1 & 0xff}.${(h2 >> 8) & 0xff}.${h2 & 0xff}`;
+    return isPrivateIP(ip4);
+  }
+
   const parts = ip.split('.').map(Number);
 
   // IPv4 Private Ranges:
@@ -53,7 +65,11 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    let hostname = url.hostname;
+    // Strip enclosing brackets from parsed IPv6 hostnames (e.g., '[::1]' -> '::1')
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
