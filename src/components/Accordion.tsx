@@ -34,20 +34,30 @@ export function Accordion({ items, allowMultiple = false, className = "" }: Acco
     <div className={`space-y-2 ${className}`}>
       {items.map((item) => {
         const isOpen = openIds.has(item.id);
+        const headerId = `accordion-header-${item.id}`;
+        const panelId = `accordion-panel-${item.id}`;
+
         return (
           <div key={item.id} className="border border-white/10 bg-black/20 rounded-xl overflow-hidden">
             <button
+              id={headerId}
+              type="button"
+              aria-expanded={isOpen}
+              aria-controls={panelId}
               onClick={() => toggle(item.id)}
-              className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors"
+              className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-colors"
             >
               <span className="font-semibold text-white">{item.title}</span>
               <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
-                <ChevronDown size={18} className="text-zinc-400" />
+                <ChevronDown size={18} className="text-zinc-400" aria-hidden="true" />
               </motion.div>
             </button>
             <AnimatePresence>
               {isOpen && (
                 <motion.div
+                  id={panelId}
+                  role="region"
+                  aria-labelledby={headerId}
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
