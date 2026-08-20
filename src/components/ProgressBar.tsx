@@ -28,7 +28,14 @@ export function ProgressBar({
           {showValue && <span className="text-[10px] font-mono text-zinc-500">{clampedProgress.toFixed(0)}%</span>}
         </div>
       )}
-      <div className={`w-full bg-white/5 rounded-full overflow-hidden ${height}`}>
+      <div
+        className={`w-full bg-white/5 rounded-full overflow-hidden ${height}`}
+        role="progressbar"
+        aria-valuenow={Math.round(clampedProgress)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label || "Progress"}
+      >
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${clampedProgress}%` }}
