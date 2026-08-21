@@ -12,6 +12,9 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ className = "", label, error, helpText, id, ...props }, ref) => {
     const generatedId = React.useId();
     const textareaId = id || generatedId;
+    const errorId = `${textareaId}-error`;
+    const helpId = `${textareaId}-help`;
+    const describedBy = error ? errorId : helpText ? helpId : undefined;
 
     return (
       <div className={`w-full flex flex-col gap-1.5 ${className}`}>
@@ -24,6 +27,8 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
           <textarea
             id={textareaId}
             ref={ref}
+            aria-invalid={!!error}
+            aria-describedby={props["aria-describedby"] || describedBy}
             className={`w-full bg-black/40 border transition-all rounded-xl p-4 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-950 disabled:opacity-50 disabled:cursor-not-allowed
               ${error ? "border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20" : "border-white/10 focus:border-white/20 focus:ring-white/10 hover:border-white/20"}
               min-h-[100px] resize-y
@@ -39,6 +44,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         <AnimatePresence>
           {error && (
             <motion.p
+              id={errorId}
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
@@ -49,7 +55,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
           )}
         </AnimatePresence>
         {helpText && !error && (
-          <p className="text-xs text-zinc-500 ml-1">{helpText}</p>
+          <p id={helpId} className="text-xs text-zinc-500 ml-1">{helpText}</p>
         )}
       </div>
     );
