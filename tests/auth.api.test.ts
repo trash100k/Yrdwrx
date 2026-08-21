@@ -59,4 +59,13 @@ describe('API auth enforcement (REQUIRE_AUTH=true)', () => {
     const res = await request(app).get('/api/health');
     expect(res.status).not.toBe(401);
   });
+
+  it('rejects magic-link token validation if algorithm is invalid or unapproved', async () => {
+    // Attempting to validate a malformed token or wrong algorithm token returns 401
+    const res = await request(app)
+      .post('/api/auth/magic-link/validate')
+      .send({ token: 'eyJhbGciOiJub25lIn0.eyJjbGllbnRJZCI6Ijk5OSJ9.' });
+    expect(res.status).toBe(401);
+    expect(res.body.valid).toBe(false);
+  });
 });
