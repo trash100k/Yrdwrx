@@ -43,7 +43,8 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "md" }: Mod
               <h2 className="text-xl font-bold text-white tracking-tight">{title}</h2>
               <button 
                 onClick={onClose} 
-                className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full"
+                aria-label="Close dialog"
+                className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
               >
                 <X size={16} />
               </button>
