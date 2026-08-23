@@ -1520,12 +1520,15 @@ export async function createApp({ startListening = false } = {}) {
   };
 
   // Threat log is recon data (attacker IPs, probed routes). Admin/owner only — and it is
-  // NO LONGER in the auth-excluded list, so verifyFirebaseToken runs first. In demo mode
+  // NO LONGER in the auth-excluded list, so verifySupabaseToken runs first. In demo mode
   // (REQUIRE_AUTH off) req.user is absent, so allow it through for the founder dashboard.
-  app.get("/api/security/threats", (req: any, res) => {
+  app.get("/api/security/threats", async (req: any, res) => {
     if (REQUIRE_AUTH) {
-      const role = req.user?.role || req.user?.app_role;
-      if (!req.user || (role !== "admin" && role !== "owner" && !req.user.is_platform_admin)) {
+      // Ensure user profile & tenant context are loaded to check role permissions accurately
+      const tenant = await resolveTenant(req);
+      const role = tenant?.role || req.user?.role || req.user?.app_role;
+      const isPlatformAdmin = !!(tenant?.profile?.is_platform_admin || req.user?.is_platform_admin);
+      if (!req.user || (role !== "admin" && role !== "owner" && !isPlatformAdmin)) {
         return res.status(403).json({ error: "Forbidden" });
       }
     }
