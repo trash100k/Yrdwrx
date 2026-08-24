@@ -9,9 +9,22 @@ interface SliderProps {
   disabled?: boolean;
   className?: string;
   label?: string;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
 }
 
-export function Slider({ min = 0, max = 100, step = 1, value, onChange, disabled, className = "", label }: SliderProps) {
+export function Slider({
+  min = 0,
+  max = 100,
+  step = 1,
+  value,
+  onChange,
+  disabled,
+  className = "",
+  label,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+}: SliderProps) {
   const percentage = ((value - min) / (max - min)) * 100;
   
   return (
@@ -31,6 +44,8 @@ export function Slider({ min = 0, max = 100, step = 1, value, onChange, disabled
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value))}
           disabled={disabled}
+          aria-label={ariaLabel || label}
+          aria-labelledby={ariaLabelledBy}
           className="absolute w-full h-full opacity-0 cursor-pointer peer z-20 disabled:cursor-not-allowed"
         />
         {/* Track */}
@@ -43,7 +58,7 @@ export function Slider({ min = 0, max = 100, step = 1, value, onChange, disabled
         </div>
         {/* Thumb */}
         <div 
-          className={`absolute h-4 w-4 rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)] pointer-events-none z-10 transition-transform peer-focus:scale-110 peer-hover:scale-110 peer-active:scale-95 ${disabled ? 'opacity-50' : ''}`}
+          className={`absolute h-4 w-4 rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)] pointer-events-none z-10 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-forest-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-black peer-focus-visible:scale-110 peer-hover:scale-110 peer-active:scale-95 ${disabled ? 'opacity-50' : ''}`}
           style={{ left: `calc(${percentage}% - 8px)` }}
         />
       </div>
