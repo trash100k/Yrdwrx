@@ -63,12 +63,16 @@ describe('securityUtils', () => {
       expect(isPrivateIP('192.168.1.1')).toBe(true);
     });
 
-    it('should identify loopback and link-local addresses', () => {
+    it('should identify loopback, unspecified, and IPv4-mapped IPv6 addresses', () => {
       expect(isPrivateIP('127.0.0.1')).toBe(true);
       expect(isPrivateIP('169.254.1.1')).toBe(true);
       expect(isPrivateIP('0.0.0.0')).toBe(true);
       expect(isPrivateIP('::1')).toBe(true);
+      expect(isPrivateIP('::')).toBe(true);
       expect(isPrivateIP('fe80::1')).toBe(true);
+      expect(isPrivateIP('::ffff:127.0.0.1')).toBe(true);
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true);
+      expect(isPrivateIP('::ffff:a9fe:a9fe')).toBe(true);
     });
 
     it('should return false for public IP addresses', () => {
@@ -94,6 +98,9 @@ describe('securityUtils', () => {
       expect(await validateSafeUrl('http://192.168.1.100/admin')).toBe(false);
       expect(await validateSafeUrl('http://10.0.0.1')).toBe(false);
       expect(await validateSafeUrl('http://169.254.169.254/latest/meta-data')).toBe(false);
+      expect(await validateSafeUrl('http://[::1]')).toBe(false);
+      expect(await validateSafeUrl('http://[::ffff:7f00:1]')).toBe(false);
+      expect(await validateSafeUrl('http://[::ffff:a9fe:a9fe]')).toBe(false);
     });
 
     it('should block non-http/https protocols', async () => {
