@@ -192,7 +192,12 @@ export const NotificationsCenter = ({
                   </span>
                 )}
               </h3>
-              <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white transition-colors bg-white/5 border border-white/5 rounded-full">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close notifications"
+                className="p-1 text-zinc-500 hover:text-white transition-colors bg-white/5 border border-white/5 rounded-full focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+              >
                 <X size={14} />
               </button>
             </div>
@@ -230,7 +235,7 @@ export const NotificationsCenter = ({
                           openNotification(n);
                         }
                       }}
-                      className={`p-4 border-b border-white/5 hover:bg-white/5 transition-colors group flex gap-4 ${n.link ? "cursor-pointer" : ""}`}
+                      className={`p-4 border-b border-white/5 hover:bg-white/5 transition-colors group flex gap-4 ${n.link ? "cursor-pointer focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none" : ""}`}
                     >
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${style.bg} ${style.border}`}>
                         <Icon size={18} className={style.color} />
@@ -241,12 +246,13 @@ export const NotificationsCenter = ({
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-[10px] font-bold text-zinc-500 whitespace-nowrap">{timeAgo(n.createdAt)}</span>
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 dismiss(n.id);
                               }}
-                              className="p-0.5 text-zinc-600 hover:text-white opacity-0 group-hover:opacity-100 transition-all bg-white/5 border border-white/5 rounded-full"
-                              aria-label="Dismiss"
+                              className="p-0.5 text-zinc-600 hover:text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all bg-white/5 border border-white/5 rounded-full focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+                              aria-label="Dismiss notification"
                             >
                               <X size={11} />
                             </button>
@@ -261,9 +267,10 @@ export const NotificationsCenter = ({
 
             <div className="p-3 border-t border-white/5 bg-black text-center">
               <button
+                type="button"
                 onClick={clearAll}
                 disabled={visible.length === 0}
-                className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors disabled:opacity-40 disabled:hover:text-zinc-500"
+                className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors disabled:opacity-40 disabled:hover:text-zinc-500 rounded px-2 py-1 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
               >
                 Dismiss all
               </button>
