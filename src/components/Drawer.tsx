@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
 
@@ -12,6 +12,18 @@ interface DrawerProps {
 }
 
 export function Drawer({ isOpen, onClose, title, children, position = "right", size = "md" }: DrawerProps) {
+  const headingId = useId();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
   const positionClasses = {
     left: "left-0 top-0 bottom-0 border-r border-white/10",
     right: "right-0 top-0 bottom-0 border-l border-white/10"
@@ -39,6 +51,9 @@ export function Drawer({ isOpen, onClose, title, children, position = "right", s
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
           />
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={headingId}
             initial={{ x: initialX }}
             animate={{ x: 0 }}
             exit={{ x: initialX }}
@@ -46,10 +61,11 @@ export function Drawer({ isOpen, onClose, title, children, position = "right", s
             className={`absolute ${positionClasses[position]} ${sizeClasses[size]} bg-zinc-950 shadow-2xl flex flex-col`}
           >
             <div className="flex items-center justify-between p-6 border-b border-white/5 shrink-0">
-              <h2 className="text-xl font-bold text-white tracking-tight">{title}</h2>
+              <h2 id={headingId} className="text-xl font-bold text-white tracking-tight">{title}</h2>
               <button 
                 onClick={onClose} 
-                className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full hover:bg-white/10"
+                aria-label="Close drawer"
+                className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
               >
                 <X size={16} />
               </button>
