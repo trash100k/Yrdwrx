@@ -32,9 +32,9 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
-  // IPv6 loopback / link-local / unique-local.
+  // IPv6 loopback / unspecified / link-local / unique-local.
   const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  if (ip === '::' || ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
     return true;
   }
 
@@ -53,7 +53,11 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    // Strip enclosing brackets from IPv6 hostnames (e.g. "[::1]" -> "::1")
+    let hostname = url.hostname;
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
