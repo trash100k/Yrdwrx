@@ -59,7 +59,8 @@ export function Alert({ title, children, variant = "info", onClose, className = 
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white transition-colors"
+              aria-label="Dismiss alert"
+              className="inline-flex rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-colors"
             >
               <X size={16} />
             </button>
