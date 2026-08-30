@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { User, Settings, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
@@ -10,6 +10,15 @@ export const UserProfileMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
   const currentUser = getCurrentUser();
   const displayName = currentUser?.displayName || "Supervisor";
   const displayEmail = currentUser?.email || "supervisor@yardworx.com";
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   const goToSettings = () => {
     onClose();
@@ -27,6 +36,9 @@ export const UserProfileMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
         <>
           <div className="fixed inset-0 z-[190]" onClick={onClose} />
           <motion.div
+            role="menu"
+            id="user-profile-menu"
+            aria-label="User account menu"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -40,16 +52,16 @@ export const UserProfileMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
             </div>
             
             <div className="p-2 space-y-1">
-              <button onClick={goToSettings} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors">
+              <button role="menuitem" onClick={goToSettings} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none">
                 <User size={16} className="text-zinc-400" /> My Profile
               </button>
-              <button onClick={goToSettings} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors">
+              <button role="menuitem" onClick={goToSettings} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-zinc-300 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none">
                 <Settings size={16} className="text-zinc-400" /> Preferences
               </button>
             </div>
             
             <div className="p-2 border-t border-white/5 bg-black/50">
-               <button onClick={handleSignOut} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-rose-500/10 text-rose-400 text-sm font-medium transition-colors">
+               <button role="menuitem" onClick={handleSignOut} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-rose-500/10 text-rose-400 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none">
                   <LogOut size={16} /> Sign Out
                </button>
             </div>
