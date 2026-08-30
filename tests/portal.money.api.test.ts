@@ -178,6 +178,15 @@ describe('portal money endpoints (mock mode: Supabase faked, Stripe unset)', () 
         .send({ invoiceId: 'inv-1' });
       expect(res.status).toBe(401);
     });
+
+    it('401s on tokens signed with unsupported algorithms (e.g. HS384)', async () => {
+      const wrongAlg = jwt.sign({ clientId: CLIENT, scope: 'portal' }, JWT_SECRET, { algorithm: 'HS384', expiresIn: '1h' });
+      const res = await request(app)
+        .post('/api/portal/checkout')
+        .set('x-portal-token', wrongAlg)
+        .send({ invoiceId: 'inv-1' });
+      expect(res.status).toBe(401);
+    });
   });
 
   // =====================================================================
