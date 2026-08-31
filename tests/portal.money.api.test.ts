@@ -178,6 +178,29 @@ describe('portal money endpoints (mock mode: Supabase faked, Stripe unset)', () 
         .send({ invoiceId: 'inv-1' });
       expect(res.status).toBe(401);
     });
+
+    it('401s on a token signed with an unsupported algorithm (e.g. HS384)', async () => {
+      const wrongAlgo = jwt.sign({ clientId: CLIENT, scope: 'portal' }, JWT_SECRET, {
+        algorithm: 'HS384',
+        expiresIn: '1h',
+      });
+      const res = await request(app)
+        .get('/api/portal/data')
+        .set('x-portal-token', wrongAlgo);
+      expect(res.status).toBe(401);
+    });
+
+    it('401s on magic-link validation when token algorithm is restricted to HS256', async () => {
+      const wrongAlgo = jwt.sign({ clientId: CLIENT, scope: 'portal' }, JWT_SECRET, {
+        algorithm: 'HS512',
+        expiresIn: '1h',
+      });
+      const res = await request(app)
+        .post('/api/auth/magic-link/validate')
+        .send({ token: wrongAlgo });
+      expect(res.status).toBe(401);
+      expect(res.body?.valid).toBe(false);
+    });
   });
 
   // =====================================================================
