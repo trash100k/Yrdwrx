@@ -12,7 +12,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className = "", variant = "primary", size = "md", isLoading, leftIcon, rightIcon, children, disabled, ...props }, ref) => {
-    const baseStyles = "inline-flex items-center justify-center font-bold transition-all rounded-xl active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none";
+    const baseStyles = "inline-flex items-center justify-center font-bold transition-all rounded-xl active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black";
     
     const variants = {
       primary: "bg-white text-black hover:bg-zinc-200 shadow-xl shadow-white/10",
@@ -33,15 +33,16 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
         disabled={isLoading || disabled}
+        aria-busy={isLoading || undefined}
         {...props}
       >
         {isLoading ? (
-          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
         ) : leftIcon ? (
-          <span className="mr-2">{leftIcon}</span>
+          <span className="mr-2" aria-hidden="true">{leftIcon}</span>
         ) : null}
         {children}
-        {!isLoading && rightIcon && <span className="ml-2">{rightIcon}</span>}
+        {!isLoading && rightIcon && <span className="ml-2" aria-hidden="true">{rightIcon}</span>}
       </button>
     );
   }
