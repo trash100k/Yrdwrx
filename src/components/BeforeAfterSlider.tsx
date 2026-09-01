@@ -69,7 +69,7 @@ export default function BeforeAfterSlider({ beforeImage, afterImage, imageAspect
     <div className="flex-1 w-full h-full flex items-center justify-center min-h-0 p-4 relative">
       <div
         ref={containerRef}
-        className="relative rounded-2xl border border-white/10 bg-black/40 overflow-hidden shadow-2xl cursor-ew-resize group flex items-center justify-center"
+        className="relative rounded-2xl border border-white/10 bg-black/40 overflow-hidden shadow-2xl cursor-ew-resize group flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black transition-all"
         style={{
           maxWidth: '100%',
           maxHeight: '100%',
@@ -85,6 +85,7 @@ export default function BeforeAfterSlider({ beforeImage, afterImage, imageAspect
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(sliderPosition)}
+        aria-valuetext={`${Math.round(sliderPosition)}% after view`}
         aria-label="Before/after comparison slider"
         onKeyDown={handleKeyDown}
         onMouseDown={() => setIsDragging(true)}
