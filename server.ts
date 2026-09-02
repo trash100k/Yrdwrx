@@ -1555,9 +1555,8 @@ export async function createApp({ startListening = false } = {}) {
     //    stringified copy of the whole, possibly-huge base64 body, which was O(payload) on
     //    the hot path and blocked legit customer notes containing words like "var"/"define").
     //    Content patterns are specific enough not to fire on normal landscaping notes.
-    const contentPatterns = ["drop table", "union select", " or 1=1", "waitfor delay", "db.collection.find(", "<script", "javascript:", "evaluate filter"];
+    const contentPatterns = ["drop table", "union select", " or 1=1", "waitfor delay", "db.collection.find(", "<script", "javascript:"];
     const pathPatterns = ["../", "..\\", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
-    const severeSystemPatterns = ["/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
     if (pathPatterns.some((p) => url.includes(p)) || contentPatterns.some((p) => url.includes(p))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
@@ -1570,10 +1569,19 @@ export async function createApp({ startListening = false } = {}) {
       if (Array.isArray(v)) { for (const x of v) collect(x, budget); return; }
       if (typeof v === "object") { for (const k in v) collect(v[k], budget); }
     })(req.body, { n: 400 });
-    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)) || severeSystemPatterns.some((p) => s.includes(p)))) {
+    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       console.warn(`[SECURITY] Potential injection detected from IP ${req.ip} on ${req.url}`);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
+    }
+
+    // Special route-specific threat detection for /api/translate (DAX injection & path traversal in body)
+    if (url.startsWith('/api/translate')) {
+      const translatePatterns = ["evaluate filter", "../", "..\\"];
+      if (leaves.some((s) => translatePatterns.some((p) => s.includes(p)))) {
+        logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
+        return res.status(403).json({ error: "This request was blocked for security reasons." });
+      }
     }
 
     // 3. Strict Request Origin & Lineage enforcement
