@@ -4,11 +4,12 @@ import { User } from "lucide-react";
 interface AvatarProps {
   src?: string;
   initials?: string;
+  alt?: string;
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 }
 
-export function Avatar({ src, initials, size = "md", className = "" }: AvatarProps) {
+export function Avatar({ src, initials, alt, size = "md", className = "" }: AvatarProps) {
   const sizes = {
     sm: "w-8 h-8 text-xs",
     md: "w-10 h-10 text-sm",
@@ -16,14 +17,20 @@ export function Avatar({ src, initials, size = "md", className = "" }: AvatarPro
     xl: "w-16 h-16 text-lg",
   };
 
+  const label = alt || (initials ? `Avatar for ${initials}` : "User avatar");
+
   return (
-    <div className={`relative inline-flex items-center justify-center overflow-hidden rounded-full bg-white/10 border border-white/20 ${sizes[size]} ${className}`}>
+    <div
+      role="img"
+      aria-label={label}
+      className={`relative inline-flex items-center justify-center overflow-hidden rounded-full bg-white/10 border border-white/20 ${sizes[size]} ${className}`}
+    >
       {src ? (
-        <img src={src} alt="Avatar" className="w-full h-full object-cover" />
+        <img src={src} alt="" className="w-full h-full object-cover" />
       ) : initials ? (
-        <span className="font-bold text-white tracking-widest">{initials}</span>
+        <span className="font-bold text-white tracking-widest" aria-hidden="true">{initials}</span>
       ) : (
-        <User className="text-zinc-400 w-1/2 h-1/2" />
+        <User className="text-zinc-400 w-1/2 h-1/2" aria-hidden="true" />
       )}
     </div>
   );
