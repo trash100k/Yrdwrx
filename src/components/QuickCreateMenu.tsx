@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Plus, Users, Calendar, ReceiptText, FileText, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +8,17 @@ export const QuickCreateMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
   const navigate = useNavigate();
   const { role } = useRole();
   const rolePrefix = role === "employee" || role === "foreman" ? "/employee" : "/admin";
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   // Each create deep-links straight into the target page's prefilled modal via ?create=<kind>
   // (the page opens it on mount and strips the param) — so "Create Invoice" lands the owner in
@@ -23,20 +34,27 @@ export const QuickCreateMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
     <AnimatePresence>
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-[190]" onClick={onClose} />
+          <div className="fixed inset-0 z-[190]" onClick={onClose} aria-hidden="true" />
           <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.15 }}
+            role="menu"
+            aria-label="Quick create menu"
             className="absolute top-20 right-32 sm:right-48 w-64 bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[200]"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-black/50">
               <h3 className="font-bold text-white text-sm tracking-tight flex items-center gap-2">
                  Quick Create
               </h3>
-              <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white transition-colors bg-white/5 border border-white/5 rounded-full">
-                <X size={14} />
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close menu"
+                className="p-1 text-zinc-500 hover:text-white transition-colors bg-white/5 border border-white/5 rounded-full focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+              >
+                <X size={14} aria-hidden="true" />
               </button>
             </div>
             
@@ -44,16 +62,18 @@ export const QuickCreateMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose:
               {actions.map((action) => (
                  <button
                    key={action.id}
+                   type="button"
+                   role="menuitem"
                    onClick={() => {
                      navigate(action.path);
                      onClose();
                    }}
-                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors group text-left"
+                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 focus:bg-white/5 transition-colors group text-left focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
                  >
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${action.bg} ${action.border}`}>
-                      <action.icon size={14} className={action.color} />
+                      <action.icon size={14} className={action.color} aria-hidden="true" />
                     </div>
-                    <span className="text-sm font-medium text-zinc-300 group-hover:text-white transition-colors">
+                    <span className="text-sm font-medium text-zinc-300 group-hover:text-white group-focus:text-white transition-colors">
                        {action.label}
                     </span>
                  </button>
