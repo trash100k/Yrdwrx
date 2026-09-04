@@ -39,7 +39,7 @@ export default function SignaturePad({
   const drawingRef = useRef(false);
   const lastRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Reset all state each time the pad opens fresh.
+  // Reset state when pad opens fresh, and handle Escape key.
   useEffect(() => {
     if (open) {
       setName("");
@@ -48,8 +48,16 @@ export default function SignaturePad({
       setSaving(false);
       drawingRef.current = false;
       lastRef.current = null;
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape" && !saving) {
+          onCancel();
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
     }
-  }, [open]);
+  }, [open, saving, onCancel]);
 
   // Size the canvas to its CSS box scaled for devicePixelRatio, then paint the light
   // signing surface. Re-runs when the pad opens or the user switches back to draw mode.
@@ -168,6 +176,9 @@ export default function SignaturePad({
             exit={{ y: 40, opacity: 0, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 380, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signature-pad-title"
             className="bg-zinc-950 border border-white/10 shadow-2xl w-full max-w-lg rounded-t-2xl sm:rounded-2xl relative overflow-hidden max-h-[95dvh] overflow-y-auto"
           >
             <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-forest-500 to-celtic-500" />
@@ -179,7 +190,7 @@ export default function SignaturePad({
                     <PenLine size={22} aria-hidden="true" />
                   </div>
                   <div className="min-w-0">
-                    <h2 className="text-lg font-bold text-white leading-tight truncate">{title}</h2>
+                    <h2 id="signature-pad-title" className="text-lg font-bold text-white leading-tight truncate">{title}</h2>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {amountLabel && (
                         <span className="text-sm font-black text-forest-400">{amountLabel}</span>
@@ -195,7 +206,7 @@ export default function SignaturePad({
                 <button
                   onClick={() => !saving && onCancel()}
                   aria-label="Close"
-                  className="text-zinc-500 hover:text-white transition-colors shrink-0"
+                  className="text-zinc-500 hover:text-white transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded-md"
                 >
                   <X size={22} />
                 </button>
@@ -215,11 +226,11 @@ export default function SignaturePad({
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Type your full name"
                 autoComplete="name"
-                className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-forest-500 mb-5"
+                className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-forest-500 mb-5"
               />
 
               {/* Mode toggle: draw vs type */}
-              <div className="flex bg-black p-1 rounded-xl border border-white/10 mb-3">
+              <div role="tablist" aria-label="Signature method" className="flex bg-black p-1 rounded-xl border border-white/10 mb-3">
                 {[
                   { key: "draw", label: "Draw", icon: PenLine },
                   { key: "type", label: "Type instead", icon: Type },
@@ -230,8 +241,10 @@ export default function SignaturePad({
                     <button
                       key={m.key}
                       type="button"
+                      role="tab"
+                      aria-selected={active}
                       onClick={() => setMode(m.key as "draw" | "type")}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none ${
                         active ? "bg-white text-black shadow-sm" : "text-zinc-400 hover:text-white"
                       }`}
                     >
@@ -264,7 +277,7 @@ export default function SignaturePad({
                     <button
                       type="button"
                       onClick={clearCanvas}
-                      className="pointer-events-auto flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-[11px] font-black uppercase tracking-widest transition-colors"
+                      className="pointer-events-auto flex items-center gap-1.5 text-slate-500 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded text-[11px] font-black uppercase tracking-widest transition-colors"
                     >
                       <Eraser size={13} aria-hidden="true" /> Clear
                     </button>
@@ -293,7 +306,7 @@ export default function SignaturePad({
                   type="button"
                   onClick={() => !saving && onCancel()}
                   disabled={saving}
-                  className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-xs transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-xs transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 focus:outline-none disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -301,7 +314,7 @@ export default function SignaturePad({
                   type="button"
                   onClick={confirm}
                   disabled={!name.trim() || saving}
-                  className="flex-[1.6] flex items-center justify-center gap-2 px-4 py-3 bg-forest-500 hover:bg-forest-400 text-black rounded-xl font-black uppercase tracking-widest text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex-[1.6] flex items-center justify-center gap-2 px-4 py-3 bg-forest-500 hover:bg-forest-400 text-black rounded-xl font-black uppercase tracking-widest text-xs transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <PenLine size={15} aria-hidden="true" /> {saving ? "Signing..." : "Sign & Accept"}
                 </button>
