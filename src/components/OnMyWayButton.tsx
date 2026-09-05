@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Navigation, X, Send } from "lucide-react";
 import { fetchApi } from "../lib/api";
@@ -19,6 +19,17 @@ export default function OnMyWayButton({ job, className = "" }: { job: any; class
   const [phone, setPhone] = useState<string>(job?.phone || job?.data?.phone || "");
   const [sending, setSending] = useState(false);
   const [resolving, setResolving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   const name = job?.client || job?.customerName || "there";
   const firstName = String(name).split(" ")[0] || "there";
@@ -79,7 +90,8 @@ export default function OnMyWayButton({ job, className = "" }: { job: any; class
         type="button"
         onClick={openModal}
         title="Text the customer an arrival window"
-        className={`px-4 py-2 bg-black border border-white/10 hover:border-forest-400/40 hover:text-white text-white/60 rounded-xl text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${className}`}
+        aria-label="Text the customer an arrival window"
+        className={`px-4 py-2 bg-black border border-white/10 hover:border-forest-400/40 hover:text-white text-white/60 rounded-xl text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none ${className}`}
       >
         <Navigation size={12} /> On My Way
       </button>
@@ -94,6 +106,9 @@ export default function OnMyWayButton({ job, className = "" }: { job: any; class
             }}
           >
             <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="on-my-way-title"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -101,10 +116,15 @@ export default function OnMyWayButton({ job, className = "" }: { job: any; class
               className="w-full max-w-md bg-zinc-900 border-2 border-white/10 rounded-2xl p-6 shadow-2xl"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-black italic uppercase tracking-tight text-white flex items-center gap-2">
+                <h3 id="on-my-way-title" className="text-lg font-black italic uppercase tracking-tight text-white flex items-center gap-2">
                   <Navigation size={18} className="text-forest-400" /> On My Way
                 </h3>
-                <button onClick={() => setOpen(false)} className="text-white/40 hover:text-white" aria-label="Close">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="text-white/40 hover:text-white focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded-lg p-1"
+                  aria-label="Close modal"
+                >
                   <X size={20} />
                 </button>
               </div>
@@ -114,8 +134,10 @@ export default function OnMyWayButton({ job, className = "" }: { job: any; class
                 {["15 minutes", "30 minutes", "1 hour", "later today"].map((w) => (
                   <button
                     key={w}
+                    type="button"
                     onClick={() => setEta(w)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                    aria-pressed={eta === w}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none ${
                       eta === w ? "bg-forest-500 text-black" : "bg-white/5 text-white/60 hover:text-white border border-white/10"
                     }`}
                   >
@@ -134,9 +156,10 @@ export default function OnMyWayButton({ job, className = "" }: { job: any; class
               </p>
 
               <button
+                type="button"
                 onClick={send}
                 disabled={sending || resolving || !phone}
-                className="w-full bg-forest-500 text-black py-3.5 rounded-xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:scale-100"
+                className="w-full bg-forest-500 text-black py-3.5 rounded-xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:scale-100 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
               >
                 {sending ? (
                   <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> Sending…</>
