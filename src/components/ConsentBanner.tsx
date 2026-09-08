@@ -28,10 +28,14 @@ export function ConsentBanner() {
   if (!isVisible) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-white/10 z-50 p-4 sm:p-6 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl">
+    <div
+      role="region"
+      aria-label="Data privacy and cookies"
+      className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-white/10 z-50 p-4 sm:p-6 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl"
+    >
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-4">
-          <div className="p-2 bg-celtic-500/10 rounded-full shrink-0">
+          <div className="p-2 bg-celtic-500/10 rounded-full shrink-0" aria-hidden="true">
             <Shield className="text-celtic-500" size={24} />
           </div>
           <div>
@@ -42,20 +46,24 @@ export function ConsentBanner() {
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto shrink-0">
           <button
+            type="button"
             onClick={handleOptOut}
-            className="flex-1 sm:flex-none px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+            className="flex-1 sm:flex-none px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded-lg"
           >
             Opt-Out
           </button>
           <button
+            type="button"
             onClick={handleAccept}
-            className="flex-1 sm:flex-none px-6 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-zinc-200 transition-colors"
+            className="flex-1 sm:flex-none px-6 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-zinc-200 transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
           >
             Accept
           </button>
           <button
+            type="button"
             onClick={() => setIsVisible(false)}
-            className="p-2 text-zinc-500 hover:text-white"
+            aria-label="Dismiss cookie banner"
+            className="p-2 text-zinc-500 hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded-lg"
           >
             <X size={20} />
           </button>
