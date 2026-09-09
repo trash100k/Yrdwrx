@@ -204,6 +204,12 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
   }, [searchTerm, results]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const el = document.getElementById(`cmd-option-${selectedIndex}`);
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, isOpen]);
+
+  useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -254,6 +260,9 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -20 }}
             transition={{ duration: 0.2 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command palette"
             className="w-full max-w-2xl bg-zinc-950 border border-white/10 rounded-3xl shadow-2xl overflow-hidden relative z-10"
           >
             <div className="flex items-center px-6 py-5 border-b border-white/5">
@@ -263,14 +272,23 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
                 <Search size={22} className="text-forest-400 mr-4" />
               )}
               <input
+                id="command-palette-input"
                 autoFocus
                 type="text"
                 placeholder="Search clients, jobs, invoices, or jump to a section (Cmd + K)..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                aria-expanded={flatItems.length > 0}
+                aria-controls="command-palette-results"
+                aria-activedescendant={flatItems.length > 0 ? `cmd-option-${selectedIndex}` : undefined}
                 className="flex-1 bg-transparent border-none text-xl text-white focus:outline-none placeholder:text-zinc-600 font-medium"
               />
-              <button onClick={onClose} className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full ml-4">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close command palette"
+                className="p-2 text-zinc-500 hover:text-white transition-colors bg-white/5 rounded-full ml-4 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
+              >
                 <X size={16} />
               </button>
             </div>
@@ -289,10 +307,11 @@ export const CommandPalette = ({ isOpen, onClose, onOutreach }: { isOpen: boolea
                         return (
                           <button
                             key={`${group.key}-${i}`}
+                            id={`cmd-option-${i}`}
                             role="option"
                             aria-selected={isSelected}
                             onClick={() => run(item)}
-                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all group ${
+                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all group focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none ${
                               isSelected ? "bg-white/10 ring-1 ring-white/20" : "hover:bg-white/5"
                             }`}
                           >
