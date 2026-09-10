@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Send, Target, Loader2 } from "lucide-react";
 import { useToast } from "../contexts/ToastContext";
 import { customersRepo } from "../lib/repos";
@@ -14,6 +14,16 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
     address: "",
     notes: ""
   });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -37,9 +47,9 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in" role="dialog" aria-modal="true" aria-labelledby="lead-modal-title">
       <div className="bg-zinc-900 border border-white/10 w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-6 right-6 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10 text-white">
+        <button onClick={onClose} aria-label="Close modal" className="absolute top-6 right-6 p-2 rounded-full bg-white/5 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-colors z-10 text-white">
           <X size={20} />
         </button>
 
@@ -50,7 +60,7 @@ export function LeadSubmissionModal({ isOpen, onClose }: { isOpen: boolean; onCl
           <div className="w-12 h-12 bg-forest-500/10 rounded-2xl flex items-center justify-center text-forest-400 mb-6 border border-forest-500/20">
             <Target size={24} />
           </div>
-          <h2 className="text-2xl font-black text-white italic tracking-tight">Submit New Lead</h2>
+          <h2 id="lead-modal-title" className="text-2xl font-black text-white italic tracking-tight">Submit New Lead</h2>
           <p className="text-sm text-zinc-400 mt-2 max-w-[90%]">
             Enter the details of a potential lead. This will be sent to the admin dashboard for verification and initial estimation.
           </p>
