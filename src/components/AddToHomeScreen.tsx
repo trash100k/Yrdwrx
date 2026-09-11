@@ -63,12 +63,14 @@ export function AddToHomeScreen() {
     <AnimatePresence>
       {showPrompt && (
         <motion.div
+          role="dialog"
+          aria-label="Install App Prompt"
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
           className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-80 bg-zinc-900 border border-forest-500/30 shadow-2xl rounded-2xl p-4 z-[9999] flex items-start gap-4"
         >
-          <div className="w-12 h-12 bg-forest-500/20 rounded-xl flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 bg-forest-500/20 rounded-xl flex items-center justify-center shrink-0" aria-hidden="true">
             <Download className="text-forest-400" size={24} />
           </div>
           <div className="flex-1 pt-1">
@@ -79,19 +81,23 @@ export function AddToHomeScreen() {
             <div className="flex gap-2">
               <button 
                 onClick={handleInstallClick} 
-                className="flex-1 bg-forest-500 text-black font-bold text-xs uppercase tracking-wide py-2 rounded-lg hover:bg-forest-400 transition-colors active:scale-95"
+                className="flex-1 bg-forest-500 text-black font-bold text-xs uppercase tracking-wide py-2 rounded-lg hover:bg-forest-400 transition-colors active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
               >
                 Install Now
               </button>
               <button 
                 onClick={handleDismiss} 
-                className="px-3 bg-white/5 border border-white/10 text-white font-bold text-xs uppercase tracking-wide rounded-lg hover:bg-white/10 transition-colors active:scale-95"
+                className="px-3 bg-white/5 border border-white/10 text-white font-bold text-xs uppercase tracking-wide rounded-lg hover:bg-white/10 transition-colors active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
               >
                 Later
               </button>
             </div>
           </div>
-          <button onClick={handleDismiss} className="absolute top-2 right-2 p-1 text-zinc-500 hover:text-white transition-colors" aria-label="Dismiss">
+          <button
+            onClick={handleDismiss}
+            className="absolute top-2 right-2 p-1 text-zinc-500 hover:text-white transition-colors rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
+            aria-label="Dismiss app install prompt"
+          >
             <X size={16} />
           </button>
         </motion.div>
