@@ -1570,7 +1570,9 @@ export async function createApp({ startListening = false } = {}) {
       if (Array.isArray(v)) { for (const x of v) collect(x, budget); return; }
       if (typeof v === "object") { for (const k in v) collect(v[k], budget); }
     })(req.body, { n: 400 });
-    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)))) {
+    const isTranslate = url.startsWith("/api/translate");
+    const translatePatterns = isTranslate ? ["evaluate filter", "../", "..\\"] : [];
+    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)) || translatePatterns.some((p) => s.includes(p)))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       console.warn(`[SECURITY] Potential injection detected from IP ${req.ip} on ${req.url}`);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
