@@ -64,10 +64,14 @@ export function SampleDataBanner() {
 
   return (
     <>
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 bg-forest-500/10 border border-forest-500/20 rounded-2xl">
+      <div
+        role="region"
+        aria-label="Sample data notification"
+        className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 bg-forest-500/10 border border-forest-500/20 rounded-2xl"
+      >
         <div className="flex items-start sm:items-center gap-3 flex-1 min-w-0">
           <div className="p-1.5 bg-forest-500/10 rounded-lg shrink-0">
-            <Sparkles size={14} className="text-forest-400" />
+            <Sparkles size={14} className="text-forest-400" aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-widest text-forest-400 mb-0.5">
@@ -81,19 +85,21 @@ export function SampleDataBanner() {
         </div>
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
           <button
+            type="button"
             onClick={() => setConfirming(true)}
             disabled={clearing}
-            className="px-4 py-2 bg-forest-500/10 hover:bg-forest-500/20 text-forest-400 border border-forest-500/20 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-forest-500/10 hover:bg-forest-500/20 text-forest-400 border border-forest-500/20 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
           >
-            <Trash2 size={12} />
+            <Trash2 size={12} aria-hidden="true" />
             {clearing ? "Clearing…" : "Clear Sample Data"}
           </button>
           <button
+            type="button"
             onClick={handleDismiss}
             aria-label="Dismiss sample data banner"
-            className="p-2 text-zinc-500 hover:text-white transition-colors"
+            className="p-2 text-zinc-500 hover:text-white transition-colors rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
           >
-            <X size={14} />
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       </div>
