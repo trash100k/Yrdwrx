@@ -5,13 +5,19 @@ import { Leaf } from "lucide-react";
 interface LoaderProps {
   size?: number;
   text?: string;
+  ariaLabel?: string;
   fullScreen?: boolean;
 }
 
-export function Loader({ size = 32, text = "Loading...", fullScreen = false }: LoaderProps) {
+export function Loader({ size = 32, text = "Loading...", ariaLabel, fullScreen = false }: LoaderProps) {
   const content = (
-    <div className="flex flex-col items-center justify-center gap-4">
-       <div className={`relative flex items-center justify-center`} style={{ width: size, height: size }}>
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={ariaLabel || text || "Loading"}
+      className="flex flex-col items-center justify-center gap-4"
+    >
+       <div className={`relative flex items-center justify-center`} style={{ width: size, height: size }} aria-hidden="true">
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
