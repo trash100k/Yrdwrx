@@ -1570,7 +1570,16 @@ export async function createApp({ startListening = false } = {}) {
       if (Array.isArray(v)) { for (const x of v) collect(x, budget); return; }
       if (typeof v === "object") { for (const k in v) collect(v[k], budget); }
     })(req.body, { n: 400 });
-    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)))) {
+
+    // Endpoint-specific threat checks (e.g. DAX injection and body path traversal on /api/translate)
+    const isTranslateRoute = url.startsWith('/api/translate');
+    const bodyContentPatterns = isTranslateRoute ? [...contentPatterns, "evaluate filter"] : contentPatterns;
+    const bodyPathPatterns = isTranslateRoute ? pathPatterns : [];
+
+    if (
+      leaves.some((s) => bodyContentPatterns.some((p) => s.includes(p))) ||
+      leaves.some((s) => bodyPathPatterns.some((p) => s.includes(p)))
+    ) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       console.warn(`[SECURITY] Potential injection detected from IP ${req.ip} on ${req.url}`);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
