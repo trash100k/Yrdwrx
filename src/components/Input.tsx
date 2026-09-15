@@ -14,6 +14,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className = "", label, error, helpText, leftIcon, rightIcon, id, ...props }, ref) => {
     const generatedId = React.useId();
     const inputId = id || generatedId;
+    const errorId = `${inputId}-error`;
+    const helpId = `${inputId}-help`;
+    const computedDescribedBy = error ? errorId : helpText ? helpId : undefined;
+    const combinedDescribedBy = [computedDescribedBy, props["aria-describedby"]].filter(Boolean).join(" ") || undefined;
 
     return (
       <div className={`w-full flex flex-col gap-1.5 ${className}`}>
@@ -24,13 +28,15 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         )}
         <div className="relative flex items-center">
           {leftIcon && (
-            <div className="absolute left-3.5 text-zinc-500 pointer-events-none">
+            <div className="absolute left-3.5 text-zinc-500 pointer-events-none" aria-hidden="true">
               {leftIcon}
             </div>
           )}
           <input
             id={inputId}
             ref={ref}
+            aria-invalid={!!error || undefined}
+            aria-describedby={combinedDescribedBy}
             className={`w-full bg-black/40 border transition-all rounded-xl h-12 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-950 disabled:opacity-50 disabled:cursor-not-allowed
               ${leftIcon ? "pl-11" : "pl-4"} 
               ${rightIcon || error ? "pr-11" : "pr-4"}
@@ -39,7 +45,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
           {(rightIcon || error) && (
-            <div className="absolute right-3.5 text-zinc-500 flex items-center">
+            <div className="absolute right-3.5 text-zinc-500 flex items-center" aria-hidden="true">
               {error ? <AlertCircle className="text-rose-500" size={18} /> : rightIcon}
             </div>
           )}
@@ -47,6 +53,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         <AnimatePresence>
           {error && (
             <motion.p
+              id={errorId}
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
@@ -57,7 +64,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           )}
         </AnimatePresence>
         {helpText && !error && (
-          <p className="text-xs text-zinc-500 ml-1">{helpText}</p>
+          <p id={helpId} className="text-xs text-zinc-500 ml-1">{helpText}</p>
         )}
       </div>
     );

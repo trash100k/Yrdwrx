@@ -13,6 +13,10 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ className = "", label, error, helpText, leftIcon, id, children, ...props }, ref) => {
     const generatedId = React.useId();
     const selectId = id || generatedId;
+    const errorId = `${selectId}-error`;
+    const helpId = `${selectId}-help`;
+    const computedDescribedBy = error ? errorId : helpText ? helpId : undefined;
+    const combinedDescribedBy = [computedDescribedBy, props["aria-describedby"]].filter(Boolean).join(" ") || undefined;
 
     return (
       <div className={`w-full flex flex-col gap-1.5 ${className}`}>
@@ -23,13 +27,15 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         )}
         <div className="relative flex items-center">
           {leftIcon && (
-            <div className="absolute left-3.5 text-zinc-500 pointer-events-none">
+            <div className="absolute left-3.5 text-zinc-500 pointer-events-none" aria-hidden="true">
               {leftIcon}
             </div>
           )}
           <select
             id={selectId}
             ref={ref}
+            aria-invalid={!!error || undefined}
+            aria-describedby={combinedDescribedBy}
             className={`w-full appearance-none bg-black/40 border transition-all rounded-xl h-12 text-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-950 disabled:opacity-50 disabled:cursor-not-allowed
               ${leftIcon ? "pl-11" : "pl-4"} 
               pr-11
@@ -40,13 +46,14 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           >
             {children}
           </select>
-          <div className="absolute right-3.5 text-zinc-500 pointer-events-none flex items-center">
+          <div className="absolute right-3.5 text-zinc-500 pointer-events-none flex items-center" aria-hidden="true">
             {error ? <AlertCircle className="text-rose-500" size={18} /> : <ChevronDown size={18} />}
           </div>
         </div>
         <AnimatePresence>
           {error && (
             <motion.p
+              id={errorId}
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
@@ -57,7 +64,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           )}
         </AnimatePresence>
         {helpText && !error && (
-          <p className="text-xs text-zinc-500 ml-1">{helpText}</p>
+          <p id={helpId} className="text-xs text-zinc-500 ml-1">{helpText}</p>
         )}
       </div>
     );
