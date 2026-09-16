@@ -152,6 +152,15 @@ describe('portal money endpoints (mock mode: Supabase faked, Stripe unset)', () 
       expect(res.status).toBe(401);
     });
 
+    it('401s on an unsupported algorithm (e.g., HS384/HS512 when algorithm pinned to HS256)', async () => {
+      const nonHs256 = jwt.sign({ clientId: CLIENT, scope: 'portal' }, JWT_SECRET, { algorithm: 'HS384', expiresIn: '1h' });
+      const res = await request(app)
+        .post('/api/portal/checkout')
+        .set('x-portal-token', nonHs256)
+        .send({ invoiceId: 'inv-1' });
+      expect(res.status).toBe(401);
+    });
+
     it('401s on a valid-signature token whose scope is NOT "portal"', async () => {
       const wrongScope = jwt.sign({ clientId: CLIENT, scope: 'admin' }, JWT_SECRET, { expiresIn: '1h' });
       const res = await request(app)
