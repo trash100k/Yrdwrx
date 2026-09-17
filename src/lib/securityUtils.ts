@@ -11,18 +11,22 @@ const lookup = promisify(dns.lookup);
 export function isPrivateIP(ip: string): boolean {
   if (!isIP(ip)) return false;
 
-  const parts = ip.split('.').map(Number);
+  const low = ip.toLowerCase();
 
-  // IPv4 Private Ranges:
-  // 10.0.0.0 – 10.255.255.255
-  // 172.16.0.0 – 172.31.255.255
-  // 192.168.0.0 – 192.168.255.255
-  // 127.0.0.0 – 127.255.255.255 (Loopback)
-  // 169.254.0.0 – 169.254.255.255 (Link-local)
-
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  // IPv4-mapped IPv6 dot-decimal (::ffff:127.0.0.1) — unwrap and re-check embedded v4.
+  const mapped = /^(?:::ffff:|0:0:0:0:0:ffff:)(\d+\.\d+\.\d+\.\d+)$/i.exec(low);
   if (mapped) return isPrivateIP(mapped[1]);
+
+  // IPv4-mapped IPv6 hex-encoded (::ffff:7f00:1) — convert hex words to dot-decimal and re-check.
+  const hexMapped = /^(?:::ffff:|0:0:0:0:0:ffff:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(low);
+  if (hexMapped) {
+    const w1 = parseInt(hexMapped[1], 16);
+    const w2 = parseInt(hexMapped[2], 16);
+    const v4 = `${(w1 >> 8) & 0xff}.${w1 & 0xff}.${(w2 >> 8) & 0xff}.${w2 & 0xff}`;
+    return isPrivateIP(v4);
+  }
+
+  const parts = ip.split('.').map(Number);
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -32,9 +36,16 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
-  // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  // IPv6 unspecified (::, 0:0:0:0:0:0:0:0), loopback (::1, 0:0:0:0:0:0:0:1), link-local, unique-local.
+  if (
+    low === '::' ||
+    low === '::1' ||
+    /^0*(:0*)*$/.test(low) ||
+    /^0*(:0*)*:0*1$/.test(low) ||
+    /^fe[89ab]/i.test(low) ||
+    low.startsWith('fc') ||
+    low.startsWith('fd')
+  ) {
     return true;
   }
 
@@ -53,7 +64,11 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    // Strip enclosing brackets for IPv6 hostnames (e.g. "[::1]" -> "::1")
+    let hostname = url.hostname;
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
