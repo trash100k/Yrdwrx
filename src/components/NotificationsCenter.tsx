@@ -160,6 +160,18 @@ export const NotificationsCenter = ({
     };
   }, [isOpen]);
 
+  // Keyboard navigation: Close panel on Escape keypress
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   const visible = useMemo(() => items.filter((n) => !dismissed.has(n.id)), [items, dismissed]);
 
   // Report the live unread count up so the bell dot can derive "has unread" from the
@@ -177,6 +189,9 @@ export const NotificationsCenter = ({
         <>
           <div className="fixed inset-0 z-[190]" onClick={onClose} />
           <motion.div
+            role="dialog"
+            aria-label="Notifications panel"
+            aria-modal="true"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -192,7 +207,12 @@ export const NotificationsCenter = ({
                   </span>
                 )}
               </h3>
-              <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white transition-colors bg-white/5 border border-white/5 rounded-full">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close notifications"
+                className="p-1 text-zinc-500 hover:text-white transition-colors bg-white/5 border border-white/5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
+              >
                 <X size={14} />
               </button>
             </div>
@@ -241,12 +261,13 @@ export const NotificationsCenter = ({
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-[10px] font-bold text-zinc-500 whitespace-nowrap">{timeAgo(n.createdAt)}</span>
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 dismiss(n.id);
                               }}
-                              className="p-0.5 text-zinc-600 hover:text-white opacity-0 group-hover:opacity-100 transition-all bg-white/5 border border-white/5 rounded-full"
-                              aria-label="Dismiss"
+                              className="p-0.5 text-zinc-600 hover:text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all bg-white/5 border border-white/5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
+                              aria-label="Dismiss notification"
                             >
                               <X size={11} />
                             </button>
@@ -261,9 +282,10 @@ export const NotificationsCenter = ({
 
             <div className="p-3 border-t border-white/5 bg-black text-center">
               <button
+                type="button"
                 onClick={clearAll}
                 disabled={visible.length === 0}
-                className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors disabled:opacity-40 disabled:hover:text-zinc-500"
+                className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors disabled:opacity-40 disabled:hover:text-zinc-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-sm px-2 py-0.5"
               >
                 Dismiss all
               </button>
