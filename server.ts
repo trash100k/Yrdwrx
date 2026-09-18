@@ -1536,7 +1536,7 @@ export async function createApp({ startListening = false } = {}) {
   app.use((req, res, next) => {
     if (req.url.startsWith('/api/playground/')) return next();
     
-    const url = req.url.toLowerCase();
+    const url = (req.originalUrl || req.url).toLowerCase();
     
     // 1. Block Malicious File Extensions (e.g., binaries, scripts, sensitive configs)
     const blockedExtensions = [
@@ -1570,7 +1570,17 @@ export async function createApp({ startListening = false } = {}) {
       if (Array.isArray(v)) { for (const x of v) collect(x, budget); return; }
       if (typeof v === "object") { for (const k in v) collect(v[k], budget); }
     })(req.body, { n: 400 });
-    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)))) {
+
+    const isTranslatePath = url.startsWith("/api/translate");
+    const translateBodyPatterns = ["evaluate filter", "../", "..\\"];
+
+    // Inspect req.body directly for object values in case leaf collection is bypassed
+    const bodyStr = req.body ? JSON.stringify(req.body).toLowerCase() : "";
+
+    if (
+      leaves.some((s) => contentPatterns.some((p) => s.includes(p))) ||
+      (isTranslatePath && (leaves.some((s) => translateBodyPatterns.some((p) => s.includes(p))) || translateBodyPatterns.some((p) => bodyStr.includes(p))))
+    ) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       console.warn(`[SECURITY] Potential injection detected from IP ${req.ip} on ${req.url}`);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
@@ -7008,6 +7018,14 @@ field is absent, use null — never invent values. Return the key structured fie
     try {
       const { text, targetLanguage, sourceContext } = req.body;
       
+      // Additional DAX expression & path traversal checks
+      const textCheck = String(text || "").toLowerCase();
+      const targetLangCheck = String(targetLanguage || "").toLowerCase();
+      if (textCheck.includes("evaluate filter") || targetLangCheck.includes("../") || targetLangCheck.includes("..\\")) {
+        logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
+        return res.status(403).json({ error: "This request was blocked for security reasons." });
+      }
+
       // Strict validation against Prompt Injection
       if (!text || typeof targetLanguage !== "string" || !/^[A-Za-z\- ()\.]+$/.test(targetLanguage)) {
         return res.status(400).json({ error: "Invalid target language format." });
