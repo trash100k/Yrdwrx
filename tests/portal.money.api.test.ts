@@ -178,6 +178,39 @@ describe('portal money endpoints (mock mode: Supabase faked, Stripe unset)', () 
         .send({ invoiceId: 'inv-1' });
       expect(res.status).toBe(401);
     });
+
+    it('401s on a token signed with an unsupported algorithm (e.g., HS384 algorithm confusion)', async () => {
+      const hs384Token = jwt.sign({ clientId: CLIENT, scope: 'portal' }, JWT_SECRET, { algorithm: 'HS384' });
+      const res = await request(app)
+        .post('/api/portal/checkout')
+        .set('x-portal-token', hs384Token)
+        .send({ invoiceId: 'inv-1' });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // =====================================================================
+  // POST /api/auth/magic-link/validate — magic link validation & JWT security.
+  // =====================================================================
+  describe('POST /api/auth/magic-link/validate', () => {
+    it('rejects tokens signed with unsupported algorithms (e.g. HS384)', async () => {
+      const token = jwt.sign({ clientId: CLIENT, tenantId: 'tenant-1', email: 'test@example.com' }, JWT_SECRET, { algorithm: 'HS384' });
+      const res = await request(app)
+        .post('/api/auth/magic-link/validate')
+        .send({ token });
+      expect(res.status).toBe(401);
+      expect(res.body?.valid).toBe(false);
+    });
+
+    it('validates a legitimate HS256 magic link token successfully', async () => {
+      const token = jwt.sign({ clientId: CLIENT, tenantId: 'tenant-1', email: 'test@example.com' }, JWT_SECRET, { algorithm: 'HS256' });
+      const res = await request(app)
+        .post('/api/auth/magic-link/validate')
+        .send({ token });
+      expect(res.status).toBe(200);
+      expect(res.body?.valid).toBe(true);
+      expect(res.body?.clientId).toBe(CLIENT);
+    });
   });
 
   // =====================================================================
