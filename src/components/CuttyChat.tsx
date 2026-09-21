@@ -495,6 +495,19 @@ export default function BrainChat({
   }, [setIsOpen]);
 
   useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 50);
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setIsOpen(false);
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isOpen, setIsOpen]);
+
+  useEffect(() => {
     if (isOpen && messages.length === 0) {
       const userKey = getCurrentUser()?.email || "anonymous";
       const hasSeen = safeStorage.getItem(`has-seen-walkthrough-${userKey}`);
@@ -991,7 +1004,7 @@ export default function BrainChat({
           <button
             onClick={() => setIsOpen(false)}
             aria-label="Close dialog"
-            className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all active:scale-90"
+            className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 hover:border-white/20 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-all active:scale-90"
           >
             <X size={20} />
           </button>
@@ -1021,19 +1034,19 @@ export default function BrainChat({
                         and the agent actually performs the action. */}
                     <button
                       onClick={() => setQuery("Add a lead named ")}
-                      className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black transition-all"
+                      className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-all"
                     >
                       Add a lead
                     </button>
                     <button
                       onClick={() => setQuery("Schedule a mowing for ")}
-                      className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black transition-all"
+                      className="px-4 py-2 bg-forest-500/10 border border-forest-500/20 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400 hover:bg-forest-500 hover:text-black focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-all"
                     >
                       Schedule a job
                     </button>
                     <button
                       onClick={() => setQuery("Draft an invoice for  for $")}
-                      className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white hover:text-black transition-all"
+                      className="px-4 py-2 bg-white/5 border border-white/10 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white hover:text-black focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-all"
                     >
                       Draft an invoice
                     </button>
@@ -1073,7 +1086,7 @@ export default function BrainChat({
                             key={fu.label}
                             type="button"
                             onClick={() => handleFollowUp(fu)}
-                            className="px-3.5 py-2 rounded-full bg-forest-500/10 border border-forest-500/25 text-[11px] font-black uppercase tracking-widest text-forest-300 hover:bg-forest-500 hover:text-black active:scale-95 transition-all"
+                            className="px-3.5 py-2 rounded-full bg-forest-500/10 border border-forest-500/25 text-[11px] font-black uppercase tracking-widest text-forest-300 hover:bg-forest-500 hover:text-black focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none active:scale-95 transition-all"
                           >
                             {fu.label}
                           </button>
@@ -1107,7 +1120,7 @@ export default function BrainChat({
                       key={label}
                       type="button"
                       onClick={() => handleQuery(undefined, label)}
-                      className="px-5 py-3 rounded-2xl bg-forest-600 hover:bg-forest-500 active:scale-95 text-white text-base font-black transition-all shadow-lg"
+                      className="px-5 py-3 rounded-2xl bg-forest-600 hover:bg-forest-500 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none active:scale-95 text-white text-base font-black transition-all shadow-lg"
                     >
                       {label}
                     </button>
@@ -1119,7 +1132,7 @@ export default function BrainChat({
                 type="button"
                 onClick={toggleListening}
                 aria-label={isListening ? "Stop listening" : "Start listening"}
-                className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${
+                className={`w-14 h-14 rounded-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-all ${
                   isListening
                     ? "bg-red-500 text-white animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.4)]"
                     : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white"
@@ -1136,14 +1149,14 @@ export default function BrainChat({
                   placeholder={
                     isListening ? "Listening..." : "Search for something..."
                   }
-                  className="w-full min-w-0 pl-8 pr-16 py-6 bg-white/[0.03] border border-white/5 rounded-3xl text-base sm:text-sm font-black italic focus:outline-none focus:border-forest-500/30 transition-all text-white placeholder:text-white/50"
+                  className="w-full min-w-0 pl-8 pr-16 py-6 bg-white/[0.03] border border-white/5 rounded-3xl text-base sm:text-sm font-black italic focus:outline-none focus:ring-2 focus:ring-forest-500/50 focus:border-forest-500/30 transition-all text-white placeholder:text-white/50"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
                 <button
                   disabled={!query.trim() || isLoading}
                   aria-label="Send message"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-black hover:scale-105 active:scale-95 transition-all disabled:opacity-30 shadow-2xl"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-black hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-all disabled:opacity-30 shadow-2xl"
                 >
                   <Send size={24} />
                 </button>
@@ -1160,7 +1173,12 @@ export default function BrainChat({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="YardPilot AI Copilot"
+          className="fixed inset-0 z-[250] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md"
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
