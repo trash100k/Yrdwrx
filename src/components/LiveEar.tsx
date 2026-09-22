@@ -546,10 +546,18 @@ let stream;
         </p>
       </div>
       <button
+        type="button"
         onClick={isActive ? stopLiveEar : startLiveEar}
         disabled={isConnecting}
+        aria-label={
+          isConnecting
+            ? "Connecting to voice assistant"
+            : isActive
+              ? "Stop voice assistant"
+              : "Start voice assistant"
+        }
         id="voice-assistant-trigger"
-        className={`w-10 h-10 lg:w-14 lg:h-14 rounded-xl lg:rounded-2xl flex items-center justify-center transition-all duration-300 relative overflow-hidden ${
+        className={`w-10 h-10 lg:w-14 lg:h-14 rounded-xl lg:rounded-2xl flex items-center justify-center transition-all duration-300 relative overflow-hidden focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none ${
           isActive
             ? "bg-forest-500 text-black shadow-[0_0_20px_#10b981]"
             : "bg-white/5 text-forest-400 hover:bg-white/10 border border-forest-500/20"
@@ -599,9 +607,10 @@ let stream;
                 </div>
               </div>
               <button
+                type="button"
                 onClick={stopLiveEar}
                 aria-label="Close Live Ear"
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-colors"
               >
                 <X size={15} />
               </button>
