@@ -170,7 +170,7 @@ export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (acti
                         {isProcessing && <Loader2 className="animate-spin text-forest-500" size={16} />}
                     </div>
                     
-                    <div className="bg-black/50 border border-white/5 rounded-xl p-4 min-h-24 max-h-48 overflow-y-auto">
+                    <div role="status" aria-live="polite" className="bg-black/50 border border-white/5 rounded-xl p-4 min-h-24 max-h-48 overflow-y-auto">
                         <p className="text-sm text-zinc-300 leading-relaxed font-mono">
                             {transcript}
                             <span className="text-zinc-500 italic">{interimTranscript}</span>
@@ -179,7 +179,7 @@ export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (acti
                     </div>
 
                     {lastAction && (
-                        <div className="bg-forest-500/10 border border-forest-500/20 text-forest-400 text-xs p-3 rounded-xl font-bold flex items-center gap-2">
+                        <div role="status" aria-live="polite" className="bg-forest-500/10 border border-forest-500/20 text-forest-400 text-xs p-3 rounded-xl font-bold flex items-center gap-2">
                              <CheckCircle2 size={14} className="shrink-0" />
                              <span className="leading-relaxed">{lastAction}</span>
                         </div>
@@ -188,9 +188,10 @@ export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (acti
                     <div className="flex justify-between items-center text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-2">
                         <span>Auto-processes on pause</span>
                         <button 
+                            type="button"
                             onClick={() => processText(transcript)} 
                             disabled={isProcessing || !transcript.trim()}
-                            className="text-forest-500 disabled:opacity-50 hover:text-forest-400 transition-colors"
+                            className="text-forest-500 disabled:opacity-50 hover:text-forest-400 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded px-1 transition-colors"
                         >
                             Force Submit
                         </button>
@@ -200,8 +201,11 @@ export function HandsFreeDictator({ onProcessAction }: { onProcessAction?: (acti
         </AnimatePresence>
 
         <button
+            type="button"
+            aria-label={isActive ? "Stop hands-free dictation" : "Start hands-free dictation"}
+            aria-expanded={isActive}
             onClick={toggleHandsFree}
-            className={`w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition-all ${
+            className={`w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition-all focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black focus:outline-none ${
                 isActive 
                     ? "bg-red-500 text-white hover:bg-red-600 hover:scale-105" 
                     : "bg-forest-600 text-white hover:bg-forest-500 hover:scale-105"
