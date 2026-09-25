@@ -49,6 +49,9 @@ export default function DisclaimerModal() {
         initial={{ opacity: 0 }} 
         animate={{ opacity: 1 }} 
         exit={{ opacity: 0 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="disclaimer-modal-title"
         className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-6"
       >
         <motion.div 
@@ -61,10 +64,10 @@ export default function DisclaimerModal() {
           
           <div className="flex items-center gap-4 text-forest-500 mb-8 relative z-10">
             <div className="p-4 bg-forest-500/10 rounded-2xl hidden sm:block">
-               <Leaf size={32} />
+               <Leaf size={32} aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">AI Usage Agreement</h2>
+              <h2 id="disclaimer-modal-title" className="text-xl sm:text-2xl font-black uppercase tracking-tight">AI Usage Agreement</h2>
               <p className="text-xs uppercase tracking-widest text-forest-500/60 font-bold mt-1">Empowering Good People</p>
             </div>
           </div>
@@ -93,9 +96,9 @@ export default function DisclaimerModal() {
                 type="checkbox"
                 checked={verified}
                 onChange={(e) => setVerified(e.target.checked)}
-                className="peer appearance-none w-5 h-5 rounded-[4px] border-2 border-forest-500/50 checked:bg-forest-500 checked:border-forest-500 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-forest-500/50"
+                className="peer appearance-none w-5 h-5 rounded-[4px] border-2 border-forest-500/50 checked:bg-forest-500 checked:border-forest-500 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
               />
-              <CheckCircle2 size={12} className="absolute text-black opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" strokeWidth={4} />
+              <CheckCircle2 size={12} className="absolute text-black opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" strokeWidth={4} aria-hidden="true" />
             </div>
             <span className="text-sm font-medium text-white/70 group-hover:text-white transition-colors select-none leading-tight">
               I have read the guidelines and understand that I am ultimately responsible for my results and application safety.
@@ -103,11 +106,12 @@ export default function DisclaimerModal() {
           </label>
 
           <button
+            type="button"
             onClick={handleAccept}
             disabled={loading || !verified}
-            className="w-full mt-6 py-5 bg-forest-500 text-black font-black uppercase tracking-widest rounded-2xl hover:bg-forest-400 transition-all flex items-center justify-center gap-2 relative z-10 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full mt-6 py-5 bg-forest-500 text-black font-black uppercase tracking-widest rounded-2xl hover:bg-forest-400 transition-all flex items-center justify-center gap-2 relative z-10 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
           >
-            {loading ? "Processing..." : <><CheckCircle2 /> Got it, let's get to work</>}
+            {loading ? "Processing..." : <><CheckCircle2 aria-hidden="true" /> Got it, let's get to work</>}
           </button>
         </motion.div>
       </motion.div>
