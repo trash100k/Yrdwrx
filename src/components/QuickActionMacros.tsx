@@ -72,8 +72,10 @@ export default function QuickActionMacros() {
           return (
             <button
               key={a.id}
+              type="button"
+              aria-label={`Quick action: ${a.label}`}
               onClick={() => navigate(a.to)}
-              className={`p-5 border flex flex-col items-center justify-center text-center gap-3 rounded-[20px] transition-all duration-200 ${a.border} hover:border-white/20 hover:bg-white/5 active:scale-95`}
+              className={`p-5 border flex flex-col items-center justify-center text-center gap-3 rounded-[20px] transition-all duration-200 ${a.border} hover:border-white/20 hover:bg-white/5 active:scale-95 focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black focus:outline-none`}
             >
               <div className={`p-2 rounded-lg ${a.bg}`}>
                 <Icon size={24} className={a.color} />

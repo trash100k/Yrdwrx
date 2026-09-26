@@ -25,6 +25,16 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
     setTranscript(hookTranscript);
   }, [hookTranscript]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const toggleRecording = () => {
     if (isRecording) {
       stopListening();
@@ -106,11 +116,21 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
-      <div className="bg-zinc-950 border border-white/5 molten-edge p-10 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
-        <button onClick={onClose} className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="voice-memo-job-title"
+        className="bg-zinc-950 border border-white/5 molten-edge p-10 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative"
+      >
+        <button
+          type="button"
+          aria-label="Close voice memo"
+          onClick={onClose}
+          className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded-lg"
+        >
             <X size={32} />
         </button>
-        <h2 className="text-3xl sm:text-4xl font-black text-white italic uppercase tracking-normal md:tracking-tighter mb-2">
+        <h2 id="voice-memo-job-title" className="text-3xl sm:text-4xl font-black text-white italic uppercase tracking-normal md:tracking-tighter mb-2">
           {job.title}
         </h2>
         <div className="text-white/50 font-bold uppercase tracking-widest text-sm mb-10 flex gap-4">
@@ -138,17 +158,20 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
                 
                 <div className="flex justify-between items-center mt-auto pt-4 border-t border-white/5">
                     <button 
+                        type="button"
+                        aria-label={isRecording ? "Stop voice recording" : "Start voice recording"}
                         onClick={toggleRecording}
-                        className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 text-white animate-bounce' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        className={`w-14 h-14 rounded-full flex items-center justify-center transition-all focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none ${isRecording ? 'bg-red-500 text-white animate-bounce' : 'bg-white/10 text-white hover:bg-white/20'}`}
                     >
                         {isRecording ? <Square size={20} fill="currentColor" /> : <Mic size={24} />}
                     </button>
                     
                     {transcript && !isRecording && (
                         <button 
+                            type="button"
                             onClick={processTranscript}
                             disabled={isProcessing}
-                            className="bg-forest-500 text-black px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-2 hover:bg-forest-400 transition-colors disabled:opacity-50"
+                            className="bg-forest-500 text-black px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-2 hover:bg-forest-400 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
                         >
                             {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
                             Process Memo
@@ -191,14 +214,23 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
                       <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border ${item.completed ? 'bg-forest-500/10 border-forest-500/20' : 'bg-black/40 border-white/5'}`}>
                           <div className="flex items-center gap-4">
                               <button 
+                                type="button"
+                                role="checkbox"
+                                aria-checked={item.completed}
+                                aria-label={item.text}
                                 onClick={() => toggleChecklistItem(item.id)}
-                                className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${item.completed ? 'bg-forest-500 border-forest-500 text-black' : 'border-white/30 text-transparent'}`}
+                                className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none ${item.completed ? 'bg-forest-500 border-forest-500 text-black' : 'border-white/30 text-transparent'}`}
                               >
                                   ✓
                               </button>
                               <span className={`text-sm font-medium ${item.completed ? 'text-white/40 line-through' : 'text-white'}`}>{item.text}</span>
                           </div>
-                          <button onClick={() => removeChecklistItem(item.id)} className="text-white/20 hover:text-red-400 transition-colors">
+                          <button
+                            type="button"
+                            aria-label={`Remove "${item.text}" from checklist`}
+                            onClick={() => removeChecklistItem(item.id)}
+                            className="text-white/20 hover:text-red-400 transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded"
+                          >
                               <X size={16} />
                           </button>
                       </div>
@@ -210,20 +242,23 @@ export function VoiceMemoJobModal({ job, onClose }: Props) {
 
         <div className="flex justify-end items-center gap-4 mt-12 pt-8 border-t border-white/10">
           <button
+            type="button"
             onClick={handleDeleteJob}
-            className="mr-auto flex items-center gap-2 px-6 py-4 text-sm font-black text-red-400/70 hover:text-red-400 uppercase tracking-widest transition-colors"
+            className="mr-auto flex items-center gap-2 px-6 py-4 text-sm font-black text-red-400/70 hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded-xl"
           >
             <Trash2 size={16} /> Delete Job
           </button>
           <button
+            type="button"
             onClick={onClose}
-            className="px-8 py-4 text-sm font-black text-white/40 hover:text-white uppercase tracking-widest transition-colors"
+            className="px-8 py-4 text-sm font-black text-white/40 hover:text-white uppercase tracking-widest transition-colors focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none rounded-xl"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={saveJobData}
-            className="px-8 py-4 bg-white text-black rounded-2xl text-sm font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-transform"
+            className="px-8 py-4 bg-white text-black rounded-2xl text-sm font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-transform focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
           >
             Save Job
           </button>
