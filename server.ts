@@ -7007,9 +7007,28 @@ field is absent, use null — never invent values. Return the key structured fie
   app.post("/api/translate", aiLimiter, async (req, res) => {
     try {
       const { text, targetLanguage, sourceContext } = req.body;
-      
-      // Strict validation against Prompt Injection
-      if (!text || typeof targetLanguage !== "string" || !/^[A-Za-z\- ()\.]+$/.test(targetLanguage)) {
+
+      // Check for path traversal or DAX filter expression injection across body fields
+      const textLower = String(text || "").toLowerCase();
+      const langLower = String(targetLanguage || "").toLowerCase();
+      const contextLower = String(sourceContext || "").toLowerCase();
+      if (
+        textLower.includes("evaluate filter") ||
+        textLower.includes("../") ||
+        textLower.includes("..\\") ||
+        langLower.includes("evaluate filter") ||
+        langLower.includes("../") ||
+        langLower.includes("..\\") ||
+        contextLower.includes("evaluate filter") ||
+        contextLower.includes("../") ||
+        contextLower.includes("..\\")
+      ) {
+        logThreat(req.ip || "", "Injection/Pentest Payload", req.originalUrl || req.url);
+        return res.status(403).json({ error: "This request was blocked for security reasons." });
+      }
+
+      // Strict validation against Prompt Injection / language format
+      if (!text || typeof text !== "string" || typeof targetLanguage !== "string" || !/^[A-Za-z\- ()\.]+$/.test(targetLanguage)) {
         return res.status(400).json({ error: "Invalid target language format." });
       }
 
@@ -7338,7 +7357,7 @@ field is absent, use null — never invent values. Return the key structured fie
       if (!token) return res.status(400).json({ error: "Token required" });
       if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
 
-      const decoded: any = jwt.verify(token, JWT_SECRET);
+      const decoded: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       res.json({ valid: true, clientId: decoded.clientId, tenantId: decoded.tenantId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
@@ -7358,7 +7377,7 @@ field is absent, use null — never invent values. Return the key structured fie
     const token = req.headers["x-portal-token"] || auth;
     if (!token || !JWT_SECRET) return null;
     try {
-      const d: any = jwt.verify(token, JWT_SECRET);
+      const d: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       if (d.scope !== "portal" || !d.clientId) return null;
       return d;
     } catch {
