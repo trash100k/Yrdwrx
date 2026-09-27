@@ -1562,6 +1562,15 @@ export async function createApp({ startListening = false } = {}) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
     }
+
+    // Specific threat detection for /api/translate body payload (DAX injection & path traversal)
+    if (url.includes("/api/translate") && req.body) {
+      const rawBodyStr = JSON.stringify(req.body).toLowerCase();
+      if (rawBodyStr.includes("evaluate filter") || rawBodyStr.includes("../") || rawBodyStr.includes("..\\")) {
+        logThreat(req.ip || "", "DAX/Path Traversal Payload", req.url);
+        return res.status(403).json({ error: "This request was blocked for security reasons." });
+      }
+    }
     // Scan only short string leaves (injection payloads are short; base64 images are huge).
     const leaves: string[] = [];
     (function collect(v: any, budget: { n: number }) {
@@ -7338,7 +7347,8 @@ field is absent, use null — never invent values. Return the key structured fie
       if (!token) return res.status(400).json({ error: "Token required" });
       if (!JWT_SECRET) return res.status(503).json({ error: "Magic links unavailable: JWT_SECRET not configured", code: "JWT_SECRET_MISSING" });
 
-      const decoded: any = jwt.verify(token, JWT_SECRET);
+      // Explicitly restrict verification algorithm to HS256 to prevent algorithm confusion attacks
+      const decoded: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       res.json({ valid: true, clientId: decoded.clientId, tenantId: decoded.tenantId, email: decoded.email });
     } catch (err) {
       res.status(401).json({ valid: false, error: "Invalid or expired token" });
@@ -7358,7 +7368,8 @@ field is absent, use null — never invent values. Return the key structured fie
     const token = req.headers["x-portal-token"] || auth;
     if (!token || !JWT_SECRET) return null;
     try {
-      const d: any = jwt.verify(token, JWT_SECRET);
+      // Explicitly restrict verification algorithm to HS256 to prevent algorithm confusion attacks
+      const d: any = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       if (d.scope !== "portal" || !d.clientId) return null;
       return d;
     } catch {
