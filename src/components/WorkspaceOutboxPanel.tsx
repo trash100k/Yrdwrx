@@ -105,16 +105,20 @@ export function WorkspaceOutboxPanel({ onClose }: { onClose: () => void }) {
             <button
               onClick={sendAll}
               disabled={sendingAll}
-              className="flex items-center gap-1 text-[10px] text-forest-400 hover:text-forest-300 disabled:opacity-50 font-bold uppercase tracking-widest px-2"
+              className="flex items-center gap-1 text-[10px] text-forest-400 hover:text-forest-300 disabled:opacity-50 font-bold uppercase tracking-widest px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg"
             >
               {sendingAll ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
               Send All
             </button>
           )}
           {outbox.length > 0 && (
-            <button onClick={clearOutbox} className="text-[10px] text-rose-400 hover:text-rose-300 font-bold uppercase tracking-widest px-2">Clear</button>
+            <button onClick={clearOutbox} className="text-[10px] text-rose-400 hover:text-rose-300 font-bold uppercase tracking-widest px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg">Clear</button>
           )}
-          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-lg text-zinc-400 transition-colors">
+          <button
+            onClick={onClose}
+            aria-label="Close outbox panel"
+            className="p-1 hover:bg-white/10 rounded-lg text-zinc-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
+          >
             <X size={16} />
           </button>
         </div>
@@ -158,7 +162,7 @@ export function WorkspaceOutboxPanel({ onClose }: { onClose: () => void }) {
                       <button
                         onClick={() => sendOne(item)}
                         disabled={isSending}
-                        className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-forest-300 hover:text-white bg-forest-500/10 hover:bg-forest-500/20 disabled:opacity-50 px-2.5 py-1 rounded-lg transition-colors"
+                        className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-forest-300 hover:text-white bg-forest-500/10 hover:bg-forest-500/20 disabled:opacity-50 px-2.5 py-1 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                       >
                         {isSending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
                         {isSending ? "Sending" : "Send"}
