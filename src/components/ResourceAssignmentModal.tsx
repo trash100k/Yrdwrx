@@ -23,13 +23,22 @@ export const ResourceAssignmentModal = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
     // RLS scopes inventory to the caller's tenant; subscribe pushes a fresh full list on any change.
     const unsubscribe = inventoryRepo.subscribe((rows) => {
       const docs = (rows || []).map((r: any) => ({ ...(r.data || {}), ...r }) as InventoryItem);
       setInventory(docs);
     });
-    return () => unsubscribe();
-  }, [isOpen]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      unsubscribe();
+    };
+  }, [isOpen, onClose]);
 
   const activeCrew = crews.find(c => c.id === selectedCrewRef);
 
@@ -114,11 +123,16 @@ export const ResourceAssignmentModal = ({
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resource-assignment-title"
         className="bg-zinc-900 border border-white/10 w-full max-w-4xl rounded-[28px] overflow-hidden shadow-2xl p-6 sm:p-10 text-white relative"
       >
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-6 right-6 p-2 text-zinc-400 hover:text-white rounded-full bg-white/5 transition-all"
+          aria-label="Close equipment assignment modal"
+          className="absolute top-6 right-6 p-2 text-zinc-400 hover:text-white rounded-full bg-white/5 transition-all focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
         >
           <X size={16} />
         </button>
@@ -127,7 +141,7 @@ export const ResourceAssignmentModal = ({
           <span className="text-[10px] bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-full border border-blue-500/20 font-black uppercase tracking-widest flex items-center gap-2 w-fit">
             <Package size={14} /> Resource & Asset Tracking
           </span>
-          <h3 className="text-2xl font-black italic uppercase tracking-tight text-white mt-4">
+          <h3 id="resource-assignment-title" className="text-2xl font-black italic uppercase tracking-tight text-white mt-4">
             Equipment Assignment
           </h3>
           <p className="text-xs text-zinc-400 mt-2">
@@ -235,8 +249,10 @@ export const ResourceAssignmentModal = ({
                             <p className="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Job: {res.job}</p>
                          </div>
                          <button 
+                           type="button"
                            onClick={() => handleReturn(res.id, res.itemId, res.quantity)}
-                           className="bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-400 border border-white/10 rounded-lg p-2 transition-colors opacity-0 group-hover:opacity-100"
+                           aria-label={`Return ${res.name || "asset"} to inventory`}
+                           className="bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-400 border border-white/10 rounded-lg p-2 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none"
                            title="Return to Inventory"
                          >
                             <Trash2 size={14} />
