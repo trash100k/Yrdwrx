@@ -171,7 +171,14 @@ export function CsvImportModal({
           <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} className="hidden" id="csv-import-file" />
           <label
             htmlFor="csv-import-file"
-            className="mx-auto flex flex-col items-center gap-3 max-w-md p-10 border-2 border-dashed border-white/10 rounded-2xl cursor-pointer hover:border-forest-500/40 hover:bg-forest-500/5 transition-all"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                fileRef.current?.click();
+              }
+            }}
+            className="mx-auto flex flex-col items-center gap-3 max-w-md p-10 border-2 border-dashed border-white/10 rounded-2xl cursor-pointer hover:border-forest-500/40 hover:bg-forest-500/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 transition-all"
           >
             <Upload size={32} className="text-forest-400" />
             <span className="font-bold text-white">Choose a CSV file</span>
@@ -204,9 +211,10 @@ export function CsvImportModal({
                     </span>
                   </div>
                   <select
+                    aria-label={`Map CSV column ${h}`}
                     value={mapping[h] || ""}
                     onChange={(e) => setMapping((m) => ({ ...m, [h]: e.target.value }))}
-                    className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-forest-500/50 outline-none"
+                    className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                   >
                     <option value="">— Ignore —</option>
                     {fields.map((f) => (
@@ -263,9 +271,10 @@ export function CsvImportModal({
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-[10px] text-amber-400/80 truncate max-w-[220px]" title={d.reason}>{d.reason}</span>
                         <select
+                          aria-label={`Resolution action for ${matchConfig.displayName(d.row)}`}
                           value={resolutions[d.index] || reviewDefault(d)}
                           onChange={(e) => setResolutions((r) => ({ ...r, [d.index]: e.target.value }))}
-                          className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+                          className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                         >
                           {REVIEW_RESOLUTIONS.filter((o) => o.value !== "update" || d.matchId).map((o) => (
                             <option key={o.value} value={o.value}>{o.label}</option>
