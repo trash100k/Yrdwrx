@@ -53,7 +53,7 @@ export default function QuickActionMacros() {
   return (
     <div className="bg-zinc-950 border border-white/5 molten-edge shadow-md p-6 sm:p-8 rounded-[24px] relative overflow-hidden">
       <header className="mb-6 flex items-center gap-4">
-        <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-zinc-300">
+        <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-zinc-300" aria-hidden="true">
           <Zap size={20} />
         </div>
         <div>
@@ -72,13 +72,14 @@ export default function QuickActionMacros() {
           return (
             <button
               key={a.id}
+              type="button"
               onClick={() => navigate(a.to)}
-              className={`p-5 border flex flex-col items-center justify-center text-center gap-3 rounded-[20px] transition-all duration-200 ${a.border} hover:border-white/20 hover:bg-white/5 active:scale-95`}
+              className={`p-5 border flex flex-col items-center justify-center text-center gap-3 rounded-[20px] transition-all duration-200 ${a.border} hover:border-white/20 hover:bg-white/5 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black`}
             >
-              <div className={`p-2 rounded-lg ${a.bg}`}>
+              <div className={`p-2 rounded-lg ${a.bg}`} aria-hidden="true">
                 <Icon size={24} className={a.color} />
               </div>
-              <h3 className="text-sm font-bold text-white leading-snug">{a.label}</h3>
+              <span className="text-sm font-bold text-white leading-snug">{a.label}</span>
             </button>
           );
         })}
