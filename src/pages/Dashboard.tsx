@@ -1831,6 +1831,8 @@ export default function Dashboard() {
             weather={weather}
           />
 
+          <QuickActionMacros />
+
           {/* ACTIVE DRAWERS DISPLAYS */}
           <AnimatePresence mode="wait">
             {activeDrawer === "jobs" && (
