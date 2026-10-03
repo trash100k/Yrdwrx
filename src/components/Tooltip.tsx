@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useId } from "react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface TooltipProps {
@@ -6,11 +6,14 @@ interface TooltipProps {
   children: React.ReactNode;
   position?: "top" | "bottom" | "left" | "right";
   delay?: number;
+  id?: string;
 }
 
-export function Tooltip({ content, children, position = "top", delay = 300 }: TooltipProps) {
+export function Tooltip({ content, children, position = "top", delay = 300, id: customId }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
+  const generatedId = useId();
+  const tooltipId = customId || `tooltip-${generatedId}`;
 
   const handleMouseEnter = () => {
     const id = setTimeout(() => setIsVisible(true), delay);
@@ -21,6 +24,18 @@ export function Tooltip({ content, children, position = "top", delay = 300 }: To
     if (timeoutId) clearTimeout(timeoutId);
     setIsVisible(false);
   };
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (timeoutId) clearTimeout(timeoutId);
+        setIsVisible(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isVisible, timeoutId]);
 
   const getPositionClasses = () => {
     switch (position) {
@@ -49,6 +64,8 @@ export function Tooltip({ content, children, position = "top", delay = 300 }: To
       <AnimatePresence>
         {isVisible && (
           <motion.div
+            id={tooltipId}
+            role="tooltip"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
