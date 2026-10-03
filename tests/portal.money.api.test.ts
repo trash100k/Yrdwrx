@@ -178,6 +178,23 @@ describe('portal money endpoints (mock mode: Supabase faked, Stripe unset)', () 
         .send({ invoiceId: 'inv-1' });
       expect(res.status).toBe(401);
     });
+
+    it('rejects tokens signed with unsupported algorithms (e.g. HS384 algorithm mismatch)', async () => {
+      const wrongAlg = jwt.sign({ clientId: CLIENT, scope: 'portal' }, JWT_SECRET, { algorithm: 'HS384', expiresIn: '1h' });
+
+      // Test portal endpoint
+      const portalRes = await request(app)
+        .get('/api/portal/data')
+        .set('x-portal-token', wrongAlg);
+      expect(portalRes.status).toBe(401);
+
+      // Test magic-link validate endpoint
+      const magicRes = await request(app)
+        .post('/api/auth/magic-link/validate')
+        .send({ token: wrongAlg });
+      expect(magicRes.status).toBe(401);
+      expect(magicRes.body?.valid).toBe(false);
+    });
   });
 
   // =====================================================================
