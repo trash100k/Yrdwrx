@@ -254,28 +254,37 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search tasks..."
-              className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-sm text-white placeholder-white/40 outline-none focus:border-forest-500/50 transition-colors"
+              aria-label="Search tasks"
+              className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-sm text-white placeholder-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 transition-colors"
             />
           </div>
-          <div className="bg-black border border-white/10 rounded-xl p-1 flex">
+          <div className="bg-black border border-white/10 rounded-xl p-1 flex" role="tablist" aria-label="Task view mode">
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "list"}
               onClick={() => setActiveView("list")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${activeView === "list" ? "bg-white/10 text-white" : "text-white/40 hover:text-white"}`}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 ${activeView === "list" ? "bg-white/10 text-white" : "text-white/40 hover:text-white"}`}
             >
               List
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "calendar"}
               onClick={() => setActiveView("calendar")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${activeView === "calendar" ? "bg-white/10 text-white" : "text-white/40 hover:text-white"}`}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 ${activeView === "calendar" ? "bg-white/10 text-white" : "text-white/40 hover:text-white"}`}
             >
               Calendar
             </button>
           </div>
           <button
+            type="button"
             onClick={openNew}
-            className="bg-white text-black font-black uppercase tracking-widest text-xs px-6 py-3 rounded-xl hover:bg-white/90 transition-colors shadow-lg active:scale-95 inline-flex items-center gap-2"
+            aria-label="Create new task"
+            className="bg-white text-black font-black uppercase tracking-widest text-xs px-6 py-3 rounded-xl hover:bg-white/90 transition-colors shadow-lg active:scale-95 inline-flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
           >
-            <Plus size={14} /> New Task
+            <Plus size={14} aria-hidden="true" /> New Task
           </button>
         </div>
       </div>
@@ -287,10 +296,10 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
 
             {!loading && pendingTasks.length === 0 && (
               <div className="bg-zinc-900 border border-dashed border-white/10 rounded-2xl p-10 flex flex-col items-center justify-center text-center">
-                <ListTodo size={40} className="text-white/10 mb-4" />
+                <ListTodo size={40} className="text-white/10 mb-4" aria-hidden="true" />
                 <p className="text-sm font-bold text-white/70 mb-1">No open tasks</p>
                 <p className="text-xs text-white/40 mb-6">Create a task to track follow-ups and action items.</p>
-                <Button variant="forest" size="sm" leftIcon={<Plus size={14} />} onClick={openNew}>
+                <Button variant="forest" size="sm" leftIcon={<Plus size={14} aria-hidden="true" />} onClick={openNew}>
                   New Task
                 </Button>
               </div>
@@ -304,14 +313,16 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
                 <div
                   key={task.id}
                   onClick={() => openEdit(task)}
-                  className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex items-center gap-4 group hover:border-white/20 transition-colors cursor-pointer"
+                  className="bg-zinc-900 border border-white/5 p-5 rounded-2xl flex items-center gap-4 group hover:border-white/20 transition-colors cursor-pointer focus-within:ring-2 focus-within:ring-forest-500"
                 >
                   <button
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); toggleComplete(task); }}
                     title="Mark complete"
-                    className="w-6 h-6 rounded-md border-2 border-white/20 flex items-center justify-center shrink-0 hover:border-forest-500 hover:bg-forest-500/20 group-hover:bg-white/5 transition-all text-transparent hover:text-forest-500"
+                    aria-label={`Mark task "${task.title}" as complete`}
+                    className="w-6 h-6 rounded-md border-2 border-white/20 flex items-center justify-center shrink-0 hover:border-forest-500 hover:bg-forest-500/20 group-hover:bg-white/5 transition-all text-transparent hover:text-forest-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                   >
-                    <CheckSquare size={14} />
+                    <CheckSquare size={14} aria-hidden="true" />
                   </button>
                   <div className="flex-1 w-0">
                     <h4 className="font-bold text-white text-sm truncate">{task.title}</h4>
@@ -322,21 +333,25 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
                   <div className="flex items-center gap-3 shrink-0">
                     <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-widest border ${pri.cls}`}>{pri.label}</span>
                     <div className={`flex items-center gap-1 text-xs py-1 px-3 rounded-lg border ${overdue ? "text-rose-400 bg-rose-500/10 border-rose-500/20" : "text-white/40 bg-black border-white/5"}`}>
-                      <Clock size={12} /> {formatDue(task.due_date)}
+                      <Clock size={12} aria-hidden="true" /> {formatDue(task.due_date)}
                     </div>
                     <button
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); openEdit(task); }}
                       title="Edit"
-                      className="p-2 rounded-lg text-white/30 hover:text-white hover:bg-white/5 transition-colors"
+                      aria-label={`Edit task "${task.title}"`}
+                      className="p-2 rounded-lg text-white/30 hover:text-white hover:bg-white/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                     >
-                      <Pencil size={14} />
+                      <Pencil size={14} aria-hidden="true" />
                     </button>
                     <button
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); setDeleteTarget(task); }}
                       title="Delete"
-                      className="p-2 rounded-lg text-white/30 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      aria-label={`Delete task "${task.title}"`}
+                      className="p-2 rounded-lg text-white/30 hover:text-rose-400 hover:bg-rose-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -352,11 +367,13 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
               return (
                 <div key={task.id} className="bg-zinc-900/50 border border-white/5 p-5 rounded-2xl flex items-center gap-4 group">
                   <button
+                    type="button"
                     onClick={() => toggleComplete(task)}
                     title="Reopen task"
-                    className="w-6 h-6 rounded-md bg-forest-500/20 text-forest-500 flex items-center justify-center shrink-0 hover:bg-forest-500/30 transition-colors"
+                    aria-label={`Reopen task "${task.title}"`}
+                    className="w-6 h-6 rounded-md bg-forest-500/20 text-forest-500 flex items-center justify-center shrink-0 hover:bg-forest-500/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                   >
-                    <CheckSquare size={14} />
+                    <CheckSquare size={14} aria-hidden="true" />
                   </button>
                   <div className="flex-1 w-0 opacity-60">
                     <h4 className="font-bold text-white text-sm truncate line-through decoration-white/30">{task.title}</h4>
@@ -365,11 +382,13 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
                   <div className="flex items-center gap-2 shrink-0">
                     <div className="flex items-center gap-1 text-xs text-forest-400 bg-forest-500/10 py-1 px-3 rounded-lg border border-forest-500/20">Done</div>
                     <button
+                      type="button"
                       onClick={() => setDeleteTarget(task)}
                       title="Delete"
-                      className="p-2 rounded-lg text-white/30 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      aria-label={`Delete task "${task.title}"`}
+                      className="p-2 rounded-lg text-white/30 hover:text-rose-400 hover:bg-rose-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -420,25 +439,31 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
         <div className="flex-1 bg-zinc-900 rounded-3xl border border-white/5 mt-4 p-6 flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-black text-white uppercase tracking-widest flex items-center gap-2">
-              <Calendar size={18} className="text-purple-400" />
+              <Calendar size={18} className="text-purple-400" aria-hidden="true" />
               {calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
             </h3>
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => shiftMonth(-1)}
-                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors"
+                aria-label="Previous month"
+                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
               >
                 ‹ Prev
               </button>
               <button
+                type="button"
                 onClick={() => setCalendarMonth(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })}
-                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors"
+                aria-label="Current month"
+                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
               >
                 Today
               </button>
               <button
+                type="button"
                 onClick={() => shiftMonth(1)}
-                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors"
+                aria-label="Next month"
+                className="px-3 py-2 rounded-lg text-xs font-bold text-white/60 hover:text-white bg-black border border-white/10 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
               >
                 Next ›
               </button>
@@ -475,10 +500,12 @@ export const CRMTasks = ({ customers = [] }: { customers: Customer[] }) => {
                       const done = t.status === "completed";
                       return (
                         <button
+                          type="button"
                           key={t.id}
                           onClick={() => openEdit(t)}
                           title={t.title}
-                          className={`text-left text-[10px] font-bold truncate px-1.5 py-0.5 rounded border transition-colors ${pri.cls} ${done ? "line-through opacity-50" : "hover:brightness-125"}`}
+                          aria-label={`Edit task "${t.title}"`}
+                          className={`text-left text-[10px] font-bold truncate px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 ${pri.cls} ${done ? "line-through opacity-50" : "hover:brightness-125"}`}
                         >
                           {t.title}
                         </button>
