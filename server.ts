@@ -1576,6 +1576,17 @@ export async function createApp({ startListening = false } = {}) {
       return res.status(403).json({ error: "This request was blocked for security reasons." });
     }
 
+    // Target-specific checks for /api/translate (e.g. DAX expressions and body path traversal)
+    // while preserving compatibility with normal user notes / fuzz tests on other endpoints.
+    const fullUrl = (req.originalUrl || req.url).toLowerCase();
+    if (fullUrl.includes("/api/translate")) {
+      const translatePatterns = ["evaluate filter", "../", "..\\"];
+      if (leaves.some((s) => translatePatterns.some((p) => s.includes(p)))) {
+        logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
+        return res.status(403).json({ error: "This request was blocked for security reasons." });
+      }
+    }
+
     // 3. Strict Request Origin & Lineage enforcement
     if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       const contentType = req.headers['content-type'];
