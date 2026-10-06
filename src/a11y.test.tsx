@@ -315,7 +315,7 @@ const SCREENS: Screen[] = [
   // P2 a11y debt (see TEST_GAPS.md + the smoke pass), and the async render makes a strict whole-
   // screen gate flaky (passes local, 3 criticals in CI). Skip the strict gate here; the debt is
   // tracked as a P2 fix (label the Settings child-section controls). The clean screens stay gated.
-  { name: "Settings", el: <Settings />, wrap: true, bug: "button-name/label/select-name (critical): unlabeled controls in Settings child sections — known P2 a11y debt" },
+  { name: "Settings", el: <Settings />, wrap: true },
   // ClientPortal is a self-contained public screen (no app session / providers);
   // with no capability token it renders its "Secure Portal Locked" state.
   { name: "ClientPortal", el: <ClientPortal />, wrap: false },

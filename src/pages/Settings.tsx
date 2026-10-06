@@ -41,6 +41,7 @@ function BookingLinkSection({ tenantId }: { tenantId?: string }) {
         <input
           readOnly
           value={link || "Sign in to a tenant to generate your link"}
+          aria-label="Shareable online booking link"
           className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/80 font-mono truncate"
         />
         <button
@@ -720,7 +721,10 @@ export default function Settings() {
                   <button
                     onClick={() => handleToggle(f.id, isEnabled)}
                     disabled={updating}
-                    className={`text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words focus:outline-none transition-colors ${
+                    role="switch"
+                    aria-checked={isEnabled}
+                    aria-label={`Toggle ${f.label}`}
+                    className={`text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg transition-colors ${
                       isEnabled ? "text-forest-500" : "text-white/20"
                     }`}
                   >
@@ -744,7 +748,10 @@ export default function Settings() {
                             <button
                               onClick={() => handleToggle(sub.id, isSubEnabled, true)}
                               disabled={updating}
-                              className={`text-3xl sm:text-4xl focus:outline-none transition-colors ${
+                              role="switch"
+                              aria-checked={isSubEnabled}
+                              aria-label={`Toggle ${sub.label}`}
+                              className={`text-3xl sm:text-4xl focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg transition-colors ${
                                 isSubEnabled ? "text-forest-500" : "text-white/20"
                               }`}
                             >

@@ -128,7 +128,11 @@ export function ServicePricingCatalog() {
                            placeholder="0.00"
                         />
                       </div>
-                      <button onClick={() => removeService(category.name, service.name)} className="p-1 opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-all rounded-md">
+                      <button
+                        onClick={() => removeService(category.name, service.name)}
+                        aria-label={`Remove ${service.name}`}
+                        className="p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-zinc-500 hover:text-red-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 transition-all rounded-md"
+                      >
                         <X size={14} />
                       </button>
                     </div>
@@ -144,6 +148,7 @@ export function ServicePricingCatalog() {
              <select 
                value={newServiceCategory}
                onChange={(e) => setNewServiceCategory(e.target.value)}
+               aria-label="Select category for new service"
                className="w-full sm:w-48 bg-black border border-white/10 rounded-xl p-2.5 text-sm text-zinc-200 focus:outline-none focus:border-forest-500 shrink-0"
              >
                {catalog.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
