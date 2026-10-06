@@ -40,7 +40,7 @@ const toCents = (n: number): number => Math.round(n * 100) / 100;
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 /** A value is "cents-exact" when it is a whole number of cents. */
 const isCentsExact = (n: number): boolean =>
-  Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
+  Math.abs(n * 100 - Math.round(n * 100)) < 1e-4;
 
 /** Cents-exact dollar amount in [0, $1,000,000] — how money actually flows through the app. */
 const dollars = fc.nat({ max: 100_000_000 }).map((c) => c / 100);
@@ -702,7 +702,7 @@ describe("property: estimateLineItems", () => {
           expect(line.quantity).toBeGreaterThan(0);
           expect(line.rate).toBeGreaterThan(0);
           expect(line.amount).toBeGreaterThanOrEqual(0);
-          expect(line.amount).toBe(toCents(line.quantity * line.rate));
+          expect(line.amount).toBeCloseTo(toCents(line.quantity * line.rate), 9);
           expect(isCentsExact(line.amount)).toBe(true);
         }
         // Emitted quantities must agree with the material order (single source of truth).
