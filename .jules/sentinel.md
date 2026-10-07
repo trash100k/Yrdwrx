@@ -2,3 +2,8 @@
 **Vulnerability:** Server-Side Request Forgery (SSRF) via user-provided URLs in the website scraping endpoint.
 **Learning:** The application was fetching arbitrary user-provided URLs without validation, allowing potential access to internal network resources or cloud metadata services. Simple hostname blacklisting is insufficient as it can be bypassed via DNS entries pointing to local IPs or redirect chains.
 **Prevention:** Always validate user-provided URLs using a robust utility that resolves the hostname via DNS and checks the resolved IP against private, loopback, and link-local ranges. Additionally, use 'redirect: "error"' in fetch calls to prevent redirect-based SSRF bypasses.
+
+## 2026-10-07 - Explicit JWT Algorithm Restriction
+**Vulnerability:** JWT Algorithm Confusion / Signature Bypass Risk in magic-link and portal capability token verification.
+**Learning:** `jwt.verify` without an explicit `algorithms` constraint relies on token header parameters (or default assumptions), which can open up algorithm confusion vulnerabilities if a token is modified or re-signed using an unexpected algorithm.
+**Prevention:** Always pass explicit verification options such as `{ algorithms: ["HS256"] }` when calling `jwt.verify` on symmetric secret tokens to enforce that only approved signing algorithms are accepted.
