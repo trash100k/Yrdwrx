@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { jobsRepo } from "../lib/repos";
 import { InventoryItem, Job } from "../types";
-import { TrendingDown, Activity, AlertTriangle, Package2 } from "lucide-react";
+import { TrendingDown, Activity, AlertTriangle, Package2, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface InventoryForecastProps {
@@ -13,6 +13,16 @@ interface InventoryForecastProps {
 export default function InventoryForecast({ items, onClose }: InventoryForecastProps) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -96,18 +106,23 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
+      role="region"
+      aria-label="AI Stock Forecast"
       className="bg-black/80 backdrop-blur-3xl border border-white/5 rounded-2xl p-8 lg:p-12 shadow-2xl relative"
     >
       <button 
+        type="button"
         onClick={onClose}
-        className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors"
+        aria-label="Close inventory forecast"
+        className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg p-1.5 flex items-center gap-1 text-sm font-bold"
       >
-        Close Forecast
+        <X size={16} aria-hidden="true" />
+        <span>Close Forecast</span>
       </button>
 
       <div className="flex items-center gap-4 mb-10">
         <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center text-black">
-          <TrendingDown size={32} />
+          <TrendingDown size={32} aria-hidden="true" />
         </div>
         <div>
           <h2 className="text-3xl sm:text-4xl font-black text-white italic uppercase tracking-normal md:tracking-tighter">
@@ -121,7 +136,7 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
 
       {loading ? (
         <div className="h-64 flex items-center justify-center">
-          <Activity size={32} className="text-white/40 animate-pulse" />
+          <Activity size={32} className="text-white/40 animate-pulse" aria-hidden="true" />
         </div>
       ) : (
         <div className="space-y-4 max-h-[60vh] overflow-y-auto px-2 custom-scrollbar">
@@ -135,6 +150,7 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
               const onHand = Number(item.quantity ?? item.stock ?? 0);
               const percentUsed = onHand > 0 ? (forecast.used / (onHand + forecast.used)) * 100 : 100;
               const remaining = onHand - forecast.used;
+              const usagePercent = Math.round(Math.min(100, (forecast.used / (onHand === 0 ? 1 : onHand)) * 100));
 
               return (
                 <div 
@@ -151,7 +167,7 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
                       forecast.runout ? "bg-red-500 text-white" : forecast.used > 0 ? "bg-celtic-500 text-white" : "bg-white/10 text-white/50"
                     }`}>
-                      {forecast.runout ? <AlertTriangle size={24} /> : <Package2 size={24} />}
+                      {forecast.runout ? <AlertTriangle size={24} aria-hidden="true" /> : <Package2 size={24} aria-hidden="true" />}
                     </div>
                     <div>
                       <h3 className="text-xl font-black text-white uppercase tracking-wider">{item.name}</h3>
@@ -166,10 +182,17 @@ export default function InventoryForecast({ items, onClose }: InventoryForecastP
                       <span>Projected Need</span>
                       <span className={forecast.runout ? "text-red-400" : "text-white"}>{forecast.used} needed</span>
                     </div>
-                    <div className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/10">
+                    <div
+                      className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/10"
+                      role="progressbar"
+                      aria-valuenow={usagePercent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`Projected stock usage for ${item.name}`}
+                    >
                       <div
                         className={`h-full rounded-full ${forecast.runout ? "bg-red-500" : "bg-celtic-500"}`}
-                        style={{ width: `${Math.min(100, (forecast.used / (onHand === 0 ? 1 : onHand)) * 100)}%` }}
+                        style={{ width: `${usagePercent}%` }}
                       />
                     </div>
                   </div>
