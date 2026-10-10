@@ -1534,9 +1534,10 @@ export async function createApp({ startListening = false } = {}) {
 
   // Enterprise Governance, Data Lineage & Pentesting Protection Middleware
   app.use((req, res, next) => {
-    if (req.url.startsWith('/api/playground/')) return next();
+    const rawUrl = req.originalUrl || req.url || "";
+    if (rawUrl.startsWith('/api/playground/')) return next();
     
-    const url = req.url.toLowerCase();
+    const url = rawUrl.toLowerCase();
     
     // 1. Block Malicious File Extensions (e.g., binaries, scripts, sensitive configs)
     const blockedExtensions = [
@@ -1570,7 +1571,12 @@ export async function createApp({ startListening = false } = {}) {
       if (Array.isArray(v)) { for (const x of v) collect(x, budget); return; }
       if (typeof v === "object") { for (const k in v) collect(v[k], budget); }
     })(req.body, { n: 400 });
-    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)))) {
+
+    const isTranslateRoute = url.startsWith("/api/translate");
+    const translatePatterns = isTranslateRoute ? ["evaluate filter", "../", "..\\"] : [];
+    const activeContentPatterns = [...contentPatterns, ...translatePatterns];
+
+    if (leaves.some((s) => activeContentPatterns.some((p) => s.includes(p)))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       console.warn(`[SECURITY] Potential injection detected from IP ${req.ip} on ${req.url}`);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
