@@ -107,8 +107,9 @@ export function IntegrationSettings() {
 
       <div className="space-y-6 max-w-xl">
         <div>
-          <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Zapier / Make.com General Webhook URL</label>
+          <label htmlFor="zapier-general-webhook-input" className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Zapier / Make.com General Webhook URL</label>
           <input
+            id="zapier-general-webhook-input"
             type="url"
             value={zapierWebhook}
             onChange={(e) => setZapierWebhook(e.target.value)}
@@ -137,8 +138,9 @@ export function IntegrationSettings() {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Zapier New Job Trigger (Field Reports)</label>
+          <label htmlFor="zapier-new-job-webhook-input" className="block text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Zapier New Job Trigger (Field Reports)</label>
           <input
+            id="zapier-new-job-webhook-input"
             type="url"
             value={zapierNewJobWebhook}
             onChange={(e) => setZapierNewJobWebhook(e.target.value)}
