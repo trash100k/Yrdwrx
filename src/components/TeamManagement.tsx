@@ -142,8 +142,9 @@ export function TeamManagement() {
       <div className="p-6 sm:p-8 space-y-6">
         <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="flex-1 w-full space-y-2">
-            <label className="text-xs font-bold text-white/50 uppercase tracking-widest">Email Address</label>
+            <label htmlFor="team-invite-email-input" className="text-xs font-bold text-white/50 uppercase tracking-widest">Email Address</label>
             <input
+              id="team-invite-email-input"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -153,8 +154,10 @@ export function TeamManagement() {
             />
           </div>
           <div className="w-full sm:w-48 space-y-2">
-            <label className="text-xs font-bold text-white/50 uppercase tracking-widest">Access Role</label>
+            <label htmlFor="team-invite-role-select" className="text-xs font-bold text-white/50 uppercase tracking-widest">Access Role</label>
             <select
+              id="team-invite-role-select"
+              aria-label="Access Role"
               value={role}
               onChange={(e) => setRole(e.target.value)}
               className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-celtic-500 transition-colors"
@@ -249,6 +252,7 @@ export function TeamManagement() {
                         type="button"
                         onClick={() => setPendingRemove(member)}
                         title="Remove member"
+                        aria-label={`Remove member ${member.name || member.email}`}
                         className="w-9 h-9 rounded-xl bg-white/5 hover:bg-rose-500/10 text-zinc-400 hover:text-rose-500 border border-white/10 hover:border-rose-500/20 flex items-center justify-center transition-all"
                       >
                         <Trash2 size={16} />

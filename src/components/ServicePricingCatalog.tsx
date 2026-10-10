@@ -123,12 +123,18 @@ export function ServicePricingCatalog() {
                         <input
                            type="number"
                            value={service.price}
+                           aria-label={`Rate for ${service.name}`}
                            onChange={(e) => handlePriceChange(catIdx, srvIdx, e.target.value)}
                            className="w-full bg-black border border-white/10 rounded-lg pl-6 pr-2 py-1 text-sm text-zinc-200 focus:border-forest-500 focus:ring-1 focus:ring-forest-500 outline-none transition-all placeholder-zinc-700"
                            placeholder="0.00"
                         />
                       </div>
-                      <button onClick={() => removeService(category.name, service.name)} className="p-1 opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-all rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => removeService(category.name, service.name)}
+                        aria-label={`Remove ${service.name}`}
+                        className="p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 text-zinc-500 hover:text-red-400 transition-all rounded-md"
+                      >
                         <X size={14} />
                       </button>
                     </div>
@@ -142,6 +148,7 @@ export function ServicePricingCatalog() {
            <h4 className="text-sm font-medium text-zinc-300 mb-4">Add Custom Service</h4>
            <div className="flex flex-col sm:flex-row items-center gap-3 bg-white/5 p-4 rounded-xl">
              <select 
+               aria-label="Custom service category"
                value={newServiceCategory}
                onChange={(e) => setNewServiceCategory(e.target.value)}
                className="w-full sm:w-48 bg-black border border-white/10 rounded-xl p-2.5 text-sm text-zinc-200 focus:outline-none focus:border-forest-500 shrink-0"
@@ -149,6 +156,7 @@ export function ServicePricingCatalog() {
                {catalog.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
              </select>
              <input 
+               aria-label="Custom service name"
                type="text" 
                placeholder="Service name..." 
                value={newServiceName}
@@ -159,6 +167,7 @@ export function ServicePricingCatalog() {
              <div className="relative w-full sm:w-32 shrink-0">
                <span className="absolute left-3 top-2.5 text-zinc-500 text-sm">$</span>
                <input 
+                 aria-label="Custom service rate"
                  type="number" 
                  placeholder="Rate" 
                  value={newServicePrice}

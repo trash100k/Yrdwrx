@@ -222,6 +222,8 @@ export function WorkflowBuilderSection() {
                       </div>
                     )}
                     <button
+                      type="button"
+                      aria-label={`Toggle status for ${workflow.name}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleToggleActive(workflow.id);
@@ -244,8 +246,9 @@ export function WorkflowBuilderSection() {
                   <div className="p-5 border-t border-white/5 space-y-5 bg-black/20">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 max-w-md">
-                        <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1.5 block">Rule Name</label>
+                        <label htmlFor={`wf-name-${workflow.id}`} className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1.5 block">Rule Name</label>
                         <input
+                          id={`wf-name-${workflow.id}`}
                           type="text"
                           value={workflow.name}
                           onChange={(e) => handleUpdateWorkflow(workflow.id, "name", e.target.value)}
@@ -255,6 +258,7 @@ export function WorkflowBuilderSection() {
                       </div>
                       <div className="flex items-center gap-3 self-end shrink-0">
                         <button
+                          type="button"
                           onClick={() => handleRemoveWorkflow(workflow.id)}
                           className="flex items-center gap-2 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"
                         >
@@ -265,10 +269,12 @@ export function WorkflowBuilderSection() {
 
                     <div className="grid md:grid-cols-[1fr_auto_1fr] items-center gap-4 bg-white/5 p-4 rounded-xl border border-white/5">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5">
+                        <label htmlFor={`wf-trigger-${workflow.id}`} className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5">
                           <div className="w-1.5 h-1.5 rounded-full bg-celtic-500"></div> Trigger (IF)
                         </label>
                         <select
+                          id={`wf-trigger-${workflow.id}`}
+                          aria-label={`Trigger for ${workflow.name}`}
                           value={workflow.trigger}
                           onChange={(e) => handleUpdateWorkflow(workflow.id, "trigger", e.target.value)}
                           className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-celtic-500 transition-colors appearance-none"
@@ -282,10 +288,12 @@ export function WorkflowBuilderSection() {
                       <ArrowRight className="hidden md:block text-white/20 mt-4 shrink-0" size={20} />
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5">
+                        <label htmlFor={`wf-action-${workflow.id}`} className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1.5">
                           <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> Action (THEN)
                         </label>
                         <select
+                          id={`wf-action-${workflow.id}`}
+                          aria-label={`Action for ${workflow.name}`}
                           value={workflow.action}
                           onChange={(e) => handleUpdateWorkflow(workflow.id, "action", e.target.value)}
                           className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 transition-colors appearance-none"
@@ -300,10 +308,11 @@ export function WorkflowBuilderSection() {
                     {workflow.action === "send_webhook" && (
                       <div className="pt-2 pl-4 border-l-2 border-white/5 space-y-4">
                         <div>
-                          <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1.5 block">
+                          <label htmlFor={`wf-webhook-${workflow.id}`} className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1.5 block">
                             Webhook Destination URL
                           </label>
                           <input
+                            id={`wf-webhook-${workflow.id}`}
                             type="url"
                             value={workflow.targetPayload}
                             onChange={(e) => handleUpdateWorkflow(workflow.id, "targetPayload", e.target.value)}

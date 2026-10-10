@@ -39,6 +39,8 @@ function BookingLinkSection({ tenantId }: { tenantId?: string }) {
       </div>
       <div className="flex flex-col sm:flex-row gap-3">
         <input
+          id="booking-link-input"
+          aria-label="Online booking link"
           readOnly
           value={link || "Sign in to a tenant to generate your link"}
           className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/80 font-mono truncate"
@@ -266,11 +268,12 @@ function UsageBillingSection() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <label className="space-y-1.5">
+        <label htmlFor="usage-spend-cap-input" className="space-y-1.5 block">
           <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Monthly spend cap (USD)</span>
           <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3">
             <span className="text-white/40 font-black">$</span>
             <input
+              id="usage-spend-cap-input"
               type="number"
               min={0}
               step="1"
@@ -401,9 +404,10 @@ function ReceptionistSettingsSection() {
         </button>
       </div>
 
-      <label className="block space-y-1.5">
+      <label htmlFor="receptionist-twilio-number-input" className="block space-y-1.5">
         <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Twilio receptionist number</span>
         <input
+          id="receptionist-twilio-number-input"
           value={twilioNumber}
           onChange={(e) => setTwilioNumber(e.target.value)}
           placeholder="+1 601 555 0123"
@@ -413,9 +417,10 @@ function ReceptionistSettingsSection() {
       </label>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <label className="space-y-1.5">
+        <label htmlFor="receptionist-start-hour-input" className="space-y-1.5 block">
           <span className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5"><Clock size={11} /> Open hour</span>
           <input
+            id="receptionist-start-hour-input"
             value={startHour}
             onChange={(e) => setStartHour(e.target.value)}
             placeholder="8"
@@ -423,9 +428,10 @@ function ReceptionistSettingsSection() {
             className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-bold outline-none placeholder:text-white/30"
           />
         </label>
-        <label className="space-y-1.5">
+        <label htmlFor="receptionist-end-hour-input" className="space-y-1.5 block">
           <span className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5"><Clock size={11} /> Close hour</span>
           <input
+            id="receptionist-end-hour-input"
             value={endHour}
             onChange={(e) => setEndHour(e.target.value)}
             placeholder="17"
@@ -433,9 +439,10 @@ function ReceptionistSettingsSection() {
             className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-bold outline-none placeholder:text-white/30"
           />
         </label>
-        <label className="space-y-1.5 sm:col-span-1">
+        <label htmlFor="receptionist-after-hours-msg-input" className="space-y-1.5 block sm:col-span-1">
           <span className="text-[10px] font-black uppercase tracking-widest text-white/40">After-hours reply</span>
           <input
+            id="receptionist-after-hours-msg-input"
             value={afterHoursMessage}
             onChange={(e) => setAfterHoursMessage(e.target.value)}
             placeholder="We're closed — we'll call you first thing."
@@ -720,7 +727,10 @@ export default function Settings() {
                   <button
                     onClick={() => handleToggle(f.id, isEnabled)}
                     disabled={updating}
-                    className={`text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words focus:outline-none transition-colors ${
+                    role="switch"
+                    aria-checked={isEnabled}
+                    aria-label={`Toggle ${f.label}`}
+                    className={`text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-xl transition-colors ${
                       isEnabled ? "text-forest-500" : "text-white/20"
                     }`}
                   >
@@ -744,7 +754,10 @@ export default function Settings() {
                             <button
                               onClick={() => handleToggle(sub.id, isSubEnabled, true)}
                               disabled={updating}
-                              className={`text-3xl sm:text-4xl focus:outline-none transition-colors ${
+                              role="switch"
+                              aria-checked={isSubEnabled}
+                              aria-label={`Toggle ${sub.label}`}
+                              className={`text-3xl sm:text-4xl focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-xl transition-colors ${
                                 isSubEnabled ? "text-forest-500" : "text-white/20"
                               }`}
                             >
@@ -755,10 +768,11 @@ export default function Settings() {
                           {/* Dedicated input for Custom Rules if Semantic Style Learning is on */}
                           {sub.id === "semanticStyleLearning" && isSubEnabled && (
                             <div className="pt-4 border-t border-white/5 mt-2">
-                              <label className="text-xs md:text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">
+                              <label htmlFor="custom-install-rules-input" className="text-xs md:text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">
                                 Custom Installation Heuristics (Contractor AI Guidelines)
                               </label>
                               <textarea
+                                id="custom-install-rules-input"
                                 defaultValue={tenant?.settings?.customInstallRules || ""}
                                 maxLength={1000}
                                 onBlur={(e) => {
@@ -810,8 +824,9 @@ export default function Settings() {
             { key: "googleReviewUrl", label: "Google Review Link", type: "url", placeholder: "https://g.page/r/...review", hint: "Included in review-request messages" },
           ] as const).map((f) => (
             <div key={f.key} className="bg-zinc-900/60 border border-white/10 rounded-2xl p-4">
-              <label className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">{f.label}</label>
+              <label htmlFor={`setting-${f.key}`} className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-2 block">{f.label}</label>
               <input
+                id={`setting-${f.key}`}
                 type={f.type}
                 step={f.type === "number" ? "any" : undefined}
                 defaultValue={(tenant?.settings as any)?.[f.key] ?? ""}
@@ -1011,10 +1026,11 @@ export default function Settings() {
                 </p>
 
                 <div className="w-full text-left bg-black/50 p-4 border border-red-500/20 rounded-2xl">
-                   <label className="text-xs md:text-[10px] text-red-400 font-bold uppercase tracking-widest mb-2 block">
+                   <label htmlFor="delete-confirm-input" className="text-xs md:text-[10px] text-red-400 font-bold uppercase tracking-widest mb-2 block">
                      Type "DELETE" to confirm
                    </label>
                    <input
+                     id="delete-confirm-input"
                      type="text"
                      value={deleteConfirmation}
                      onChange={(e) => setDeleteConfirmation(e.target.value)}

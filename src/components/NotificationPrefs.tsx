@@ -91,7 +91,9 @@ export function NotificationPrefs() {
               </div>
               <button
                 onClick={() => toggleChannel(ch.id)}
-                className={`text-3xl sm:text-4xl focus:outline-none transition-colors ${on ? "text-forest-500" : "text-white/20"}`}
+                role="switch"
+                aria-checked={on}
+                className={`text-3xl sm:text-4xl focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg transition-colors ${on ? "text-forest-500" : "text-white/20"}`}
                 aria-label={`Toggle ${ch.label}`}
               >
                 {on ? <ToggleRight /> : <ToggleLeft />}
@@ -110,7 +112,9 @@ export function NotificationPrefs() {
           </div>
           <button
             onClick={() => setQuietEnabled((v) => !v)}
-            className={`text-3xl sm:text-4xl focus:outline-none transition-colors ${quietEnabled ? "text-forest-500" : "text-white/20"}`}
+            role="switch"
+            aria-checked={quietEnabled}
+            className={`text-3xl sm:text-4xl focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg transition-colors ${quietEnabled ? "text-forest-500" : "text-white/20"}`}
             aria-label="Toggle quiet hours"
           >
             {quietEnabled ? <ToggleRight /> : <ToggleLeft />}
@@ -119,20 +123,20 @@ export function NotificationPrefs() {
         {quietEnabled && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">Start Hour (0–23)</label>
-              <input type="number" min={0} max={23} value={startHour}
+              <label htmlFor="quiet-hours-start-hour-input" className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">Start Hour (0–23)</label>
+              <input id="quiet-hours-start-hour-input" type="number" min={0} max={23} value={startHour}
                 onChange={(e) => setStartHour(Number(e.target.value))}
                 className="w-full bg-black border-2 border-white/10 rounded-xl px-4 py-2.5 text-sm text-white/90 focus:border-forest-500/50 outline-none" />
             </div>
             <div>
-              <label className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">End Hour (0–24)</label>
-              <input type="number" min={0} max={24} value={endHour}
+              <label htmlFor="quiet-hours-end-hour-input" className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">End Hour (0–24)</label>
+              <input id="quiet-hours-end-hour-input" type="number" min={0} max={24} value={endHour}
                 onChange={(e) => setEndHour(Number(e.target.value))}
                 className="w-full bg-black border-2 border-white/10 rounded-xl px-4 py-2.5 text-sm text-white/90 focus:border-forest-500/50 outline-none" />
             </div>
             <div>
-              <label className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">Timezone (IANA)</label>
-              <input type="text" value={tz} placeholder="America/Chicago"
+              <label htmlFor="quiet-hours-timezone-input" className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">Timezone (IANA)</label>
+              <input id="quiet-hours-timezone-input" type="text" value={tz} placeholder="America/Chicago"
                 onChange={(e) => setTz(e.target.value)}
                 className="w-full bg-black border-2 border-white/10 rounded-xl px-4 py-2.5 text-sm text-white/90 focus:border-forest-500/50 outline-none" />
             </div>
@@ -142,8 +146,8 @@ export function NotificationPrefs() {
 
       {/* Owner phone for ops SMS (low stock / new message). Owner email is set in Business Defaults. */}
       <div>
-        <label className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">Owner Mobile (ops-alert SMS)</label>
-        <input type="tel" value={ownerPhone} placeholder="(601) 555-0123"
+        <label htmlFor="owner-mobile-input" className="text-[10px] uppercase font-black tracking-widest text-forest-500 mb-1.5 block">Owner Mobile (ops-alert SMS)</label>
+        <input id="owner-mobile-input" type="tel" value={ownerPhone} placeholder="(601) 555-0123"
           onChange={(e) => setOwnerPhone(e.target.value)}
           className="w-full bg-black border-2 border-white/10 rounded-xl px-4 py-2.5 text-sm text-white/90 focus:border-forest-500/50 outline-none" />
         <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest mt-2">
