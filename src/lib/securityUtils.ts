@@ -9,20 +9,33 @@ const lookup = promisify(dns.lookup);
  * This is a key defense against Server-Side Request Forgery (SSRF).
  */
 export function isPrivateIP(ip: string): boolean {
-  if (!isIP(ip)) return false;
+  let clean = ip.toLowerCase().trim();
+  if (clean.startsWith('[') && clean.endsWith(']')) {
+    clean = clean.slice(1, -1);
+  }
 
-  const parts = ip.split('.').map(Number);
+  if (!isIP(clean)) return false;
 
-  // IPv4 Private Ranges:
-  // 10.0.0.0 – 10.255.255.255
-  // 172.16.0.0 – 172.31.255.255
-  // 192.168.0.0 – 192.168.255.255
-  // 127.0.0.0 – 127.255.255.255 (Loopback)
-  // 169.254.0.0 – 169.254.255.255 (Link-local)
+  // Reject unspecified / wildcard addresses
+  if (clean === '::' || clean === '0.0.0.0') return true;
 
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
+  // IPv4-mapped IPv6 in dotted-decimal format (::ffff:127.0.0.1) — unwrap and re-check embedded v4.
+  const mappedDotted = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(clean);
+  if (mappedDotted) return isPrivateIP(mappedDotted[1]);
+
+  // IPv4-mapped IPv6 in hex format (::ffff:7f00:1 or ::ffff:a9fe:a9fe) — decode to dotted-decimal and re-check.
+  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(clean);
+  if (mappedHex) {
+    const h1 = parseInt(mappedHex[1], 16);
+    const h2 = parseInt(mappedHex[2], 16);
+    const p1 = (h1 >> 8) & 0xff;
+    const p2 = h1 & 0xff;
+    const p3 = (h2 >> 8) & 0xff;
+    const p4 = h2 & 0xff;
+    return isPrivateIP(`${p1}.${p2}.${p3}.${p4}`);
+  }
+
+  const parts = clean.split('.').map(Number);
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -33,8 +46,7 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
   // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  if (clean === '::1' || clean.startsWith('fe80:') || clean.startsWith('fc') || clean.startsWith('fd')) {
     return true;
   }
 
@@ -53,7 +65,10 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    let hostname = url.hostname;
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
