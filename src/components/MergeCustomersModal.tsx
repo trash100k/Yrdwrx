@@ -102,18 +102,19 @@ export function MergeCustomersModal({ isOpen, onClose, customers, onMerged }) {
                     return (
                       <label
                         key={m.id}
-                        className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isSurvivor ? "border-forest-500/40 bg-forest-500/5" : "border-white/5 hover:bg-white/5"}`}
+                        className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all focus-within:ring-2 focus-within:ring-forest-500 focus-within:ring-offset-2 focus-within:ring-offset-black ${isSurvivor ? "border-forest-500/40 bg-forest-500/5" : "border-white/5 hover:bg-white/5"}`}
                       >
                         <input
                           type="radio"
                           name={`survivor-${g.key}`}
                           checked={isSurvivor}
+                          aria-label={`Keep ${nameOf(m)} as primary customer record`}
                           onChange={() => setSurvivorByGroup((s) => ({ ...s, [g.key]: m.id }))}
-                          className="accent-forest-500"
+                          className="accent-forest-500 focus:outline-none"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm text-white truncate flex items-center gap-2">
-                            {isSurvivor && <Crown size={12} className="text-forest-400 shrink-0" />}
+                            {isSurvivor && <Crown size={12} className="text-forest-400 shrink-0" aria-hidden="true" />}
                             {nameOf(m)}
                           </div>
                           <div className="text-[10px] text-zinc-500 truncate">{detailOf(m)}</div>
@@ -141,7 +142,7 @@ export function MergeCustomersModal({ isOpen, onClose, customers, onMerged }) {
             );
           })}
           <div className="flex items-center gap-2 text-[10px] text-zinc-600">
-            <AlertTriangle size={12} /> Archived records go to Trash and can be restored — history is never lost.
+            <AlertTriangle size={12} aria-hidden="true" /> Archived records go to Trash and can be restored — history is never lost.
           </div>
         </div>
       )}
