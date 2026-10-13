@@ -51,7 +51,11 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   }, [onScanSuccess, onScanError]);
 
   return (
-    <div className="w-full max-w-sm mx-auto overflow-hidden rounded-2xl border-4 border-slate-900 shadow-2xl">
+    <div
+      role="region"
+      aria-label="Barcode scanner"
+      className="w-full max-w-sm mx-auto overflow-hidden rounded-2xl border-4 border-slate-900 shadow-2xl"
+    >
       <div id="reader" className="w-full"></div>
     </div>
   );
