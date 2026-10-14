@@ -36,6 +36,18 @@ export default function WalkthroughOverlay() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        endTour();
+      }
+    };
+    if (isTourActive) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isTourActive, endTour]);
+
   if (!isTourActive || !activeFocus) return null;
   const { rect } = activeFocus;
   const isLastStep = currentTourStep === tourSteps.length - 1;
@@ -133,6 +145,10 @@ export default function WalkthroughOverlay() {
       >
         {" "}
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="walkthrough-title"
+          aria-describedby="walkthrough-desc"
           className=" bg-black/90 backdrop-blur-3xl border-forest-500/30 p-6 sm:p-8 rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-y-auto"
           style={{ maxHeight: vh - margin * 2 }}
         >
@@ -148,24 +164,24 @@ export default function WalkthroughOverlay() {
             </div>{" "}
             <button
               onClick={endTour}
-              className="text-white/20 hover:text-white transition-colors p-2 -mr-2"
+              className="text-white/20 hover:text-white transition-colors p-2 -mr-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg"
               aria-label="End tour"
             >
               {" "}
               <X size={16} />{" "}
             </button>{" "}
           </header>{" "}
-          <h3 className="text-lg sm:text-xl font-black italic text-white uppercase tracking-tight mb-2 leading-none">
+          <h3 id="walkthrough-title" className="text-lg sm:text-xl font-black italic text-white uppercase tracking-tight mb-2 leading-none">
             {" "}
             {activeFocus.label}{" "}
           </h3>{" "}
-          <p className="text-xs sm:text-sm text-white/60 leading-relaxed italic mb-8">
+          <p id="walkthrough-desc" className="text-xs sm:text-sm text-white/60 leading-relaxed italic mb-8">
             {" "}
             {activeFocus.description}{" "}
           </p>{" "}
           <button
             onClick={nextTourStep}
-            className="w-full py-4 bg-white text-black rounded-xl sm:rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl"
+            className="w-full py-4 bg-white text-black rounded-xl sm:rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
             {" "}
             {isLastStep ? "Finish Walkthrough" : "Next Step"}{" "}
