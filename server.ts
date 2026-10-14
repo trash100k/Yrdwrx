@@ -1576,6 +1576,14 @@ export async function createApp({ startListening = false } = {}) {
       return res.status(403).json({ error: "This request was blocked for security reasons." });
     }
 
+    // Strict body checks for DAX injection and path traversal on /api/translate
+    if (url.startsWith("/api/translate")) {
+      if (leaves.some((s) => s.includes("evaluate filter") || s.includes("../") || s.includes("..\\"))) {
+        logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
+        return res.status(403).json({ error: "This request was blocked for security reasons." });
+      }
+    }
+
     // 3. Strict Request Origin & Lineage enforcement
     if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       const contentType = req.headers['content-type'];
