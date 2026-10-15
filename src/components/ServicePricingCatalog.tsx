@@ -93,9 +93,10 @@ export function ServicePricingCatalog() {
            <p className="text-zinc-400 text-sm mt-1">Configure your default rates to speed up invoice generation.</p>
         </div>
         <button 
+           type="button"
            onClick={() => saveCatalog(catalog)}
            disabled={saving}
-           className="px-5 py-2.5 bg-forest-600 text-white font-medium text-sm rounded-xl hover:bg-forest-500 transition-colors flex items-center gap-2"
+           className="px-5 py-2.5 bg-forest-600 text-white font-medium text-sm rounded-xl hover:bg-forest-500 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-colors flex items-center gap-2"
         >
           <Save size={16} />
           {saving ? "Saving..." : "Save Rates"}
@@ -122,13 +123,19 @@ export function ServicePricingCatalog() {
                         <span className="absolute left-2.5 top-1.5 text-zinc-500 text-sm">$</span>
                         <input
                            type="number"
+                           aria-label={`Price for ${service.name}`}
                            value={service.price}
                            onChange={(e) => handlePriceChange(catIdx, srvIdx, e.target.value)}
                            className="w-full bg-black border border-white/10 rounded-lg pl-6 pr-2 py-1 text-sm text-zinc-200 focus:border-forest-500 focus:ring-1 focus:ring-forest-500 outline-none transition-all placeholder-zinc-700"
                            placeholder="0.00"
                         />
                       </div>
-                      <button onClick={() => removeService(category.name, service.name)} className="p-1 opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-all rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => removeService(category.name, service.name)}
+                        aria-label={`Remove ${service.name} service`}
+                        className="p-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 text-zinc-500 hover:text-red-400 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-all rounded-md"
+                      >
                         <X size={14} />
                       </button>
                     </div>
@@ -168,9 +175,10 @@ export function ServicePricingCatalog() {
                />
              </div>
              <button 
+               type="button"
                onClick={addCustomService}
                disabled={!newServiceName}
-               className="w-full sm:w-auto px-5 py-2.5 bg-white text-black font-medium text-sm rounded-xl hover:bg-zinc-200 transition-colors shrink-0 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+               className="w-full sm:w-auto px-5 py-2.5 bg-white text-black font-medium text-sm rounded-xl hover:bg-zinc-200 focus-visible:ring-2 focus-visible:ring-forest-500 focus:outline-none transition-colors shrink-0 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
              >
                <Plus size={16} /> Add Item
              </button>
