@@ -100,7 +100,7 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
     handleSave(finalFields);
   };
 
-  const inputClass = "w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-forest-500/50";
+  const inputClass = "w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-forest-500/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500";
 
   const renderEditInput = (key: string, type: FieldType, value: string) => {
     if (type === "boolean") {
@@ -108,6 +108,7 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
         <select
           value={value === "true" ? "true" : "false"}
           onChange={e => updateFieldValue(key, e.target.value)}
+          aria-label={`Value for ${key}`}
           className={inputClass}
         >
           <option value="true">Yes</option>
@@ -119,6 +120,7 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
       <input
         type={type === "number" ? "number" : type === "date" ? "date" : "text"}
         defaultValue={value}
+        aria-label={`Value for ${key}`}
         onBlur={e => { if (e.target.value !== value) updateFieldValue(key, e.target.value); }}
         onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
         className={inputClass}
@@ -134,8 +136,9 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
           Custom Properties
         </h4>
         <button
+          type="button"
           onClick={() => setIsEditing(!isEditing)}
-          className="text-[10px] font-black text-forest-400 uppercase tracking-widest hover:text-white transition-colors"
+          className="text-[10px] font-black text-forest-400 uppercase tracking-widest hover:text-white transition-colors rounded px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
         >
           {isEditing ? "Done" : "Edit"}
         </button>
@@ -158,8 +161,13 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
                )}
              </div>
              {isEditing && (
-               <button onClick={() => removeField(key)} className="text-white/20 hover:text-rose-400 transition-colors p-1">
-                 <X size={14} />
+               <button
+                 type="button"
+                 onClick={() => removeField(key)}
+                 aria-label={`Remove property ${key}`}
+                 className="text-white/20 hover:text-rose-400 transition-colors p-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
+               >
+                 <X size={14} aria-hidden="true" />
                </button>
              )}
            </div>
@@ -172,17 +180,21 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
 
         {isEditing && (
           <div className="mt-6 p-4 bg-black/40 rounded-xl border border-white/10">
-            <h5 className="text-[10px] uppercase font-bold text-white/60 tracking-widest mb-3 flex items-center gap-2"><Plus size={12}/> Add Property</h5>
+            <h5 className="text-[10px] uppercase font-bold text-white/60 tracking-widest mb-3 flex items-center gap-2">
+              <Plus size={12} aria-hidden="true" /> Add Property
+            </h5>
             <div className="space-y-3">
               <input
                 type="text"
                 placeholder="Field Name (e.g. Gate Code)"
+                aria-label="New property name"
                 value={newKey}
                 onChange={e => setNewKey(e.target.value)}
                 className={inputClass}
               />
               <select
                 value={newType}
+                aria-label="New property type"
                 onChange={e => { setNewType(e.target.value as FieldType); setNewValue(""); }}
                 className={inputClass}
               >
@@ -193,6 +205,7 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
               {newType === "boolean" ? (
                 <select
                   value={newValue || "false"}
+                  aria-label="New property boolean value"
                   onChange={e => setNewValue(e.target.value)}
                   className={inputClass}
                 >
@@ -203,15 +216,17 @@ export const CRMCustomFields = ({ customer, onUpdate }: { customer: Customer, on
                 <input
                   type={newType === "number" ? "number" : newType === "date" ? "date" : "text"}
                   placeholder="Value"
+                  aria-label="New property value"
                   value={newValue}
                   onChange={e => setNewValue(e.target.value)}
                   className={inputClass}
                 />
               )}
               <button
+                type="button"
                 onClick={addField}
                 disabled={!newKey || (newType !== "boolean" && !newValue)}
-                className="w-full bg-white text-black font-black disabled:opacity-50 text-[10px] uppercase tracking-widest py-2 rounded-lg hover:bg-white/90 transition-colors"
+                className="w-full bg-white text-black font-black disabled:opacity-50 text-[10px] uppercase tracking-widest py-2 rounded-lg hover:bg-white/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               >
                 Save Property
               </button>
