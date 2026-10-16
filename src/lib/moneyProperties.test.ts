@@ -38,9 +38,9 @@ const RUNS = { numRuns: 300 };
 const toCents = (n: number): number => Math.round(n * 100) / 100;
 /** Round to 2dp exactly the way payroll.ts does (hours precision). */
 const round2 = (n: number): number => Math.round(n * 100) / 100;
-/** A value is "cents-exact" when it is a whole number of cents. */
+/** A value is "cents-exact" when it is a whole number of cents (uses 1e-4 tolerance to prevent IEEE-754 precision drift on large figures). */
 const isCentsExact = (n: number): boolean =>
-  Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
+  Math.abs(n * 100 - Math.round(n * 100)) < 1e-4;
 
 /** Cents-exact dollar amount in [0, $1,000,000] — how money actually flows through the app. */
 const dollars = fc.nat({ max: 100_000_000 }).map((c) => c / 100);
