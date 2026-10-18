@@ -185,8 +185,9 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
               </div>
               
               <button 
+                type="button"
                 onClick={() => setAgreementAccepted(true)}
-                className="w-full py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-forest-500/20 flex items-center justify-center gap-2"
+                className="w-full py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-forest-500/20 flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
               >
                   <CheckCircle2 size={18} /> I Understood & Agree to Review Drafts
               </button>
@@ -261,16 +262,18 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                       </div>
                       <div className="flex gap-4">
                           <button
+                              type="button"
                               onClick={handleReject}
                               disabled={isSending}
-                              className="flex-1 py-4 border-2 border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                              className="flex-1 py-4 border-2 border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                           >
                              <X size={18} /> Reject
                           </button>
                           <button
+                              type="button"
                               onClick={handleApprove}
                               disabled={isSending}
-                              className="flex-1 py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50"
+                              className="flex-1 py-4 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                           >
                              {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />} {isSending ? "Sending..." : "Approve & Send"}
                           </button>
@@ -292,13 +295,13 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                 <div>
                    <label className="block text-xs font-black uppercase tracking-widest text-zinc-500 mb-2">1. Select Target Segment</label>
                    <div className="flex gap-3">
-                       <button onClick={() => setSegment("priority")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "priority" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
+                       <button type="button" aria-pressed={segment === "priority"} onClick={() => setSegment("priority")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 ${segment === "priority" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
                            Priority Leads (Score &gt; 80)
                        </button>
-                       <button onClick={() => setSegment("lapsed")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "lapsed" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
+                       <button type="button" aria-pressed={segment === "lapsed"} onClick={() => setSegment("lapsed")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 ${segment === "lapsed" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
                            Lapsed Clients (Score &lt; 40)
                        </button>
-                       <button onClick={() => setSegment("all")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${segment === "all" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
+                       <button type="button" aria-pressed={segment === "all"} onClick={() => setSegment("all")} className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 ${segment === "all" ? "bg-forest-500/10 border-forest-500/50 text-forest-400" : "border-white/10 text-zinc-400 hover:border-white/30"}`}>
                            Entire Database
                        </button>
                    </div>
@@ -331,9 +334,10 @@ export function AutonomousCampaigns({ customers }: { customers: Customer[] }) {
                         <span className="ml-2 text-xs text-amber-500 bg-amber-500/10 px-2 py-1 rounded-md uppercase tracking-widest">Review Enforced</span>
                     </p>
                     <button 
+                        type="button"
                         onClick={handleGenerateDrafts}
                         disabled={isDrafting || !targetService || filteredCustomers.length === 0}
-                        className="px-6 py-3 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50 disabled:grayscale flex items-center gap-2"
+                        className="px-6 py-3 bg-forest-600 hover:bg-forest-500 text-white font-black uppercase tracking-widest text-sm rounded-xl transition-all shadow-lg shadow-forest-500/20 disabled:opacity-50 disabled:grayscale flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
                     >
                         {isDrafting ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
                         {isDrafting ? "Analyzing CRM Data..." : "Generate Pilot Drafts"}
