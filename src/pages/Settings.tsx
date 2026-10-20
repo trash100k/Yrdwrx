@@ -286,8 +286,11 @@ function UsageBillingSection() {
 
         <button
           type="button"
+          role="switch"
+          aria-checked={emailAlerts}
+          aria-label="Email usage alerts"
           onClick={() => setEmailAlerts((v) => !v)}
-          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 transition-all"
+          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 transition-all"
         >
           <span className="space-y-0.5">
             <span className="block text-[11px] font-black uppercase tracking-widest text-white/70">Email usage alerts</span>
@@ -378,8 +381,11 @@ function ReceptionistSettingsSection() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <button
           type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Receptionist enabled"
           onClick={() => setEnabled((v) => !v)}
-          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 transition-all"
+          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 transition-all"
         >
           <span className="space-y-0.5">
             <span className="block text-[11px] font-black uppercase tracking-widest text-white/70">Receptionist enabled</span>
@@ -390,8 +396,11 @@ function ReceptionistSettingsSection() {
 
         <button
           type="button"
+          role="switch"
+          aria-checked={autoReply}
+          aria-label="Instant auto-reply"
           onClick={() => setAutoReply((v) => !v)}
-          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 transition-all"
+          className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 transition-all"
         >
           <span className="space-y-0.5">
             <span className="block text-[11px] font-black uppercase tracking-widest text-white/70">Instant auto-reply</span>
@@ -718,9 +727,13 @@ export default function Settings() {
                   </div>
 
                   <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isEnabled}
+                    aria-label={`Toggle ${f.label}`}
                     onClick={() => handleToggle(f.id, isEnabled)}
                     disabled={updating}
-                    className={`text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words focus:outline-none transition-colors ${
+                    className={`text-3xl sm:text-3xl sm:text-5xl lg:text-6xl break-words focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-xl transition-colors ${
                       isEnabled ? "text-forest-500" : "text-white/20"
                     }`}
                   >
@@ -742,9 +755,13 @@ export default function Settings() {
                               <p className="text-xs text-white/50">{sub.desc}</p>
                             </div>
                             <button
+                              type="button"
+                              role="switch"
+                              aria-checked={isSubEnabled}
+                              aria-label={`Toggle ${sub.label}`}
                               onClick={() => handleToggle(sub.id, isSubEnabled, true)}
                               disabled={updating}
-                              className={`text-3xl sm:text-4xl focus:outline-none transition-colors ${
+                              className={`text-3xl sm:text-4xl focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-xl transition-colors ${
                                 isSubEnabled ? "text-forest-500" : "text-white/20"
                               }`}
                             >
