@@ -1557,6 +1557,9 @@ export async function createApp({ startListening = false } = {}) {
     //    Content patterns are specific enough not to fire on normal landscaping notes.
     const contentPatterns = ["drop table", "union select", " or 1=1", "waitfor delay", "db.collection.find(", "<script", "javascript:"];
     const pathPatterns = ["../", "..\\", "/etc/passwd", "cmd.exe", "/bin/sh", "c:\\windows"];
+    const daxPatterns = ["evaluate filter"];
+    const isTranslatePath = (req.originalUrl || req.url).toLowerCase().includes("/api/translate");
+
     // Path/command patterns are URL-only (a note saying "walk ../ back" shouldn't 403).
     if (pathPatterns.some((p) => url.includes(p)) || contentPatterns.some((p) => url.includes(p))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
@@ -1570,7 +1573,7 @@ export async function createApp({ startListening = false } = {}) {
       if (Array.isArray(v)) { for (const x of v) collect(x, budget); return; }
       if (typeof v === "object") { for (const k in v) collect(v[k], budget); }
     })(req.body, { n: 400 });
-    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)))) {
+    if (leaves.some((s) => contentPatterns.some((p) => s.includes(p)) || (isTranslatePath && (daxPatterns.some((p) => s.includes(p)) || pathPatterns.some((p) => s.includes(p)))))) {
       logThreat(req.ip || "", "Injection/Pentest Payload", req.url);
       console.warn(`[SECURITY] Potential injection detected from IP ${req.ip} on ${req.url}`);
       return res.status(403).json({ error: "This request was blocked for security reasons." });
