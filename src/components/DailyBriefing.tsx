@@ -1,28 +1,50 @@
 import { fetchApi } from "../lib/api";
-// @ts-nocheck
-
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import {
   Sun,
   Moon,
-  Zap,
   AlertCircle,
-  TrendingUp,
-  Sparkles,
   X,
   ChevronRight,
   Mail,
-  Brain,
   Info,
 } from "lucide-react";
 import { useTenant } from "../contexts/TenantContext";
 import { useToast } from "../contexts/ToastContext";
+
+interface BriefingAlert {
+  id: number;
+  text: string;
+  type: string;
+  action?: string;
+}
+
+interface BriefingStat {
+  label: string;
+  value: string;
+  trend: string;
+}
+
+interface PriorityJob {
+  name: string;
+  task: string;
+  reason?: string;
+}
+
+interface BriefingData {
+  title: string;
+  hook: string;
+  alerts?: BriefingAlert[];
+  stats?: BriefingStat[];
+  priorityJob?: PriorityJob | null;
+}
+
 export function DailyBriefing() {
-  const { tenant } = useTenant();
+  useTenant();
   const { showToast } = useToast();
   const [show, setShow] = useState(true);
-  const [briefing, setBriefing] = useState<Record<string, any> | null>(null);
+  const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [type, setType] = useState<"morning" | "evening">("morning");
   useEffect(() => {
@@ -89,8 +111,10 @@ export function DailyBriefing() {
           </div>{" "}
         </div>{" "}
         <button
+          type="button"
+          aria-label="Dismiss daily briefing"
           onClick={() => setShow(false)}
-          className="text-white/20 hover:text-white transition-colors"
+          className="text-white/20 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg p-1 transition-colors"
         >
           {" "}
           <X size={20} />{" "}
@@ -107,48 +131,47 @@ export function DailyBriefing() {
           <p className="text-xs md:text-[10px] font-black uppercase tracking-widest text-forest-400/60">
             Action Items
           </p>{" "}
-          {briefing.alerts?.map(
-            (alert: {
-              id: number;
-              text: string;
-              type: string;
-              action?: string;
-            }) => (
-              <div
-                key={alert.id}
-                className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group hover:border-forest-500/30 transition-all"
+          {briefing.alerts?.map((alert) => (
+            <div
+              key={alert.id}
+              className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5 group hover:border-forest-500/30 transition-all"
+            >
+              {" "}
+              <AlertCircle
+                size={14}
+                className={
+                  alert.type === "inventory"
+                    ? "text-rose-400"
+                    : "text-celtic-400"
+                }
+              />{" "}
+              <span className="text-xs font-bold text-white/90 flex-1">
+                {alert.text}
+              </span>{" "}
+              <button
+                type="button"
+                aria-label={`Explain task: ${alert.text}`}
+                onClick={() => {
+                  showToast(`Help: Explanation for "${alert.text}" task...`);
+                }}
+                className="p-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 hover:text-celtic-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-lg transition-all"
+                title="Explain Task"
               >
                 {" "}
-                <AlertCircle
-                  size={14}
-                  className={
-                    alert.type === "inventory"
-                      ? "text-rose-400"
-                      : "text-celtic-400"
-                  }
-                />{" "}
-                <span className="text-xs font-bold text-white/90 flex-1">
-                  {alert.text}
-                </span>{" "}
+                <Info size={14} />{" "}
+              </button>{" "}
+              {alert.action === "email_supplier" && (
                 <button
-                  onClick={() => {
-                    showToast(`Help: Explanation for "${alert.text}" task...`);
-                  }}
-                  className="p-1.5 opacity-0 group-hover:opacity-100 hover:text-celtic-400 transition-all"
-                  title="Explain Task"
+                  type="button"
+                  aria-label={`Email supplier for ${alert.text}`}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-forest-500 text-black rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 transition-all"
                 >
                   {" "}
-                  <Info size={14} />{" "}
-                </button>{" "}
-                {alert.action === "email_supplier" && (
-                  <button className="flex items-center gap-2 px-3 py-1.5 bg-forest-500 text-black rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all">
-                    {" "}
-                    <Mail size={12} /> Email{" "}
-                  </button>
-                )}{" "}
-              </div>
-            ),
-          )}{" "}
+                  <Mail size={12} /> Email{" "}
+                </button>
+              )}{" "}
+            </div>
+          ))}
         </div>{" "}
         <div className="space-y-4">
           {" "}
@@ -209,7 +232,11 @@ export function DailyBriefing() {
             ),
           )}{" "}
         </div>{" "}
-        <button className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">
+        <button
+          type="button"
+          aria-label="Start Your Day"
+          className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 transition-all"
+        >
           {" "}
           Start Your Day <ChevronRight size={14} />{" "}
         </button>{" "}
