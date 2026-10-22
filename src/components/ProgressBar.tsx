@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 interface ProgressBarProps {
   progress: number;
   label?: string;
+  ariaLabel?: string;
   showValue?: boolean;
   color?: string;
   height?: string;
@@ -13,6 +14,7 @@ interface ProgressBarProps {
 export function ProgressBar({ 
   progress, 
   label, 
+  ariaLabel,
   showValue = true, 
   color = "bg-forest-500", 
   height = "h-2",
@@ -21,7 +23,14 @@ export function ProgressBar({
   const clampedProgress = Math.min(100, Math.max(0, progress));
   
   return (
-    <div className={`w-full ${className}`}>
+    <div
+      className={`w-full ${className}`}
+      role="progressbar"
+      aria-valuenow={clampedProgress}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={ariaLabel || label || "Progress"}
+    >
       {(label || showValue) && (
         <div className="flex justify-between items-end mb-2">
           {label && <span className="text-xs font-bold text-zinc-300">{label}</span>}
