@@ -75,7 +75,7 @@ export function TimeClock() {
 
   return (
     <section className="bg-zinc-950 border border-white/5 rounded-2xl p-5 sm:p-6 space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between" aria-live="polite">
         <div className="space-y-1">
           <span className="text-xs md:text-[10px] font-bold tracking-widest text-forest-400 uppercase">Time Clock</span>
           <h4 className="text-lg sm:text-xl font-black text-white italic uppercase tracking-tight">
@@ -91,23 +91,27 @@ export function TimeClock() {
       <div className="flex items-center gap-3">
         {open ? (
           <button
+            type="button"
             onClick={clockOut}
             disabled={busy}
-            className="flex-1 py-3.5 bg-rose-500 hover:bg-rose-400 disabled:opacity-60 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+            aria-label={`Clock out (elapsed time: ${formatDuration(elapsed)})`}
+            className="flex-1 py-3.5 bg-rose-500 hover:bg-rose-400 disabled:opacity-60 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
-            <Square size={16} /> Clock Out · {formatDuration(elapsed)}
+            <Square size={16} aria-hidden="true" /> Clock Out · {formatDuration(elapsed)}
           </button>
         ) : (
           <button
+            type="button"
             onClick={clockIn}
             disabled={busy}
-            className="flex-1 py-3.5 bg-forest-500 hover:bg-forest-400 disabled:opacity-60 text-black font-black text-sm uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+            aria-label="Clock in"
+            className="flex-1 py-3.5 bg-forest-500 hover:bg-forest-400 disabled:opacity-60 text-black font-black text-sm uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
-            <Play size={16} /> Clock In
+            <Play size={16} aria-hidden="true" /> Clock In
           </button>
         )}
         <div className="w-12 h-12 shrink-0 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center text-zinc-400">
-          <Clock size={20} />
+          <Clock size={20} aria-hidden="true" />
         </div>
       </div>
       <p className="text-[10px] text-zinc-600">Tracked as {userName}. Entries feed weekly hours and payroll.</p>
