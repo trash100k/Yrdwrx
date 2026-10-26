@@ -424,14 +424,14 @@ export function JobTimeClock({
 
   return (
     <section className={`rounded-3xl border-4 p-5 sm:p-6 ${shell} ${className}`}>
-      <div className="flex items-center justify-between gap-4 mb-5">
+      <div className="flex items-center justify-between gap-4 mb-5" aria-live="polite">
         <div className="flex items-center gap-3 min-w-0">
           <div
             className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center border-2 ${
               hc ? "border-black bg-black text-white" : "border-white/10 bg-forest-500/10 text-forest-400"
             }`}
           >
-            <Clock size={20} />
+            <Clock size={20} aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <p className={`text-[10px] font-black uppercase tracking-widest ${hc ? "text-black/60" : "text-forest-400"}`}>
@@ -453,17 +453,19 @@ export function JobTimeClock({
       {/* Job context — locked (Field Mode) vs picker (CrewSuite) */}
       {lockedJob ? (
         <div className={`mb-4 flex items-center gap-2 rounded-2xl border-2 px-4 py-3 ${hc ? "border-black bg-black/5" : "border-white/10 bg-black/40"}`}>
-          <MapPin size={16} className={hc ? "text-black/60" : "text-forest-400"} />
+          <MapPin size={16} className={hc ? "text-black/60" : "text-forest-400"} aria-hidden="true" />
           <span className="text-sm font-black uppercase tracking-tight truncate">{jobLabel(lockedJob)}</span>
         </div>
       ) : (
         <div className="mb-4">
-          <label className={`block text-[10px] font-black uppercase tracking-widest mb-2 ${label}`}>Job</label>
+          <label htmlFor="job-select" className={`block text-[10px] font-black uppercase tracking-widest mb-2 ${label}`}>Job</label>
           <select
-            className={`w-full rounded-2xl border-2 px-4 py-3.5 text-sm font-bold outline-none transition-colors disabled:opacity-50 ${
+            id="job-select"
+            aria-label="Select job for time clock"
+            className={`w-full rounded-2xl border-2 px-4 py-3.5 text-sm font-bold outline-none transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 ${
               hc
-                ? "bg-white border-black text-black"
-                : "bg-black border-white/10 text-white focus:border-forest-500"
+                ? "bg-white border-black text-black focus-visible:ring-offset-white"
+                : "bg-black border-white/10 text-white focus-visible:ring-offset-black"
             }`}
             value={selectedJobId}
             onChange={(e) => setSelectedJobId(e.target.value)}
@@ -486,7 +488,7 @@ export function JobTimeClock({
       {pendingGeofence && (
         <div className={`mb-4 rounded-2xl border-2 p-4 ${hc ? "border-black bg-amber-300" : "border-amber-500/40 bg-amber-500/10"}`}>
           <div className="flex items-start gap-3">
-            <AlertTriangle size={20} className={hc ? "text-black" : "text-amber-400"} />
+            <AlertTriangle size={20} className={hc ? "text-black" : "text-amber-400"} aria-hidden="true" />
             <div className="flex-1 min-w-0">
               <p className={`text-sm font-black uppercase tracking-tight ${hc ? "text-black" : "text-amber-300"}`}>
                 {pendingGeofence.distanceMeters != null
@@ -502,8 +504,8 @@ export function JobTimeClock({
             <button
               type="button"
               onClick={() => setPendingGeofence(null)}
-              className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest border-2 ${
-                hc ? "border-black text-black" : "border-white/20 text-white/70 hover:text-white"
+              className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest border-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 ${
+                hc ? "border-black text-black focus-visible:ring-offset-white" : "border-white/20 text-white/70 hover:text-white focus-visible:ring-offset-black"
               }`}
             >
               Cancel
@@ -511,8 +513,8 @@ export function JobTimeClock({
             <button
               type="button"
               onClick={() => doClockIn(true)}
-              className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest border-2 ${
-                hc ? "bg-black text-white border-black" : "bg-amber-500 text-black border-amber-400"
+              className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest border-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 ${
+                hc ? "bg-black text-white border-black focus-visible:ring-offset-white" : "bg-amber-500 text-black border-amber-400 focus-visible:ring-offset-black"
               }`}
             >
               Clock in anyway
@@ -527,18 +529,24 @@ export function JobTimeClock({
           type="button"
           onClick={doClockOut}
           disabled={busy}
-          className={`w-full min-h-[64px] flex items-center justify-center gap-3 rounded-2xl border-4 font-black text-base uppercase tracking-widest transition-transform hover:scale-[1.01] active:scale-95 disabled:opacity-60 ${outClass}`}
+          aria-label="Clock out of current shift"
+          className={`w-full min-h-[64px] flex items-center justify-center gap-3 rounded-2xl border-4 font-black text-base uppercase tracking-widest transition-transform hover:scale-[1.01] active:scale-95 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 ${
+            hc ? "focus-visible:ring-offset-white" : "focus-visible:ring-offset-black"
+          } ${outClass}`}
         >
-          <Square size={22} fill="currentColor" /> Clock Out
+          <Square size={22} fill="currentColor" aria-hidden="true" /> Clock Out
         </button>
       ) : (
         <button
           type="button"
           onClick={() => doClockIn(false)}
           disabled={!canClockIn}
-          className={`w-full min-h-[64px] flex items-center justify-center gap-3 rounded-2xl border-4 font-black text-base uppercase tracking-widest transition-transform hover:scale-[1.01] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${inClass}`}
+          aria-label="Clock in to selected job"
+          className={`w-full min-h-[64px] flex items-center justify-center gap-3 rounded-2xl border-4 font-black text-base uppercase tracking-widest transition-transform hover:scale-[1.01] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 ${
+            hc ? "focus-visible:ring-offset-white" : "focus-visible:ring-offset-black"
+          } ${inClass}`}
         >
-          <Play size={22} /> {busy ? "Working…" : "Clock In"}
+          <Play size={22} aria-hidden="true" /> {busy ? "Working…" : "Clock In"}
         </button>
       )}
 
