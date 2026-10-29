@@ -9,9 +9,25 @@ const lookup = promisify(dns.lookup);
  * This is a key defense against Server-Side Request Forgery (SSRF).
  */
 export function isPrivateIP(ip: string): boolean {
-  if (!isIP(ip)) return false;
+  // Strip enclosing brackets if passed as [::1] (e.g. from URL hostnames)
+  const cleanIp = ip.startsWith('[') && ip.endsWith(']') ? ip.slice(1, -1) : ip;
 
-  const parts = ip.split('.').map(Number);
+  if (!isIP(cleanIp)) return false;
+
+  // IPv4-mapped IPv6 in dotted-decimal (::ffff:169.254.169.254) — unwrap and re-check
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(cleanIp);
+  if (mapped) return isPrivateIP(mapped[1]);
+
+  // IPv4-mapped IPv6 in hex notation (e.g. ::ffff:7f00:1 or ::ffff:a00:1)
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(cleanIp);
+  if (hexMapped) {
+    const p1 = parseInt(hexMapped[1], 16);
+    const p2 = parseInt(hexMapped[2], 16);
+    const ipv4 = `${p1 >> 8}.${p1 & 0xff}.${p2 >> 8}.${p2 & 0xff}`;
+    return isPrivateIP(ipv4);
+  }
+
+  const parts = cleanIp.split('.').map(Number);
 
   // IPv4 Private Ranges:
   // 10.0.0.0 – 10.255.255.255
@@ -19,10 +35,6 @@ export function isPrivateIP(ip: string): boolean {
   // 192.168.0.0 – 192.168.255.255
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
-
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -32,9 +44,15 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
-  // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  // IPv6 loopback / link-local / unique-local / unspecified (::).
+  const low = cleanIp.toLowerCase();
+  if (
+    cleanIp === '::' ||
+    cleanIp === '::1' ||
+    low.startsWith('fe80:') ||
+    low.startsWith('fc') ||
+    low.startsWith('fd')
+  ) {
     return true;
   }
 
