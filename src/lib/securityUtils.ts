@@ -9,9 +9,42 @@ const lookup = promisify(dns.lookup);
  * This is a key defense against Server-Side Request Forgery (SSRF).
  */
 export function isPrivateIP(ip: string): boolean {
-  if (!isIP(ip)) return false;
+  if (!ip) return false;
 
-  const parts = ip.split('.').map(Number);
+  // Strip brackets if present (e.g. "[::1]" or "[127.0.0.1]")
+  let cleanIp = ip.trim().replace(/^\[|\]$/g, '');
+
+  // Check and unwrap IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1 or ::ffff:7f00:1 hex representation)
+  const mappedMatch = /^(?:::ffff:|0*:0*:0*:0*:0*:ffff:)(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-fA-F]{1,4}):([0-9a-fA-F]{1,4}))$/i.exec(cleanIp);
+  if (mappedMatch) {
+    if (mappedMatch[1]) {
+      cleanIp = mappedMatch[1];
+    } else if (mappedMatch[2] && mappedMatch[3]) {
+      const x = parseInt(mappedMatch[2], 16);
+      const y = parseInt(mappedMatch[3], 16);
+      cleanIp = `${(x >> 8) & 0xff}.${x & 0xff}.${(y >> 8) & 0xff}.${y & 0xff}`;
+    }
+  }
+
+  if (!isIP(cleanIp)) return false;
+
+  const low = cleanIp.toLowerCase();
+
+  // IPv6 unspecified (:: or 0:0:0:0:0:0:0:0)
+  if (low === '::' || /^0*(?::0*){7}$/.test(low)) {
+    return true;
+  }
+
+  // IPv6 loopback (::1 or 0:0:0:0:0:0:0:1) / link-local / unique-local
+  if (
+    low === '::1' ||
+    /^0*(?::0*){6}:0*1$/.test(low) ||
+    low.startsWith('fe80:') ||
+    low.startsWith('fc') ||
+    low.startsWith('fd')
+  ) {
+    return true;
+  }
 
   // IPv4 Private Ranges:
   // 10.0.0.0 – 10.255.255.255
@@ -19,23 +52,15 @@ export function isPrivateIP(ip: string): boolean {
   // 192.168.0.0 – 192.168.255.255
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
-
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
-
-  if (parts[0] === 10) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 127) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
-  if (parts[0] === 0) return true; // 0.0.0.0/8
-
-  // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
-    return true;
+  const parts = cleanIp.split('.').map(Number);
+  if (parts.length === 4) {
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
+    if (parts[0] === 0) return true; // 0.0.0.0/8
   }
 
   return false;
@@ -53,7 +78,10 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    let hostname = url.hostname;
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
