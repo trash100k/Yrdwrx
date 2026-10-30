@@ -15,25 +15,25 @@ export function Alert({ title, children, variant = "info", onClose, className = 
     info: {
       bg: "bg-blue-500/10",
       border: "border-blue-500/20",
-      icon: <Info className="text-blue-400" size={20} />,
+      icon: <Info className="text-blue-400" size={20} aria-hidden="true" />,
       titleColor: "text-blue-400",
     },
     success: {
       bg: "bg-emerald-500/10",
       border: "border-emerald-500/20",
-      icon: <CheckCircle2 className="text-emerald-400" size={20} />,
+      icon: <CheckCircle2 className="text-emerald-400" size={20} aria-hidden="true" />,
       titleColor: "text-emerald-400",
     },
     warning: {
       bg: "bg-amber-500/10",
       border: "border-amber-500/20",
-      icon: <AlertTriangle className="text-amber-400" size={20} />,
+      icon: <AlertTriangle className="text-amber-400" size={20} aria-hidden="true" />,
       titleColor: "text-amber-400",
     },
     error: {
       bg: "bg-rose-500/10",
       border: "border-rose-500/20",
-      icon: <AlertCircle className="text-rose-400" size={20} />,
+      icon: <AlertCircle className="text-rose-400" size={20} aria-hidden="true" />,
       titleColor: "text-rose-400",
     },
   };
@@ -59,9 +59,10 @@ export function Alert({ title, children, variant = "info", onClose, className = 
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white transition-colors"
+              aria-label="Dismiss alert"
+              className="inline-flex rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
             >
-              <X size={16} />
+              <X size={16} aria-hidden="true" />
             </button>
           </div>
         )}
