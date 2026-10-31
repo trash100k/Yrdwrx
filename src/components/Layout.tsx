@@ -817,9 +817,13 @@ export default function Layout() {
                   <Brain size={20} />
                 </button>
 
-                <div 
-                  className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors"
-                  onClick={() => setIsUserMenuOpen(true)}
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={isUserMenuOpen}
+                  aria-label="User profile menu"
+                  className="hidden xl:flex items-center gap-3 ml-4 cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
+                  onClick={() => setIsUserMenuOpen(prev => !prev)}
                 >
                   <div className="text-right">
                     <p className="text-[12px] font-bold text-zinc-400 uppercase tracking-wide leading-none mb-1">
@@ -827,10 +831,10 @@ export default function Layout() {
                     </p>
                     <p className="text-[14px] font-bold text-white">Supervisor</p>
                   </div>
-                  <div className="w-10 h-10 rounded-full bg-forest-500/20 border border-forest-500/30 flex items-center justify-center text-forest-400">
+                  <div className="w-10 h-10 rounded-full bg-forest-500/20 border border-forest-500/30 flex items-center justify-center text-forest-400" aria-hidden="true">
                     <User size={18} />
                   </div>
-                </div>
+                </button>
               </div>
             </div>
           </header>
