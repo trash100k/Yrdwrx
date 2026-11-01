@@ -20,9 +20,17 @@ export function isPrivateIP(ip: string): boolean {
   // 127.0.0.0 – 127.255.255.255 (Loopback)
   // 169.254.0.0 – 169.254.255.255 (Link-local)
 
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
+  // IPv4-mapped IPv6 (::ffff:169.254.169.254 or hex ::ffff:7f00:1) — unwrap and re-check the embedded v4.
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return isPrivateIP(mapped[1]);
+
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(ip);
+  if (hexMapped) {
+    const high = parseInt(hexMapped[1], 16);
+    const low = parseInt(hexMapped[2], 16);
+    const ipv4 = `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
+    return isPrivateIP(ipv4);
+  }
 
   if (parts[0] === 10) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
@@ -32,9 +40,9 @@ export function isPrivateIP(ip: string): boolean {
   if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
   if (parts[0] === 0) return true; // 0.0.0.0/8
 
-  // IPv6 loopback / link-local / unique-local.
+  // IPv6 loopback / link-local / unique-local / unspecified (::).
   const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  if (ip === '::1' || ip === '::' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
     return true;
   }
 
@@ -53,7 +61,8 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    // WHATWG URL brackets IPv6 hostnames like "[::1]". Strip brackets for net / DNS checks.
+    const hostname = url.hostname.replace(/^\[|\]$/g, '');
 
     // 1. Check if the hostname itself is an IP and if it's private
     if (isIP(hostname)) {
