@@ -9,32 +9,42 @@ const lookup = promisify(dns.lookup);
  * This is a key defense against Server-Side Request Forgery (SSRF).
  */
 export function isPrivateIP(ip: string): boolean {
-  if (!isIP(ip)) return false;
+  const cleanIp = (ip || '').trim().replace(/^\[|\]$/g, '');
+  if (!isIP(cleanIp)) return false;
 
-  const parts = ip.split('.').map(Number);
+  // IPv4-mapped or IPv4-compatible IPv6 (dotted-decimal e.g. ::ffff:127.0.0.1 or ::127.0.0.1)
+  const dotted = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/i.exec(cleanIp);
+  if (dotted) return isPrivateIP(dotted[1]);
 
-  // IPv4 Private Ranges:
-  // 10.0.0.0 – 10.255.255.255
-  // 172.16.0.0 – 172.31.255.255
-  // 192.168.0.0 – 192.168.255.255
-  // 127.0.0.0 – 127.255.255.255 (Loopback)
-  // 169.254.0.0 – 169.254.255.255 (Link-local)
+  // Hex-encoded IPv4-mapped or IPv4-compatible IPv6 (e.g. ::ffff:7f00:1 or ::7f00:1)
+  const hexMapped = /^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(cleanIp);
+  if (hexMapped) {
+    const high = parseInt(hexMapped[1], 16);
+    const low = parseInt(hexMapped[2], 16);
+    const v4 = `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
+    return isPrivateIP(v4);
+  }
 
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — unwrap and re-check the embedded v4.
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isPrivateIP(mapped[1]);
+  const parts = cleanIp.split('.').map(Number);
+  if (parts.length === 4) {
+    // IPv4 Private Ranges:
+    // 10.0.0.0 – 10.255.255.255
+    // 172.16.0.0 – 172.31.255.255
+    // 192.168.0.0 – 192.168.255.255
+    // 127.0.0.0 – 127.255.255.255 (Loopback)
+    // 169.254.0.0 – 169.254.255.255 (Link-local)
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
+    if (parts[0] === 0) return true; // 0.0.0.0/8
+  }
 
-  if (parts[0] === 10) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 127) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true; // link-local incl. cloud metadata 169.254.169.254
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64/10 CGNAT
-  if (parts[0] === 0) return true; // 0.0.0.0/8
-
-  // IPv6 loopback / link-local / unique-local.
-  const low = ip.toLowerCase();
-  if (ip === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
+  // IPv6 loopback / link-local / unique-local / unspecified.
+  const low = cleanIp.toLowerCase();
+  if (low === '::' || low === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) {
     return true;
   }
 
@@ -53,11 +63,11 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = url.hostname;
+    const cleanHostname = url.hostname.replace(/^\[|\]$/g, '');
 
     // 1. Check if the hostname itself is an IP and if it's private
-    if (isIP(hostname)) {
-      return !isPrivateIP(hostname);
+    if (isIP(cleanHostname)) {
+      return !isPrivateIP(cleanHostname);
     }
 
     // 2. Resolve the hostname and reject if ANY returned address is private. Checking only
@@ -65,7 +75,7 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
     //    (Full DNS-rebind TOCTOU protection also needs connect-time IP pinning at the egress
     //    layer; callers additionally set redirect:"error" so a 3xx can't bounce to an internal host.)
     try {
-      const results = await lookup(hostname, { all: true });
+      const results = await lookup(cleanHostname, { all: true });
       const addrs = Array.isArray(results) ? results : [results];
       if (addrs.length === 0) return false;
       for (const r of addrs) {
