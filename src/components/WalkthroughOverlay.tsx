@@ -36,6 +36,18 @@ export default function WalkthroughOverlay() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isTourActive) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        endTour();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isTourActive, endTour]);
+
   if (!isTourActive || !activeFocus) return null;
   const { rect } = activeFocus;
   const isLastStep = currentTourStep === tourSteps.length - 1;
@@ -133,6 +145,9 @@ export default function WalkthroughOverlay() {
       >
         {" "}
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="walkthrough-step-title"
           className=" bg-black/90 backdrop-blur-3xl border-forest-500/30 p-6 sm:p-8 rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-y-auto"
           style={{ maxHeight: vh - margin * 2 }}
         >
@@ -141,21 +156,22 @@ export default function WalkthroughOverlay() {
             {" "}
             <div className="flex items-center gap-2 px-2 py-1 bg-forest-500/10 rounded-full">
               {" "}
-              <Sparkles size={10} className="text-forest-400" />{" "}
+              <Sparkles size={10} className="text-forest-400" aria-hidden="true" />{" "}
               <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-forest-400">
                 Step {currentTourStep + 1} / {tourSteps.length}
               </span>{" "}
             </div>{" "}
             <button
+              type="button"
               onClick={endTour}
-              className="text-white/20 hover:text-white transition-colors p-2 -mr-2"
+              className="text-white/20 hover:text-white transition-colors p-2 -mr-2 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
               aria-label="End tour"
             >
               {" "}
-              <X size={16} />{" "}
+              <X size={16} aria-hidden="true" />{" "}
             </button>{" "}
           </header>{" "}
-          <h3 className="text-lg sm:text-xl font-black italic text-white uppercase tracking-tight mb-2 leading-none">
+          <h3 id="walkthrough-step-title" className="text-lg sm:text-xl font-black italic text-white uppercase tracking-tight mb-2 leading-none">
             {" "}
             {activeFocus.label}{" "}
           </h3>{" "}
@@ -164,12 +180,13 @@ export default function WalkthroughOverlay() {
             {activeFocus.description}{" "}
           </p>{" "}
           <button
+            type="button"
             onClick={nextTourStep}
-            className="w-full py-4 bg-white text-black rounded-xl sm:rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl"
+            className="w-full py-4 bg-white text-black rounded-xl sm:rounded-2xl font-black text-xs md:text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500"
           >
             {" "}
             {isLastStep ? "Finish Walkthrough" : "Next Step"}{" "}
-            {!isLastStep && <ChevronRight size={14} />}{" "}
+            {!isLastStep && <ChevronRight size={14} aria-hidden="true" />}{" "}
           </button>{" "}
         </div>{" "}
         {/* Pointer Arrow */}{" "}
