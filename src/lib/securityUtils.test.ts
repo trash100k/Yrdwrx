@@ -68,7 +68,33 @@ describe('securityUtils', () => {
       expect(isPrivateIP('169.254.1.1')).toBe(true);
       expect(isPrivateIP('0.0.0.0')).toBe(true);
       expect(isPrivateIP('::1')).toBe(true);
+      expect(isPrivateIP('::')).toBe(true);
       expect(isPrivateIP('fe80::1')).toBe(true);
+    });
+
+    it('should identify hex-encoded IPv4-mapped IPv6 addresses as private or public', () => {
+      // Loopback 127.0.0.1 in hex
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true);
+      expect(isPrivateIP('::ffff:7f00:0001')).toBe(true);
+      // Private 10.0.0.1
+      expect(isPrivateIP('::ffff:a00:1')).toBe(true);
+      // Cloud metadata 169.254.169.254
+      expect(isPrivateIP('::ffff:a9fe:a9fe')).toBe(true);
+      // Private 192.168.0.1
+      expect(isPrivateIP('::ffff:c0a8:1')).toBe(true);
+      // Private 172.16.0.1
+      expect(isPrivateIP('::ffff:ac10:1')).toBe(true);
+      // Public 8.8.8.8
+      expect(isPrivateIP('::ffff:808:808')).toBe(false);
+    });
+
+    it('should handle bracketed IPv6 strings', () => {
+      expect(isPrivateIP('[::1]')).toBe(true);
+      expect(isPrivateIP('[::]')).toBe(true);
+      expect(isPrivateIP('[::ffff:7f00:1]')).toBe(true);
+      expect(isPrivateIP('[::ffff:127.0.0.1]')).toBe(true);
+      expect(isPrivateIP('[fe80::1]')).toBe(true);
+      expect(isPrivateIP('[::ffff:808:808]')).toBe(false);
     });
 
     it('should return false for public IP addresses', () => {
@@ -94,6 +120,11 @@ describe('securityUtils', () => {
       expect(await validateSafeUrl('http://192.168.1.100/admin')).toBe(false);
       expect(await validateSafeUrl('http://10.0.0.1')).toBe(false);
       expect(await validateSafeUrl('http://169.254.169.254/latest/meta-data')).toBe(false);
+      expect(await validateSafeUrl('http://0.0.0.0/')).toBe(false);
+      expect(await validateSafeUrl('http://[::1]/')).toBe(false);
+      expect(await validateSafeUrl('http://[::]/')).toBe(false);
+      expect(await validateSafeUrl('http://[::ffff:7f00:1]/')).toBe(false);
+      expect(await validateSafeUrl('http://[::ffff:127.0.0.1]/')).toBe(false);
     });
 
     it('should block non-http/https protocols', async () => {
