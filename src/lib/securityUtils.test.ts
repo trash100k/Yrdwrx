@@ -63,18 +63,32 @@ describe('securityUtils', () => {
       expect(isPrivateIP('192.168.1.1')).toBe(true);
     });
 
-    it('should identify loopback and link-local addresses', () => {
+    it('should identify loopback, link-local, unspecified, and IPv4-mapped IPv6 addresses', () => {
       expect(isPrivateIP('127.0.0.1')).toBe(true);
       expect(isPrivateIP('169.254.1.1')).toBe(true);
       expect(isPrivateIP('0.0.0.0')).toBe(true);
+      expect(isPrivateIP('::')).toBe(true);
       expect(isPrivateIP('::1')).toBe(true);
+      expect(isPrivateIP('[::1]')).toBe(true);
+      expect(isPrivateIP('[127.0.0.1]')).toBe(true);
       expect(isPrivateIP('fe80::1')).toBe(true);
+      // Dot-decimal IPv4-mapped IPv6
+      expect(isPrivateIP('::ffff:127.0.0.1')).toBe(true);
+      expect(isPrivateIP('::ffff:169.254.169.254')).toBe(true);
+      expect(isPrivateIP('0:0:0:0:0:ffff:10.0.0.1')).toBe(true);
+      // Hex-formatted IPv4-mapped IPv6
+      expect(isPrivateIP('::ffff:7f00:1')).toBe(true); // 127.0.0.1
+      expect(isPrivateIP('::ffff:a9fe:a9fe')).toBe(true); // 169.254.169.254
+      expect(isPrivateIP('0:0:0:0:0:ffff:7f00:0001')).toBe(true);
     });
 
     it('should return false for public IP addresses', () => {
       expect(isPrivateIP('8.8.8.8')).toBe(false);
       expect(isPrivateIP('1.1.1.1')).toBe(false);
       expect(isPrivateIP('208.67.222.222')).toBe(false);
+      expect(isPrivateIP('::ffff:8.8.8.8')).toBe(false);
+      expect(isPrivateIP('::ffff:808:808')).toBe(false); // 8.8.8.8 in hex
+      expect(isPrivateIP('2001:4860:4860::8888')).toBe(false);
     });
 
     it('should return false for non-IP strings', () => {
